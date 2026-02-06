@@ -14,3 +14,11 @@ artifacts/
 *.jstack
 chronicle-server/src/main/resources/auth0.yaml
 methodic-keys.gpg-key
+
+# OWASP Dependency-Check NVD cache
+.dependency-check-data/
+
+# npm audit reports
+npm-audit-report.json
+npm-audit-output.txt
+audit-report.json
