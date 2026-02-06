@@ -4,7 +4,7 @@ set -euo pipefail
 # Chronicle Server First-Time Setup Script
 # Run this on a fresh server to set up Chronicle with GitHub Actions self-hosted runner
 
-REPO_URL="${REPO_URL:-git@github.com:uzaira0/methodic.git}"
+REPO_URL="${REPO_URL:-https://github.com/uzaira0/methodic.git}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/chronicle}"
 RUNNER_VERSION="${RUNNER_VERSION:-2.311.0}"
 
