@@ -1,0 +1,56 @@
+# Promtail Configuration for Chronicle Audit Logs
+# https://grafana.com/docs/loki/latest/clients/promtail/configuration/
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: chronicle-audit
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: chronicle-audit
+          app: chronicle
+          __path__: /var/log/chronicle/audit*.log
+
+    pipeline_stages:
+      # Parse JSON log entries
+      - json:
+          expressions:
+            id: id
+            timestamp: timestamp
+            userId: userId
+            userRole: userRole
+            ipAddress: ipAddress
+            action: action
+            resourceType: resourceType
+            resourceId: resourceId
+            studyId: studyId
+            success: success
+            accessedPHI: accessedPHI
+
+      # Extract labels for efficient querying
+      - labels:
+          action:
+          userRole:
+          resourceType:
+          success:
+          accessedPHI:
+
+      # Use log timestamp instead of ingestion time
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+
+      # Add static labels
+      - static_labels:
+          environment: production
+          compliance: hipaa

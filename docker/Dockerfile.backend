@@ -1,0 +1,47 @@
+# Backend build stage
+FROM eclipse-temurin:17-jdk AS builder
+
+WORKDIR /app
+
+# Install necessary tools (including dos2unix for line ending conversion, git for build scripts)
+RUN apt-get update && apt-get install -y \
+    curl \
+    unzip \
+    dos2unix \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the entire project (needed for submodule dependencies in development mode)
+COPY . /app
+
+# Convert Windows line endings to Unix for all shell scripts
+RUN find . -name "gradlew" -exec dos2unix {} \; && \
+    find . -name "*.sh" -exec dos2unix {} \;
+
+# Build the application with reduced memory footprint
+ENV GRADLE_OPTS="-Xmx1g -Xms256m -Dorg.gradle.jvmargs='-Xmx1g -Xms256m'"
+RUN ./gradlew :chronicle-server:installDist --no-daemon -PdevelopmentMode=true -Dorg.gradle.jvmargs="-Xmx1g -Xms256m"
+
+# Runtime stage
+FROM eclipse-temurin:17-jre
+
+WORKDIR /server
+
+# Install curl for healthchecks
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+# Copy built application from builder stage
+COPY --from=builder /app/chronicle-server/build/install/chronicle-server /server
+
+# Copy the rhizome.yaml config (will be overridden by docker config)
+COPY docker/rhizome-docker.yaml /server/lib/rhizome.yaml
+
+# Environment variables
+ENV CHRONICLE_SERVER_XMS="-Xms512m"
+ENV CHRONICLE_SERVER_XMX="-Xmx2g"
+ENV CHRONICLE_SERVER_ARGS="local postgres medialocal"
+
+EXPOSE 40320
+
+# Run the application
+CMD ["./bin/chronicle-server", "local", "postgres", "medialocal"]

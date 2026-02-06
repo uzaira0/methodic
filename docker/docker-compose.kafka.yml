@@ -1,0 +1,86 @@
+version: '3.8'
+
+# Chronicle + Apache Kafka Stack
+#
+# Self-hosted event streaming for audit logs.
+# Usage:
+#   docker-compose -f docker-compose.prod.yml -f docker-compose.kafka.yml up -d
+#
+# Access Kafka UI at http://localhost:8080
+
+services:
+  # Kafka (KRaft mode - no Zookeeper required)
+  kafka:
+    image: bitnami/kafka:3.6
+    container_name: chronicle-kafka
+    restart: unless-stopped
+    environment:
+      # KRaft settings (no Zookeeper)
+      - KAFKA_CFG_NODE_ID=0
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      # Topic settings
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_CFG_NUM_PARTITIONS=3
+      - KAFKA_CFG_DEFAULT_REPLICATION_FACTOR=1
+      # Retention (7 days default, adjust for compliance)
+      - KAFKA_CFG_LOG_RETENTION_HOURS=168
+      - KAFKA_CFG_LOG_RETENTION_BYTES=-1
+    volumes:
+      - kafka_data:/bitnami/kafka
+    ports:
+      - "9092:9092"
+    networks:
+      - chronicle-internal
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Kafka UI (optional - for monitoring)
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: chronicle-kafka-ui
+    restart: unless-stopped
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=chronicle
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+      - DYNAMIC_CONFIG_ENABLED=true
+    ports:
+      - "8080:8080"
+    networks:
+      - chronicle-internal
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # Fluent Bit - Log shipper to Kafka
+  fluent-bit:
+    image: fluent/fluent-bit:2.2
+    container_name: chronicle-fluent-bit
+    restart: unless-stopped
+    volumes:
+      - ./siem/fluent-bit-kafka.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./siem/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+      - audit_logs:/var/log/chronicle:ro
+    networks:
+      - chronicle-internal
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+networks:
+  chronicle-internal:
+    external: true
+
+volumes:
+  kafka_data:
+  audit_logs:
+    external: true
+    name: chronicle_audit_logs

@@ -1,0 +1,84 @@
+version: '3.8'
+
+# Chronicle + OpenSearch Stack
+#
+# Self-hosted Elasticsearch-compatible log aggregation.
+# Usage:
+#   docker-compose -f docker-compose.prod.yml -f docker-compose.opensearch.yml up -d
+#
+# Access OpenSearch Dashboards at http://localhost:5601 (admin/admin)
+
+services:
+  # OpenSearch - Log storage and search
+  opensearch:
+    image: opensearchproject/opensearch:2.11.0
+    container_name: chronicle-opensearch
+    restart: unless-stopped
+    environment:
+      - cluster.name=chronicle-cluster
+      - node.name=chronicle-node
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_PASSWORD:-Chronicle123!}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - chronicle-internal
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sk https://localhost:9200 -u admin:${OPENSEARCH_PASSWORD:-Chronicle123!} | grep -q 'cluster_name'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # OpenSearch Dashboards - Visualization
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.11.0
+    container_name: chronicle-opensearch-dashboards
+    restart: unless-stopped
+    environment:
+      - OPENSEARCH_HOSTS=["https://opensearch:9200"]
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=false
+    ports:
+      - "5601:5601"
+    networks:
+      - chronicle-internal
+    depends_on:
+      opensearch:
+        condition: service_healthy
+
+  # Fluent Bit - Log shipper
+  fluent-bit:
+    image: fluent/fluent-bit:2.2
+    container_name: chronicle-fluent-bit
+    restart: unless-stopped
+    environment:
+      OPENSEARCH_PASSWORD: ${OPENSEARCH_PASSWORD:-Chronicle123!}
+    volumes:
+      - ./siem/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./siem/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+      - audit_logs:/var/log/chronicle:ro
+    networks:
+      - chronicle-internal
+    depends_on:
+      opensearch:
+        condition: service_healthy
+
+networks:
+  chronicle-internal:
+    external: true
+
+volumes:
+  opensearch_data:
+  audit_logs:
+    external: true
+    name: chronicle_audit_logs

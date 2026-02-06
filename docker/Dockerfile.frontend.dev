@@ -1,0 +1,40 @@
+# Development Dockerfile for chronicle-web frontend
+# Runs webpack dev server with hot module replacement
+# Source code is mounted as a volume for instant hot reloading
+
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install dependencies for node-gyp (some npm packages need this)
+RUN apk add --no-cache python3 make g++
+
+# Copy package files first for better caching
+COPY chronicle-web/package.json chronicle-web/package-lock.json ./
+
+# Copy the lattice-ui-kit tgz file if it exists locally
+COPY chronicle-web/lattice-ui-kit-*.tgz ./
+
+# Fix the lattice-ui-kit path for Docker environment
+# The local tgz file uses an absolute Windows path that won't work in Docker
+# Replace with a relative path to the copied tgz file
+RUN sed -i 's|"lattice-ui-kit": "file:[^"]*lattice-ui-kit-\([^"]*\).tgz"|"lattice-ui-kit": "file:./lattice-ui-kit-\1.tgz"|g' package.json
+
+# Install dependencies
+RUN npm install --legacy-peer-deps
+
+# Copy config files needed for webpack
+COPY chronicle-web/config ./config
+
+# Copy flow-typed
+COPY chronicle-web/flow-typed ./flow-typed
+
+# Copy source code (this will be overridden by volume mount in dev)
+COPY chronicle-web/src ./src
+
+# Expose webpack dev server port
+EXPOSE 9000
+
+# Run webpack dev server (the 'app' script runs webpack-dev-server)
+# Host 0.0.0.0 and allowedHosts are configured in webpack.config.dev.js
+CMD ["npm", "run", "app"]
