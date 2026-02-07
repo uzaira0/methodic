@@ -12,8 +12,8 @@ COPY chronicle-web/package.json chronicle-web/package-lock.json ./
 # Fix the lattice-ui-kit path in package.json to use local file
 RUN sed -i 's|"lattice-ui-kit": "file:.*lattice-ui-kit-0.47.0.tgz"|"lattice-ui-kit": "file:./lattice-ui-kit-0.47.0.tgz"|' package.json
 
-# Install dependencies
-RUN npm ci
+# Install dependencies (use install instead of ci due to lock file sync issues)
+RUN npm install --legacy-peer-deps
 
 # Copy source files
 COPY chronicle-web/ ./
