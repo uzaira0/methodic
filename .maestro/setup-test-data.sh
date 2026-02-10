@@ -35,28 +35,48 @@ done
 
 # Create a test study with Android data collection enabled
 echo "Creating test study..."
-STUDY_RESPONSE=$(curl -sf -X POST "${API_BASE}/v3/study/" \
+STUDY_RESPONSE=$(curl -s -w '\n%{http_code}' -X POST "${API_BASE}/v3/study/" \
   -H "Authorization: Bearer ${AUTH_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Maestro CI Test Study",
     "description": "Automated test study created by CI",
+    "contact": "ci-test@example.com",
     "modules": {
       "CHRONICLE_DATA_COLLECTION": {}
     }
   }')
 
-TEST_STUDY_ID=$(echo "${STUDY_RESPONSE}" | tr -d '"')
+STUDY_HTTP_CODE=$(echo "${STUDY_RESPONSE}" | tail -1)
+STUDY_BODY=$(echo "${STUDY_RESPONSE}" | head -n -1)
+if [ "${STUDY_HTTP_CODE}" -ge 400 ]; then
+  echo "ERROR: Failed to create study (HTTP ${STUDY_HTTP_CODE}): ${STUDY_BODY}"
+  exit 1
+fi
+
+TEST_STUDY_ID=$(echo "${STUDY_BODY}" | tr -d '"')
 echo "Created study: ${TEST_STUDY_ID}"
 
 # Register a test participant
 echo "Registering test participant..."
-PARTICIPANT_RESPONSE=$(curl -sf -X POST "${API_BASE}/v3/study/${TEST_STUDY_ID}/participant" \
+PARTICIPANT_RESPONSE=$(curl -s -w '\n%{http_code}' -X POST "${API_BASE}/v3/study/${TEST_STUDY_ID}/participant" \
   -H "Authorization: Bearer ${AUTH_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{
-    "participantId": "maestro-test-001"
+    "participantId": "maestro-test-001",
+    "candidate": {
+      "firstName": "Maestro",
+      "lastName": "CI"
+    },
+    "participationStatus": "ENROLLED"
   }')
+
+PARTICIPANT_HTTP_CODE=$(echo "${PARTICIPANT_RESPONSE}" | tail -1)
+PARTICIPANT_BODY=$(echo "${PARTICIPANT_RESPONSE}" | head -n -1)
+if [ "${PARTICIPANT_HTTP_CODE}" -ge 400 ]; then
+  echo "ERROR: Failed to register participant (HTTP ${PARTICIPANT_HTTP_CODE}): ${PARTICIPANT_BODY}"
+  exit 1
+fi
 
 TEST_PARTICIPANT_ID="maestro-test-001"
 echo "Registered participant: ${TEST_PARTICIPANT_ID}"
