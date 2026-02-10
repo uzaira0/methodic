@@ -70,6 +70,10 @@ jobs:
           PROPS
           sed -i '/signingConfig signingConfigs/d' app/build.gradle
 
+          # Remove debug applicationIdSuffix so APK installs as com.openlattice.chronicle
+          # (matching the appId in Maestro flows)
+          sed -i '/applicationIdSuffix/d' app/build.gradle
+
       - name: Create dummy google-services.json
         working-directory: chronicle-android
         run: |

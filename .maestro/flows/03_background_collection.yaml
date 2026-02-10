@@ -19,16 +19,20 @@ tags:
 # Generate usage events by opening browser
 - openLink: "https://www.example.com"
 - waitForAnimationToEnd
-- wait: 3000
+- waitForAnimationToEnd:
+    timeout: 3000
 - pressKey: home
-- wait: 2000
+- waitForAnimationToEnd:
+    timeout: 2000
 
 # Open settings briefly
 - launchApp:
     appId: com.android.settings
-- wait: 2000
+- waitForAnimationToEnd:
+    timeout: 2000
 - pressKey: home
-- wait: 2000
+- waitForAnimationToEnd:
+    timeout: 2000
 
 # Return to Chronicle — should still be active, not crashed
 - launchApp:
@@ -45,7 +49,8 @@ tags:
     id: "com.openlattice.chronicle:id/participantId"
 
 # Wait a bit for the upload worker to potentially run
-- wait: 10000
+- waitForAnimationToEnd:
+    timeout: 10000
 
 # Check that lastUploadValue has some content (may still be empty if upload hasn't fired)
 - assertVisible:

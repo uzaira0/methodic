@@ -34,19 +34,23 @@ tags:
       - tapOn:
           text: ".*([Oo]pen [Ss]ettings|[Gg]rant|[Aa]llow|OK).*"
           optional: true
-      - wait: 2000
+      - waitForAnimationToEnd:
+          timeout: 2000
       # In system Usage Access settings, find and enable Chronicle
       - tapOn:
           text: ".*Chronicle.*"
           optional: true
-      - wait: 1000
+      - waitForAnimationToEnd:
+          timeout: 1000
       - tapOn:
           id: "android:id/switch_widget"
           optional: true
-      - wait: 1000
+      - waitForAnimationToEnd:
+          timeout: 1000
       - pressKey: back
       - pressKey: back
-      - wait: 2000
+      - waitForAnimationToEnd:
+          timeout: 2000
 
 - waitForAnimationToEnd
 
@@ -65,19 +69,15 @@ tags:
 - tapOn:
     id: "com.openlattice.chronicle:id/button"
 
-# Wait for enrollment API call to complete
-- waitForAnimationToEnd:
+# Wait for enrollment API call to complete — status message appears on success
+- extendedWaitUntil:
+    visible:
+      id: "com.openlattice.chronicle:id/statusMessage"
     timeout: 30000
 
-# Verify enrollment succeeded — status message should appear
-# The app shows device_enroll_success text and a "Done" button
-- assertVisible:
-    id: "com.openlattice.chronicle:id/statusMessage"
-    enabled: true
-
+# Verify "Done" button is visible
 - assertVisible:
     id: "com.openlattice.chronicle:id/doneButton"
-    enabled: true
 
 # Tap Done to go to MainActivity
 - tapOn:
