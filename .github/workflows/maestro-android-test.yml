@@ -238,15 +238,19 @@ jobs:
           # Make backend scripts executable
           chmod +x chronicle-backend/bin/chronicle-server
 
+          # Create audit log directory (Log4j needs it)
+          sudo mkdir -p /var/log/chronicle
+          sudo chmod 777 /var/log/chronicle
+
           # Start backend with CI config on classpath
           java -Xms512m -Xmx1g \
             -cp "ci-config:chronicle-backend/lib/*" \
             com.openlattice.chronicle.ChronicleServer local postgres medialocal &
 
-          # Wait for backend
+          # Wait for backend (admin servlet exposes healthcheck)
           echo "Waiting for Chronicle backend on port 40320..."
           for i in $(seq 1 90); do
-            if curl -sf http://localhost:40320/chronicle/healthcheck > /dev/null 2>&1; then
+            if curl -sf http://localhost:40320/admin/healthcheck > /dev/null 2>&1; then
               echo "Backend ready after ~$((i*2))s"
               break
             fi
