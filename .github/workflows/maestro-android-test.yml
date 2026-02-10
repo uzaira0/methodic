@@ -297,13 +297,7 @@ jobs:
             echo "=== Installed packages ==="
             adb shell pm list packages | grep chronicle || echo "WARNING: Chronicle package not found"
             echo "=== Running Maestro tests ==="
-            maestro test \
-              --env TEST_STUDY_ID="${TEST_STUDY_ID}" \
-              --env TEST_PARTICIPANT_ID="${TEST_PARTICIPANT_ID}" \
-              --format junit \
-              --output maestro-results.xml \
-              --debug-output maestro-debug/ \
-              .maestro/flows/
+            maestro test --env TEST_STUDY_ID="${TEST_STUDY_ID}" --env TEST_PARTICIPANT_ID="${TEST_PARTICIPANT_ID}" --format junit --output maestro-results.xml --debug-output maestro-debug/ .maestro/flows/
 
       # -- Results --
       - name: Upload test results
