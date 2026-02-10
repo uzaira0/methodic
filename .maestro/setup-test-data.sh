@@ -9,7 +9,14 @@
 
 set -euo pipefail
 
-API_BASE="${SERVER_URL:-http://localhost}/chronicle/api/web/chronicle"
+# When running behind Traefik: SERVER_URL=http://host → /chronicle/api/web/chronicle/...
+# When running directly: SERVER_URL=http://host:40320 → /chronicle/...
+# Detect by checking if SERVER_URL contains a port
+if echo "${SERVER_URL:-}" | grep -qE ':[0-9]+$'; then
+  API_BASE="${SERVER_URL}/chronicle"
+else
+  API_BASE="${SERVER_URL:-http://localhost}/chronicle/api/web/chronicle"
+fi
 AUTH_TOKEN="${AUTH_TOKEN:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2xvY2FsaG9zdC8iLCJhdWQiOiJkdW1teS1jbGllbnQtaWQiLCJzdWIiOiJsb2NhbC1hZG1pbiIsImlhdCI6MTc3MDQyOTkxNSwiZXhwIjo0OTI0MDI5OTE1fQ.5d9ecGq0oAaoTujkV9i1SpZAMHpSl6IJMjJSWvvoBoo}"
 
 echo "Waiting for Chronicle API to be ready..."
