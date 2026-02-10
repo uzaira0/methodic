@@ -64,7 +64,7 @@ services:
       -c ssl_min_protocol_version=TLSv1.2
       -c ssl_prefer_server_ciphers=on
 
-  backend:
+  chronicle-backend:
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend
@@ -192,7 +192,7 @@ services:
       - "traefik.http.middlewares.chronicle-block-response.replacepathregex.regex=.*"
       - "traefik.http.middlewares.chronicle-block-response.replacepathregex.replacement=/blocked-route-not-found"
 
-  frontend:
+  chronicle-frontend:
     build:
       context: ..
       dockerfile: docker/Dockerfile.frontend.prod

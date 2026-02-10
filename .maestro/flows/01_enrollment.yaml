@@ -1,0 +1,86 @@
+# Flow: Device enrollment
+# Tests that a participant can enroll their device into a study.
+#
+# Prerequisites:
+#   - A study must exist with TEST_STUDY_ID
+#   - A participant "maestro-test-001" must be registered
+#   - The Chronicle server must be reachable from the emulator
+#
+# The Android app must be built with the server URL pointing to
+# http://10.0.2.2 (emulator host loopback) — see build workflow.
+
+appId: com.openlattice.chronicle
+tags:
+  - smoke
+  - enrollment
+---
+- launchApp:
+    clearState: true
+
+- waitForAnimationToEnd
+
+# The app launches Enrollment activity (or redirects there from MainActivity)
+# Wait for the enrollment form to appear
+- waitForAnimationToEnd:
+    timeout: 10000
+
+# -- Grant Usage Stats permission if prompted --
+# PermissionActivity appears before Enrollment if permission not granted
+- runFlow:
+    when:
+      visible: ".*[Uu]sage.*"
+    commands:
+      # Tap the button to open system settings
+      - tapOn:
+          text: ".*([Oo]pen [Ss]ettings|[Gg]rant|[Aa]llow|OK).*"
+          optional: true
+      - wait: 2000
+      # In system Usage Access settings, find and enable Chronicle
+      - tapOn:
+          text: ".*Chronicle.*"
+          optional: true
+      - wait: 1000
+      - tapOn:
+          id: "android:id/switch_widget"
+          optional: true
+      - wait: 1000
+      - pressKey: back
+      - pressKey: back
+      - wait: 2000
+
+- waitForAnimationToEnd
+
+# -- Fill in enrollment form --
+# Study ID field (id: studyIdText, hint: "Enter your Study ID")
+- tapOn:
+    id: "com.openlattice.chronicle:id/studyIdText"
+- inputText: "${TEST_STUDY_ID}"
+
+# Participant ID field (id: participantIdText, hint: "Enter your Participant ID")
+- tapOn:
+    id: "com.openlattice.chronicle:id/participantIdText"
+- inputText: "${TEST_PARTICIPANT_ID}"
+
+# Tap "Enroll Device" button (id: button)
+- tapOn:
+    id: "com.openlattice.chronicle:id/button"
+
+# Wait for enrollment API call to complete
+- waitForAnimationToEnd:
+    timeout: 30000
+
+# Verify enrollment succeeded — status message should appear
+# The app shows device_enroll_success text and a "Done" button
+- assertVisible:
+    id: "com.openlattice.chronicle:id/statusMessage"
+    enabled: true
+
+- assertVisible:
+    id: "com.openlattice.chronicle:id/doneButton"
+    enabled: true
+
+# Tap Done to go to MainActivity
+- tapOn:
+    id: "com.openlattice.chronicle:id/doneButton"
+
+- waitForAnimationToEnd
