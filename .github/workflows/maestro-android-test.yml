@@ -135,6 +135,7 @@ jobs:
       matrix:
         api-level: [30, 33, 34]
     name: "Maestro (API ${{ matrix.api-level }})"
+    timeout-minutes: 30
 
     # Postgres service container — no SSL, no Docker-in-Docker needed
     services:
@@ -284,12 +285,17 @@ jobs:
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           disable-animations: true
           script: |
+            echo "=== Installing APK ==="
             adb install "${APK_PATH}"
+            echo "=== Installed packages ==="
+            adb shell pm list packages | grep chronicle || echo "WARNING: Chronicle package not found"
+            echo "=== Running Maestro tests ==="
             maestro test \
               --env TEST_STUDY_ID="${TEST_STUDY_ID}" \
               --env TEST_PARTICIPANT_ID="${TEST_PARTICIPANT_ID}" \
               --format junit \
               --output maestro-results.xml \
+              --debug-output maestro-debug/ \
               .maestro/flows/
 
       # -- Results --
@@ -300,11 +306,12 @@ jobs:
           name: maestro-results-api${{ matrix.api-level }}
           path: |
             maestro-results.xml
+            maestro-debug/
             ~/.maestro/tests/**/*
           retention-days: 14
 
       - name: Publish test report
-        if: always()
+        if: always() && hashFiles('maestro-results.xml') != ''
         uses: dorny/test-reporter@v1
         with:
           name: "Maestro API ${{ matrix.api-level }}"
@@ -314,10 +321,11 @@ jobs:
 
       - name: Capture failure evidence
         if: failure()
+        timeout-minutes: 2
         run: |
           mkdir -p failure-screenshots
-          adb exec-out screencap -p > "failure-screenshots/screen-api${{ matrix.api-level }}.png" || true
-          adb logcat -d > "failure-screenshots/logcat-api${{ matrix.api-level }}.txt" || true
+          timeout 30 adb exec-out screencap -p > "failure-screenshots/screen-api${{ matrix.api-level }}.png" 2>/dev/null || true
+          timeout 30 adb logcat -d > "failure-screenshots/logcat-api${{ matrix.api-level }}.txt" 2>/dev/null || true
 
       - name: Upload failure artifacts
         if: failure()
