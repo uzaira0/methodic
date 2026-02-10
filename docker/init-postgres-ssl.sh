@@ -193,8 +193,11 @@ EOF
     rm -f "${SERVER_DIR}/server.csr" "${SERVER_DIR}/server.ext"
 
     # Set proper permissions for PostgreSQL (must be readable by postgres user, not group/world)
+    # Percona PostgreSQL image runs as UID 26 (postgres); the key must be owned by
+    # the database user or root, and must not be accessible by group/world.
     chmod 600 "${SERVER_DIR}/server.key"
     chmod 644 "${SERVER_DIR}/server.crt"
+    chown 26:26 "${SERVER_DIR}/server.key"
 
     echo_info "Server certificate generated: ${SERVER_DIR}/server.crt"
 }

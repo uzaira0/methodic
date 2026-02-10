@@ -43,9 +43,9 @@ services:
       - ./init-db-encryption.sh:/docker-entrypoint-initdb.d/20-init-db-encryption.sh:ro
       # SSL/TLS certificates for encryption in transit
       # Generate with: ./init-postgres-ssl.sh
-      - ./postgres-ssl/server/server.crt:/var/lib/postgresql/ssl/server.crt:ro
-      - ./postgres-ssl/server/server.key:/var/lib/postgresql/ssl/server.key:ro
-      - ./postgres-ssl/ca/ca.crt:/var/lib/postgresql/ssl/ca.crt:ro
+      - ./postgres-ssl/server/server.crt:/var/lib/postgresql/ssl/server.crt:ro,z
+      - ./postgres-ssl/server/server.key:/var/lib/postgresql/ssl/server.key:ro,z
+      - ./postgres-ssl/ca/ca.crt:/var/lib/postgresql/ssl/ca.crt:ro,z
     networks:
       - chronicle-internal
     healthcheck:
@@ -54,7 +54,7 @@ services:
       timeout: 5s
       retries: 5
     # Security: Run as non-root user
-    user: "999:999"
+    #user: "999:999"
     # PostgreSQL SSL configuration via command line arguments
     command: >
       -c ssl=on
@@ -95,7 +95,15 @@ services:
       # Format: JSON (NDJSON) compatible with Splunk, ELK, DataDog, etc.
       - audit_logs:/var/log/chronicle
       # SSL/TLS CA certificate for PostgreSQL connection verification
-      - ./postgres-ssl/ca/ca.crt:/app/ssl/ca.crt:ro
+      - ./postgres-ssl/ca/ca.crt:/app/ssl/ca.crt:ro,z
+      # Auth0 configuration (dummy for local development)
+      - ./auth0.yaml:/server/config/auth0.yaml:ro,z
+      # Override rhizome config with correct DB credentials (classpath precedence over JARs)
+      - ./rhizome-docker.yaml:/server/config/rhizome.yaml:ro,z
+    # Override command to add /server/config (auth0.yaml) to the Java classpath.
+    # The Gradle-generated start script hardcodes the classpath with only lib/ JARs,
+    # so we call java directly.
+    command: ["sh", "-c", "exec java $$CHRONICLE_SERVER_XMS $$CHRONICLE_SERVER_XMX -cp '/server/config:/server/lib/*' com.openlattice.chronicle.ChronicleServer local postgres medialocal"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -108,21 +116,19 @@ services:
       - "traefik.http.services.chronicle-backend.loadbalancer.server.port=40320"
 
       # ===========================================
-      # MOBILE API: /api/mobile/*
+      # MOBILE API: /chronicle/api/mobile/*
       # - Requires X-Chronicle-App-Key header
       # - Limited to GET, POST methods
       # - Strict rate limiting
       # ===========================================
-      - "traefik.http.routers.chronicle-mobile.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/mobile/`)"
+      - "traefik.http.routers.chronicle-mobile.rule=Host(`${DOMAIN}`) && PathPrefix(`/chronicle/api/mobile/`)"
       - "traefik.http.routers.chronicle-mobile.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
-      - "traefik.http.routers.chronicle-mobile.tls=true"
-      - "traefik.http.routers.chronicle-mobile.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
       - "traefik.http.routers.chronicle-mobile.priority=20"
       - "traefik.http.routers.chronicle-mobile.service=chronicle-backend"
       - "traefik.http.routers.chronicle-mobile.middlewares=chronicle-mobile-strip,chronicle-mobile-ratelimit,chronicle-mobile-headers,chronicle-mobile-cors"
 
-      # Strip /api/mobile prefix
-      - "traefik.http.middlewares.chronicle-mobile-strip.stripprefix.prefixes=/api/mobile"
+      # Strip /chronicle/api/mobile prefix
+      - "traefik.http.middlewares.chronicle-mobile-strip.stripprefix.prefixes=/chronicle/api/mobile"
 
       # Strict rate limiting for mobile (5 req/s average, burst of 10)
       - "traefik.http.middlewares.chronicle-mobile-ratelimit.ratelimit.average=5"
@@ -139,21 +145,19 @@ services:
       - "traefik.http.middlewares.chronicle-mobile-headers.headers.browserXssFilter=true"
 
       # ===========================================
-      # WEB API: /api/web/*
+      # WEB API: /chronicle/api/web/*
       # - For authenticated frontend users
       # - Requires Authorization header (validated by backend)
       # - Higher rate limits
       # ===========================================
-      - "traefik.http.routers.chronicle-web.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/web/`)"
+      - "traefik.http.routers.chronicle-web.rule=Host(`${DOMAIN}`) && PathPrefix(`/chronicle/api/web/`)"
       - "traefik.http.routers.chronicle-web.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
-      - "traefik.http.routers.chronicle-web.tls=true"
-      - "traefik.http.routers.chronicle-web.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
       - "traefik.http.routers.chronicle-web.priority=20"
       - "traefik.http.routers.chronicle-web.service=chronicle-backend"
       - "traefik.http.routers.chronicle-web.middlewares=chronicle-web-strip,chronicle-web-ratelimit,chronicle-web-headers,chronicle-web-cors"
 
-      # Strip /api/web prefix
-      - "traefik.http.middlewares.chronicle-web-strip.stripprefix.prefixes=/api/web"
+      # Strip /chronicle/api/web prefix
+      - "traefik.http.middlewares.chronicle-web-strip.stripprefix.prefixes=/chronicle/api/web"
 
       # Rate limiting for web (20 req/s average, burst of 30)
       - "traefik.http.middlewares.chronicle-web-ratelimit.ratelimit.average=20"
@@ -176,12 +180,10 @@ services:
 
       # ===========================================
       # BLOCK direct backend access
-      # Returns 404 for /chronicle/*, /datastore/*, etc.
+      # Returns 404 for /chronicle/datastore/*, /chronicle/principal/*, etc.
       # ===========================================
-      - "traefik.http.routers.chronicle-block.rule=Host(`${DOMAIN}`) && (PathPrefix(`/chronicle/`) || PathPrefix(`/datastore/`) || PathPrefix(`/principal/`) || PathPrefix(`/compliance/`) || PathPrefix(`/import/`))"
+      - "traefik.http.routers.chronicle-block.rule=Host(`${DOMAIN}`) && (PathPrefix(`/chronicle/datastore/`) || PathPrefix(`/chronicle/principal/`) || PathPrefix(`/chronicle/compliance/`) || PathPrefix(`/chronicle/import/`))"
       - "traefik.http.routers.chronicle-block.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
-      - "traefik.http.routers.chronicle-block.tls=true"
-      - "traefik.http.routers.chronicle-block.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
       - "traefik.http.routers.chronicle-block.priority=15"
       - "traefik.http.routers.chronicle-block.service=chronicle-backend"
       - "traefik.http.routers.chronicle-block.middlewares=chronicle-block-response"
@@ -196,20 +198,27 @@ services:
       dockerfile: docker/Dockerfile.frontend.prod
     container_name: chronicle-frontend
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1/health || exit 1"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
     networks:
       - chronicle-internal
       - traefik
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik}"
-      # Frontend catch-all (lower priority than /api)
-      - "traefik.http.routers.chronicle-frontend.rule=Host(`${DOMAIN}`)"
+      # Frontend: /chronicle/* (lower priority than /chronicle/api/*)
+      - "traefik.http.routers.chronicle-frontend.rule=Host(`${DOMAIN}`) && PathPrefix(`/chronicle`)"
       - "traefik.http.routers.chronicle-frontend.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
-      - "traefik.http.routers.chronicle-frontend.tls=true"
-      - "traefik.http.routers.chronicle-frontend.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
       - "traefik.http.routers.chronicle-frontend.priority=1"
       - "traefik.http.services.chronicle-frontend.loadbalancer.server.port=80"
-      - "traefik.http.routers.chronicle-frontend.middlewares=chronicle-frontend-headers"
+      - "traefik.http.routers.chronicle-frontend.middlewares=chronicle-frontend-strip,chronicle-frontend-headers"
+
+      # Strip /chronicle prefix so nginx serves from /
+      - "traefik.http.middlewares.chronicle-frontend-strip.stripprefix.prefixes=/chronicle"
 
       # Security headers for frontend
       - "traefik.http.middlewares.chronicle-frontend-headers.headers.frameDeny=true"

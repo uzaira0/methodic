@@ -26,9 +26,9 @@ postgres:
     # sslmode options: disable, allow, prefer, require, verify-ca, verify-full
     # For HIPAA compliance, use 'require' (minimum) or 'verify-full' (recommended)
     # sslrootcert path should match the mounted CA certificate in docker-compose
-    jdbcUrl: "jdbc:postgresql://postgres:5432/chronicle?sslmode=${POSTGRES_SSL_MODE:-require}&sslrootcert=${POSTGRES_SSL_ROOT_CERT:-/app/ssl/ca.crt}"
-    username: "oltest"
-    password: "test"
+    jdbcUrl: "jdbc:postgresql://postgres:5432/chronicle?sslmode=require&sslrootcert=/app/ssl/ca.crt"
+    username: "chronicle"
+    password: "6vFWSRerk6cocgcGl9d5vnUBTu2syUgcy2KFmMyU10g="
     maximumPoolSize: 20
 
 datasources:
@@ -37,7 +37,7 @@ datasources:
     initialize-tables: true
     hikari:
       # SSL/TLS encryption in transit configuration
-      jdbcUrl: "jdbc:postgresql://postgres:5432/chronicle?sslmode=${POSTGRES_SSL_MODE:-require}&sslrootcert=${POSTGRES_SSL_ROOT_CERT:-/app/ssl/ca.crt}"
-      username: "oltest"
-      password: "test"
+      jdbcUrl: "jdbc:postgresql://postgres:5432/chronicle?sslmode=require&sslrootcert=/app/ssl/ca.crt"
+      username: "chronicle"
+      password: "6vFWSRerk6cocgcGl9d5vnUBTu2syUgcy2KFmMyU10g="
       maximumPoolSize: 20

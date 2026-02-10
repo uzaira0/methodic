@@ -1,0 +1,10 @@
+domain: "localhost"
+clientId: "dummy-client-id"
+clientSecret: "dummy-client-secret"
+configurations:
+  - issuer: "https://localhost/"
+    audience: "dummy-client-id"
+    secret: "dummy-client-secret"
+    base64EncodedSecret: false
+    signingAlgorithm: "HS256"
+managementApiUrl: "localhost"
