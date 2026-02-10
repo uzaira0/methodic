@@ -154,6 +154,12 @@ jobs:
           --health-retries=5
 
     steps:
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
       - name: Checkout (for Maestro flows and configs)
         uses: actions/checkout@v4
 
@@ -283,6 +289,7 @@ jobs:
           arch: x86_64
           target: google_apis
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          emulator-boot-timeout: 300
           disable-animations: true
           script: |
             echo "=== Installing APK ==="
