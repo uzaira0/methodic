@@ -58,13 +58,20 @@ jobs:
 
           echo "Patched server URL to http://10.0.2.2/chronicle/api/mobile"
 
-      - name: Remove signing config requirement
+      - name: Patch signing config for CI
         working-directory: chronicle-android
         run: |
-          # Remove signingConfigs block and release signing reference so debug build works
-          # without signing.properties
-          sed -i '/signingConfigs/,/}/d' app/build.gradle || true
-          sed -i '/signingConfig /d' app/build.gradle || true
+          # Create a dummy signing.properties so the build.gradle can load it.
+          # The debug build uses the default Android debug keystore anyway.
+          cat > app/signing.properties <<'PROPS'
+          keyAlias=androiddebugkey
+          keyPassword=android
+          storeFile=/home/runner/.android/debug.keystore
+          storePassword=android
+          PROPS
+
+          # Remove signingConfig references from buildTypes so debug uses default
+          sed -i '/signingConfig signingConfigs/d' app/build.gradle
 
       - name: Remove google-services.json requirement
         working-directory: chronicle-android
