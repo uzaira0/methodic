@@ -36,6 +36,8 @@ jobs:
         with:
           java-version: "17"
           distribution: "temurin"
+          cache: gradle
+          cache-dependency-path: chronicle-android/**/build.gradle
 
       - name: Patch server URL for local testing
         working-directory: chronicle-android
@@ -109,6 +111,7 @@ jobs:
         with:
           java-version: "17"
           distribution: "temurin"
+          cache: gradle
 
       - name: Create git tag for publish.gradle
         run: |
@@ -276,10 +279,41 @@ jobs:
           source .maestro/setup-test-data.sh
 
       # -- Install Maestro --
+      - name: Maestro CLI cache
+        uses: actions/cache@v4
+        id: maestro-cache
+        with:
+          path: ~/.maestro/bin
+          key: maestro-cli-v1
+
       - name: Install Maestro
-        run: |
-          curl -Ls "https://get.maestro.mobile.dev" | bash
-          echo "${HOME}/.maestro/bin" >> "${GITHUB_PATH}"
+        if: steps.maestro-cache.outputs.cache-hit != 'true'
+        run: curl -Ls "https://get.maestro.mobile.dev" | bash
+
+      - name: Add Maestro to PATH
+        run: echo "${HOME}/.maestro/bin" >> "${GITHUB_PATH}"
+
+      # -- Cache AVD for faster emulator boot --
+      - name: AVD cache
+        uses: actions/cache@v4
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-api${{ matrix.api-level }}-x86_64-google_apis
+
+      - name: Create AVD snapshot (cache miss only)
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          disable-animations: true
+          force-avd-creation: false
+          script: echo "AVD snapshot created for caching"
 
       # -- Start emulator and run Maestro --
       - name: Run Maestro tests on API ${{ matrix.api-level }}
@@ -291,6 +325,7 @@ jobs:
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           emulator-boot-timeout: 300
           disable-animations: true
+          force-avd-creation: false
           script: |
             echo "=== Installing APK ==="
             adb install "${APK_PATH}"
