@@ -10,7 +10,7 @@ on:
       android_ref:
         description: "Git ref for chronicle-android repo (branch/tag/sha)"
         required: false
-        default: "master"
+        default: "develop"
         type: string
 
 env:
@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: uzaira0/chronicle
-          ref: ${{ inputs.android_ref || 'master' }}
+          ref: ${{ inputs.android_ref || 'develop' }}
           path: chronicle-android
 
       - name: Set up JDK 17
