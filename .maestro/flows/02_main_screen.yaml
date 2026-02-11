@@ -9,6 +9,7 @@ tags:
 ---
 - launchApp:
     clearState: false
+    stopIfRunning: false
 
 # Wait for main screen to fully load
 - extendedWaitUntil:

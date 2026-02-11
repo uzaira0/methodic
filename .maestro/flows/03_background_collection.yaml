@@ -8,6 +8,7 @@ tags:
 ---
 - launchApp:
     clearState: false
+    stopIfRunning: false
 
 # Wait for main screen
 - extendedWaitUntil:
@@ -36,6 +37,7 @@ tags:
 # Return to Chronicle — should still be active, not crashed
 - launchApp:
     clearState: false
+    stopIfRunning: false
 
 - extendedWaitUntil:
     visible:
