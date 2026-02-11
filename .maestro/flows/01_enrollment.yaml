@@ -1,32 +1,34 @@
-# Flow: Device enrollment
-# Tests that a participant can enroll their device into a study.
+# Flow: Full enrollment and verification test
+# Tests enrollment, main screen, and background collection in one flow
+# so the app is never force-stopped between steps (SharedPreferences.apply
+# is async and am force-stop would lose unsaved data).
 #
 # Prerequisites:
 #   - A study must exist with TEST_STUDY_ID
 #   - A participant "maestro-test-001" must be registered
 #   - The Chronicle server must be reachable from the emulator
 #   - Usage stats and notification permissions pre-granted via adb
-#
-# The Android app must be built with the server URL pointing to
-# http://10.0.2.2 (emulator host loopback) — see build workflow.
 
 appId: com.openlattice.chronicle
 tags:
   - smoke
   - enrollment
 ---
+
+# ============================================================
+# Part 1: Enrollment
+# ============================================================
 - launchApp:
     clearState: true
 
 # With permissions pre-granted, app goes:
 #   MainActivity -> not enrolled -> Enrollment activity
-# Wait for the enrollment form to appear
 - extendedWaitUntil:
     visible:
       id: "com.openlattice.chronicle:id/studyIdText"
     timeout: 15000
 
-# -- Fill in enrollment form --
+# Fill in enrollment form
 - tapOn:
     id: "com.openlattice.chronicle:id/studyIdText"
 - inputText: "${TEST_STUDY_ID}"
@@ -35,14 +37,65 @@ tags:
     id: "com.openlattice.chronicle:id/participantIdText"
 - inputText: "${TEST_PARTICIPANT_ID}"
 
-# Tap "Enroll Device" button
+# Tap "Enroll Device"
 - tapOn:
     id: "com.openlattice.chronicle:id/button"
 
-# After enrollment succeeds, the app auto-navigates:
+# After enrollment succeeds, app auto-navigates:
 #   Enrollment -> NotificationPermissionActivity (auto-passes) -> MainActivity
-# Wait for MainActivity to appear (studyId text view shows the enrolled study ID)
 - extendedWaitUntil:
     visible:
       id: "com.openlattice.chronicle:id/studyId"
     timeout: 45000
+
+# ============================================================
+# Part 2: Verify main screen
+# ============================================================
+- assertVisible:
+    id: "com.openlattice.chronicle:id/studyIdHeader"
+
+- assertVisible:
+    id: "com.openlattice.chronicle:id/participantIdHeader"
+
+- assertVisible:
+    id: "com.openlattice.chronicle:id/participantId"
+
+- assertVisible:
+    id: "com.openlattice.chronicle:id/lastUploadHeader"
+
+# ============================================================
+# Part 3: Background collection — switch apps, return, verify
+# ============================================================
+
+# Generate usage events by opening browser
+- openLink: "https://www.example.com"
+- waitForAnimationToEnd
+- waitForAnimationToEnd:
+    timeout: 3000
+- pressKey: home
+- waitForAnimationToEnd:
+    timeout: 2000
+
+# Open settings briefly
+- launchApp:
+    appId: com.android.settings
+- waitForAnimationToEnd:
+    timeout: 2000
+- pressKey: home
+- waitForAnimationToEnd:
+    timeout: 2000
+
+# Return to Chronicle — should still be active, not crashed
+- launchApp:
+    clearState: false
+
+- extendedWaitUntil:
+    visible:
+      id: "com.openlattice.chronicle:id/studyId"
+    timeout: 15000
+
+- assertVisible:
+    id: "com.openlattice.chronicle:id/participantId"
+
+- assertVisible:
+    id: "com.openlattice.chronicle:id/lastUploadHeader"
