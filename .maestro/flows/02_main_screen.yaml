@@ -1,5 +1,5 @@
 # Flow: Verify main screen after enrollment
-# After enrollment and tapping Done, the app should show MainActivity
+# After enrollment, the app should show MainActivity
 # displaying the study ID, participant ID, and last upload timestamp.
 
 appId: com.openlattice.chronicle
@@ -10,27 +10,21 @@ tags:
 - launchApp:
     clearState: false
 
-- waitForAnimationToEnd:
-    timeout: 10000
+# Wait for main screen to fully load
+- extendedWaitUntil:
+    visible:
+      id: "com.openlattice.chronicle:id/studyIdHeader"
+    timeout: 15000
 
 # Verify main screen elements are visible
-# Study ID header and value
-- assertVisible:
-    id: "com.openlattice.chronicle:id/studyIdHeader"
-
 - assertVisible:
     id: "com.openlattice.chronicle:id/studyId"
 
-# Participant ID header and value
 - assertVisible:
     id: "com.openlattice.chronicle:id/participantIdHeader"
 
 - assertVisible:
     id: "com.openlattice.chronicle:id/participantId"
 
-# Last upload header
 - assertVisible:
     id: "com.openlattice.chronicle:id/lastUploadHeader"
-
-# The upload progress view may or may not be visible depending on timing
-# Just verify the main screen loaded without crashing

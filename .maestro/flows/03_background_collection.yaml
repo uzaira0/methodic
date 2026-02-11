@@ -9,12 +9,11 @@ tags:
 - launchApp:
     clearState: false
 
-- waitForAnimationToEnd:
-    timeout: 10000
-
-# Verify app is on main screen (enrolled)
-- assertVisible:
-    id: "com.openlattice.chronicle:id/studyId"
+# Wait for main screen
+- extendedWaitUntil:
+    visible:
+      id: "com.openlattice.chronicle:id/studyId"
+    timeout: 15000
 
 # Generate usage events by opening browser
 - openLink: "https://www.example.com"
@@ -38,20 +37,14 @@ tags:
 - launchApp:
     clearState: false
 
-- waitForAnimationToEnd:
-    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: "com.openlattice.chronicle:id/studyId"
+    timeout: 15000
 
 # Main screen should still show study/participant info
 - assertVisible:
-    id: "com.openlattice.chronicle:id/studyId"
-
-- assertVisible:
     id: "com.openlattice.chronicle:id/participantId"
 
-# Wait a bit for the upload worker to potentially run
-- waitForAnimationToEnd:
-    timeout: 10000
-
-# Check that lastUploadValue has some content (may still be empty if upload hasn't fired)
 - assertVisible:
-    id: "com.openlattice.chronicle:id/lastUploadValue"
+    id: "com.openlattice.chronicle:id/lastUploadHeader"

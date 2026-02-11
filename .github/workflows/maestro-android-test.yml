@@ -335,6 +335,9 @@ jobs:
             adb install "${APK_PATH}"
             echo "=== Installed packages ==="
             adb shell pm list packages | grep chronicle || echo "WARNING: Chronicle package not found"
+            echo "=== Pre-granting permissions ==="
+            adb shell appops set com.openlattice.chronicle USAGE_STATS allow
+            adb shell pm grant com.openlattice.chronicle android.permission.POST_NOTIFICATIONS 2>/dev/null || true
             echo "=== Running Maestro tests ==="
             maestro test --env TEST_STUDY_ID="${TEST_STUDY_ID}" --env TEST_PARTICIPANT_ID="${TEST_PARTICIPANT_ID}" --format junit --output maestro-results.xml --debug-output maestro-debug/ .maestro/flows/
 

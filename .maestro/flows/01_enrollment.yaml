@@ -5,6 +5,7 @@
 #   - A study must exist with TEST_STUDY_ID
 #   - A participant "maestro-test-001" must be registered
 #   - The Chronicle server must be reachable from the emulator
+#   - Usage stats and notification permissions pre-granted via adb
 #
 # The Android app must be built with the server URL pointing to
 # http://10.0.2.2 (emulator host loopback) — see build workflow.
@@ -17,70 +18,31 @@ tags:
 - launchApp:
     clearState: true
 
-- waitForAnimationToEnd
-
-# The app launches Enrollment activity (or redirects there from MainActivity)
+# With permissions pre-granted, app goes:
+#   MainActivity -> not enrolled -> Enrollment activity
 # Wait for the enrollment form to appear
-- waitForAnimationToEnd:
-    timeout: 10000
-
-# -- Grant Usage Stats permission if prompted --
-# PermissionActivity appears before Enrollment if permission not granted
-- runFlow:
-    when:
-      visible: ".*[Uu]sage.*"
-    commands:
-      # Tap the button to open system settings
-      - tapOn:
-          text: ".*([Oo]pen [Ss]ettings|[Gg]rant|[Aa]llow|OK).*"
-          optional: true
-      - waitForAnimationToEnd:
-          timeout: 2000
-      # In system Usage Access settings, find and enable Chronicle
-      - tapOn:
-          text: ".*Chronicle.*"
-          optional: true
-      - waitForAnimationToEnd:
-          timeout: 1000
-      - tapOn:
-          id: "android:id/switch_widget"
-          optional: true
-      - waitForAnimationToEnd:
-          timeout: 1000
-      - pressKey: back
-      - pressKey: back
-      - waitForAnimationToEnd:
-          timeout: 2000
-
-- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible:
+      id: "com.openlattice.chronicle:id/studyIdText"
+    timeout: 15000
 
 # -- Fill in enrollment form --
-# Study ID field (id: studyIdText, hint: "Enter your Study ID")
 - tapOn:
     id: "com.openlattice.chronicle:id/studyIdText"
 - inputText: "${TEST_STUDY_ID}"
 
-# Participant ID field (id: participantIdText, hint: "Enter your Participant ID")
 - tapOn:
     id: "com.openlattice.chronicle:id/participantIdText"
 - inputText: "${TEST_PARTICIPANT_ID}"
 
-# Tap "Enroll Device" button (id: button)
+# Tap "Enroll Device" button
 - tapOn:
     id: "com.openlattice.chronicle:id/button"
 
-# Wait for enrollment API call to complete — status message appears on success
+# After enrollment succeeds, the app auto-navigates:
+#   Enrollment -> NotificationPermissionActivity (auto-passes) -> MainActivity
+# Wait for MainActivity to appear (studyId text view shows the enrolled study ID)
 - extendedWaitUntil:
     visible:
-      id: "com.openlattice.chronicle:id/statusMessage"
-    timeout: 30000
-
-# Verify "Done" button is visible
-- assertVisible:
-    id: "com.openlattice.chronicle:id/doneButton"
-
-# Tap Done to go to MainActivity
-- tapOn:
-    id: "com.openlattice.chronicle:id/doneButton"
-
-- waitForAnimationToEnd
+      id: "com.openlattice.chronicle:id/studyId"
+    timeout: 45000
