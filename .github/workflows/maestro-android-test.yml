@@ -5,6 +5,9 @@ name: Maestro Android UI Tests
 on:
   pull_request:
     branches: [main, develop]
+  schedule:
+    # Nightly at 3 AM UTC — runs the full API 26-35 matrix
+    - cron: "0 3 * * *"
   workflow_dispatch:
     inputs:
       android_ref:
@@ -12,12 +15,39 @@ on:
         required: false
         default: "develop"
         type: string
+      api_levels:
+        description: "JSON array of API levels (default: all)"
+        required: false
+        default: "[26,27,28,29,30,31,32,33,34,35]"
+        type: string
 
 env:
   APP_PACKAGE: com.openlattice.chronicle
   AUTH_TOKEN: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2xvY2FsaG9zdC8iLCJhdWQiOiJkdW1teS1jbGllbnQtaWQiLCJzdWIiOiJsb2NhbC1hZG1pbiIsImlhdCI6MTc3MDQyOTkxNSwiZXhwIjo0OTI0MDI5OTE1fQ.5d9ecGq0oAaoTujkV9i1SpZAMHpSl6IJMjJSWvvoBoo"
 
 jobs:
+  # ------------------------------------------------------------------
+  # 0. Pick API levels based on trigger (tiered testing)
+  #    PRs       → key breakpoints only (fast feedback)
+  #    Nightly   → full matrix (comprehensive)
+  #    Manual    → user-specified or full matrix
+  # ------------------------------------------------------------------
+  configure:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo 'matrix={"api-level":${{ inputs.api_levels }}}' >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
+            echo 'matrix={"api-level":[26,27,28,29,30,31,32,33,34,35]}' >> "$GITHUB_OUTPUT"
+          else
+            # PRs: min-supported (26), notification permission breakpoint (33), latest (35)
+            echo 'matrix={"api-level":[26,33,35]}' >> "$GITHUB_OUTPUT"
+          fi
+
   # ------------------------------------------------------------------
   # 1. Build the Android APK with server URL patched to localhost
   # ------------------------------------------------------------------
@@ -89,7 +119,7 @@ jobs:
 
       - name: Build debug APK
         working-directory: chronicle-android
-        run: ./gradlew assembleDebug --no-daemon -x lint
+        run: ./gradlew assembleDebug --no-daemon --build-cache -x lint
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -122,7 +152,7 @@ jobs:
           git tag v0.0.0 2>/dev/null || true
 
       - name: Build backend
-        run: ./gradlew :chronicle-server:installDist --no-daemon -PdevelopmentMode=true -x test -x spotbugsMain -x spotbugsTest
+        run: ./gradlew :chronicle-server:installDist --no-daemon --build-cache -PdevelopmentMode=true -x test -x spotbugsMain -x spotbugsTest
 
       - name: Upload backend artifact
         uses: actions/upload-artifact@v4
@@ -135,14 +165,13 @@ jobs:
   # 3. Run Maestro flows on each API level in parallel
   # ------------------------------------------------------------------
   maestro-test:
-    needs: [build-apk, build-backend]
+    needs: [configure, build-apk, build-backend]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix:
-        api-level: [30, 33, 34]
+      matrix: ${{ fromJSON(needs.configure.outputs.matrix) }}
     name: "Maestro (API ${{ matrix.api-level }})"
-    timeout-minutes: 30
+    timeout-minutes: 35
 
     # Postgres service container — no SSL, no Docker-in-Docker needed
     services:
@@ -287,8 +316,8 @@ jobs:
         uses: actions/cache@v4
         id: maestro-cache
         with:
-          path: ~/.maestro/bin
-          key: maestro-cli-v1
+          path: ~/.maestro
+          key: maestro-cli-v2
 
       - name: Install Maestro
         if: steps.maestro-cache.outputs.cache-hit != 'true'
@@ -297,7 +326,14 @@ jobs:
       - name: Add Maestro to PATH
         run: echo "${HOME}/.maestro/bin" >> "${GITHUB_PATH}"
 
-      # -- Cache AVD for faster emulator boot --
+      # -- Cache Android system image (avoids ~500 MB download per API level) --
+      - name: Cache Android system image
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/lib/android/sdk/system-images/android-${{ matrix.api-level }}
+          key: system-image-api${{ matrix.api-level }}-google_apis-x86_64-v1
+
+      # -- Cache AVD snapshot (avoids cold boot) --
       - name: AVD cache
         uses: actions/cache@v4
         id: avd-cache
@@ -305,7 +341,7 @@ jobs:
           path: |
             ~/.android/avd/*
             ~/.android/adb*
-          key: avd-api${{ matrix.api-level }}-x86_64-google_apis
+          key: avd-api${{ matrix.api-level }}-x86_64-google_apis-v2
 
       - name: Create AVD snapshot (cache miss only)
         if: steps.avd-cache.outputs.cache-hit != 'true'
@@ -337,11 +373,11 @@ jobs:
             adb shell pm list packages | grep chronicle || echo "WARNING: Chronicle package not found"
             echo "=== Pre-granting permissions ==="
             adb shell appops set com.openlattice.chronicle GET_USAGE_STATS allow
-            adb shell appops set com.openlattice.chronicle POST_NOTIFICATION allow
+            adb shell appops set com.openlattice.chronicle POST_NOTIFICATION allow 2>/dev/null || true
             adb shell pm grant com.openlattice.chronicle android.permission.POST_NOTIFICATIONS 2>/dev/null || true
             echo "=== Verifying permissions ==="
             adb shell appops get com.openlattice.chronicle GET_USAGE_STATS
-            adb shell appops get com.openlattice.chronicle POST_NOTIFICATION
+            adb shell appops get com.openlattice.chronicle POST_NOTIFICATION 2>/dev/null || echo "(POST_NOTIFICATION not available on this API level)"
             adb shell dumpsys notification | grep -A2 "com.openlattice.chronicle" || true
             echo "=== Running Maestro tests ==="
             maestro test --env TEST_STUDY_ID="${TEST_STUDY_ID}" --env TEST_PARTICIPANT_ID="${TEST_PARTICIPANT_ID}" --format junit --output maestro-results.xml --debug-output maestro-debug/ .maestro/flows/
@@ -399,4 +435,4 @@ jobs:
             echo "Maestro tests failed on one or more API levels"
             exit 1
           fi
-          echo "All Maestro tests passed across API levels 30, 33, 34"
+          echo "All Maestro tests passed"
