@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       server_url:
-        description: "Chronicle server base URL (e.g. http://cnrc-deni-p001.cnrc.bcm.edu/chronicle/api/mobile)"
+        description: "Chronicle server base URL (e.g. http://cnrc-deni-p001.cnrc.bcm.edu)"
         required: true
         type: string
       android_ref:

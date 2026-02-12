@@ -20,7 +20,8 @@ RUN find . -name "gradlew" -exec dos2unix {} \; && \
 
 # Ensure git repo exists with a tag so publish.gradle's `git describe` works.
 # Docker COPY strips .git, so we init a fresh repo with a version tag.
-RUN git init && git add -A && git commit -m "docker build" --allow-empty && git tag v0.0.0
+RUN git config --global user.email "build@docker" && git config --global user.name "Docker Build" && \
+    git init && git add -A && git commit -m "docker build" --allow-empty && git tag v0.0.0
 
 # Build the application with reduced memory footprint
 ENV GRADLE_OPTS="-Xmx1g -Xms256m -Dorg.gradle.jvmargs='-Xmx1g -Xms256m'"

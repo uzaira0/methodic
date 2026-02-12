@@ -63,11 +63,16 @@ services:
       -c ssl_ca_file=/var/lib/postgresql/ssl/ca.crt
       -c ssl_min_protocol_version=TLSv1.2
       -c ssl_prefer_server_ciphers=on
+    deploy:
+      resources:
+        limits:
+          memory: 1G
 
   chronicle-backend:
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend
+    image: chronicle-backend:latest
     container_name: chronicle-backend
     restart: unless-stopped
     environment:
@@ -104,6 +109,10 @@ services:
     # The Gradle-generated start script hardcodes the classpath with only lib/ JARs,
     # so we call java directly.
     command: ["sh", "-c", "exec java $$CHRONICLE_SERVER_XMS $$CHRONICLE_SERVER_XMX -cp '/server/config:/server/lib/*' com.openlattice.chronicle.ChronicleServer local postgres medialocal"]
+    deploy:
+      resources:
+        limits:
+          memory: 3G
     depends_on:
       postgres:
         condition: service_healthy
@@ -116,19 +125,16 @@ services:
       - "traefik.http.services.chronicle-backend.loadbalancer.server.port=40320"
 
       # ===========================================
-      # MOBILE API: /chronicle/api/mobile/*
-      # - Requires X-Chronicle-App-Key header
-      # - Limited to GET, POST methods
-      # - Strict rate limiting
+      # MOBILE API: /chronicle/v3/*, /chronicle/v2/*, /chronicle/study/*
+      # The Android app's Retrofit client uses absolute paths from the
+      # shared StudyApi interface (e.g., /chronicle/v3/study/{id}/...),
+      # so no strip-prefix is needed — the backend expects these paths.
       # ===========================================
-      - "traefik.http.routers.chronicle-mobile.rule=Host(`${DOMAIN}`) && PathPrefix(`/chronicle/api/mobile/`)"
+      - "traefik.http.routers.chronicle-mobile.rule=Host(`${DOMAIN}`) && (PathPrefix(`/chronicle/v3/`) || PathPrefix(`/chronicle/v2/`) || PathPrefix(`/chronicle/study/`) || PathPrefix(`/chronicle/limits/`))"
       - "traefik.http.routers.chronicle-mobile.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
       - "traefik.http.routers.chronicle-mobile.priority=20"
       - "traefik.http.routers.chronicle-mobile.service=chronicle-backend"
-      - "traefik.http.routers.chronicle-mobile.middlewares=chronicle-mobile-strip,chronicle-mobile-ratelimit,chronicle-mobile-headers,chronicle-mobile-cors"
-
-      # Strip /chronicle/api/mobile prefix
-      - "traefik.http.middlewares.chronicle-mobile-strip.stripprefix.prefixes=/chronicle/api/mobile"
+      - "traefik.http.routers.chronicle-mobile.middlewares=chronicle-mobile-ratelimit,chronicle-mobile-headers,chronicle-mobile-cors"
 
       # Strict rate limiting for mobile (5 req/s average, burst of 10)
       - "traefik.http.middlewares.chronicle-mobile-ratelimit.ratelimit.average=5"
@@ -196,6 +202,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.frontend.prod
+    image: chronicle-frontend:latest
     container_name: chronicle-frontend
     restart: unless-stopped
     healthcheck:
@@ -204,6 +211,10 @@ services:
       timeout: 3s
       start_period: 5s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 128M
     networks:
       - chronicle-internal
       - traefik
