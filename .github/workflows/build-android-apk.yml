@@ -48,9 +48,12 @@ jobs:
       - name: Patch server URL
         working-directory: app
         run: |
+          # Ensure URL ends with trailing slash (Retrofit requires it)
+          URL="${SERVER_URL%/}/"
+
           # Replace production URL with the custom server URL in all source files
           find app/src -name '*.kt' -exec grep -l 'api.getmethodic.com' {} \; | while read f; do
-            sed -i "s|https://api.getmethodic.com|${SERVER_URL}|g" "$f"
+            sed -i "s|https://api.getmethodic.com|${URL}|g" "$f"
             echo "Patched: $f"
           done
 
