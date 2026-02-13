@@ -1,6 +1,8 @@
 name: Build Android APK
 
 # Builds a Chronicle Android APK pointed at a custom server URL.
+# Also builds the chronicle-api jar from the main repo to include
+# the latest API types (sensor data, etc.).
 # Download the APK artifact from the workflow run to install on a device.
 on:
   workflow_dispatch:
@@ -30,6 +32,12 @@ jobs:
       SERVER_URL: ${{ inputs.server_url }}
       BUILD_TYPE: ${{ inputs.build_type }}
     steps:
+      - name: Checkout main chronicle repo (for chronicle-api source)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          path: chronicle
+
       - name: Checkout Android app
         uses: actions/checkout@v4
         with:
@@ -43,7 +51,25 @@ jobs:
           java-version: "17"
           distribution: "temurin"
           cache: gradle
-          cache-dependency-path: app/**/build.gradle
+          cache-dependency-path: |
+            chronicle/**/build.gradle
+            app/**/build.gradle
+
+      - name: Build chronicle-api jar
+        working-directory: chronicle/chronicle-api
+        run: ./gradlew jar --no-daemon
+
+      - name: Inject chronicle-api jar into Android app
+        run: |
+          mkdir -p app/app/libs
+          cp chronicle/chronicle-api/build/libs/chronicle-api-*.jar app/app/libs/
+          echo "Copied chronicle-api jar:"
+          ls -la app/app/libs/
+
+          # Replace Maven dependency with local jar (loaded via fileTree)
+          sed -i "s|implementation('com.methodic:chronicle-api:.*|// chronicle-api provided via libs/ (loaded by fileTree)|" \
+            app/app/build.gradle
+          echo "Updated build.gradle to use local chronicle-api jar"
 
       - name: Patch server URL
         working-directory: app
