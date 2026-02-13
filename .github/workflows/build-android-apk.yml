@@ -66,6 +66,7 @@ jobs:
       - name: Inject chronicle-api jar into Android app
         run: |
           mkdir -p app/app/libs
+          rm -f app/app/libs/chronicle-api-*.jar
           cp chronicle/chronicle-api/build/libs/chronicle-api-*.jar app/app/libs/
           echo "Copied chronicle-api jar:"
           ls -la app/app/libs/
