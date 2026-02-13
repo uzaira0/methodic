@@ -57,7 +57,11 @@ jobs:
 
       - name: Build chronicle-api jar
         working-directory: chronicle/chronicle-api
-        run: ./gradlew jar --no-daemon
+        run: |
+          # publish.gradle runs `git describe --tags` during configuration.
+          # Shallow clones have no tags, so create one to prevent failure.
+          git tag v0.0.0-ci 2>/dev/null || true
+          ./gradlew jar --no-daemon
 
       - name: Inject chronicle-api jar into Android app
         run: |
