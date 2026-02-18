@@ -74,7 +74,10 @@ jobs:
           # Replace Maven dependency with local jar (loaded via fileTree)
           sed -i "s|implementation('com.methodic:chronicle-api:.*|// chronicle-api provided via libs/ (loaded by fileTree)|" \
             app/app/build.gradle
-          echo "Updated build.gradle to use local chronicle-api jar"
+
+          # Remove composite build (settings.gradle includeBuild) since CI uses jar injection
+          sed -i '/includeBuild/,/^}/d' app/settings.gradle
+          echo "Updated build.gradle and settings.gradle for CI jar injection"
 
       - name: Patch server URL
         working-directory: app
