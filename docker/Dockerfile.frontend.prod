@@ -26,9 +26,21 @@ COPY chronicle-web/config ./config
 COPY chronicle-web/flow-typed ./flow-typed
 COPY chronicle-web/src ./src
 
-# Build argument for API base URL (empty for relative URLs through nginx)
+# Build arguments for configuration
+ARG AUTH_ENABLED=false
 ARG API_BASE_URL=""
 ENV REACT_APP_API_BASE_URL=${API_BASE_URL}
+
+# Patch for Docker builds:
+# 1. Disable authentication (Auth0 not configured in self-hosted mode)
+# 2. Fix baseUrl for reverse proxy (use relative paths through nginx/Traefik)
+# 3. Fix getApiBaseUrl to handle empty baseUrl
+RUN if [ "$AUTH_ENABLED" = "false" ]; then \
+      sed -i 's/const authEnabled = true;/const authEnabled = false;/' src/index.js; \
+    fi && \
+    sed -i 's/baseUrl = "localhost";/baseUrl = "";/' src/core/config/Configuration.js && \
+    sed -i 's/else if (baseUrl !== null \&\& baseUrl !== undefined)/else if (baseUrl !== null \&\& baseUrl !== undefined \&\& baseUrl !== "")/' src/core/config/Configuration.js && \
+    sed -i "s|return \\\`\\\${getConfig().get('baseUrl')}/\\\${API_TO_PATH_MAP.get(api)}\\\`;|const baseUrl = getConfig().get('baseUrl'); return baseUrl ? \\\`\\\${baseUrl}/\\\${API_TO_PATH_MAP.get(api)}\\\` : \\\`/\\\${API_TO_PATH_MAP.get(api)}\\\`;|" src/core/api/axios/getApiBaseUrl.js
 
 # Build production bundle
 RUN npm run build:prod
