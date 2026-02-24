@@ -36,7 +36,7 @@ services:
       PG_TDE_VAULT_MOUNT_PATH: ${PG_TDE_VAULT_MOUNT_PATH:-secret}
       PG_TDE_VAULT_CA_PATH: ${PG_TDE_VAULT_CA_PATH:-}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/pgdata
       # TDE keyring storage (for file-based provider - development only)
       - postgres_tde_keyring:/var/lib/postgresql/tde-keyring
       # Initialization script for TDE setup
