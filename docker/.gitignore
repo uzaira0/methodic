@@ -1,0 +1,13 @@
+# Secrets and credentials - NEVER commit these
+.env
+rhizome-docker.yaml
+auth0.yaml
+
+# SSL/TLS private keys
+postgres-ssl/ca/ca.key
+postgres-ssl/server/server.key
+postgres-ssl/client/client.key
+postgres-ssl/client/client.p12
+
+# Generated certificates directory
+certs/

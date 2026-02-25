@@ -255,6 +255,46 @@ esac
 # Verify encryption is working
 verify_encryption
 
+# Convert sensitive tables to tde_heap (idempotent)
+# These tables contain PII, research data, or audit trails
+echo "[INFO] Converting sensitive tables to tde_heap..."
+
+SENSITIVE_TABLES=(
+    candidates
+    study_participants
+    devices
+    sensor_data
+    android_sensor_data
+    chronicle_usage_events
+    chronicle_usage_stats
+    preprocessed_usage_events
+    questionnaire_submissions
+    time_use_diary_submissions
+    app_usage_survey
+    upload_buffer
+    audit
+    audit_buffer
+    participant_stats
+)
+
+for TABLE in "${SENSITIVE_TABLES[@]}"; do
+    # Only convert if table exists (it may not on first init before backend creates schema)
+    TABLE_EXISTS=$(psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB}" -t -A -c \
+        "SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname = '${TABLE}' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public'));")
+    if [ "$TABLE_EXISTS" = "t" ]; then
+        CURRENT_AM=$(psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB}" -t -A -c \
+            "SELECT am.amname FROM pg_class c JOIN pg_am am ON c.relam = am.oid WHERE c.relname = '${TABLE}';")
+        if [ "$CURRENT_AM" != "tde_heap" ]; then
+            enable_encryption_on_table "$TABLE"
+            echo "[INFO] Converted $TABLE to tde_heap"
+        else
+            echo "[INFO] $TABLE already uses tde_heap"
+        fi
+    else
+        echo "[INFO] $TABLE does not exist yet (will be encrypted by migrate-tde.sh after backend creates schema)"
+    fi
+done
+
 echo "=========================================="
 echo "PostgreSQL TDE Initialization Complete"
 echo "=========================================="
@@ -266,5 +306,5 @@ echo "To encrypt existing tables, use:"
 echo "  ALTER TABLE my_table SET ACCESS METHOD tde_heap;"
 echo ""
 echo "To verify a table is encrypted, use:"
-echo "  SELECT pgtde_is_encrypted('my_table');"
+echo "  SELECT pg_tde_is_encrypted('my_table'::regclass);"
 echo ""

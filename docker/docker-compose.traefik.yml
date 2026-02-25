@@ -63,6 +63,7 @@ services:
       -c ssl_ca_file=/var/lib/postgresql/ssl/ca.crt
       -c ssl_min_protocol_version=TLSv1.2
       -c ssl_prefer_server_ciphers=on
+      -c shared_preload_libraries=pg_tde,percona_pg_telemetry
     deploy:
       resources:
         limits:
