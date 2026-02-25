@@ -53,8 +53,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    # Security: Run as non-root user
-    #user: "999:999"
+    # Percona image runs as postgres (UID 26) by default — no user: override needed
     # PostgreSQL SSL configuration via command line arguments
     command: >
       -c ssl=on
@@ -110,6 +109,12 @@ services:
     # The Gradle-generated start script hardcodes the classpath with only lib/ JARs,
     # so we call java directly.
     command: ["sh", "-c", "exec java $$CHRONICLE_SERVER_XMS $$CHRONICLE_SERVER_XMX -cp '/server/config:/server/lib/*' com.openlattice.chronicle.ChronicleServer local postgres medialocal"]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:40320/chronicle/v3/study"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
     deploy:
       resources:
         limits:

@@ -32,8 +32,9 @@ FROM eclipse-temurin:17-jre
 
 WORKDIR /server
 
-# Install curl for healthchecks
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+# Install curl for healthchecks and create non-root user
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/* && \
+    groupadd -r chronicle && useradd -r -g chronicle -d /server -s /sbin/nologin chronicle
 
 # Copy built application from builder stage
 COPY --from=builder /app/chronicle-server/build/install/chronicle-server /server
@@ -41,12 +42,18 @@ COPY --from=builder /app/chronicle-server/build/install/chronicle-server /server
 # Copy the rhizome.yaml config (will be overridden by docker config)
 COPY docker/rhizome-docker.yaml /server/lib/rhizome.yaml
 
+# Create directories the app needs and set ownership
+RUN mkdir -p /var/log/chronicle /server/config && \
+    chown -R chronicle:chronicle /server /var/log/chronicle
+
 # Environment variables
 ENV CHRONICLE_SERVER_XMS="-Xms512m"
 ENV CHRONICLE_SERVER_XMX="-Xmx2g"
 ENV CHRONICLE_SERVER_ARGS="local postgres medialocal"
 
 EXPOSE 40320
+
+USER chronicle
 
 # Run the application
 CMD ["./bin/chronicle-server", "local", "postgres", "medialocal"]
