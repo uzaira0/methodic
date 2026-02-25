@@ -280,6 +280,40 @@ services:
         limits:
           memory: 512M
 
+  # Loki: log aggregation for audit dashboard
+  loki:
+    image: grafana/loki:2.9.6
+    container_name: chronicle-loki
+    restart: unless-stopped
+    volumes:
+      - ./siem/loki-config.yml:/etc/loki/local-config.yaml:ro,z
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - chronicle-internal
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # Promtail: ships audit logs to Loki
+  promtail:
+    image: grafana/promtail:2.9.6
+    container_name: chronicle-promtail
+    restart: unless-stopped
+    volumes:
+      - ./siem/promtail-config.yml:/etc/promtail/config.yml:ro,z
+      - audit_logs:/var/log/chronicle:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    networks:
+      - chronicle-internal
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
   grafana:
     image: grafana/grafana:11.0.0
     container_name: chronicle-grafana
@@ -296,6 +330,7 @@ services:
       - ./monitoring/dashboards:/var/lib/grafana/dashboards:ro,z
     depends_on:
       - prometheus
+      - loki
     networks:
       - chronicle-internal
       - traefik
@@ -332,3 +367,4 @@ volumes:
   # Monitoring data
   prometheus_data:
   grafana_data:
+  loki_data:
