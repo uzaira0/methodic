@@ -1,4 +1,4 @@
-version: '3.8'
+name: chronicle
 
 # Chronicle deployment behind Traefik reverse proxy
 #
