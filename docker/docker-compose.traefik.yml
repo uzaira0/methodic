@@ -91,6 +91,13 @@ services:
       # Path to CA certificate for server certificate verification
       POSTGRES_SSL_ROOT_CERT: /app/ssl/ca.crt
       JWT_SECRET: ${JWT_SECRET}
+      # SMTP/Email settings (optional — set SMTP_ENABLED=true in .env to activate)
+      SMTP_HOST: ${SMTP_HOST:-smtp.office365.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-noreply@example.com}
+      SMTP_ENABLED: ${SMTP_ENABLED:-false}
       # Audit log directory for HIPAA compliance
       # Logs are written in JSON format for SIEM integration
       AUDIT_LOG_DIR: /var/log/chronicle
@@ -104,11 +111,13 @@ services:
       # Config templates — rendered by envsubst at container startup
       - ./rhizome-docker.yaml.template:/server/config/rhizome.yaml.template:ro,z
       - ./auth0.yaml.template:/server/config/auth0.yaml.template:ro,z
+      - ./mail.yaml.template:/server/config/mail.yaml.template:ro,z
     # Render config templates from env vars, then start Java with /server/config on classpath
     command: >-
       sh -c '
       envsubst < /server/config/rhizome.yaml.template > /server/config/rhizome.yaml &&
       envsubst < /server/config/auth0.yaml.template > /server/config/auth0.yaml &&
+      envsubst < /server/config/mail.yaml.template > /server/config/mail.yaml &&
       exec java $$CHRONICLE_SERVER_XMS $$CHRONICLE_SERVER_XMX
       -cp "/server/config:/server/lib/*"
       com.openlattice.chronicle.ChronicleServer local postgres medialocal'
@@ -251,6 +260,57 @@ services:
       - "traefik.http.middlewares.chronicle-frontend-headers.headers.stsSeconds=31536000"
       - "traefik.http.middlewares.chronicle-frontend-headers.headers.stsIncludeSubdomains=true"
 
+  # ===========================================
+  # MONITORING: Prometheus + Grafana
+  # ===========================================
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: chronicle-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=30d'
+    networks:
+      - chronicle-internal
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: chronicle-grafana
+    restart: unless-stopped
+    environment:
+      GF_SERVER_ROOT_URL: /grafana
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro,z
+      - ./monitoring/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro,z
+      - ./monitoring/dashboards:/var/lib/grafana/dashboards:ro,z
+    depends_on:
+      - prometheus
+    networks:
+      - chronicle-internal
+      - traefik
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik}"
+      - "traefik.http.routers.chronicle-grafana.rule=Host(`${DOMAIN}`) && PathPrefix(`/grafana`)"
+      - "traefik.http.routers.chronicle-grafana.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.chronicle-grafana.priority=10"
+      - "traefik.http.services.chronicle-grafana.loadbalancer.server.port=3000"
+
 networks:
   chronicle-internal:
     driver: bridge
@@ -269,3 +329,6 @@ volumes:
   # Retention: 365 days (configure cleanup policy for production)
   # IMPORTANT: Include in backup strategy for compliance requirements
   audit_logs:
+  # Monitoring data
+  prometheus_data:
+  grafana_data:

@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: chronicle-backend
+    metrics_path: /prometheus/
+    static_configs:
+      - targets:
+          - chronicle-backend:40320
+        labels:
+          service: chronicle
