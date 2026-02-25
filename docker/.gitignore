@@ -2,6 +2,7 @@
 .env
 rhizome-docker.yaml
 auth0.yaml
+chronicle-config.json
 
 # SSL/TLS private keys
 postgres-ssl/ca/ca.key

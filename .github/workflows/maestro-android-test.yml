@@ -23,7 +23,8 @@ on:
 
 env:
   APP_PACKAGE: com.openlattice.chronicle
-  AUTH_TOKEN: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2xvY2FsaG9zdC8iLCJhdWQiOiJkdW1teS1jbGllbnQtaWQiLCJzdWIiOiJsb2NhbC1hZG1pbiIsImlhdCI6MTc3MDQyOTkxNSwiZXhwIjo0OTI0MDI5OTE1fQ.5d9ecGq0oAaoTujkV9i1SpZAMHpSl6IJMjJSWvvoBoo"
+  # JWT_SECRET used by CI to generate short-lived tokens at workflow runtime
+  JWT_SECRET: "ci-test-secret-not-for-production"
 
 jobs:
   # ------------------------------------------------------------------
@@ -265,18 +266,27 @@ jobs:
                 maximumPoolSize: 10
           RHIZOME
 
-          cat > ci-config/auth0.yaml <<'AUTH0'
+          cat > ci-config/auth0.yaml <<AUTH0
           domain: "localhost"
           clientId: "dummy-client-id"
-          clientSecret: "dummy-client-secret"
+          clientSecret: "${JWT_SECRET}"
           configurations:
             - issuer: "https://localhost/"
               audience: "dummy-client-id"
-              secret: "dummy-client-secret"
+              secret: "${JWT_SECRET}"
               base64EncodedSecret: false
               signingAlgorithm: "HS256"
           managementApiUrl: "localhost"
           AUTH0
+
+          # Generate a short-lived JWT for CI tests
+          b64url() { openssl base64 -e -A | tr '+/' '-_' | tr -d '='; }
+          NOW=$(date +%s)
+          EXP=$((NOW + 3600))
+          H=$(printf '{"alg":"HS256","typ":"JWT"}' | b64url)
+          P=$(printf '{"iss":"https://localhost/","aud":"dummy-client-id","sub":"local-admin","iat":%d,"exp":%d}' "$NOW" "$EXP" | b64url)
+          SIG=$(printf '%s.%s' "$H" "$P" | openssl dgst -sha256 -hmac "${JWT_SECRET}" -binary | b64url)
+          echo "AUTH_TOKEN=${H}.${P}.${SIG}" >> "${GITHUB_ENV}"
 
           # Make backend scripts executable
           chmod +x chronicle-backend/bin/chronicle-server

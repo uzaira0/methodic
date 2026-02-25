@@ -32,17 +32,15 @@ FROM eclipse-temurin:17-jre
 
 WORKDIR /server
 
-# Install curl for healthchecks and create non-root user
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/* && \
+# Install curl for healthchecks, gettext-base for envsubst, and create non-root user
+RUN apt-get update && apt-get install -y curl gettext-base && rm -rf /var/lib/apt/lists/* && \
     groupadd -r chronicle && useradd -r -g chronicle -d /server -s /sbin/nologin chronicle
 
 # Copy built application from builder stage
 COPY --from=builder /app/chronicle-server/build/install/chronicle-server /server
 
-# Copy the rhizome.yaml config (will be overridden by docker config)
-COPY docker/rhizome-docker.yaml /server/lib/rhizome.yaml
-
 # Create directories the app needs and set ownership
+# /server/config is writable so envsubst can render templates at startup
 RUN mkdir -p /var/log/chronicle /server/config && \
     chown -R chronicle:chronicle /server /var/log/chronicle
 

@@ -1,10 +1,10 @@
 domain: "localhost"
 clientId: "dummy-client-id"
-clientSecret: "dummy-client-secret"
+clientSecret: "${JWT_SECRET}"
 configurations:
   - issuer: "https://localhost/"
     audience: "dummy-client-id"
-    secret: "dummy-client-secret"
+    secret: "${JWT_SECRET}"
     base64EncodedSecret: false
     signingAlgorithm: "HS256"
 managementApiUrl: "localhost"
