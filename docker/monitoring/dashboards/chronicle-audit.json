@@ -12,56 +12,52 @@
     {
       "datasource": { "type": "loki", "uid": "loki" },
       "fieldConfig": {
-        "defaults": { "color": { "mode": "palette-classic" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] } },
+        "defaults": { "color": { "mode": "fixed", "fixedColor": "blue" }, "mappings": [], "noValue": "0", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] } },
         "overrides": []
       },
       "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
       "id": 1,
-      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["count"], "fields": "", "values": false }, "textMode": "auto" },
-      "pluginVersion": "10.2.0",
-      "targets": [{ "datasource": { "type": "loki", "uid": "loki" }, "expr": "{job=\"chronicle-audit\"}", "refId": "A" }],
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "loki", "uid": "loki" }, "expr": "sum(count_over_time({job=\"chronicle-audit\"}[$__range]))", "instant": true, "refId": "A" }],
       "title": "Total Events",
       "type": "stat"
     },
     {
       "datasource": { "type": "loki", "uid": "loki" },
       "fieldConfig": {
-        "defaults": { "color": { "mode": "palette-classic" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 10 }, { "color": "red", "value": 50 }] } },
+        "defaults": { "color": { "mode": "fixed", "fixedColor": "orange" }, "mappings": [], "noValue": "0", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 10 }, { "color": "red", "value": 50 }] } },
         "overrides": []
       },
       "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
       "id": 2,
-      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["count"], "fields": "", "values": false }, "textMode": "auto" },
-      "pluginVersion": "10.2.0",
-      "targets": [{ "datasource": { "type": "loki", "uid": "loki" }, "expr": "{job=\"chronicle-audit\"} | json | accessedPHI = `true`", "refId": "A" }],
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "loki", "uid": "loki" }, "expr": "sum(count_over_time({job=\"chronicle-audit\", accessedPHI=\"true\"}[$__range]))", "instant": true, "refId": "A" }],
       "title": "PHI Access Events",
       "type": "stat"
     },
     {
       "datasource": { "type": "loki", "uid": "loki" },
       "fieldConfig": {
-        "defaults": { "color": { "mode": "palette-classic" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } },
+        "defaults": { "color": { "mode": "fixed", "fixedColor": "red" }, "mappings": [], "noValue": "0", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } },
         "overrides": []
       },
       "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
       "id": 3,
-      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["count"], "fields": "", "values": false }, "textMode": "auto" },
-      "pluginVersion": "10.2.0",
-      "targets": [{ "datasource": { "type": "loki", "uid": "loki" }, "expr": "{job=\"chronicle-audit\"} | json | action = `LOGIN_FAILED`", "refId": "A" }],
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "loki", "uid": "loki" }, "expr": "sum(count_over_time({job=\"chronicle-audit\", action=\"LOGIN_FAILED\"}[$__range]))", "instant": true, "refId": "A" }],
       "title": "Failed Logins",
       "type": "stat"
     },
     {
       "datasource": { "type": "loki", "uid": "loki" },
       "fieldConfig": {
-        "defaults": { "color": { "mode": "palette-classic" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } },
+        "defaults": { "color": { "mode": "fixed", "fixedColor": "red" }, "mappings": [], "noValue": "0", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } },
         "overrides": []
       },
       "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
       "id": 4,
-      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["count"], "fields": "", "values": false }, "textMode": "auto" },
-      "pluginVersion": "10.2.0",
-      "targets": [{ "datasource": { "type": "loki", "uid": "loki" }, "expr": "{job=\"chronicle-audit\"} | json | action = `UNAUTHORIZED_ACCESS`", "refId": "A" }],
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "loki", "uid": "loki" }, "expr": "sum(count_over_time({job=\"chronicle-audit\", action=\"UNAUTHORIZED_ACCESS\"}[$__range]))", "instant": true, "refId": "A" }],
       "title": "Unauthorized Access",
       "type": "stat"
     },
@@ -71,7 +67,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
       "id": 5,
       "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
-      "targets": [{ "datasource": { "type": "loki", "uid": "loki" }, "expr": "sum by (action) (count_over_time({job=\"chronicle-audit\"} | json [1m]))", "legendFormat": "{{action}}", "refId": "A" }],
+      "targets": [{ "datasource": { "type": "loki", "uid": "loki" }, "expr": "sum by (action) (count_over_time({job=\"chronicle-audit\"} [1m]))", "legendFormat": "{{action}}", "refId": "A" }],
       "title": "Events by Action",
       "type": "timeseries"
     },
@@ -81,7 +77,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
       "id": 6,
       "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
-      "targets": [{ "datasource": { "type": "loki", "uid": "loki" }, "expr": "sum(count_over_time({job=\"chronicle-audit\"} | json | accessedPHI = `true` [5m]))", "legendFormat": "PHI Access", "refId": "A" }],
+      "targets": [{ "datasource": { "type": "loki", "uid": "loki" }, "expr": "sum(count_over_time({job=\"chronicle-audit\", accessedPHI=\"true\"} [5m]))", "legendFormat": "PHI Access", "refId": "A" }],
       "title": "PHI Access Over Time",
       "type": "timeseries"
     },

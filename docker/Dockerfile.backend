@@ -51,7 +51,7 @@ ENV CHRONICLE_SERVER_ARGS="local postgres medialocal"
 
 EXPOSE 40320
 
-USER chronicle
-
-# Run the application
-CMD ["./bin/chronicle-server", "local", "postgres", "medialocal"]
+# Start as root to fix volume permissions, then drop to chronicle user
+# Named Docker volumes may initialize with root ownership
+CMD chown -R chronicle:chronicle /var/log/chronicle /server/config && \
+    exec su -s /bin/bash chronicle -c "./bin/chronicle-server local postgres medialocal"
