@@ -122,7 +122,7 @@ services:
       -cp "/server/config:/server/lib/*"
       com.openlattice.chronicle.ChronicleServer local postgres medialocal'
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:40320/chronicle/v3/study"]
+      test: ["CMD", "curl", "-sf", "http://localhost:40320/prometheus/"]
       interval: 30s
       timeout: 10s
       start_period: 60s
@@ -190,7 +190,7 @@ services:
       # CORS for web frontend (credentials allowed)
       - "traefik.http.middlewares.chronicle-web-cors.headers.accessControlAllowMethods=GET,POST,PUT,DELETE,PATCH,OPTIONS"
       - "traefik.http.middlewares.chronicle-web-cors.headers.accessControlAllowHeaders=Authorization,Content-Type,X-Requested-With,Accept,Origin"
-      - "traefik.http.middlewares.chronicle-web-cors.headers.accessControlAllowOriginListRegex=.*"
+      - "traefik.http.middlewares.chronicle-web-cors.headers.accessControlAllowOriginList=https://${DOMAIN},http://${DOMAIN}"
       - "traefik.http.middlewares.chronicle-web-cors.headers.accessControlAllowCredentials=true"
       - "traefik.http.middlewares.chronicle-web-cors.headers.accessControlMaxAge=86400"
 
@@ -201,6 +201,7 @@ services:
       - "traefik.http.middlewares.chronicle-web-headers.headers.referrerPolicy=strict-origin-when-cross-origin"
       - "traefik.http.middlewares.chronicle-web-headers.headers.stsSeconds=31536000"
       - "traefik.http.middlewares.chronicle-web-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.chronicle-web-headers.headers.contentSecurityPolicy=default-src 'none'; frame-ancestors 'none'"
 
       # ===========================================
       # BLOCK direct backend access
@@ -259,6 +260,7 @@ services:
       - "traefik.http.middlewares.chronicle-frontend-headers.headers.referrerPolicy=strict-origin-when-cross-origin"
       - "traefik.http.middlewares.chronicle-frontend-headers.headers.stsSeconds=31536000"
       - "traefik.http.middlewares.chronicle-frontend-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.chronicle-frontend-headers.headers.contentSecurityPolicy=default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'"
 
   # ===========================================
   # MONITORING: Prometheus + Grafana
