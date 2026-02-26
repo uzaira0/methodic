@@ -98,6 +98,10 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-noreply@example.com}
       SMTP_ENABLED: ${SMTP_ENABLED:-false}
+      # Mobile API signing configuration
+      MOBILE_SIGNING_SECRET: ${MOBILE_SIGNING_SECRET:-}
+      MOBILE_SIGNING_ENABLED: ${MOBILE_SIGNING_ENABLED:-false}
+      MOBILE_SIGNING_REQUIRED: ${MOBILE_SIGNING_REQUIRED:-false}
       # Audit log directory for HIPAA compliance
       # Logs are written in JSON format for SIEM integration
       AUDIT_LOG_DIR: /var/log/chronicle
@@ -112,12 +116,14 @@ services:
       - ./rhizome-docker.yaml.template:/server/config/rhizome.yaml.template:ro,z
       - ./auth0.yaml.template:/server/config/auth0.yaml.template:ro,z
       - ./mail.yaml.template:/server/config/mail.yaml.template:ro,z
+      - ./mobile-security.yaml.template:/server/config/mobile-security.yaml.template:ro,z
     # Render config templates from env vars, then start Java with /server/config on classpath
     command: >-
       sh -c '
       envsubst < /server/config/rhizome.yaml.template > /server/config/rhizome.yaml &&
       envsubst < /server/config/auth0.yaml.template > /server/config/auth0.yaml &&
       envsubst < /server/config/mail.yaml.template > /server/config/mail.yaml &&
+      envsubst < /server/config/mobile-security.yaml.template > /server/config/mobile-security.yaml &&
       exec java $$CHRONICLE_SERVER_XMS $$CHRONICLE_SERVER_XMX
       -cp "/server/config:/server/lib/*"
       com.openlattice.chronicle.ChronicleServer local postgres medialocal'

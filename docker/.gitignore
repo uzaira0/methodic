@@ -3,6 +3,7 @@
 rhizome-docker.yaml
 auth0.yaml
 mail.yaml
+mobile-security.yaml
 chronicle-config.json
 
 # SSL/TLS private keys
