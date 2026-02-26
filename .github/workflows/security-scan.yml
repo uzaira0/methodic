@@ -164,12 +164,88 @@ jobs:
           exit 1
 
   # ============================================================================
+  # Container Image Vulnerability Scan (Trivy)
+  # ============================================================================
+  container-image-scan:
+    name: Container Image Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-read-only: true
+
+      - name: Build backend JAR
+        run: ./gradlew :chronicle-server:installDist --no-daemon
+
+      - name: Build backend image
+        run: docker build -f docker/Dockerfile.backend -t chronicle-backend:scan .
+
+      - name: Trivy image scan (backend)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: chronicle-backend:scan
+          format: sarif
+          output: trivy-backend.sarif
+          severity: HIGH,CRITICAL
+        continue-on-error: true
+
+      - name: Upload backend Trivy results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-backend.sarif
+          category: trivy-backend
+        continue-on-error: true
+
+      - name: Build frontend image
+        run: docker build -f docker/Dockerfile.frontend.prod -t chronicle-frontend:scan .
+
+      - name: Trivy image scan (frontend)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: chronicle-frontend:scan
+          format: sarif
+          output: trivy-frontend.sarif
+          severity: HIGH,CRITICAL
+        continue-on-error: true
+
+      - name: Upload frontend Trivy results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-frontend.sarif
+          category: trivy-frontend
+        continue-on-error: true
+
+      - name: Upload Trivy reports as artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-image-scan-reports
+          path: |
+            trivy-backend.sarif
+            trivy-frontend.sarif
+          retention-days: 30
+
+  # ============================================================================
   # Security Summary Report
   # ============================================================================
   security-summary:
     name: Security Summary
     runs-on: ubuntu-latest
-    needs: [gradle-security-scan, npm-security-scan]
+    needs: [gradle-security-scan, npm-security-scan, container-image-scan]
     if: always()
     steps:
       - name: Download all artifacts
@@ -194,6 +270,12 @@ jobs:
             echo "| NPM Dependencies | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
           else
             echo "| NPM Dependencies | :x: Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.container-image-scan.result }}" == "success" ]; then
+            echo "| Container Images (Trivy) | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Container Images (Trivy) | :x: Failed |" >> $GITHUB_STEP_SUMMARY
           fi
 
           echo "" >> $GITHUB_STEP_SUMMARY

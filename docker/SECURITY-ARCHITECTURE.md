@@ -814,26 +814,26 @@ enum class AuditAction {
 
 ### Chronicle Security Posture
 
-| Layer | Current State | Gap | Risk |
-|-------|---------------|-----|------|
+| Layer | Current State | Remaining Gaps | Risk |
+|-------|---------------|----------------|------|
 | 0: External | None | No DDoS protection | Medium |
-| 1: Perimeter | nginx/Traefik (basic) | No WAF | High |
-| 2: API Gateway | nginx header check | No schema validation, weak API key validation | High |
-| 3: Network | Docker internal network | Basic isolation, no microsegmentation | Medium |
-| 4: Container | Docker | No runtime security, no image scanning | Medium |
-| 5: Service Mesh | None | N/A (monolith architecture) | N/A |
-| 6: Application | Minimal validation | No Bean Validation, manual auth checks | Critical |
-| 7: Data | PostgreSQL with pg_tde TDE | Encryption at rest IMPLEMENTED, no RLS, no column encryption | Medium |
-| Cross-cutting | Minimal | No secrets vault (Vault supported for TDE keys), limited audit logging | High |
+| 1: Perimeter | Traefik with rate limiting, security headers, CSP | No WAF | Low |
+| 2: API Gateway | Traefik path-based routing, CORS, HMAC signing for mobile | No schema validation at gateway | Low |
+| 3: Network | Docker internal network, SSRF prevention | Basic isolation, no microsegmentation | Medium |
+| 4: Container | Docker, Trivy image scanning in CI | No runtime security | Low |
+| 5: Service Mesh | N/A | N/A (monolith architecture) | N/A |
+| 6: Application | Bean Validation, RBAC auth checks, Jackson hardening, request validation | — | Low |
+| 7: Data | pg_tde TDE, SSL/TLS in transit, RLS (17 tables), parameterized queries | No column-level encryption (mitigated by TDE) | Low |
+| Cross-cutting | Dual-write audit logging (DB + file), Prometheus + Grafana + AlertManager monitoring, CVE scanning | No secrets vault in production | Low |
 
 ### Validation Current State
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| Jackson (JSON parsing) | ✅ Used | Extensive @JsonProperty annotations |
-| Bean Validation | ❌ Not used | No @Valid, @NotNull, @NotBlank |
-| Custom Validation | Partial | Scattered require(), check() calls |
-| Gateway Schema Validation | ❌ Not used | Only header presence check |
+| Jackson (JSON parsing) | ✅ Hardened | @JsonProperty annotations, polymorphic type restrictions |
+| Bean Validation | ✅ Implemented | @Valid, @NotNull, @NotBlank on DTOs and controllers |
+| Custom Validation | ✅ Implemented | SQL identifier allowlist, null byte rejection, request validation |
+| Gateway Schema Validation | Partial | Traefik path-based routing + rate limiting; no full schema validation at gateway |
 
 ---
 
@@ -841,57 +841,60 @@ enum class AuditAction {
 
 ### For HIPAA/GDPR Compliance
 
-| Priority | Layer | Action | Effort |
+| Priority | Layer | Action | Status |
 |----------|-------|--------|--------|
-| **P0** | Application | Add Bean Validation to DTOs and controllers | Medium |
-| **P0** | Application | Implement proper authorization checks | Medium |
-| **P0** | Application | Add comprehensive audit logging | Medium |
+| ~~**P0**~~ | ~~Application~~ | ~~Add Bean Validation to DTOs and controllers~~ | ~~COMPLETED~~ |
+| ~~**P0**~~ | ~~Application~~ | ~~Implement proper authorization checks~~ | ~~COMPLETED~~ |
+| ~~**P0**~~ | ~~Application~~ | ~~Add comprehensive audit logging~~ | ~~COMPLETED~~ |
 | ~~**P0**~~ | ~~Data~~ | ~~Enable encryption at rest~~ | ~~COMPLETED~~ |
-| **P1** | Data | Implement row-level security | Medium |
-| **P1** | API Gateway | Add schema validation (Kong or nginx) | Medium |
-| **P1** | API Gateway | Proper API key management | Low |
-| **P1** | Cross-cutting | Implement secrets management (Vault) | Medium |
-| **P2** | Perimeter | Add WAF | Low |
-| **P2** | Data | Column-level encryption for PII | High |
-| **P2** | Network | Proper subnet isolation | Medium |
-| **P3** | External | DDoS protection | Low |
-| **P3** | Container | Image scanning, runtime security | Medium |
+| ~~**P1**~~ | ~~Data~~ | ~~Implement row-level security~~ | ~~COMPLETED (17 tables)~~ |
+| **P1** | API Gateway | Add schema validation (Kong or nginx) | Open |
+| ~~**P1**~~ | ~~API Gateway~~ | ~~Proper API key management + HMAC signing~~ | ~~COMPLETED~~ |
+| **P1** | Cross-cutting | Implement secrets management (Vault) | Open |
+| **P2** | Perimeter | Add WAF | Open |
+| ~~**P2**~~ | ~~Data~~ | ~~Column-level encryption for PII~~ | ~~Skipped (TDE covers full rows)~~ |
+| **P2** | Network | Proper subnet isolation | Open |
+| **P3** | External | DDoS protection | Open |
+| ~~**P3**~~ | ~~Container~~ | ~~Image scanning~~ | ~~COMPLETED (Trivy in CI)~~ |
 
 ### Quick Wins
 
 1. ~~**Enable PostgreSQL encryption at rest**~~ - COMPLETED: Using Percona pg_tde with TDE
-2. **Add Bean Validation annotations** - Declarative, easy to add
-3. **Add @Valid to @RequestBody parameters** - One-line changes
-4. **Improve audit logging** - Add structured logging for PHI access
-5. **API key validation in backend** - Verify key value, not just presence
+2. ~~**Add Bean Validation annotations**~~ - COMPLETED: @NotNull, @NotBlank, @Size on DTOs
+3. ~~**Add @Valid to @RequestBody parameters**~~ - COMPLETED: All controllers annotated
+4. ~~**Improve audit logging**~~ - COMPLETED: Dual-write (DB + file), JSON format for SIEM
+5. ~~**API key validation in backend**~~ - COMPLETED: HMAC signing + replay prevention
 
 ### Implementation Sequence
 
 ```
-Phase 1: Application Security (Critical for Compliance)
-├── Add Bean Validation to all DTOs
-├── Add @Valid to all @RequestBody parameters
-├── Implement proper authorization service
-├── Add audit logging for PHI access
-└── Estimated effort: 2-3 weeks
+Phase 1: Application Security — COMPLETED
+├── ✓ Bean Validation on all DTOs
+├── ✓ @Valid on all @RequestBody parameters
+├── ✓ RBAC authorization service
+├── ✓ Dual-write audit logging (DB + file)
+└── ✓ Jackson hardening, request validation, SSRF prevention
 
-Phase 2: Data Security
-├── ~~Enable PostgreSQL encryption at rest~~ - COMPLETED (pg_tde)
-├── Implement row-level security policies
-├── Add column encryption for PII fields
-└── Estimated effort: 1-2 weeks (reduced due to TDE completion)
+Phase 2: Data Security — COMPLETED
+├── ✓ PostgreSQL encryption at rest (pg_tde)
+├── ✓ PostgreSQL SSL/TLS (encryption in transit)
+├── ✓ Row-level security (17 tables)
+├── — Column encryption skipped (TDE covers full rows)
+└── ✓ SQL identifier allowlist validation
 
-Phase 3: Infrastructure Security
-├── Add Kong API Gateway with schema validation
-├── Implement Vault for secrets management
-├── Add WAF rules
-└── Estimated effort: 2-3 weeks
+Phase 3: Infrastructure Security — PARTIAL
+├── — API gateway schema validation (open)
+├── — Vault for secrets management (open, file-based TDE keys in use)
+├── — WAF rules (open)
+├── ✓ Rate limiting (Traefik + Bucket4j)
+└── ✓ CORS, CSP, security headers
 
-Phase 4: Advanced Security
-├── Container security (scanning, runtime)
-├── Network microsegmentation
-├── SIEM integration
-└── Estimated effort: 2-4 weeks
+Phase 4: Advanced Security — PARTIAL
+├── ✓ Container image scanning (Trivy in CI)
+├── — Container runtime security (open)
+├── — Network microsegmentation (open)
+├── ✓ SIEM integration (Loki + Promtail + Grafana audit dashboard)
+└── ✓ Prometheus alerting (AlertManager)
 ```
 
 ---
