@@ -73,7 +73,7 @@ setup_file_key_provider() {
         BEGIN
             -- Check if key provider already exists
             IF NOT EXISTS (
-                SELECT 1 FROM pg_tde_list_key_providers()
+                SELECT 1 FROM pg_tde_list_all_database_key_providers()
                 WHERE provider_name = 'chronicle-file-vault'
             ) THEN
                 PERFORM pg_tde_add_database_key_provider_file(
@@ -141,7 +141,7 @@ setup_vault_key_provider() {
         DO \$\$
         BEGIN
             IF NOT EXISTS (
-                SELECT 1 FROM pg_tde_list_key_providers()
+                SELECT 1 FROM pg_tde_list_all_database_key_providers()
                 WHERE provider_name = 'chronicle-vault'
             ) THEN
                 PERFORM pg_tde_add_database_key_provider_vault_v2(
@@ -191,7 +191,7 @@ verify_encryption() {
 
     psql -v ON_ERROR_STOP=1 --username "${POSTGRES_USER:-postgres}" --dbname "${POSTGRES_DB}" <<-EOSQL
         -- List key providers
-        SELECT * FROM pg_tde_list_key_providers();
+        SELECT * FROM pg_tde_list_all_database_key_providers();
 
         -- List encryption keys
         SELECT * FROM pg_tde_list_all_keys();
@@ -209,7 +209,7 @@ verify_encryption() {
         ON CONFLICT DO NOTHING;
 
         -- Verify table is encrypted
-        SELECT pgtde_is_encrypted('_tde_verification_test') AS is_encrypted;
+        SELECT pg_tde_is_encrypted('_tde_verification_test'::regclass) AS is_encrypted;
 
         -- Clean up test table
         DROP TABLE IF EXISTS _tde_verification_test;

@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Chronicle + Apache Kafka Stack
 #
 # Self-hosted event streaming for audit logs.

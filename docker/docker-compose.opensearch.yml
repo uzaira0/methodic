@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Chronicle + OpenSearch Stack
 #
 # Self-hosted Elasticsearch-compatible log aggregation.
