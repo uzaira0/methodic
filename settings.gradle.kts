@@ -1,13 +1,13 @@
 pluginManagement {
     plugins {
-        kotlin("jvm")                               version "1.8.20" apply false
+        kotlin("jvm")                               version "2.1.0" apply false
 
-        id("org.jetbrains.dokka")                       version "1.8.10" apply false
-        id("com.github.spotbugs")                       version "5.0.14" apply false
+        id("org.jetbrains.dokka")                       version "2.0.0" apply false
+        id("com.github.spotbugs")                       version "6.1.10" apply false
         id("org.owasp.dependencycheck")                 version "6.0.1" apply false
         id("org.hidetake.swagger.generator")            version "2.18.2" apply false
         id("com.github.johnrengelman.shadow")           version "2.0.0" apply false
-        id("org.jetbrains.kotlin.plugin.spring")        version "1.8.20" apply false
+        id("org.jetbrains.kotlin.plugin.spring")        version "2.1.0" apply false
         id("com.github.jk1.dependency-license-report")  version "1.16" apply false
 
         id("idea")
