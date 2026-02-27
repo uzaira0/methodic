@@ -117,8 +117,6 @@ services:
       - ./auth0.yaml.template:/server/config/auth0.yaml.template:ro,z
       - ./mail.yaml.template:/server/config/mail.yaml.template:ro,z
       - ./mobile-security.yaml.template:/server/config/mobile-security.yaml.template:ro,z
-      # Jetty server config (HTTP/2 disabled for Phase 1 — perimeter firewall compatibility)
-      - ./jetty.yaml:/server/config/jetty.yaml:ro,z
     # Render config templates from env vars, then start Java with /server/config on classpath
     command: >-
       sh -c '
