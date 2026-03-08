@@ -1,8 +1,8 @@
 # CORS Configuration
 # Rendered by envsubst at container startup
-cors:
-  allowedOrigins:
-    - "https://${DOMAIN}"
-    - "http://${DOMAIN}"
-    # EXT_DOMAIN is optional — backend CORS filter should ignore empty strings
-    - "https://${EXT_DOMAIN}"
+# Note: flat structure (no wrapper key) — Jackson deserializes directly into CorsConfiguration
+allowedOrigins:
+  - "https://${DOMAIN}"
+  - "http://${DOMAIN}"
+  # EXT_DOMAIN is optional — backend CORS filter should ignore empty strings
+  - "https://${EXT_DOMAIN}"
