@@ -22,3 +22,9 @@ methodic-keys.gpg-key
 npm-audit-report.json
 npm-audit-output.txt
 audit-report.json
+
+# Backups (contain encrypted secrets and database dumps)
+backups/
+
+# Claude Code local config
+.claude/
