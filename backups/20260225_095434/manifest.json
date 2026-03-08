@@ -1,9 +1,0 @@
-{
-    "timestamp": "2026-02-25T09:54:34-06:00",
-    "backup_dir": "20260225_095434",
-    "database_size": "17 MB",
-    "table_count": 37,
-    "tde_encrypted_tables": 15,
-    "retention_tags": ["daily"],
-    "checksums": {"audit-logs.tar.gz.enc":"fa034488c1d57bec1f1e98fd0732f2835e55ca811e70e106597c6d661e73ad5b","config-secrets.tar.gz.enc":"37e1b305a610c5fb266a31613741c8f909c95b6e490730a756cd4810b26d3853","database.dump.enc":"7b84fbf712f058cd39a82d3e7448853ede0a83171dc6b71a1f2ecc1f67fd0782","tde-keyring.tar.gz.enc":"7af1a8c9def213b88fbb3b1c149cef31f4c6daa48d61ed0759e1946369bf6eec"}
-}
