@@ -16,6 +16,8 @@ route:
 
 receivers:
   - name: default
+    # WARNING: No receivers configured — alerts will be silently discarded.
+    # Configure at least one receiver before production deployment.
     webhook_configs: []
     # To enable email alerts, uncomment and configure:
     # email_configs:

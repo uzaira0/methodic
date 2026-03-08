@@ -46,6 +46,8 @@ services:
       - ./postgres-ssl/server/server.crt:/var/lib/postgresql/ssl/server.crt:ro,z
       - ./postgres-ssl/server/server.key:/var/lib/postgresql/ssl/server.key:ro,z
       - ./postgres-ssl/ca/ca.crt:/var/lib/postgresql/ssl/ca.crt:ro,z
+      # H-9: Mount custom pg_hba.conf to enforce SSL for external connections
+      - ./postgres-ssl/pg_hba-ssl.conf:/pgdata/data/pg_hba.conf:ro,z
     networks:
       - chronicle-internal
     healthcheck:
@@ -102,6 +104,10 @@ services:
       MOBILE_SIGNING_SECRET: ${MOBILE_SIGNING_SECRET:-}
       MOBILE_SIGNING_ENABLED: ${MOBILE_SIGNING_ENABLED:-false}
       MOBILE_SIGNING_REQUIRED: ${MOBILE_SIGNING_REQUIRED:-false}
+      # HashiCorp Vault integration (optional — set VAULT_ENABLED=true to activate)
+      VAULT_ADDR: ${VAULT_ADDR:-http://vault:8200}
+      VAULT_TOKEN: ${VAULT_TOKEN:-}
+      VAULT_ENABLED: ${VAULT_ENABLED:-false}
       # Audit log directory for HIPAA compliance
       # Logs are written in JSON format for SIEM integration
       AUDIT_LOG_DIR: /var/log/chronicle
@@ -117,13 +123,24 @@ services:
       - ./auth0.yaml.template:/server/config/auth0.yaml.template:ro,z
       - ./mail.yaml.template:/server/config/mail.yaml.template:ro,z
       - ./mobile-security.yaml.template:/server/config/mobile-security.yaml.template:ro,z
+      - ./vault.yaml.template:/server/config/vault.yaml.template:ro,z
+      - ./cors.yaml.template:/server/config/cors.yaml.template:ro,z
     # Render config templates from env vars, then start Java with /server/config on classpath
     command: >-
       sh -c '
+      if [ "$$VAULT_ENABLED" = "true" ] && [ -z "$$VAULT_TOKEN" ]; then
+        echo "FATAL: VAULT_ENABLED=true but VAULT_TOKEN is not set" >&2; exit 1;
+      fi &&
+      if [ "$$MOBILE_SIGNING_ENABLED" = "true" ] && [ -z "$$MOBILE_SIGNING_SECRET" ]; then
+        echo "FATAL: MOBILE_SIGNING_ENABLED=true but MOBILE_SIGNING_SECRET is not set" >&2; exit 1;
+      fi &&
       envsubst < /server/config/rhizome.yaml.template > /server/config/rhizome.yaml &&
       envsubst < /server/config/auth0.yaml.template > /server/config/auth0.yaml &&
       envsubst < /server/config/mail.yaml.template > /server/config/mail.yaml &&
       envsubst < /server/config/mobile-security.yaml.template > /server/config/mobile-security.yaml &&
+      envsubst < /server/config/vault.yaml.template > /server/config/vault.yaml &&
+      envsubst < /server/config/cors.yaml.template > /server/config/cors.yaml &&
+      sed -i "/\"https:\\/\\/\"[[:space:]]*$/d" /server/config/cors.yaml &&
       exec java $$CHRONICLE_SERVER_XMS $$CHRONICLE_SERVER_XMX
       -cp "/server/config:/server/lib/*"
       com.openlattice.chronicle.ChronicleServer local postgres medialocal'
@@ -164,10 +181,12 @@ services:
       - "traefik.http.middlewares.chronicle-mobile-ratelimit.ratelimit.average=5"
       - "traefik.http.middlewares.chronicle-mobile-ratelimit.ratelimit.burst=10"
 
-      # CORS for mobile (allow all origins)
+      # H-8: CORS for mobile — removed wildcard origin (mobile apps don't use CORS)
+      # Native mobile apps make direct HTTP requests, not browser cross-origin requests.
+      # Only allow the app's own domain to prevent browser-based CSRF attacks.
       - "traefik.http.middlewares.chronicle-mobile-cors.headers.accessControlAllowMethods=GET,POST,OPTIONS"
-      - "traefik.http.middlewares.chronicle-mobile-cors.headers.accessControlAllowHeaders=X-Chronicle-App-Key,Content-Type,Accept"
-      - "traefik.http.middlewares.chronicle-mobile-cors.headers.accessControlAllowOriginList=*"
+      - "traefik.http.middlewares.chronicle-mobile-cors.headers.accessControlAllowHeaders=X-Chronicle-App-Key,Content-Type,Accept,X-Chronicle-Signature,X-Chronicle-Timestamp,X-Chronicle-Nonce"
+      - "traefik.http.middlewares.chronicle-mobile-cors.headers.accessControlAllowOriginList=https://${DOMAIN}"
       - "traefik.http.middlewares.chronicle-mobile-cors.headers.accessControlMaxAge=86400"
 
       # Security headers for mobile
@@ -223,6 +242,74 @@ services:
       - "traefik.http.middlewares.chronicle-block-response.replacepathregex.regex=.*"
       - "traefik.http.middlewares.chronicle-block-response.replacepathregex.replacement=/blocked-route-not-found"
 
+      # ===========================================
+      # EXTERNAL DOMAIN: Mobile API
+      # Parallel routers for ${EXT_DOMAIN} with TLS
+      # ===========================================
+      - "traefik.http.routers.chronicle-ext-mobile.rule=Host(`${EXT_DOMAIN}`) && (PathPrefix(`/chronicle/v3/`) || PathPrefix(`/chronicle/v2/`) || PathPrefix(`/chronicle/study/`) || PathPrefix(`/chronicle/limits/`))"
+      - "traefik.http.routers.chronicle-ext-mobile.entrypoints=websecure"
+      - "traefik.http.routers.chronicle-ext-mobile.tls=true"
+      - "traefik.http.routers.chronicle-ext-mobile.priority=20"
+      - "traefik.http.routers.chronicle-ext-mobile.service=chronicle-backend"
+      - "traefik.http.routers.chronicle-ext-mobile.middlewares=chronicle-ext-mobile-ratelimit,chronicle-ext-mobile-headers,chronicle-ext-mobile-cors"
+
+      # Rate limit for external mobile (3 req/s, burst 8)
+      - "traefik.http.middlewares.chronicle-ext-mobile-ratelimit.ratelimit.average=3"
+      - "traefik.http.middlewares.chronicle-ext-mobile-ratelimit.ratelimit.burst=8"
+
+      # CORS for external mobile
+      - "traefik.http.middlewares.chronicle-ext-mobile-cors.headers.accessControlAllowMethods=GET,POST,OPTIONS"
+      - "traefik.http.middlewares.chronicle-ext-mobile-cors.headers.accessControlAllowHeaders=X-Chronicle-App-Key,Content-Type,Accept,X-Chronicle-Signature,X-Chronicle-Timestamp,X-Chronicle-Nonce"
+      - "traefik.http.middlewares.chronicle-ext-mobile-cors.headers.accessControlAllowOriginList=https://${EXT_DOMAIN}"
+      - "traefik.http.middlewares.chronicle-ext-mobile-cors.headers.accessControlMaxAge=86400"
+
+      # Security headers for external mobile (with HSTS)
+      - "traefik.http.middlewares.chronicle-ext-mobile-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.chronicle-ext-mobile-headers.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.chronicle-ext-mobile-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.chronicle-ext-mobile-headers.headers.stsIncludeSubdomains=true"
+
+      # ===========================================
+      # EXTERNAL DOMAIN: Web API
+      # ===========================================
+      - "traefik.http.routers.chronicle-ext-web.rule=Host(`${EXT_DOMAIN}`) && PathPrefix(`/chronicle/api/web/`)"
+      - "traefik.http.routers.chronicle-ext-web.entrypoints=websecure"
+      - "traefik.http.routers.chronicle-ext-web.tls=true"
+      - "traefik.http.routers.chronicle-ext-web.priority=20"
+      - "traefik.http.routers.chronicle-ext-web.service=chronicle-backend"
+      - "traefik.http.routers.chronicle-ext-web.middlewares=chronicle-web-strip,chronicle-ext-web-ratelimit,chronicle-web-headers,chronicle-ext-web-cors"
+
+      # Rate limit for external web (15 req/s, burst 25)
+      - "traefik.http.middlewares.chronicle-ext-web-ratelimit.ratelimit.average=15"
+      - "traefik.http.middlewares.chronicle-ext-web-ratelimit.ratelimit.burst=25"
+
+      # CORS for external web
+      - "traefik.http.middlewares.chronicle-ext-web-cors.headers.accessControlAllowMethods=GET,POST,PUT,DELETE,PATCH,OPTIONS"
+      - "traefik.http.middlewares.chronicle-ext-web-cors.headers.accessControlAllowHeaders=Authorization,Content-Type,X-Requested-With,Accept,Origin"
+      - "traefik.http.middlewares.chronicle-ext-web-cors.headers.accessControlAllowOriginList=https://${EXT_DOMAIN}"
+      - "traefik.http.middlewares.chronicle-ext-web-cors.headers.accessControlAllowCredentials=true"
+      - "traefik.http.middlewares.chronicle-ext-web-cors.headers.accessControlMaxAge=86400"
+
+      # Reuses chronicle-web-headers (identical security headers including HSTS)
+
+      # ===========================================
+      # EXTERNAL DOMAIN: Block sensitive endpoints
+      # ===========================================
+      - "traefik.http.routers.chronicle-ext-block.rule=Host(`${EXT_DOMAIN}`) && (PathPrefix(`/chronicle/datastore/`) || PathPrefix(`/chronicle/principal/`) || PathPrefix(`/prometheus/`) || PathPrefix(`/grafana`))"
+      - "traefik.http.routers.chronicle-ext-block.entrypoints=websecure"
+      - "traefik.http.routers.chronicle-ext-block.tls=true"
+      - "traefik.http.routers.chronicle-ext-block.priority=25"
+      - "traefik.http.routers.chronicle-ext-block.service=chronicle-backend"
+      - "traefik.http.routers.chronicle-ext-block.middlewares=chronicle-block-response"
+
+      # Block config.json on external domain
+      - "traefik.http.routers.chronicle-ext-config-block.rule=Host(`${EXT_DOMAIN}`) && Path(`/chronicle/config.json`)"
+      - "traefik.http.routers.chronicle-ext-config-block.entrypoints=websecure"
+      - "traefik.http.routers.chronicle-ext-config-block.tls=true"
+      - "traefik.http.routers.chronicle-ext-config-block.priority=30"
+      - "traefik.http.routers.chronicle-ext-config-block.service=chronicle-backend"
+      - "traefik.http.routers.chronicle-ext-config-block.middlewares=chronicle-block-response"
+
   chronicle-frontend:
     build:
       context: ..
@@ -259,6 +346,15 @@ services:
       # Strip /chronicle prefix so nginx serves from /
       - "traefik.http.middlewares.chronicle-frontend-strip.stripprefix.prefixes=/chronicle"
 
+      # IP-restrict /chronicle/config.json (C-2: admin JWT publicly accessible)
+      # Only allow access from internal Docker networks and localhost
+      - "traefik.http.routers.chronicle-config-json.rule=Host(`${DOMAIN}`) && Path(`/chronicle/config.json`)"
+      - "traefik.http.routers.chronicle-config-json.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.chronicle-config-json.priority=30"
+      - "traefik.http.routers.chronicle-config-json.service=chronicle-frontend"
+      - "traefik.http.routers.chronicle-config-json.middlewares=chronicle-internal-only,chronicle-frontend-strip"
+      - "traefik.http.middlewares.chronicle-internal-only.ipallowlist.sourcerange=127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+
       # Security headers for frontend
       - "traefik.http.middlewares.chronicle-frontend-headers.headers.frameDeny=true"
       - "traefik.http.middlewares.chronicle-frontend-headers.headers.contentTypeNosniff=true"
@@ -267,6 +363,36 @@ services:
       - "traefik.http.middlewares.chronicle-frontend-headers.headers.stsSeconds=31536000"
       - "traefik.http.middlewares.chronicle-frontend-headers.headers.stsIncludeSubdomains=true"
       - "traefik.http.middlewares.chronicle-frontend-headers.headers.contentSecurityPolicy=default-src 'self'; script-src 'self' 'sha256-u5x2jPc3qq6tXCxclhc2AsfuAh6gqS+FdKid5mVKr8U=' https://www.googletagmanager.com https://www.google-analytics.com; style-src 'self' 'unsafe-inline' https://rsms.me; img-src 'self' data: https://www.google-analytics.com; font-src 'self' https://rsms.me; connect-src 'self' https://www.google-analytics.com https://www.googletagmanager.com; frame-ancestors 'none'"
+
+      # ===========================================
+      # EXTERNAL DOMAIN: Frontend
+      # ===========================================
+      - "traefik.http.routers.chronicle-ext-frontend.rule=Host(`${EXT_DOMAIN}`) && PathPrefix(`/chronicle`)"
+      - "traefik.http.routers.chronicle-ext-frontend.entrypoints=websecure"
+      - "traefik.http.routers.chronicle-ext-frontend.tls=true"
+      - "traefik.http.routers.chronicle-ext-frontend.priority=1"
+      - "traefik.http.routers.chronicle-ext-frontend.service=chronicle-frontend"
+      # Reuses chronicle-frontend-strip and chronicle-frontend-headers (identical security headers including HSTS)
+      - "traefik.http.routers.chronicle-ext-frontend.middlewares=chronicle-frontend-strip,chronicle-frontend-headers"
+
+      # Root redirect: / → /chronicle
+      - "traefik.http.routers.chronicle-ext-root.rule=Host(`${EXT_DOMAIN}`) && Path(`/`)"
+      - "traefik.http.routers.chronicle-ext-root.entrypoints=websecure"
+      - "traefik.http.routers.chronicle-ext-root.tls=true"
+      - "traefik.http.routers.chronicle-ext-root.priority=5"
+      - "traefik.http.routers.chronicle-ext-root.middlewares=chronicle-ext-root-redirect"
+      - "traefik.http.routers.chronicle-ext-root.service=chronicle-frontend"
+      - "traefik.http.middlewares.chronicle-ext-root-redirect.redirectregex.regex=^https?://[^/]+/?$$"
+      - "traefik.http.middlewares.chronicle-ext-root-redirect.redirectregex.replacement=https://${EXT_DOMAIN}/chronicle"
+      - "traefik.http.middlewares.chronicle-ext-root-redirect.redirectregex.permanent=false"
+
+      # HTTP→HTTPS redirect for external domain
+      - "traefik.http.routers.chronicle-ext-http-redirect.rule=Host(`${EXT_DOMAIN}`)"
+      - "traefik.http.routers.chronicle-ext-http-redirect.entrypoints=web"
+      - "traefik.http.routers.chronicle-ext-http-redirect.middlewares=chronicle-ext-redirect-https"
+      - "traefik.http.routers.chronicle-ext-http-redirect.service=chronicle-frontend"
+      - "traefik.http.middlewares.chronicle-ext-redirect-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.chronicle-ext-redirect-https.redirectscheme.permanent=true"
 
   # ===========================================
   # MONITORING: Prometheus + Grafana
@@ -347,7 +473,7 @@ services:
     environment:
       GF_SERVER_ROOT_URL: /grafana
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana_data:/var/lib/grafana
@@ -371,6 +497,8 @@ services:
       - "traefik.http.routers.chronicle-grafana.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
       - "traefik.http.routers.chronicle-grafana.priority=10"
       - "traefik.http.services.chronicle-grafana.loadbalancer.server.port=3000"
+      # IP-restrict Grafana (C-8: prevent public access to metrics/audit logs)
+      - "traefik.http.routers.chronicle-grafana.middlewares=chronicle-internal-only@docker"
 
 networks:
   chronicle-internal:

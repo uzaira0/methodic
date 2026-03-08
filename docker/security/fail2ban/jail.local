@@ -1,0 +1,43 @@
+# Fail2ban configuration for Chronicle
+# Monitors Traefik access logs for rate-limited (429) and unauthorized (401) responses
+
+[DEFAULT]
+# Ban duration: 1 hour
+bantime = 3600
+# Detection window: 10 minutes
+findtime = 600
+# Max retries before ban
+maxretry = 10
+# Ban action: use Docker network iptables
+banaction = iptables-multiport
+# Log backend: auto-detect
+backend = auto
+# Ignore local IPs
+ignoreip = 127.0.0.1/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+
+[chronicle-ratelimit]
+enabled = true
+filter = chronicle-ratelimit
+logpath = /var/log/traefik/access.log
+# After 20 rate-limited responses in 10 minutes, ban for 1 hour
+maxretry = 20
+findtime = 600
+bantime = 3600
+
+[chronicle-auth-bruteforce]
+enabled = true
+filter = chronicle-auth-bruteforce
+logpath = /var/log/traefik/access.log
+# After 10 failed auth attempts in 5 minutes, ban for 2 hours
+maxretry = 10
+findtime = 300
+bantime = 7200
+
+[chronicle-scanner]
+enabled = true
+filter = chronicle-scanner
+logpath = /var/log/traefik/access.log
+# After 30 404s in 5 minutes (path scanning), ban for 4 hours
+maxretry = 30
+findtime = 300
+bantime = 14400

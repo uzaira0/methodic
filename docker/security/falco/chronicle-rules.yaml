@@ -1,0 +1,105 @@
+# Falco custom rules for Chronicle deployment
+# Monitors container runtime for suspicious behavior
+
+# Rule: Detect shell spawned in application containers
+- rule: Shell Spawned in Chronicle Container
+  desc: A shell was spawned inside a Chronicle application container
+  condition: >
+    spawned_process and
+    container and
+    container.name in (chronicle-backend, chronicle-frontend, chronicle-postgres) and
+    proc.name in (bash, sh, dash, ash, zsh, ksh, csh)
+  output: >
+    Shell spawned in Chronicle container
+    (user=%user.name container=%container.name shell=%proc.name
+    parent=%proc.pname cmdline=%proc.cmdline)
+  priority: WARNING
+  tags: [container, shell, chronicle]
+
+# Rule: Detect unexpected network connections from backend
+- rule: Chronicle Backend Unexpected Outbound Connection
+  desc: >
+    Chronicle backend made an outbound connection to an unexpected destination.
+    Expected destinations: postgres (5432), Prometheus (9090), Loki (3100)
+  condition: >
+    outbound and
+    container.name = chronicle-backend and
+    not (fd.sport in (5432, 9090, 3100, 8200) or fd.sip = "127.0.0.1")
+  output: >
+    Unexpected outbound connection from Chronicle backend
+    (dest=%fd.sip:%fd.sport container=%container.name proc=%proc.name)
+  priority: NOTICE
+  tags: [container, network, chronicle]
+
+# Rule: Detect file writes in read-only paths
+- rule: Chronicle Container Write to System Paths
+  desc: Write attempt to system directories in Chronicle containers
+  condition: >
+    open_write and
+    container and
+    container.name in (chronicle-backend, chronicle-frontend) and
+    (fd.name startswith /etc/ or fd.name startswith /usr/ or fd.name startswith /bin/)
+  output: >
+    File write in system directory
+    (user=%user.name file=%fd.name container=%container.name proc=%proc.name)
+  priority: ERROR
+  tags: [container, filesystem, chronicle]
+
+# Rule: Detect database credential access
+- rule: Chronicle Secrets File Access
+  desc: Access to files that may contain secrets
+  condition: >
+    open_read and
+    container and
+    (fd.name contains "password" or fd.name contains "secret" or
+     fd.name contains ".env" or fd.name contains "credentials") and
+    not proc.name in (java, envsubst, sh)
+  output: >
+    Potential secrets file access
+    (user=%user.name file=%fd.name container=%container.name proc=%proc.name)
+  priority: WARNING
+  tags: [container, secrets, chronicle]
+
+# Rule: Detect privilege escalation attempts
+- rule: Chronicle Container Privilege Escalation
+  desc: Privilege escalation attempt in Chronicle container
+  condition: >
+    spawned_process and
+    container and
+    container.name in (chronicle-backend, chronicle-frontend, chronicle-postgres) and
+    proc.name in (sudo, su, setuid, setgid, newgrp)
+  output: >
+    Privilege escalation attempt in Chronicle container
+    (user=%user.name container=%container.name proc=%proc.name cmdline=%proc.cmdline)
+  priority: CRITICAL
+  tags: [container, privilege_escalation, chronicle]
+
+# Rule: Detect package manager in running containers
+- rule: Package Manager in Chronicle Container
+  desc: Package manager invoked in running Chronicle container (supply chain risk)
+  condition: >
+    spawned_process and
+    container and
+    container.name in (chronicle-backend, chronicle-frontend, chronicle-postgres) and
+    proc.name in (apt, apt-get, yum, dnf, apk, pip, npm, yarn)
+  output: >
+    Package manager invoked in running container
+    (user=%user.name container=%container.name proc=%proc.name cmdline=%proc.cmdline)
+  priority: ERROR
+  tags: [container, supply_chain, chronicle]
+
+# Rule: Detect crypto mining indicators
+- rule: Crypto Mining in Chronicle Container
+  desc: Possible crypto mining activity detected
+  condition: >
+    spawned_process and
+    container and
+    (proc.name in (xmrig, ccminer, cgminer, bfgminer, minerd) or
+     proc.cmdline contains "stratum+tcp" or
+     proc.cmdline contains "mining" or
+     proc.cmdline contains "cryptonight")
+  output: >
+    Possible crypto mining detected
+    (user=%user.name container=%container.name proc=%proc.name cmdline=%proc.cmdline)
+  priority: CRITICAL
+  tags: [container, cryptomining, chronicle]

@@ -26,7 +26,6 @@ postgres:
     username: "${POSTGRES_USER}"
     password: "${POSTGRES_PASSWORD}"
     maximumPoolSize: 20
-    connectionInitSql: "SET app.is_admin = 'true'"
 
 datasources:
   chronicle:
@@ -37,4 +36,3 @@ datasources:
       username: "${POSTGRES_USER}"
       password: "${POSTGRES_PASSWORD}"
       maximumPoolSize: 20
-      connectionInitSql: "SET app.is_admin = 'true'"

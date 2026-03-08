@@ -17,9 +17,17 @@
 
 set -euo pipefail
 
+# Cleanup temp files on exit (especially important for unencrypted dumps)
+TEMP_FILES=()
+cleanup() { rm -f "${TEMP_FILES[@]}"; }
+trap cleanup EXIT
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKUP_ROOT="/opt/chronicle/backups"
-KEY_FILE="${BACKUP_ROOT}/.backup-encryption-key"
+# H-10: Store encryption key OUTSIDE the backup directory.
+# Default location: /etc/chronicle/backup-encryption-key (root-only readable)
+# Falls back to legacy location for backward compatibility.
+KEY_FILE="${CHRONICLE_BACKUP_KEY:-/etc/chronicle/backup-encryption-key}"
 CONTAINER="chronicle-postgres"
 BACKEND_CONTAINER="chronicle-backend"
 DB_USER="chronicle"
@@ -42,6 +50,13 @@ log_ok() { echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] ${GREEN}OK${NC} $*"; }
 log_err() { echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] ${RED}ERROR${NC} $*" >&2; }
 log_warn() { echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] ${YELLOW}WARN${NC} $*"; }
 
+# Legacy key location fallback (must be after function definitions)
+if [ ! -f "$KEY_FILE" ] && [ -f "${BACKUP_ROOT}/.backup-encryption-key" ]; then
+    log_warn "Backup key found in legacy location alongside backups. Move it:"
+    log_warn "  sudo mkdir -p /etc/chronicle && sudo mv ${BACKUP_ROOT}/.backup-encryption-key /etc/chronicle/backup-encryption-key && sudo chmod 600 /etc/chronicle/backup-encryption-key"
+    KEY_FILE="${BACKUP_ROOT}/.backup-encryption-key"
+fi
+
 check_prereqs() {
     if [ ! -f "$KEY_FILE" ]; then
         log_err "Backup encryption key not found: $KEY_FILE"
@@ -59,14 +74,14 @@ encrypt_file() {
     local src="$1"
     local dst="$2"
     openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
-        -in "$src" -out "$dst" -pass "file:${KEY_FILE}" 2>/dev/null
+        -in "$src" -out "$dst" -pass "file:${KEY_FILE}"
 }
 
 decrypt_file() {
     local src="$1"
     local dst="$2"
     openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter 100000 \
-        -in "$src" -out "$dst" -pass "file:${KEY_FILE}" 2>/dev/null
+        -in "$src" -out "$dst" -pass "file:${KEY_FILE}"
 }
 
 sha256() {
@@ -84,31 +99,35 @@ do_full_backup() {
 
     # 1. Database dump
     log "  Dumping database..."
-    DUMP_TMP=$(mktemp)
-    docker exec "$CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" -Fc -Z6 > "$DUMP_TMP" 2>/dev/null
+    DUMP_TMP=$(mktemp); TEMP_FILES+=("$DUMP_TMP")
+    docker exec "$CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" -Fc -Z6 > "$DUMP_TMP"
     encrypt_file "$DUMP_TMP" "${BACKUP_DIR}/database.dump.enc"
     rm -f "$DUMP_TMP"
     log_ok "database.dump.enc ($(du -h "${BACKUP_DIR}/database.dump.enc" | cut -f1))"
 
     # 2. TDE keyring
     log "  Backing up TDE keyring..."
-    KEYRING_TMP=$(mktemp)
-    docker exec "$CONTAINER" tar -czf - -C /var/lib/postgresql tde-keyring > "$KEYRING_TMP" 2>/dev/null
+    KEYRING_TMP=$(mktemp); TEMP_FILES+=("$KEYRING_TMP")
+    docker exec "$CONTAINER" tar -czf - -C /var/lib/postgresql tde-keyring > "$KEYRING_TMP"
     encrypt_file "$KEYRING_TMP" "${BACKUP_DIR}/tde-keyring.tar.gz.enc"
     rm -f "$KEYRING_TMP"
     log_ok "tde-keyring.tar.gz.enc"
 
     # 3. Config/secrets
     log "  Backing up config and secrets..."
-    CONFIG_TMP=$(mktemp)
+    for CONF_FILE in .env rhizome-docker.yaml auth0.yaml; do
+        if [ ! -f "${SCRIPT_DIR}/${CONF_FILE}" ]; then
+            log_err "Required config file missing: ${SCRIPT_DIR}/${CONF_FILE}"
+            exit 1
+        fi
+    done
+    CONFIG_TMP=$(mktemp); TEMP_FILES+=("$CONFIG_TMP")
     tar -czf "$CONFIG_TMP" \
         -C "$SCRIPT_DIR" \
-        --ignore-failed-read \
         .env \
         rhizome-docker.yaml \
         auth0.yaml \
-        postgres-ssl/ \
-        2>/dev/null || true
+        postgres-ssl/
     encrypt_file "$CONFIG_TMP" "${BACKUP_DIR}/config-secrets.tar.gz.enc"
     rm -f "$CONFIG_TMP"
     log_ok "config-secrets.tar.gz.enc"
@@ -116,13 +135,16 @@ do_full_backup() {
     # 4. Audit logs (from backend container, if running)
     log "  Backing up audit logs..."
     if docker inspect "$BACKEND_CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep -q true; then
-        AUDIT_TMP=$(mktemp)
-        docker exec "$BACKEND_CONTAINER" tar -czf - -C /var/log chronicle 2>/dev/null > "$AUDIT_TMP" || true
-        if [ -s "$AUDIT_TMP" ]; then
-            encrypt_file "$AUDIT_TMP" "${BACKUP_DIR}/audit-logs.tar.gz.enc"
-            log_ok "audit-logs.tar.gz.enc"
+        AUDIT_TMP=$(mktemp); TEMP_FILES+=("$AUDIT_TMP")
+        if docker exec "$BACKEND_CONTAINER" tar -czf - -C /var/log chronicle > "$AUDIT_TMP" 2>&1; then
+            if [ -s "$AUDIT_TMP" ]; then
+                encrypt_file "$AUDIT_TMP" "${BACKUP_DIR}/audit-logs.tar.gz.enc"
+                log_ok "audit-logs.tar.gz.enc"
+            else
+                log_warn "No audit logs found (empty archive)"
+            fi
         else
-            log_warn "No audit logs found (empty archive)"
+            log_warn "Failed to backup audit logs (tar exit $?), continuing"
         fi
         rm -f "$AUDIT_TMP"
     else

@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Chronicle + Grafana Loki Stack
 #
 # Self-hosted log aggregation with Grafana dashboards.
@@ -15,7 +13,7 @@ services:
     container_name: chronicle-loki
     restart: unless-stopped
     ports:
-      - "3100:3100"
+      - "127.0.0.1:3100:3100"
     volumes:
       - ./siem/loki-config.yml:/etc/loki/local-config.yaml:ro
       - loki_data:/loki
@@ -48,10 +46,10 @@ services:
     container_name: chronicle-grafana
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
     volumes:

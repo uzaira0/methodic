@@ -1,0 +1,56 @@
+# Coraza WAF — Caddy reverse proxy with OWASP Core Rule Set (CRS)
+# Blocks SQL injection, XSS, command injection, and other OWASP Top 10 attacks
+#
+# This WAF sits between Traefik and the Chronicle backend:
+#   Traefik → Coraza WAF (:8080) → Backend (:40320)
+
+{
+	order coraza_waf first
+}
+
+:8080 {
+	coraza_waf {
+		# Load OWASP CRS rules
+		load_owasp_crs
+
+		directives `
+			# Engine On — actively block requests
+			SecRuleEngine On
+
+			# Anomaly scoring mode (recommended): accumulate scores, block at threshold
+			SecAction "id:900000,phase:1,pass,t:none,nolog,tag:'OWASP_CRS',ver:'OWASP_CRS/4.0',setvar:tx.blocking_paranoia_level=1"
+			SecAction "id:900001,phase:1,pass,t:none,nolog,tag:'OWASP_CRS',ver:'OWASP_CRS/4.0',setvar:tx.detection_paranoia_level=1"
+
+			# Inbound anomaly threshold (lower = stricter)
+			SecAction "id:900110,phase:1,pass,t:none,nolog,setvar:tx.inbound_anomaly_score_threshold=5"
+			SecAction "id:900111,phase:1,pass,t:none,nolog,setvar:tx.outbound_anomaly_score_threshold=4"
+
+			# Allowed HTTP methods
+			SecAction "id:900200,phase:1,pass,t:none,nolog,setvar:'tx.allowed_methods=GET HEAD POST OPTIONS PUT PATCH DELETE'"
+
+			# Allowed request content types
+			SecAction "id:900220,phase:1,pass,t:none,nolog,setvar:'tx.allowed_request_content_type=|application/x-www-form-urlencoded| |multipart/form-data| |multipart/related| |text/xml| |application/xml| |application/soap+xml| |application/json| |application/cloudevents+json| |application/cloudevents-batch+json|'"
+
+			# Max request body size (10MB for data uploads)
+			SecAction "id:900340,phase:1,pass,t:none,nolog,setvar:tx.max_file_size=10485760"
+
+			# Exclude health check and Prometheus endpoints from WAF scanning
+			SecRule REQUEST_URI "@beginsWith /prometheus/" "id:1000,phase:1,pass,t:none,nolog,ctl:ruleEngine=Off"
+
+			# Exclude JSON API bodies from false-positive-prone rules
+			# (CRS sometimes flags base64/JWT tokens in JSON bodies)
+			SecRule REQUEST_HEADERS:Content-Type "@contains application/json" "id:1001,phase:1,pass,t:none,nolog,ctl:requestBodyProcessor=JSON"
+		`
+	}
+
+	reverse_proxy chronicle-backend:40320 {
+		# Pass original client IP for rate limiting and audit
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+
+		# Health check
+		health_uri /prometheus/
+		health_interval 30s
+		health_timeout 10s
+	}
+}

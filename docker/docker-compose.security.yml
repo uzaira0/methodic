@@ -1,0 +1,201 @@
+# Chronicle Security Infrastructure Overlay
+#
+# Deploy with:
+#   docker compose -f docker-compose.traefik.yml -f docker-compose.security.yml -p chronicle up -d
+#
+# Components:
+#   1. Coraza WAF — OWASP CRS rule-based web application firewall
+#   2. HashiCorp Vault — secrets management (replaces .env for sensitive values)
+#   3. Fail2ban — IP banning for rate-limit abuse and brute force
+#   4. Falco — container runtime security monitoring
+#
+# Post-deployment:
+#   - Initialize Vault: docker exec chronicle-vault sh /vault/scripts/init-vault.sh
+#   - Check WAF logs: docker logs chronicle-waf
+#   - Check Falco alerts: docker logs chronicle-falco
+#   - Check Fail2ban status: docker exec chronicle-fail2ban fail2ban-client status
+
+services:
+
+  # =========================================
+  # Coraza WAF — Web Application Firewall
+  # =========================================
+  # OWASP Core Rule Set (CRS) protects against:
+  #   - SQL injection, XSS, command injection
+  #   - Local/remote file inclusion
+  #   - Scanner/bot detection
+  #   - Protocol anomalies
+  #
+  # Sits between Traefik and the backend:
+  #   Traefik → Coraza WAF (:8080) → Backend (:40320)
+  coraza-waf:
+    image: corazawaf/coraza-caddy:latest
+    container_name: chronicle-waf
+    restart: unless-stopped
+    volumes:
+      - ./security/coraza/Caddyfile:/etc/caddy/Caddyfile:ro,z
+    networks:
+      - chronicle-internal
+      - traefik
+    depends_on:
+      chronicle-backend:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8080/prometheus/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik}"
+      - "traefik.http.services.chronicle-waf.loadbalancer.server.port=8080"
+
+      # WAF route for web API (higher priority than direct backend routes)
+      - "traefik.http.routers.chronicle-waf-web.rule=Host(`${DOMAIN}`) && PathPrefix(`/chronicle/api/web/`)"
+      - "traefik.http.routers.chronicle-waf-web.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.chronicle-waf-web.priority=25"
+      - "traefik.http.routers.chronicle-waf-web.service=chronicle-waf"
+      - "traefik.http.routers.chronicle-waf-web.middlewares=chronicle-web-strip,chronicle-web-ratelimit,chronicle-web-headers,chronicle-web-cors"
+
+      # WAF route for mobile API
+      - "traefik.http.routers.chronicle-waf-mobile.rule=Host(`${DOMAIN}`) && (PathPrefix(`/chronicle/v3/`) || PathPrefix(`/chronicle/v2/`) || PathPrefix(`/chronicle/study/`) || PathPrefix(`/chronicle/limits/`))"
+      - "traefik.http.routers.chronicle-waf-mobile.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.chronicle-waf-mobile.priority=25"
+      - "traefik.http.routers.chronicle-waf-mobile.service=chronicle-waf"
+      - "traefik.http.routers.chronicle-waf-mobile.middlewares=chronicle-mobile-ratelimit,chronicle-mobile-headers,chronicle-mobile-cors"
+
+  # Override backend to lower priority so WAF routes take precedence
+  chronicle-backend:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik}"
+      - "traefik.http.services.chronicle-backend.loadbalancer.server.port=40320"
+      # Lower priority (10) so WAF routes (25) take precedence
+      - "traefik.http.routers.chronicle-mobile.priority=10"
+      - "traefik.http.routers.chronicle-web.priority=10"
+
+  # =========================================
+  # HashiCorp Vault — Secrets Management
+  # =========================================
+  # Replaces storing secrets in .env plaintext file.
+  # After init, secrets are stored encrypted in /vault/data.
+  #
+  # Post-deployment setup:
+  #   1. docker exec chronicle-vault sh /vault/scripts/init-vault.sh
+  #   2. Save unseal keys and root token securely
+  #   3. Seed secrets: vault kv put chronicle/database password=...
+  #   4. Enable audit: vault audit enable file file_path=/vault/logs/audit.log
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: chronicle-vault
+    restart: unless-stopped
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_ADDR: "http://127.0.0.1:8200"
+    volumes:
+      - vault_data:/vault/data
+      - vault_logs:/vault/logs
+      - ./security/vault/vault-config.hcl:/vault/config/vault-config.hcl:ro,z
+      - ./security/vault/init-vault.sh:/vault/scripts/init-vault.sh:ro,z
+    command: vault server -config=/vault/config/vault-config.hcl
+    networks:
+      - chronicle-internal
+    healthcheck:
+      test: ["CMD", "vault", "status", "-format=json"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # =========================================
+  # Fail2ban — Abuse Protection
+  # =========================================
+  # Monitors Traefik access logs and bans abusive IPs:
+  #   - 20+ rate-limited (429) responses → 1h ban
+  #   - 10+ auth failures (401) → 2h ban
+  #   - 30+ 404s (scanning) → 4h ban
+  #
+  # Requires: Traefik access log volume shared at /var/log/traefik/
+  # Configure Traefik: --accesslog --accesslog.filepath=/var/log/traefik/access.log
+  fail2ban:
+    image: crazymax/fail2ban:latest
+    container_name: chronicle-fail2ban
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      TZ: UTC
+      F2B_LOG_TARGET: STDOUT
+      F2B_LOG_LEVEL: INFO
+      F2B_DB_PURGE_AGE: 7d
+    volumes:
+      - ./security/fail2ban/jail.local:/etc/fail2ban/jail.local:ro,z
+      - ./security/fail2ban/filter.d:/etc/fail2ban/filter.d:ro,z
+      - fail2ban_data:/var/lib/fail2ban
+      # Mount Traefik access log (requires Traefik accesslog configuration)
+      - traefik_logs:/var/log/traefik:ro
+    network_mode: host
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # =========================================
+  # Falco — Container Runtime Security
+  # =========================================
+  # Monitors syscalls for suspicious container behavior:
+  #   - Shell access in application containers
+  #   - Unexpected network connections
+  #   - Privilege escalation attempts
+  #   - Package manager usage in running containers
+  #   - Crypto mining indicators
+  #
+  # Alerts go to stdout (Docker logging → Loki) and /var/log/falco/events.json
+  falco:
+    image: falcosecurity/falco:latest
+    container_name: chronicle-falco
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /var/run/docker.sock:/host/var/run/docker.sock:ro
+      - /proc:/host/proc:ro
+      - /dev:/host/dev
+      - /sys:/host/sys:ro
+      - ./security/falco/falco.yaml:/etc/falco/falco.yaml:ro,z
+      - ./security/falco/chronicle-rules.yaml:/etc/falco/chronicle-rules.yaml:ro,z
+      - falco_logs:/var/log/falco
+    networks:
+      - chronicle-internal
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+volumes:
+  vault_data:
+  vault_logs:
+  fail2ban_data:
+  falco_logs:
+  # Traefik access log volume
+  # If using an external Traefik, create this volume and configure Traefik to write to it:
+  #   docker volume create traefik_logs
+  # Then configure Traefik: --accesslog --accesslog.filepath=/var/log/traefik/access.log
+  # If volume doesn't exist, Fail2ban will start but won't detect any events.
+  traefik_logs:
+
+networks:
+  chronicle-internal:
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik}
