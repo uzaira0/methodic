@@ -36,12 +36,11 @@ schema_config:
       index:
         prefix: index_
         period: 24h
-    # TSDB schema (recommended, boltdb-shipper is deprecated)
-    # Note: schema v13 requires Loki 3.x; v12 is max for Loki 2.9.x
+    # TSDB schema v13 (required by Loki 3.x, replaces deprecated boltdb-shipper)
     - from: 2025-01-01
       store: tsdb
       object_store: filesystem
-      schema: v12
+      schema: v13
       index:
         prefix: index_
         period: 24h
@@ -59,7 +58,7 @@ limits_config:
 
 compactor:
   working_directory: /loki/compactor
-  shared_store: filesystem
+  # shared_store removed in Loki 3.x — uses common.storage automatically
   compaction_interval: 10m
   retention_enabled: true
   retention_delete_delay: 2h
