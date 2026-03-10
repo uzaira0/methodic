@@ -21,6 +21,8 @@ services:
     image: percona/percona-distribution-postgresql:17.5-3
     container_name: chronicle-postgres
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -77,6 +79,10 @@ services:
     image: chronicle-backend:latest
     container_name: chronicle-backend
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=256M
     environment:
       CHRONICLE_SERVER_XMS: ${BACKEND_XMS:-"-Xms512m"}
       CHRONICLE_SERVER_XMX: ${BACKEND_XMX:-"-Xmx2g"}
@@ -320,6 +326,17 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.frontend.prod
     image: chronicle-frontend:latest
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:noexec,nosuid
+      - /var/run:noexec,nosuid
+      - /tmp:noexec,nosuid
     container_name: chronicle-frontend
     restart: unless-stopped
     volumes:
@@ -407,6 +424,10 @@ services:
     image: prom/prometheus:v2.51.0
     container_name: chronicle-prometheus
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
       - ./monitoring/prometheus-rules.yml:/etc/prometheus/prometheus-rules.yml:ro,z
@@ -427,6 +448,10 @@ services:
     image: prom/alertmanager:v0.27.0
     container_name: chronicle-alertmanager
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
       - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro,z
     command:
@@ -443,6 +468,10 @@ services:
     image: grafana/loki:2.9.6
     container_name: chronicle-loki
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
       - ./siem/loki-config.yml:/etc/loki/local-config.yaml:ro,z
       - loki_data:/loki
@@ -459,6 +488,10 @@ services:
     image: grafana/promtail:2.9.6
     container_name: chronicle-promtail
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
       - ./siem/promtail-config.yml:/etc/promtail/config.yml:ro,z
       - audit_logs:/var/log/chronicle:ro
@@ -476,6 +509,10 @@ services:
     image: grafana/grafana:11.0.0
     container_name: chronicle-grafana
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
       GF_SERVER_ROOT_URL: /grafana
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"

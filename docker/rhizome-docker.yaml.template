@@ -26,6 +26,11 @@ postgres:
     username: "${POSTGRES_USER}"
     password: "${POSTGRES_PASSWORD}"
     maximumPoolSize: 20
+    minimumIdle: 5
+    connectionTimeout: 30000
+    idleTimeout: 600000
+    maxLifetime: 1800000
+    leakDetectionThreshold: 60000
 
 datasources:
   chronicle:
@@ -36,3 +41,8 @@ datasources:
       username: "${POSTGRES_USER}"
       password: "${POSTGRES_PASSWORD}"
       maximumPoolSize: 20
+      minimumIdle: 5
+      connectionTimeout: 30000
+      idleTimeout: 600000
+      maxLifetime: 1800000
+      leakDetectionThreshold: 60000

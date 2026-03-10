@@ -28,6 +28,7 @@ query_range:
 
 schema_config:
   configs:
+    # Legacy schema (pre-migration data)
     - from: 2020-10-24
       store: boltdb-shipper
       object_store: filesystem
@@ -35,13 +36,21 @@ schema_config:
       index:
         prefix: index_
         period: 24h
+    # TSDB schema (recommended, boltdb-shipper is deprecated)
+    - from: 2025-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
 
 ruler:
   alertmanager_url: http://localhost:9093
 
-# Retention - keep logs for 2 years (HIPAA requires 6 years, adjust as needed)
+# Retention - keep logs for 6 years per HIPAA requirements
 limits_config:
-  retention_period: 730d
+  retention_period: 2190d
   ingestion_rate_mb: 10
   ingestion_burst_size_mb: 20
   max_streams_per_user: 10000
