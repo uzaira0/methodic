@@ -14,3 +14,8 @@ postgres-ssl/client/client.p12
 
 # Generated certificates directory
 certs/
+
+# TLS certificates from institutional IT
+tls/*.crt
+tls/*.key
+tls/*.pem

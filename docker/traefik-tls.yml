@@ -1,0 +1,8 @@
+# Traefik Dynamic TLS Configuration
+# Loaded automatically by Traefik's file provider (watch: true)
+# Place in /etc/dokploy/traefik/dynamic/ or mount via docker-compose
+
+tls:
+  certificates:
+    - certFile: /etc/traefik/certs/chronicle-screentime-app.research.bcm.edu.crt
+      keyFile: /etc/traefik/certs/chronicle-screentime-app.research.bcm.edu.key

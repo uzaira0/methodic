@@ -3,8 +3,8 @@ session-clustering-enabled: false
 
 hazelcast:
   server: true
-  group: "local"
-  password: "trellis"
+  group: "chronicle-prod"
+  password: "xTJGYZC9pyZMH7RajQEUaFe6tpcYuIwjTZ/w3AAu1WU="
   cp-member-count: 0
   seed-nodes:
     - "localhost"
@@ -13,8 +13,8 @@ hazelcast:
 hazelcast-clients:
   IDS:
     server: false
-    group: "local"
-    password: "test"
+    group: "chronicle-prod"
+    password: "Ch2Lf/9xbBkd1g/BKshalOkUwnMbeCxs8pYAebYOmoo="
     cp-member-count: 0
     seed-nodes:
       - "127.0.0.1:5710"

@@ -215,7 +215,7 @@ services:
       # CORS for web frontend (credentials allowed)
       - "traefik.http.middlewares.chronicle-web-cors.headers.accessControlAllowMethods=GET,POST,PUT,DELETE,PATCH,OPTIONS"
       - "traefik.http.middlewares.chronicle-web-cors.headers.accessControlAllowHeaders=Authorization,Content-Type,X-Requested-With,Accept,Origin"
-      - "traefik.http.middlewares.chronicle-web-cors.headers.accessControlAllowOriginList=https://${DOMAIN},http://${DOMAIN}"
+      - "traefik.http.middlewares.chronicle-web-cors.headers.accessControlAllowOriginList=https://${DOMAIN}"
       - "traefik.http.middlewares.chronicle-web-cors.headers.accessControlAllowCredentials=true"
       - "traefik.http.middlewares.chronicle-web-cors.headers.accessControlMaxAge=86400"
 
@@ -353,7 +353,7 @@ services:
       - "traefik.http.routers.chronicle-config-json.priority=30"
       - "traefik.http.routers.chronicle-config-json.service=chronicle-frontend"
       - "traefik.http.routers.chronicle-config-json.middlewares=chronicle-internal-only,chronicle-frontend-strip"
-      - "traefik.http.middlewares.chronicle-internal-only.ipallowlist.sourcerange=127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+      - "traefik.http.middlewares.chronicle-internal-only.ipallowlist.sourcerange=127.0.0.1/32,172.23.0.0/16,172.25.0.0/16"
 
       # Security headers for frontend
       - "traefik.http.middlewares.chronicle-frontend-headers.headers.frameDeny=true"
