@@ -66,6 +66,7 @@ services:
       -c ssl_ca_file=/var/lib/postgresql/ssl/ca.crt
       -c ssl_min_protocol_version=TLSv1.2
       -c ssl_prefer_server_ciphers=on
+      -c password_encryption=scram-sha-256
       -c shared_preload_libraries=pg_tde,percona_pg_telemetry
     deploy:
       resources:
@@ -184,7 +185,7 @@ services:
       - "traefik.http.routers.chronicle-mobile.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
       - "traefik.http.routers.chronicle-mobile.priority=20"
       - "traefik.http.routers.chronicle-mobile.service=chronicle-backend"
-      - "traefik.http.routers.chronicle-mobile.middlewares=chronicle-mobile-ratelimit,chronicle-mobile-headers,chronicle-mobile-cors"
+      - "traefik.http.routers.chronicle-mobile.middlewares=chronicle-mobile-ratelimit,chronicle-mobile-headers,chronicle-mobile-cors,chronicle-body-limit"
 
       # Strict rate limiting for mobile (5 req/s average, burst of 10)
       - "traefik.http.middlewares.chronicle-mobile-ratelimit.ratelimit.average=5"
@@ -212,7 +213,10 @@ services:
       - "traefik.http.routers.chronicle-web.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
       - "traefik.http.routers.chronicle-web.priority=20"
       - "traefik.http.routers.chronicle-web.service=chronicle-backend"
-      - "traefik.http.routers.chronicle-web.middlewares=chronicle-web-strip,chronicle-web-ratelimit,chronicle-web-headers,chronicle-web-cors"
+      - "traefik.http.routers.chronicle-web.middlewares=chronicle-web-strip,chronicle-web-ratelimit,chronicle-web-headers,chronicle-web-cors,chronicle-body-limit"
+
+      # Request body size limit (10MB) for API endpoints
+      - "traefik.http.middlewares.chronicle-body-limit.buffering.maxRequestBodyBytes=10485760"
 
       # Strip /chronicle/api/web prefix
       - "traefik.http.middlewares.chronicle-web-strip.stripprefix.prefixes=/chronicle/api/web"
@@ -363,7 +367,11 @@ services:
       - "traefik.http.routers.chronicle-frontend.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
       - "traefik.http.routers.chronicle-frontend.priority=1"
       - "traefik.http.services.chronicle-frontend.loadbalancer.server.port=80"
-      - "traefik.http.routers.chronicle-frontend.middlewares=chronicle-frontend-strip,chronicle-frontend-headers"
+      - "traefik.http.routers.chronicle-frontend.middlewares=chronicle-frontend-strip,chronicle-frontend-headers,chronicle-frontend-ratelimit"
+
+      # Rate limiting for frontend (50 req/s average, burst of 100)
+      - "traefik.http.middlewares.chronicle-frontend-ratelimit.ratelimit.average=50"
+      - "traefik.http.middlewares.chronicle-frontend-ratelimit.ratelimit.burst=100"
 
       # Strip /chronicle prefix so nginx serves from /
       - "traefik.http.middlewares.chronicle-frontend-strip.stripprefix.prefixes=/chronicle"
@@ -435,6 +443,11 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.retention.time=30d'
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 -O /dev/null http://localhost:9090/-/healthy || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     depends_on:
       - alertmanager
     networks:
@@ -456,6 +469,11 @@ services:
       - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro,z
     command:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 -O /dev/null http://localhost:9093/-/healthy || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     networks:
       - chronicle-internal
     deploy:
@@ -476,6 +494,11 @@ services:
       - ./siem/loki-config.yml:/etc/loki/local-config.yaml:ro,z
       - loki_data:/loki
     command: -config.file=/etc/loki/local-config.yaml
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 -O /dev/null http://localhost:3100/ready || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     networks:
       - chronicle-internal
     deploy:
@@ -496,6 +519,11 @@ services:
       - ./siem/promtail-config.yml:/etc/promtail/config.yml:ro,z
       - audit_logs:/var/log/chronicle:ro
     command: -config.file=/etc/promtail/config.yml
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 -O /dev/null http://localhost:9080/ready || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     depends_on:
       - loki
     networks:
@@ -527,6 +555,11 @@ services:
       - ./monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro,z
       - ./monitoring/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro,z
       - ./monitoring/dashboards:/var/lib/grafana/dashboards:ro,z
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 -O /dev/null http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     depends_on:
       - prometheus
       - loki

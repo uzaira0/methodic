@@ -4,7 +4,7 @@ FROM eclipse-temurin:17-jdk AS builder
 WORKDIR /app
 
 # Install necessary tools (including dos2unix for line ending conversion, git for build scripts)
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     unzip \
     dos2unix \
@@ -33,7 +33,7 @@ FROM eclipse-temurin:17-jre
 WORKDIR /server
 
 # Install curl for healthchecks, gettext-base for envsubst, and create non-root user
-RUN apt-get update && apt-get install -y curl gettext-base && rm -rf /var/lib/apt/lists/* && \
+RUN apt-get update && apt-get install -y --no-install-recommends curl gettext-base && rm -rf /var/lib/apt/lists/* && \
     groupadd -r chronicle && useradd -r -g chronicle -d /server -s /sbin/nologin chronicle
 
 # Copy built application from builder stage
@@ -51,7 +51,9 @@ ENV CHRONICLE_SERVER_ARGS="local postgres medialocal"
 
 EXPOSE 40320
 
-# Start as root to fix volume permissions, then drop to chronicle user
-# Named Docker volumes may initialize with root ownership
-CMD chown -R chronicle:chronicle /var/log/chronicle /server/config && \
-    exec su -s /bin/bash chronicle -c "./bin/chronicle-server local postgres medialocal"
+LABEL org.opencontainers.image.source="https://github.com/methodic-labs/chronicle"
+LABEL org.opencontainers.image.vendor="Methodic Labs"
+
+USER chronicle
+
+CMD ["./bin/chronicle-server", "local", "postgres", "medialocal"]

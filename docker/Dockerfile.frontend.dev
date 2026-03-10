@@ -2,7 +2,7 @@
 # Runs webpack dev server with hot module replacement
 # Source code is mounted as a volume for instant hot reloading
 
-FROM node:18-alpine
+FROM node:18.20-alpine
 
 WORKDIR /app
 

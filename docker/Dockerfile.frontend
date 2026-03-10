@@ -1,5 +1,5 @@
 # Frontend build stage
-FROM node:18-alpine AS builder
+FROM node:18.20-alpine AS builder
 
 WORKDIR /app
 
@@ -41,7 +41,11 @@ RUN if [ "$AUTH_ENABLED" = "false" ]; then \
 RUN npm run build:prod
 
 # Output stage - just the built files
-FROM alpine:latest
+FROM alpine:3.21
+
+LABEL org.opencontainers.image.source="https://github.com/methodic-labs/chronicle"
+LABEL org.opencontainers.image.vendor="Methodic Labs"
+
 COPY --from=builder /app/build /app/build
 
 # This container just holds the built files

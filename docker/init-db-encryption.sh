@@ -7,7 +7,7 @@
 #
 # For HIPAA/GDPR compliance, data at rest must be encrypted.
 
-set -e
+set -euo pipefail
 
 echo "=========================================="
 echo "Chronicle PostgreSQL TDE Initialization"
