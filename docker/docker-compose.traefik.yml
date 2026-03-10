@@ -102,6 +102,9 @@ services:
       SMTP_ENABLED: ${SMTP_ENABLED:-false}
       # Mobile API signing configuration
       MOBILE_SIGNING_SECRET: ${MOBILE_SIGNING_SECRET:-}
+      # Hazelcast cluster authentication
+      HAZELCAST_SERVER_PASSWORD: ${HAZELCAST_SERVER_PASSWORD:?Set HAZELCAST_SERVER_PASSWORD in .env}
+      HAZELCAST_CLIENT_PASSWORD: ${HAZELCAST_CLIENT_PASSWORD:?Set HAZELCAST_CLIENT_PASSWORD in .env}
       MOBILE_SIGNING_ENABLED: ${MOBILE_SIGNING_ENABLED:-false}
       MOBILE_SIGNING_REQUIRED: ${MOBILE_SIGNING_REQUIRED:-false}
       # HashiCorp Vault integration (optional — set VAULT_ENABLED=true to activate)
@@ -113,7 +116,7 @@ services:
       AUDIT_LOG_DIR: /var/log/chronicle
     volumes:
       # Persistent volume for HIPAA-compliant audit logs
-      # These logs are critical for compliance - rotated daily, kept 365 days
+      # These logs are critical for compliance - rotated daily, kept 2190 days (6 years per HIPAA)
       # Format: JSON (NDJSON) compatible with Splunk, ELK, DataDog, etc.
       - audit_logs:/var/log/chronicle
       # SSL/TLS CA certificate for PostgreSQL connection verification
@@ -362,7 +365,7 @@ services:
       - "traefik.http.middlewares.chronicle-frontend-headers.headers.referrerPolicy=strict-origin-when-cross-origin"
       - "traefik.http.middlewares.chronicle-frontend-headers.headers.stsSeconds=31536000"
       - "traefik.http.middlewares.chronicle-frontend-headers.headers.stsIncludeSubdomains=true"
-      - "traefik.http.middlewares.chronicle-frontend-headers.headers.contentSecurityPolicy=default-src 'self'; script-src 'self' 'sha256-u5x2jPc3qq6tXCxclhc2AsfuAh6gqS+FdKid5mVKr8U=' https://www.googletagmanager.com https://www.google-analytics.com; style-src 'self' 'unsafe-inline' https://rsms.me; img-src 'self' data: https://www.google-analytics.com; font-src 'self' https://rsms.me; connect-src 'self' https://www.google-analytics.com https://www.googletagmanager.com; frame-ancestors 'none'"
+      - "traefik.http.middlewares.chronicle-frontend-headers.headers.contentSecurityPolicy=default-src 'self'; script-src 'self' 'sha256-u5x2jPc3qq6tXCxclhc2AsfuAh6gqS+FdKid5mVKr8U=' https://www.googletagmanager.com https://www.google-analytics.com; style-src 'self' 'unsafe-inline' https://rsms.me; img-src 'self' data: https://www.google-analytics.com https://www.googletagmanager.com; font-src 'self' https://rsms.me; connect-src 'self' https://www.google-analytics.com https://www.googletagmanager.com; frame-src 'none'; frame-ancestors 'none'; form-action 'self'; worker-src 'self'; base-uri 'self'; object-src 'none'"
 
       # ===========================================
       # EXTERNAL DOMAIN: Frontend
@@ -504,6 +507,9 @@ networks:
   chronicle-internal:
     driver: bridge
     internal: true
+    ipam:
+      config:
+        - subnet: 172.23.0.0/16
   traefik:
     external: true
     name: ${TRAEFIK_NETWORK:-traefik}
@@ -515,7 +521,7 @@ volumes:
   postgres_tde_keyring:
   # HIPAA-compliant audit logs volume
   # Contains JSON-formatted audit entries for compliance and SIEM integration
-  # Retention: 365 days (configure cleanup policy for production)
+  # Retention: 2190 days (6 years per HIPAA)
   # IMPORTANT: Include in backup strategy for compliance requirements
   audit_logs:
   # Monitoring data

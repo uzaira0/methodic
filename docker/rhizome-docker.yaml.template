@@ -4,7 +4,7 @@ session-clustering-enabled: false
 hazelcast:
   server: true
   group: "chronicle-prod"
-  password: "xTJGYZC9pyZMH7RajQEUaFe6tpcYuIwjTZ/w3AAu1WU="
+  password: "${HAZELCAST_SERVER_PASSWORD}"
   cp-member-count: 0
   seed-nodes:
     - "localhost"
@@ -14,7 +14,7 @@ hazelcast-clients:
   IDS:
     server: false
     group: "chronicle-prod"
-    password: "Ch2Lf/9xbBkd1g/BKshalOkUwnMbeCxs8pYAebYOmoo="
+    password: "${HAZELCAST_CLIENT_PASSWORD}"
     cp-member-count: 0
     seed-nodes:
       - "127.0.0.1:5710"
