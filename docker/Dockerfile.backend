@@ -54,6 +54,4 @@ EXPOSE 40320
 LABEL org.opencontainers.image.source="https://github.com/methodic-labs/chronicle"
 LABEL org.opencontainers.image.vendor="Methodic Labs"
 
-USER chronicle
-
 CMD ["./bin/chronicle-server", "local", "postgres", "medialocal"]

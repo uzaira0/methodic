@@ -151,6 +151,7 @@ services:
       envsubst < /server/config/vault.yaml.template > /server/config/vault.yaml &&
       envsubst < /server/config/cors.yaml.template > /server/config/cors.yaml &&
       sed -i "/\"https:\\/\\/\"[[:space:]]*$/d" /server/config/cors.yaml &&
+      chown -R chronicle:chronicle /var/log/chronicle &&
       exec java $$CHRONICLE_SERVER_XMS $$CHRONICLE_SERVER_XMX
       -cp "/server/config:/server/lib/*"
       com.openlattice.chronicle.ChronicleServer local postgres medialocal'
@@ -336,6 +337,10 @@ services:
       - ALL
     cap_add:
       - NET_BIND_SERVICE
+      - CHOWN
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
     read_only: true
     tmpfs:
       - /var/cache/nginx:noexec,nosuid
@@ -383,7 +388,7 @@ services:
       - "traefik.http.routers.chronicle-config-json.priority=30"
       - "traefik.http.routers.chronicle-config-json.service=chronicle-frontend"
       - "traefik.http.routers.chronicle-config-json.middlewares=chronicle-internal-only,chronicle-frontend-strip"
-      - "traefik.http.middlewares.chronicle-internal-only.ipallowlist.sourcerange=127.0.0.1/32,172.23.0.0/16,172.25.0.0/16"
+      - "traefik.http.middlewares.chronicle-internal-only.ipallowlist.sourcerange=127.0.0.1/32,172.30.0.0/16,172.25.0.0/16"
 
       # Security headers for frontend
       - "traefik.http.middlewares.chronicle-frontend-headers.headers.frameDeny=true"
@@ -583,10 +588,9 @@ services:
 networks:
   chronicle-internal:
     driver: bridge
-    internal: true
     ipam:
       config:
-        - subnet: 172.23.0.0/16
+        - subnet: 172.30.0.0/16
   traefik:
     external: true
     name: ${TRAEFIK_NETWORK:-traefik}

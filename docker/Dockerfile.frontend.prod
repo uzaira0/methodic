@@ -64,6 +64,4 @@ EXPOSE 80
 LABEL org.opencontainers.image.source="https://github.com/methodic-labs/chronicle"
 LABEL org.opencontainers.image.vendor="Methodic Labs"
 
-USER nginx
-
 CMD ["nginx", "-g", "daemon off;"]
