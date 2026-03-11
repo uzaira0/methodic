@@ -7,6 +7,7 @@ Updated: 2026-03-11
 - The monorepo has five active surfaces: `chronicle-server`, `chronicle-api`, `chronicle-web`, `chronicle` (Android), and shared `rhizome` libraries.
 - Root Gradle validation could not run in this workspace because `java` and `JAVA_HOME` were not configured.
 - `chronicle-web` now passes `bun run check`, `bun run test`, `bun run test:legacy -- --runInBand --watch=false`, and the web portion of `./scripts/chronicle-smoke.sh`.
+- `chronicle-web` Bun tests now cover both the modern TypeScript shell and the first migrated legacy helper tranche under `src/bun-legacy/`; Jest is now a narrower compatibility lane instead of the only test runtime.
 - The current web auth contract is: bootstrap JWT from `config.json` for testing, exchange it for backend-managed cookies, keep JWT state in memory only, and treat interactive SSO as future work.
 - The requested TypeScript error-catching spec has been mapped onto `chronicle-web/`, but the frontend is still Flow-based. `chronicle-web/tsconfig.app.json` is a forward-looking policy scaffold rather than full source coverage.
 - `chronicle-web` is now Bun-managed for install, lockfile, script execution, and the modern HTML build/dev/preview loop. Node is still present as a compatibility runtime for the legacy Jest/webpack stack while those tools remain in place.
@@ -106,9 +107,9 @@ Updated: 2026-03-11
    - [ ] Fix the server/web contract so institutional SSO replaces bootstrap-token assumptions cleanly.
    - [ ] Commit the backend + web contract change together.
 6. Replace bootstrap-token auth
-   - [ ] Review every remaining dependency on `config.json` token bootstrap.
-   - [ ] Fix the testing bootstrap into a documented temporary path or remove it once SSO exists.
-   - [ ] Commit only the bootstrap-hardening or bootstrap-removal slice.
+   - [x] Review every remaining dependency on `config.json` token bootstrap.
+   - [x] Fix the testing bootstrap into a documented temporary path or remove it once SSO exists.
+   - [x] Commit only the bootstrap-hardening or bootstrap-removal slice.
 7. API/data-layer modernization
    - [x] Review which current Redux Saga / Immutable flows should migrate first to RTK Query and plain TS objects.
    - [x] Fix the first shared API/data adapter by moving the modern studies planning surface behind an RTK Query slice and store middleware.
@@ -125,6 +126,10 @@ Updated: 2026-03-11
    - [x] Review whether the modern shell needs Playwright or another browser-level regression harness before route cutover.
    - [x] Fix the missing coverage path for theme, auth bootstrap, and responsive navigation with a Bun-run Playwright lane.
    - [x] Commit the browser-test automation separately.
+11. Legacy Jest retirement tranche
+   - [x] Review which remaining legacy helper suites can move to Bun without dragging in the full React/jsdom/Jest stack.
+   - [x] Fix the first migration batch by converting config/bootstrap/axios helper coverage to Bun and shrinking the Jest compatibility lane.
+   - [ ] Commit the Bun migration tranche separately.
 
 ## Automation Added
 

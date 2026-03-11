@@ -16,7 +16,7 @@ Use this file for work anywhere under `/opt/chronicle`.
 
 - Root Gradle build covers `chronicle-api`, `chronicle-server`, `rhizome`, and `rhizome-client`.
 - The Android app lives in `chronicle/` but is excluded from the root `settings.gradle.kts`; use `chronicle/gradlew` for Android-only work.
-- The web app in `chronicle-web/` is a separate React 18 + Flow + Jest toolchain with a Bun-managed package/build workflow.
+- The web app in `chronicle-web/` is a separate React 18 + Flow app with a Bun-managed package/build workflow, a Bun-native test lane, and a shrinking Jest compatibility lane.
 - `chronicle-web/` is also a nested git repository; commit web-app history inside `chronicle-web/` and then update the root repo pointer separately.
 - Deployment and security infrastructure live in `docker/` with multiple compose variants (`docker-compose.yml`, `docker-compose.prod.yml`, `docker-compose.traefik.yml`, security overlays, monitoring overlays).
 
@@ -56,6 +56,7 @@ Use this file for work anywhere under `/opt/chronicle`.
 ## Current Review Themes
 
 - The web app is mid-migration from localStorage JWT handling to backend-managed httpOnly cookies, with institutional SSO as the intended successor to the current bootstrap-token testing flow.
+- The web app is actively migrating pure helper coverage off Jest and onto Bun; prefer moving non-DOM utility tests to Bun before touching the remaining jsdom-heavy compatibility lane.
 - The requested frontend error-catching tooling is now wired into `chronicle-web` through `tsconfig.app.json`, ESLint 8 rules, package scripts, Claude hooks, CI, and the smoke scripts.
 - Root docs and Docker docs describe overlapping but not identical local/prod deployment paths.
 - The Android app is operationally separate from the root Gradle build and CI path.
