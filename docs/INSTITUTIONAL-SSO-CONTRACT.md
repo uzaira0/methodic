@@ -46,6 +46,7 @@ This bootstrap path is temporary. Institutional SSO should replace only the toke
 - Treat `/chronicle/config.json` as a testing-only bootstrap path.
 - Use `withCredentials: true` for authenticated API requests.
 - Send `X-CSRF-Token` using the readable CSRF cookie.
+- Keep route guards and Axios refresh behavior aligned on the same bootstrap/session replay contract until SSO replaces the test-token path.
 - Move user/session bootstrap toward a dedicated session endpoint once institutional SSO is live.
 
 ### Deployment Inputs Needed Before Final Cutover
@@ -62,5 +63,5 @@ This bootstrap path is temporary. Institutional SSO should replace only the toke
 
 - Remove Auth0-specific runtime defaults from redirect and SSRF configuration.
 - Inventory remaining `Auth0Pod` and `Auth0Configuration` wiring in `chronicle-server`.
-- Replace legacy web reads of `AUTH0_USER_INFO` and `/chronicle/config.json`.
+- Finish removing the remaining legacy Auth0 storage key names and `/chronicle/config.json` dependencies from the web runtime.
 - Define the session/bootstrap endpoint that the modern shell will call once SSO is active.

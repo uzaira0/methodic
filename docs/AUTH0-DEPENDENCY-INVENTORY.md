@@ -48,16 +48,16 @@ This inventory maps the remaining Auth0-specific wiring in `chronicle-server` so
 
 ### Transitional Web Coupling To Remove Later
 
-- `chronicle-web/src/common/constants/strings.js`
-  - `AUTH0_USER_INFO` naming still present
+- `chronicle-web/src/core/auth/storage/authStorageKeys.js`
+  - Legacy Auth0 storage key names still exist only for cleanup and migration of old browser state
 - `chronicle-web/src/core/auth/utils/getUserInfo.js`
-  - Reads legacy user info from browser storage
+  - Migrates legacy user info from old browser storage into the Chronicle storage key on read
 - `chronicle-web/src/core/auth/utils/storeAuthInfo.js`
-  - Still writes legacy user info to browser storage
+  - Writes the Chronicle user info storage key while leaving JWT persistence disabled
 - `chronicle-web/src/core/auth/bootstrap/fetchBootstrapToken.js`
   - Maintains `/chronicle/config.json` bootstrap for non-SSO testing
-- `chronicle-web/src/index.js`
-  - Legacy shell still reloads bootstrap token from `/chronicle/config.json`
+- `chronicle-web/src/core/auth/bootstrap/bootstrapLegacyAuthSession.js`
+  - Replays the temporary bootstrap-token path for route guards and Axios refresh until SSO replaces it
 
 ### Ordered Removal Plan
 
@@ -65,7 +65,7 @@ This inventory maps the remaining Auth0-specific wiring in `chronicle-server` so
 2. Introduce provider-neutral auth/session interfaces for server bootstrap and local user lookup.
 3. Replace `LocalUserListingService` and `LocalUserDirectoryService` with SSO-neutral implementations or explicit test-only shims.
 4. Stop importing `Auth0Pod` from Chronicle server pods once replacement services exist.
-5. Rename API and web symbols that still encode Auth0 as the identity model.
+5. Remove the remaining legacy Auth0 storage key names and API/web symbols that still encode Auth0 as the identity model.
 6. Remove the `/chronicle/config.json` bootstrap path once institutional SSO is live.
 
 ### Blockers

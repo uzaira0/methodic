@@ -55,7 +55,14 @@ fi
 
 if ! run_group \
   "web_legacy_user_storage" \
-  "AUTH0_USER_INFO|USER_INFO_STORAGE_KEY" \
+  "AUTH0_USER_INFO|AUTH0_ID_TOKEN|USER_INFO_STORAGE_KEY|AUTH0_NONCE_STATE|Auth0NonceState" \
+  "$ROOT_DIR/chronicle-web/src"; then
+  :
+fi
+
+if ! run_group \
+  "web_stale_auth0_runtime" \
+  "Auth0AdminRoute|core/auth/Auth0|copy auth0 token" \
   "$ROOT_DIR/chronicle-web/src"; then
   :
 fi

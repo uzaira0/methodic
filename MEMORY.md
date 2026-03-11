@@ -475,7 +475,90 @@ Round 3 complete.
    - [x] Fix the guidance by adding `.codex/skills/chronicle-web-bootstrap-boundary` and wiring it into repo docs.
    - [x] Commit the skill and guidance update separately.
 
-## Current 20-Item Execution Checklist: Round 6
+## Current 20-Item Execution Checklist: Round 7
+
+1. Shared legacy auth bootstrap replay helper
+   - [x] Review the duplicated bootstrap-refresh logic across route guards and Axios refresh.
+   - [x] Fix it with `core/auth/bootstrap/bootstrapLegacyAuthSession.js`.
+   - [x] Commit the helper extraction separately.
+2. Route guard bootstrap replay
+   - [x] Review `core/router/AuthRoute.js` for expired-token dead ends.
+   - [x] Fix the route guard to replay the bootstrap/session path before giving up.
+   - [x] Commit the route-guard change separately.
+3. Axios refresh/bootstrap alignment
+   - [x] Review `core/api/axios/getApiAxiosInstance.js` for drift from the route bootstrap path.
+   - [x] Fix Axios refresh so it reuses the same bootstrap replay helper.
+   - [x] Commit the Axios runtime update separately.
+4. Auth attempt saga dead-end removal
+   - [x] Review `core/auth/sagas/authAttemptWatcher.js` for the current no-op failure path.
+   - [x] Fix `AUTH_ATTEMPT` so it actually replays the temporary bootstrap flow.
+   - [x] Commit the saga change separately.
+5. Auth reducer failure-state fix
+   - [x] Review `core/auth/reducers/index.js` for failure-state handling.
+   - [x] Fix `AUTH_FAILURE` so it clears `isAuthenticating` and records expiration consistently.
+   - [x] Commit the reducer update separately.
+6. Legacy user-info storage migration
+   - [x] Review `core/auth/utils/getUserInfo.js` for direct legacy-key reads.
+   - [x] Fix it to migrate legacy Auth0-shaped browser storage into the Chronicle key on read.
+   - [x] Commit the storage migration separately.
+7. Auth storage key isolation
+   - [x] Review auth utilities that still depend on the large Flow-only constants surface for storage/cookie keys.
+   - [x] Fix that drift with `core/auth/storage/authStorageKeys.js`.
+   - [x] Commit the storage-key extraction separately.
+8. `storeAuthInfo` storage-key decoupling
+   - [x] Review `core/auth/utils/storeAuthInfo.js` for direct dependency on global constants.
+   - [x] Fix it to use the focused auth storage key module.
+   - [x] Commit the cleanup separately.
+9. `clearAuthInfo` storage-key decoupling
+   - [x] Review `core/auth/utils/clearAuthInfo.js` for direct dependency on global constants.
+   - [x] Fix it to use the focused auth storage key module.
+   - [x] Commit the cleanup separately.
+10. Bun coverage for bootstrap session replay
+   - [x] Review whether the new bootstrap replay helper has direct coverage.
+   - [x] Fix the gap with `bun-legacy/bootstrapLegacyAuthSession.test.js`.
+   - [x] Commit the test addition separately.
+11. Bun core-helper mock normalization
+   - [x] Review `bun-legacy/core-helpers.test.js` for brittle mock state around auth refresh.
+   - [x] Fix the test harness so it no longer pollutes the bootstrap helper lane.
+   - [x] Commit the test cleanup separately.
+12. Bun auth-utils mock normalization
+   - [x] Review `bun-legacy/auth-utils.test.js` for direct-import drift after the runtime changes.
+   - [x] Fix the mocks to match the runtime import graph.
+   - [x] Commit the test cleanup separately.
+13. Bun auth-storage mock normalization
+   - [x] Review the Bun auth utility suites for partial mocks of the new storage-key module.
+   - [x] Fix them to export the full auth storage key set consistently.
+   - [x] Commit the test cleanup separately.
+14. Dead `Auth0.js` runtime removal
+   - [x] Review `core/auth/Auth0.js` for actual usage.
+   - [x] Fix the stale runtime surface by deleting the unused file.
+   - [x] Commit the removal separately.
+15. Dead `Auth0AdminRoute.js` removal
+   - [x] Review `core/router/Auth0AdminRoute.js` for actual usage.
+   - [x] Fix the stale runtime surface by deleting the unused file.
+   - [x] Commit the removal separately.
+16. Dead `LOGIN` action/watcher removal
+   - [x] Review the unused browser-login action/watcher path in the auth layer.
+   - [x] Fix the stale path by removing `LOGIN` action plumbing and `loginWatcher.js`.
+   - [x] Commit the removal separately.
+17. Auth0 nonce naming cleanup
+   - [x] Review `AUTH0_NONCE_STATE` and `Auth0NonceState` for actual usage.
+   - [x] Fix the stale naming by removing the constant and renaming the unused type to `AuthSessionNonceState`.
+   - [x] Commit the naming cleanup separately.
+18. Dev token-copy labeling cleanup
+   - [x] Review the development token-copy affordance in `containers/app/AppContainer.js`.
+   - [x] Fix the stale Auth0 labeling and align it with the current bootstrap auth contract.
+   - [x] Commit the UI cleanup separately.
+19. SSO drift audit expansion
+   - [x] Review `scripts/check-sso-drift.sh` for missing detection around stale web Auth0 symbols.
+   - [x] Fix the audit so it catches dead Auth0 runtime artifacts if they reappear.
+   - [x] Commit the automation update separately.
+20. Smoke/doc enforcement for the auth cleanup
+   - [x] Review whether root smoke and the Auth0/SSO docs still reflected the old web runtime.
+   - [x] Fix `scripts/chronicle-smoke.sh`, `docs/AUTH0-DEPENDENCY-INVENTORY.md`, and `docs/INSTITUTIONAL-SSO-CONTRACT.md` to match the current runtime.
+   - [x] Commit the automation/doc update separately.
+
+## Current 20-Item Execution Checklist: Round 8
 
 1. Institutional SSO server implementation
    - [ ] Review the concrete login, callback, logout, and session-refresh flow needed for institutional SSO in `chronicle-server`.
