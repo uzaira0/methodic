@@ -304,9 +304,9 @@ Updated: 2026-03-11
 ## Current 20-Item Execution Checklist: Round 3
 
 1. Institutional SSO backend contract
-   - [ ] Review `chronicle-server` authentication entry points, redirects, cookies, and logout assumptions tied to Auth0.
-   - [ ] Fix the contract design for institutional SSO replacement.
-   - [ ] Commit the contract/doc changes separately.
+   - [x] Review `chronicle-server` authentication entry points, redirects, cookies, and logout assumptions tied to Auth0.
+   - [x] Fix the contract design for institutional SSO replacement.
+   - [x] Commit the contract/doc changes separately.
 2. Auth0 dependency inventory in `chronicle-server`
    - [ ] Review remaining `Auth0Pod`, `Auth0Configuration`, and Auth0-specific user services.
    - [ ] Fix the inventory into an actionable migration map.
