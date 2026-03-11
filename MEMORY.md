@@ -218,6 +218,89 @@ Updated: 2026-03-11
    - [x] Fix missing propTypes.
    - [x] Commit the cleanup separately.
 
+## Current 20-Item Execution Checklist: Round 2
+
+1. `common/utils/authenticatedDownload.js` console-path cleanup
+   - [x] Review whether the current console output should become logger-based or be removed.
+   - [x] Fix the warning without hiding actionable download failures.
+   - [x] Commit the cleanup separately.
+2. `containers/survey/components/SubmissionFailureModal.js` propTypes surface
+   - [x] Review the modal prop usage.
+   - [x] Fix missing propTypes.
+   - [x] Commit the cleanup separately.
+3. `containers/survey/components/SurveyButtons.js` propTypes surface
+   - [x] Review the survey button props.
+   - [x] Fix missing propTypes.
+   - [x] Commit the cleanup separately.
+4. `containers/survey/components/SurveyForm.js` propTypes surface
+   - [x] Review the form props and request-state usage.
+   - [x] Fix missing propTypes.
+   - [x] Commit the cleanup separately.
+5. `containers/tud/TimeUseDiaryContainer.js` effect dependencies
+   - [x] Review the language-change effect and its dependency contract.
+   - [x] Fix the missing dependency warning without changing flow behavior.
+   - [x] Commit the cleanup separately.
+6. `containers/tud/TimeUseDiaryDashboard.js` useless fragment
+   - [x] Review the current dashboard render branch.
+   - [x] Fix the fragment warning while preserving layout.
+   - [x] Commit the cleanup separately.
+7. `containers/tud/TimeUseDiarySelectors.js` export hygiene
+   - [x] Review the selector export surface.
+   - [x] Fix the warning with the least disruptive export change.
+   - [x] Commit the cleanup separately.
+8. `containers/tud/components/QuestionnaireForm.js` propTypes surface
+   - [ ] Review the full questionnaire-form prop contract.
+   - [ ] Fix the missing propTypes cluster.
+   - [ ] Commit the cleanup separately.
+9. `containers/tud/components/TimeUseSummary.js` propTypes surface
+   - [ ] Review the summary component props.
+   - [ ] Fix missing propTypes.
+   - [ ] Commit the cleanup separately.
+10. `containers/tud/constants/GeneralConstants.js` export hygiene
+   - [ ] Review the constants module export surface.
+   - [ ] Fix the warning with the least disruptive export change.
+   - [ ] Commit the cleanup separately.
+11. `core/api/authorizations/index.js` export hygiene
+   - [ ] Review the API barrel export surface.
+   - [ ] Fix the warning with the least disruptive export change.
+   - [ ] Commit the cleanup separately.
+12. `core/api/organization/index.js` export hygiene
+   - [ ] Review the API barrel export surface.
+   - [ ] Fix the warning with the least disruptive export change.
+   - [ ] Commit the cleanup separately.
+13. `core/api/principal/index.js` export hygiene
+   - [ ] Review the API barrel export surface.
+   - [ ] Fix the warning with the least disruptive export change.
+   - [ ] Commit the cleanup separately.
+14. `core/redux/reducers/index.js` export hygiene
+   - [ ] Review the reducer barrel export surface.
+   - [ ] Fix the warning with the least disruptive export change.
+   - [ ] Commit the cleanup separately.
+15. `core/router/DefaultUnauthorized.js` unstable nested component
+   - [ ] Review the nested component/render helper warning.
+   - [ ] Fix or locally document the stable render path.
+   - [ ] Commit the cleanup separately.
+16. `core/tracking/google/GoogleAnalytics.js` export hygiene
+   - [ ] Review the analytics export surface.
+   - [ ] Fix the warning with the least disruptive export change.
+   - [ ] Commit the cleanup separately.
+17. `index.js` enrollment/bootstrap console path
+   - [ ] Review current `console.error` usage in bootstrap failure handling.
+   - [ ] Fix the warning without losing startup diagnostics.
+   - [ ] Commit the cleanup separately.
+18. Residual survey component propTypes sweep
+   - [ ] Review any remaining survey-component propType gaps after items 2-4 land.
+   - [ ] Fix the remaining gaps if new warnings appear.
+   - [ ] Commit the cleanup separately.
+19. Residual TUD component propTypes sweep
+   - [ ] Review any remaining TUD propType gaps after items 8-9 land.
+   - [ ] Fix the remaining gaps if new warnings appear.
+   - [ ] Commit the cleanup separately.
+20. Post-round reassessment
+   - [ ] Review the repo after the second 20-item pass.
+   - [ ] Fix the work queue by generating the next execution checklist from the remaining warning and modernization surface.
+   - [ ] Commit the updated work queue separately.
+
 ## Automation Added
 
 - `scripts/chronicle-preflight.sh` checks toolchain and repo readiness.
