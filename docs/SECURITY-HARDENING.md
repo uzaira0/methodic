@@ -238,12 +238,12 @@ For detailed guidelines, see [SQL-SECURITY-GUIDELINES.md](./SQL-SECURITY-GUIDELI
 
 ```
 default-src 'self';
-script-src 'self' 'sha256-u5x2jPc3qq6tXCxclhc2AsfuAh6gqS+FdKid5mVKr8U=' https://www.googletagmanager.com https://www.google-analytics.com https://cdn.auth0.com;
-style-src 'self' 'unsafe-inline' https://cdn.auth0.com https://rsms.me;
-img-src 'self' data: https://cdn.auth0.com https://www.google-analytics.com;
-font-src 'self' https://rsms.me https://cdn.auth0.com;
-connect-src 'self' https://methodic.us.auth0.com https://www.google-analytics.com https://www.googletagmanager.com;
-frame-src 'self' https://methodic.us.auth0.com;
+script-src 'self' 'sha256-u5x2jPc3qq6tXCxclhc2AsfuAh6gqS+FdKid5mVKr8U=' https://www.googletagmanager.com https://www.google-analytics.com https://sso-static.example.edu;
+style-src 'self' 'unsafe-inline' https://sso-static.example.edu https://rsms.me;
+img-src 'self' data: https://sso-static.example.edu https://www.google-analytics.com;
+font-src 'self' https://rsms.me https://sso-static.example.edu;
+connect-src 'self' https://login.example.edu https://www.google-analytics.com https://www.googletagmanager.com;
+frame-src 'self' https://login.example.edu;
 frame-ancestors 'none';
 form-action 'self';
 worker-src 'self' blob:;
@@ -254,7 +254,7 @@ object-src 'none';
 **CSP Design Decisions:**
 - **script-src with hash**: Uses SHA256 hash for the inline Google Analytics script instead of 'unsafe-inline' for stronger security
 - **style-src 'unsafe-inline'**: Required for React styled-components which inject inline styles at runtime
-- **External domains whitelisted**: Only Auth0 (authentication), Google Analytics (tracking), and rsms.me (Inter font)
+- **External domains whitelisted**: Only deployment-specific SSO domains, Google Analytics (tracking), and rsms.me (Inter font)
 - **frame-ancestors 'none'**: Prevents embedding in any iframe (stronger than X-Frame-Options)
 - **object-src 'none'**: Blocks Flash/Java plugins completely
 - **base-uri 'self'**: Prevents base tag hijacking
@@ -544,14 +544,14 @@ Configure allowed redirect domains in `application.yaml`:
 chronicle:
   security:
     redirect:
-      allowed-domains: methodic.us.auth0.com,auth0.com
+      allowed-domains: login.example.edu,sso.example.edu
       fallback-url: /
       strict-host-matching: true
 ```
 
 | Setting | Default | Purpose |
 |---------|---------|---------|
-| `allowed-domains` | `methodic.us.auth0.com` | Comma-separated list of allowed external domains |
+| `allowed-domains` | empty | Comma-separated list of allowed external domains |
 | `fallback-url` | `/` | URL to redirect to when an invalid redirect is blocked |
 | `strict-host-matching` | `true` | When false, subdomains of allowed domains are permitted |
 
@@ -1305,11 +1305,10 @@ Configure SSRF protection in `ssrf.yaml`:
 # ssrf.yaml
 enabled: true
 
-# Allowed hosts for outbound requests (default: Auth0 domains)
+# Allowed hosts for outbound requests (default: none)
 allowedHosts:
-  - methodic.us.auth0.com
-  - auth0.com
-  - cdn.auth0.com
+  - login.example.edu
+  - sso.example.edu
 
 # Allowed protocols (default: HTTPS only)
 allowedProtocols:
@@ -1329,7 +1328,7 @@ maxRedirects: 3              # Maximum redirects to follow
 | Setting | Default | Purpose |
 |---------|---------|---------|
 | `enabled` | `true` | Master switch for SSRF protection |
-| `allowedHosts` | Auth0 domains | Explicit allowlist of permitted hosts |
+| `allowedHosts` | empty | Explicit allowlist of permitted hosts |
 | `allowedProtocols` | `https` | Only HTTPS by default |
 | `blockPrivateIps` | `true` | Block RFC 1918 private IP ranges |
 | `blockLocalhost` | `true` | Block loopback addresses |
@@ -1389,8 +1388,8 @@ val retrofit = RetrofitFactory.newClient(baseUrl, jwtTokenSupplier)
 #### Verification
 
 ```bash
-# Test that Auth0 calls work (should succeed)
-# The application should successfully authenticate and make API calls to Auth0
+# Test that explicitly allowed SSO/integration hosts work (should succeed)
+# The application should successfully call only hosts present in the allowlist
 
 # Test private IP blocking
 # Attempting to make a request to a private IP should throw SsrfException
@@ -1416,7 +1415,7 @@ grep "SSRF:" /var/log/chronicle/server.log
 
 SSRF protection is automatically applied to:
 1. **RetrofitFactory**: All Retrofit clients created via `RetrofitFactory.newClient()` or `RetrofitFactory.okHttpClient()` include SSRF protection
-2. **Auth0ApiExtension**: The Auth0 API client automatically validates requests against the SSRF allowlist
+2. **Auth/integration clients**: Any outbound auth or integration client should validate requests against the SSRF allowlist
 3. **Any code using SafeHttpClientFactory**: Direct usage of `SafeHttpClientFactory.createClient()` includes all protections
 
 #### CVEs Mitigated

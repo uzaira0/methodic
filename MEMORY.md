@@ -312,9 +312,9 @@ Updated: 2026-03-11
    - [x] Fix the inventory into an actionable migration map.
    - [x] Commit the audit/update separately.
 3. Redirect and SSRF allowlist modernization
-   - [ ] Review Auth0-specific domains in redirect and SSRF configs.
-   - [ ] Fix the config strategy for future institutional SSO domains.
-   - [ ] Commit the config/documentation changes separately.
+   - [x] Review Auth0-specific domains in redirect and SSRF configs.
+   - [x] Fix the config strategy for future institutional SSO domains.
+   - [x] Commit the config/documentation changes separately.
 4. React 19 blocker removal: `react-redux`
    - [ ] Review the current React-Redux usage surface and compatibility blocker.
    - [ ] Fix or isolate the blocker toward a React 19-safe path.
