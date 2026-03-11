@@ -352,9 +352,9 @@ Updated: 2026-03-11
    - [x] Fix the audit into a prioritized replacement map.
    - [x] Commit the audit/update separately.
 13. `styled-components` dependency surface audit
-   - [ ] Review remaining styled-components usage and route concentration.
-   - [ ] Fix the audit into a prioritized replacement map.
-   - [ ] Commit the audit/update separately.
+   - [x] Review remaining styled-components usage and route concentration.
+   - [x] Fix the audit into a prioritized replacement map.
+   - [x] Commit the audit/update separately.
 14. Legacy auth bootstrap removal path
    - [ ] Review every remaining dependency on `/chronicle/config.json`.
    - [ ] Fix the next removal or isolation tranche toward institutional SSO.
