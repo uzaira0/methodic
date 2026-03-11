@@ -11,6 +11,7 @@ Use this file for work anywhere under `/opt/chronicle`.
 - Use `.codex/skills/chronicle-web-bun-workflow` when touching `chronicle-web` package management, Bun scripts, `bun.lock`, Bun build/dev/preview flow, or the root automation that drives frontend Bun commands.
 - Use `.codex/skills/review-fixes` when asked to review repo changes, run the silent failure hunter, or audit fixes for regressions and silent-failure patterns.
 - Use `.codex/skills/chronicle-web-quality-gates` when touching the web app's ESLint/TypeScript policy, Claude hooks, CI checks, or warning-vs-error gate behavior.
+- Use `.codex/skills/chronicle-institutional-sso` when working on Auth0 retirement, institutional SSO planning/cutover, `/chronicle/config.json` bootstrap isolation, or redirect/SSRF allowlist hardening.
 
 ## Repo Shape
 
@@ -25,6 +26,7 @@ Use this file for work anywhere under `/opt/chronicle`.
 - Run `./scripts/chronicle-preflight.sh` before substantial work.
 - Run `./scripts/chronicle-smoke.sh` before handing off non-trivial changes when the environment supports it.
 - Run `./scripts/silent-failure-hunter.sh` when doing fix reviews or quality sweeps; use `--strict` only when you intentionally want it to fail on suspicious patterns.
+- Run `./scripts/check-sso-drift.sh` before and after institutional SSO/Auth0 migration work; use `--strict` to fail when Auth0-specific runtime defaults reappear.
 - Check `git status --short` before assuming the workspace is clean; submodules may already be dirty.
 
 ## High-Signal Rules

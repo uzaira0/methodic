@@ -376,9 +376,9 @@ Updated: 2026-03-11
    - [x] Fix the next documentation reconciliation tranche.
    - [x] Commit the doc update separately.
 19. Skill and automation refresh after lint burn-down
-   - [ ] Review whether the existing local skills and smoke scripts reflect the new warning-free web gate.
-   - [ ] Fix any stale guidance or missing automations.
-   - [ ] Commit the skill/automation update separately.
+   - [x] Review whether the existing local skills and smoke scripts reflect the new warning-free web gate.
+   - [x] Fix any stale guidance or missing automations.
+   - [x] Commit the skill/automation update separately.
 20. Post-round reassessment
    - [ ] Review the repo after the third 20-item pass.
    - [ ] Fix the work queue by generating the next execution checklist from the remaining modernization surface.

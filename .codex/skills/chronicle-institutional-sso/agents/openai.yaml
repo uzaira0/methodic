@@ -1,0 +1,4 @@
+interface:
+  display_name: "Chronicle Institutional SSO"
+  short_description: "Audit and advance the SSO cutover"
+  default_prompt: "Use $chronicle-institutional-sso to review or update Chronicle's institutional SSO migration, Auth0 dependency removal, bootstrap-token isolation, or redirect/SSRF allowlists."
