@@ -348,9 +348,9 @@ Updated: 2026-03-11
    - [ ] Fix the next RTK/RTK Query migration tranche.
    - [ ] Commit the state migration separately.
 12. `lattice-ui-kit` dependency surface audit
-   - [ ] Review remaining import volume and highest-risk dependency hotspots.
-   - [ ] Fix the audit into a prioritized replacement map.
-   - [ ] Commit the audit/update separately.
+   - [x] Review remaining import volume and highest-risk dependency hotspots.
+   - [x] Fix the audit into a prioritized replacement map.
+   - [x] Commit the audit/update separately.
 13. `styled-components` dependency surface audit
    - [ ] Review remaining styled-components usage and route concentration.
    - [ ] Fix the audit into a prioritized replacement map.
