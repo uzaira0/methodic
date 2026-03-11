@@ -1,6 +1,6 @@
 # Chronicle Docker Development Setup
 
-This Docker Compose setup runs the full Chronicle stack locally for development and testing:
+This Docker Compose setup runs the legacy all-in-one Chronicle stack locally for development and testing.
 
 - **nginx** - Reverse proxy (port 80)
 - **backend** - Chronicle Server (Java/Kotlin API)
@@ -27,6 +27,8 @@ docker-compose up --build -d
 
 The application will be available at: **http://localhost**
 
+If you are working against the Traefik-aligned deployment path used by the root quick start, use [DEPLOYMENT-MATRIX.md](DEPLOYMENT-MATRIX.md) and prefer `docker-compose.traefik.yml` instead.
+
 ## Services
 
 | Service   | Internal Port | External Port | Description                    |
@@ -51,12 +53,11 @@ nginx routes requests as follows:
 
 ### Authentication
 
-Authentication is **disabled** by default for local development. The frontend uses `NoAuthProvider` which bypasses Auth0.
+Authentication is in a testing-only transitional state for local development.
 
-To enable Auth0 authentication, edit `Dockerfile.frontend`:
-```dockerfile
-ARG AUTH_ENABLED=true
-```
+- The current web flow can bootstrap a JWT from `/chronicle/config.json`.
+- `docker/generate-jwt.sh --write-config` produces the config consumed by that path.
+- The frontend exchanges that JWT for Chronicle-managed cookies; it is not the final institutional SSO design.
 
 ### Database
 
@@ -133,8 +134,8 @@ docker-compose up postgres backend nginx
 
 # Run frontend dev server separately (with hot reload)
 cd ../chronicle-web
-npm install
-npm run app
+bun install
+bun run modern:dev
 ```
 
-The dev server runs on port 9000 and proxies API calls to the backend.
+The modern Bun dev server runs on port 5173 by default. The legacy webpack shell remains available only for compatibility work.

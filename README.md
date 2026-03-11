@@ -53,11 +53,11 @@ git clone --recurse-submodules git@github.com:methodic-labs/chronicle.git
    docker compose -p chronicle -f docker/docker-compose.traefik.yml up -d
    ```
 
-See [`docker/DEPLOYMENT.md`](docker/DEPLOYMENT.md) for full deployment instructions including TDE encryption, SMTP, backups, and monitoring.
+See [`docker/DEPLOYMENT-MATRIX.md`](docker/DEPLOYMENT-MATRIX.md) for which compose path to use, and [`docker/DEPLOYMENT.md`](docker/DEPLOYMENT.md) for full production instructions.
 
 ## Development Setup
 
-**Prerequisites:** JDK 17, Node.js (LTS), Gradle (wrapper included)
+**Prerequisites:** JDK 17, Bun, Node.js, Gradle (wrapper included)
 
 ```bash
 # Backend
@@ -65,8 +65,8 @@ See [`docker/DEPLOYMENT.md`](docker/DEPLOYMENT.md) for full deployment instructi
 
 # Frontend
 cd chronicle-web
-npm install
-npm start
+bun install
+bun run modern:dev
 ```
 
 ## CI/CD Workflows

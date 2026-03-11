@@ -372,9 +372,9 @@ Updated: 2026-03-11
    - [x] Fix the preflight/smoke messaging or validation flow.
    - [x] Commit the automation update separately.
 18. Docker and deployment doc reconciliation
-   - [ ] Review the overlapping local/prod/Traefik deployment docs.
-   - [ ] Fix the next documentation reconciliation tranche.
-   - [ ] Commit the doc update separately.
+   - [x] Review the overlapping local/prod/Traefik deployment docs.
+   - [x] Fix the next documentation reconciliation tranche.
+   - [x] Commit the doc update separately.
 19. Skill and automation refresh after lint burn-down
    - [ ] Review whether the existing local skills and smoke scripts reflect the new warning-free web gate.
    - [ ] Fix any stale guidance or missing automations.
