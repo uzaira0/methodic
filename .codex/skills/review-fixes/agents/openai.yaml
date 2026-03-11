@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Fixes"
+  short_description: "Review Chronicle changes for failure risks."
+  default_prompt: "Use $review-fixes to review Chronicle changes with the silent failure hunter and repo validation scripts."

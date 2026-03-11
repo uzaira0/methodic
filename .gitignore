@@ -27,4 +27,8 @@ audit-report.json
 backups/
 
 # Claude Code local config
-.claude/
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+!.claude/hooks/**
+.claude/settings.local.json

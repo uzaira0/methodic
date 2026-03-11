@@ -1,0 +1,4 @@
+interface:
+  display_name: "Chronicle Web Auth Migration"
+  short_description: "Handle Chronicle web cookie-auth migration."
+  default_prompt: "Use $chronicle-web-auth-migration to update Chronicle web auth utilities, tests, and backend cookie endpoints together."

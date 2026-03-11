@@ -1,0 +1,4 @@
+interface:
+  display_name: "Chronicle Workspace"
+  short_description: "Work safely in the Chronicle monorepo."
+  default_prompt: "Use $chronicle-workspace to inspect, change, and validate code in the Chronicle monorepo."
