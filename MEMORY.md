@@ -380,14 +380,28 @@ Updated: 2026-03-11
    - [x] Fix any stale guidance or missing automations.
    - [x] Commit the skill/automation update separately.
 20. Post-round reassessment
-   - [ ] Review the repo after the third 20-item pass.
-   - [ ] Fix the work queue by generating the next execution checklist from the remaining modernization surface.
-   - [ ] Commit the updated work queue separately.
+   - [x] Review the repo after the third 20-item pass.
+   - [x] Fix the work queue by generating the next execution checklist from the remaining modernization surface.
+   - [x] Commit the updated work queue separately.
+
+## Remaining Round 3 Execution Order
+
+1. React 19 blocker removal: `react-redux`
+2. React 19 blocker removal: Material UI 4
+3. Modern route cutover plan for `src/index.js`
+4. Remaining Jest compatibility lane reduction
+5. Flow-to-Bun runtime compatibility in shared legacy modules
+6. Redux Saga reduction in study/org flows
+7. Browser smoke expansion
+8. Questionnaire route modernization
+9. Time Use Diary UI modernization
 
 ## Automation Added
 
 - `scripts/chronicle-preflight.sh` checks toolchain and repo readiness.
 - `scripts/chronicle-smoke.sh` runs a lightweight validation sweep and skips surfaces whose prerequisites are missing.
 - `scripts/chronicle-web-bun-smoke.sh` runs the Bun-managed `chronicle-web` install/check/test/build loop in one place.
+- `scripts/check-sso-drift.sh` audits remaining Auth0 wiring, bootstrap-token paths, and legacy user-storage touchpoints.
 - `scripts/silent-failure-hunter.sh` scans for common silent-failure and swallowed-error patterns.
 - `.codex/skills/chronicle-web-bun-workflow` captures the Bun-specific frontend workflow, touchpoints, and validation path.
+- `.codex/skills/chronicle-institutional-sso` captures the Auth0-to-SSO migration workflow and drift-audit command.
