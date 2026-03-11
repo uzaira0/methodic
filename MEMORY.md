@@ -336,9 +336,9 @@ Updated: 2026-03-11
    - [ ] Fix the next TUD UI migration tranche.
    - [ ] Commit the route migration separately.
 9. Remaining Jest compatibility lane reduction
-   - [ ] Review the seven remaining legacy Jest suites for Bun migration candidates.
-   - [ ] Fix the next Bun migration tranche.
-   - [ ] Commit the migration slice separately.
+   - [x] Review the seven remaining legacy Jest suites for Bun migration candidates.
+   - [x] Fix the next Bun migration tranche.
+   - [x] Commit the migration slice separately.
 10. Flow-to-Bun runtime compatibility in shared legacy modules
    - [ ] Review which remaining legacy utility modules still block direct Bun imports because of Flow syntax.
    - [ ] Fix the next runtime-compatible helper cluster.
