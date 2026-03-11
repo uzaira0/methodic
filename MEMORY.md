@@ -135,6 +135,89 @@ Updated: 2026-03-11
    - [x] Fix the second migration batch by converting auth token, expiration, CSRF, and user-role helpers to Bun.
    - [ ] Commit the auth-utils Bun tranche separately.
 
+## Current 20-Item Execution Checklist
+
+1. `common/components/buttons/index.js` export hygiene
+   - [x] Review the current named-only export surface and whether the lint warning is avoidable without breaking imports.
+   - [x] Fix the warning with the smallest export-shape change.
+   - [x] Commit the cleanup separately.
+2. `common/components/errors/BasicErrorComponent.js` prop validation
+   - [x] Review the component props and current render assumptions.
+   - [x] Fix missing propTypes for `children` and `error`.
+   - [x] Commit the cleanup separately.
+3. `common/constants/testing/index.js` export hygiene
+   - [x] Review whether the testing constants should be default-exported.
+   - [x] Fix the warning without breaking existing imports.
+   - [x] Commit the cleanup separately.
+4. `common/utils/testing/index.js` export hygiene
+   - [x] Review the testing utility barrel export shape.
+   - [x] Fix the warning without breaking existing imports.
+   - [x] Commit the cleanup separately.
+5. `containers/dashboard/components/constants.js` export hygiene
+   - [x] Review the constants module export surface.
+   - [x] Fix the warning with the least disruptive export change.
+   - [x] Commit the cleanup separately.
+6. `containers/enrollment/EnrollmentLink.js` useless fragment
+   - [ ] Review the current enrollment-link render tree.
+   - [ ] Fix the fragment warning while preserving behavior.
+   - [ ] Commit the cleanup separately.
+7. `containers/study/ParticipantsTable.js` unstable nested component
+   - [ ] Review the nested render helper that currently trips the React warning.
+   - [ ] Fix it by extracting or stabilizing the component usage.
+   - [ ] Commit the cleanup separately.
+8. `containers/study/components/ChangeEnrollmentModal.js` effect dependencies
+   - [ ] Review the effect logic and dependency expectations.
+   - [ ] Fix the missing dependency warning without changing user-facing behavior.
+   - [ ] Commit the cleanup separately.
+9. `containers/study/components/CreateStudyForm.js` memo and fragment warnings
+   - [ ] Review the `useMemo` dependency contract and JSX fragment usage.
+   - [ ] Fix both warnings while keeping form behavior stable.
+   - [ ] Commit the cleanup separately.
+10. `containers/study/components/ParticipantInfoModal.js` effect dependencies
+   - [ ] Review the state sync effect and current dependency omissions.
+   - [ ] Fix the warning without introducing loops.
+   - [ ] Commit the cleanup separately.
+11. `containers/study/components/ParticipantRow.js` memo dependencies
+   - [ ] Review the memoized row-data path.
+   - [ ] Fix the dependency warning without changing row behavior.
+   - [ ] Commit the cleanup separately.
+12. `containers/study/components/StudyDetails.js` propTypes surface
+   - [ ] Review the actual prop usage across `study` and `limits`.
+   - [ ] Fix the propTypes warning cluster.
+   - [ ] Commit the cleanup separately.
+13. `containers/survey/DailyAppUsageSurvey.js` propTypes surface
+   - [ ] Review the required props.
+   - [ ] Fix missing propTypes.
+   - [ ] Commit the cleanup separately.
+14. `containers/survey/HourlyAppUsageSurvey.js` propTypes surface
+   - [ ] Review the required props.
+   - [ ] Fix missing propTypes.
+   - [ ] Commit the cleanup separately.
+15. `containers/survey/components/HourlySurvey.js` propTypes surface
+   - [ ] Review the Immutable-backed props used by the component.
+   - [ ] Fix the missing propTypes with shapes broad enough for the current data model.
+   - [ ] Commit the cleanup separately.
+16. `containers/survey/components/HourlySurveyInstructions.js` propTypes surface
+   - [ ] Review the button and step props.
+   - [ ] Fix missing propTypes.
+   - [ ] Commit the cleanup separately.
+17. `containers/survey/components/HourlyUsageSurveyAppBar.js` propTypes surface
+   - [ ] Review the progress-step prop usage.
+   - [ ] Fix missing propTypes.
+   - [ ] Commit the cleanup separately.
+18. `containers/survey/components/InstructionsModal.js` propTypes surface
+   - [ ] Review the modal prop usage.
+   - [ ] Fix missing propTypes.
+   - [ ] Commit the cleanup separately.
+19. `containers/survey/components/SelectAppUsageTimeSlots.js` propTypes surface
+   - [ ] Review the list/map prop usage and callback requirements.
+   - [ ] Fix missing propTypes.
+   - [ ] Commit the cleanup separately.
+20. `containers/survey/components/SelectAppsByUser.js` propTypes surface
+   - [ ] Review the apps data and selection props.
+   - [ ] Fix missing propTypes.
+   - [ ] Commit the cleanup separately.
+
 ## Automation Added
 
 - `scripts/chronicle-preflight.sh` checks toolchain and repo readiness.
