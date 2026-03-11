@@ -308,9 +308,9 @@ Updated: 2026-03-11
    - [x] Fix the contract design for institutional SSO replacement.
    - [x] Commit the contract/doc changes separately.
 2. Auth0 dependency inventory in `chronicle-server`
-   - [ ] Review remaining `Auth0Pod`, `Auth0Configuration`, and Auth0-specific user services.
-   - [ ] Fix the inventory into an actionable migration map.
-   - [ ] Commit the audit/update separately.
+   - [x] Review remaining `Auth0Pod`, `Auth0Configuration`, and Auth0-specific user services.
+   - [x] Fix the inventory into an actionable migration map.
+   - [x] Commit the audit/update separately.
 3. Redirect and SSRF allowlist modernization
    - [ ] Review Auth0-specific domains in redirect and SSRF configs.
    - [ ] Fix the config strategy for future institutional SSO domains.
