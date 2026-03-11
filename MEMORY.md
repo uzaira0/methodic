@@ -328,9 +328,9 @@ Updated: 2026-03-11
    - [x] Fix the next user-facing route cutover step.
    - [x] Commit the cutover slice separately.
 7. Questionnaire route modernization
-   - [ ] Review the questionnaire surfaces still tied to `lattice-ui-kit` and styled-components.
-   - [ ] Fix the next questionnaire route migration tranche.
-   - [ ] Commit the route migration separately.
+   - [x] Review the questionnaire surfaces still tied to `lattice-ui-kit` and styled-components.
+   - [x] Fix the next questionnaire route migration tranche.
+   - [x] Commit the route migration separately.
 8. Time Use Diary UI modernization
    - [ ] Review TUD surfaces still tied to `lattice-ui-kit` and styled-components.
    - [ ] Fix the next TUD UI migration tranche.
@@ -386,9 +386,8 @@ Updated: 2026-03-11
 
 ## Remaining Round 3 Execution Order
 
-1. Questionnaire route modernization
-2. Time Use Diary UI modernization
-3. Redux Saga reduction in study/org flows
+1. Time Use Diary UI modernization
+2. Redux Saga reduction in study/org flows
 
 ## Automation Added
 
