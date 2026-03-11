@@ -1,0 +1,4 @@
+interface:
+  display_name: "Chronicle Web Bootstrap Boundary"
+  short_description: "Validate Chronicle bootstrap and cookie-auth startup"
+  default_prompt: "Use $chronicle-web-bootstrap-boundary when changing Chronicle web bootstrap loading, cookie exchange/logout helpers, or the config.json-to-cookie auth boundary."
