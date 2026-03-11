@@ -23,30 +23,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node compatibility runtime
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
-          cache: npm
-          cache-dependency-path: chronicle-web/package-lock.json
 
-      - name: Configure npm for FontAwesome
+      - name: Configure registry for FontAwesome
         env:
           FONTAWESOME_NPM_AUTH_TOKEN: ${{ secrets.FONTAWESOME_NPM_AUTH_TOKEN }}
         run: |
           if [ -n "$FONTAWESOME_NPM_AUTH_TOKEN" ]; then
-            npm config set "@fortawesome:registry" https://npm.fontawesome.com/
-            npm config set "//npm.fontawesome.com/:_authToken" "$FONTAWESOME_NPM_AUTH_TOKEN"
+            printf "%s\n" "@fortawesome:registry=https://npm.fontawesome.com/" >> ~/.npmrc
+            printf "%s\n" "//npm.fontawesome.com/:_authToken=$FONTAWESOME_NPM_AUTH_TOKEN" >> ~/.npmrc
           fi
 
       - name: Install web deps
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Web check
-        run: npm run check
+        run: bun run check
 
       - name: Jest
-        run: npm run test -- --runInBand --watch=false
+        run: bun run test -- --runInBand --watch=false
 
   jvm-smoke:
     name: jvm smoke

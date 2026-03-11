@@ -6,15 +6,17 @@ Updated: 2026-03-11
 
 - The monorepo has five active surfaces: `chronicle-server`, `chronicle-api`, `chronicle-web`, `chronicle` (Android), and shared `rhizome` libraries.
 - Root Gradle validation could not run in this workspace because `java` and `JAVA_HOME` were not configured.
-- `chronicle-web` now passes `npm run check`, `npm test -- --runInBand --watch=false`, and the web portion of `./scripts/chronicle-smoke.sh`.
+- `chronicle-web` now passes `bun run check`, `bun run test -- --runInBand --watch=false`, and the web portion of `./scripts/chronicle-smoke.sh`.
 - The current web auth contract is: bootstrap JWT from `config.json` for testing, exchange it for backend-managed cookies, keep JWT state in memory only, and treat interactive SSO as future work.
 - The requested TypeScript error-catching spec has been mapped onto `chronicle-web/`, but the frontend is still Flow-based. `chronicle-web/tsconfig.app.json` is a forward-looking policy scaffold rather than full source coverage.
+- `chronicle-web` is now Bun-managed for install, lockfile, script execution, and the modern HTML build/dev/preview loop. Node is still present as a compatibility runtime for the legacy Jest/webpack stack while those tools remain in place.
 - `chronicle-web` ESLint warnings still document legacy debt, but blocking errors are now under control in the requested gate.
 
 ## Verified Signals
 
-- `npm test -- --runInBand --watch=false` in `chronicle-web/` is green.
-- `npm run check` in `chronicle-web/` is green.
+- `bun run test -- --runInBand --watch=false` in `chronicle-web/` is green.
+- `bun run check` in `chronicle-web/` is green.
+- `bun run modern:build`, `bun run modern:dev`, and `bun run modern:preview` all work in `chronicle-web/`.
 - `./scripts/chronicle-smoke.sh` is green except for JVM steps skipped because Java is missing locally.
 - `./scripts/silent-failure-hunter.sh` finds only existing `console.error` sites, not swallowed catches or `queueMicrotask` patterns.
 - Backend support for the new auth flow exists in `chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/AuthTokenController.kt` and related security config.
@@ -25,56 +27,60 @@ Updated: 2026-03-11
   - `.claude/settings.json` hooks for secret protection and post-edit web linting
   - `.github/workflows/ci.yml` for web checks, JVM smoke, compose validation, and silent-failure scanning
 
-## Next Work Queue
+## Active Modernization Checklist
 
-1. Institutional SSO contract
-   - [ ] Review `chronicle-server` auth entry points, cookies, redirects, and logout behavior.
-   - [ ] Fix the server/web contract so institutional SSO replaces Auth0-specific assumptions cleanly.
-   - [ ] Commit the backend + web contract change together.
-2. Replace bootstrap-token auth
-   - [ ] Review every remaining dependency on `config.json` token bootstrap.
-   - [ ] Fix the testing bootstrap into a documented temporary path or remove it once SSO exists.
-   - [ ] Commit only the bootstrap-removal or bootstrap-hardening slice.
-3. Server-side cookie and CSRF tests
-   - [ ] Review the current server test coverage for `/chronicle/v3/auth` cookie endpoints.
-   - [ ] Fix missing contract tests for cookie issuance, CSRF cookie creation, and logout clearing.
-   - [ ] Commit the server tests with any required endpoint changes.
-4. Flow vs TypeScript migration decision
-   - [ ] Review whether the team wants real TS migration or only policy scaffolding.
-   - [ ] Fix docs, CI, and package scripts to match that decision rather than implying both paths at once.
-   - [ ] Commit the language-strategy update separately from feature work.
-5. Web lint warning backlog
-   - [ ] Review the current `npm run check` warning set and group it by risk.
-   - [ ] Fix the highest-signal warnings first, especially hook dependency drift and unstable nested components.
-   - [ ] Commit warning-reduction work in small, topic-based slices.
-6. CSS-in-JS lint strategy
-   - [ ] Review whether `stylelint` should remain optional, be repaired, or be removed.
-   - [ ] Fix the parser/config story for styled-components instead of leaving a half-working optional script.
-   - [ ] Commit the CSS-lint policy change on its own.
-7. JVM readiness
-   - [ ] Review local/CI Java expectations for root Gradle work.
-   - [ ] Fix `java` and `JAVA_HOME` availability, then re-run `./gradlew projects` and `:chronicle-api:test`.
-   - [ ] Commit only if repo docs or scripts change as part of the fix.
-8. Server smoke coverage
-   - [ ] Review whether `:chronicle-server:test` is stable enough for smoke or CI.
-   - [ ] Fix flaky or missing prerequisites if the server test suite should become default.
-   - [ ] Commit the smoke-path expansion separately from unrelated server work.
-9. Deployment documentation convergence
-   - [ ] Review the root README, `docker/README.md`, and compose variants for conflicting instructions.
-   - [ ] Fix the docs so one deployment story is clearly canonical.
-   - [ ] Commit doc and compose narrative updates together.
-10. Android build boundary
-   - [ ] Review whether `chronicle/` should remain outside the root Gradle build.
-   - [ ] Fix the docs/CI narrative to match that architectural choice.
-   - [ ] Commit Android-boundary documentation or build changes separately.
-11. Secret-adjacent asset audit
-   - [ ] Review tracked certs, signing assets, and local bootstrap/security files.
-   - [ ] Fix version-control scope so only intended sensitive materials remain tracked.
-   - [ ] Commit the audit outcome with any ignore or docs changes.
-12. Remote Gradle dependency hardening
-   - [ ] Review every remote `apply from` dependency in JVM modules.
-   - [ ] Fix or pin the brittle ones so builds do not depend on mutable GitHub-hosted scripts.
-   - [ ] Commit each hardening step independently if multiple remote scripts are involved.
+1. Bun-native modern shell
+   - [x] Review whether Bun can replace the modern HTML dev/build loop directly.
+   - [x] Fix `chronicle-web` to use Bun for modern dev/build/preview instead of Vite.
+   - [x] Commit the Bun cutover separately.
+2. Bun-managed frontend lockfile
+   - [x] Review whether `package-lock.json` still has a role once Bun owns installation.
+   - [x] Fix `chronicle-web` to use `bun.lock` and Bun-oriented README commands.
+   - [x] Commit the lockfile/doc update separately.
+3. Bun repo automation
+   - [ ] Review root scripts, CI, security scan, AGENTS guidance, and Claude hooks for npm-era assumptions.
+   - [ ] Fix repo automation and docs so `chronicle-web` workflows use Bun by default.
+   - [ ] Commit the repo-automation update separately.
+4. Generated-output hygiene
+   - [x] Review generated frontend output paths and current ignore rules.
+   - [x] Fix `chronicle-web` so modern build artifacts do not dirty the worktree.
+   - [x] Commit the repo-hygiene change separately.
+5. Shared section-header primitive
+   - [x] Review duplication across modern route headings and intro blocks.
+   - [x] Fix the shell by extracting a reusable section-header component.
+   - [x] Commit the refactor separately.
+6. Shared stat-card primitive
+   - [x] Review repeated metric-card markup in the modern overview and studies surfaces.
+   - [x] Fix the duplication with a themed stat-card component.
+   - [x] Commit the refactor separately.
+7. Workbench route upgrade
+   - [x] Review the placeholder workbench route for missing interaction and state.
+   - [x] Fix it into a real modernization control surface with local state.
+   - [x] Commit the route upgrade separately.
+8. Shell preference persistence
+   - [x] Review which shell controls reset unnecessarily across reloads.
+   - [x] Fix sidebar and workbench preferences with persisted Zustand state.
+   - [x] Commit persistence changes separately.
+9. Router fallback and empty states
+   - [x] Review the modern router for generic fallbacks and route dead ends.
+   - [x] Fix it with an explicit not-found view and better empty-state messaging.
+   - [x] Commit the router UX update separately.
+10. Mobile and keyboard navigation
+   - [x] Review the new shell for keyboard access and skip-navigation gaps.
+   - [x] Fix skip links, focus targets, and mobile-nav affordances.
+   - [x] Commit the accessibility slice separately.
+11. Theme stability and form primitives
+   - [x] Review the theme path and missing base controls needed for route migration.
+   - [x] Fix theme rendering plus textarea/select/help-text primitives for the modern shell.
+   - [x] Commit the stability and primitive additions separately.
+12. Studies planning board depth
+   - [x] Review the studies page for missing workflow detail and decision support.
+   - [x] Fix it with richer cards, filters, persisted notes, and ownership/status signals.
+   - [x] Commit the studies-board enhancement separately.
+13. Post-wave reassessment and skill/automation creation
+   - [ ] Review the broader repo after the Bun-first and modern-shell wave.
+   - [ ] Fix the work queue by creating any relevant automations and local skills with `skill-creator`.
+   - [ ] Commit the refreshed checklist and skill/automation additions separately.
 
 ## Automation Added
 

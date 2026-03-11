@@ -35,7 +35,7 @@ printf 'root: %s\n\n' "$ROOT_DIR"
 printf 'Toolchain\n'
 check_required_cmd git
 check_required_cmd node
-check_required_cmd npm
+check_required_cmd bun
 check_required_cmd java
 check_optional_cmd docker
 

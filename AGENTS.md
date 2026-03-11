@@ -31,7 +31,7 @@ Use this file for work anywhere under `/opt/chronicle`.
 - Treat `chronicle-api` changes as cross-project changes. DTO and Retrofit interface edits can affect `chronicle-server`, `chronicle-web`, and `chronicle`.
 - Treat `chronicle-web` auth changes as a coordinated migration. Frontend utilities, Axios setup, bootstrap flow, Jest tests, and `chronicle-server` cookie endpoints move together.
 - Treat `chronicle-web/tsconfig.app.json` as a policy scaffold, not proof that the Flow frontend has been migrated to TypeScript. TypeScript strictness is staged here for future TS adoption, but current source coverage is still Flow-based.
-- Treat `chronicle-web/npm run check` as the blocking web quality gate. Current ESLint warnings document legacy debt; they are not the same as the new bug-catching error gate.
+- Treat `chronicle-web/bun run check` as the blocking web quality gate. Current ESLint warnings document legacy debt; they are not the same as the new bug-catching error gate.
 - Keep backlog execution itemized as `review -> fix -> commit` when working through the repo checklist. Do not bundle unrelated backlog items into a single commit unless the contract forces them to move together.
 - Validate Docker and Traefik edits with `docker compose -f docker/docker-compose.traefik.yml config -q` and the relevant compose file for the target environment.
 - Do not edit checked-in build outputs, `chronicle-web/node_modules`, `build/`, or packaged artifacts unless the task explicitly targets them.
@@ -42,10 +42,10 @@ Use this file for work anywhere under `/opt/chronicle`.
 
 - Root JVM structure: `./gradlew projects`
 - API module: `./gradlew :chronicle-api:test`
-- Web policy typecheck: `cd chronicle-web && npm run typecheck`
-- Web lint/check: `cd chronicle-web && npm run check`
-- Web full legacy sweep: `cd chronicle-web && npm run check:full` (expected to reflect separate Flow backlog until that queue is addressed)
-- Web app: `cd chronicle-web && npm test -- --runInBand --watch=false`
+- Web policy typecheck: `cd chronicle-web && bun run typecheck`
+- Web lint/check: `cd chronicle-web && bun run check`
+- Web full legacy sweep: `cd chronicle-web && bun run check:full` (expected to reflect separate Flow backlog until that queue is addressed)
+- Web app: `cd chronicle-web && bun run test -- --runInBand --watch=false`
 - Android app: `cd chronicle && ./gradlew assembleDebug`
 - Traefik compose syntax: `docker compose -f docker/docker-compose.traefik.yml config -q`
 

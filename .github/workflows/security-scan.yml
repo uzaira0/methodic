@@ -97,10 +97,10 @@ jobs:
           exit 1
 
   # ============================================================================
-  # NPM Audit for chronicle-web
+  # Bun Audit for chronicle-web
   # ============================================================================
-  npm-security-scan:
-    name: NPM Security Audit
+  bun-security-scan:
+    name: Bun Security Audit
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -109,57 +109,60 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node compatibility runtime
         uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
-          cache: 'npm'
-          cache-dependency-path: chronicle-web/package-lock.json
 
-      - name: Configure npm for FontAwesome
+      - name: Configure registry for FontAwesome
         env:
           FONTAWESOME_NPM_AUTH_TOKEN: ${{ secrets.FONTAWESOME_NPM_AUTH_TOKEN }}
         run: |
-          npm config set "@fortawesome:registry" https://npm.fontawesome.com/
-          npm config set "//npm.fontawesome.com/:_authToken" "$FONTAWESOME_NPM_AUTH_TOKEN"
+          printf "%s\n" "@fortawesome:registry=https://npm.fontawesome.com/" >> ~/.npmrc
+          printf "%s\n" "//npm.fontawesome.com/:_authToken=$FONTAWESOME_NPM_AUTH_TOKEN" >> ~/.npmrc
         if: env.FONTAWESOME_NPM_AUTH_TOKEN != ''
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
-      - name: Run npm audit
-        run: npm audit --json > npm-audit-report.json || true
+      - name: Run Bun audit
+        run: bun audit --json > bun-audit-report.json || true
 
       - name: Check for High/Critical Vulnerabilities
-        id: npm-audit
+        id: bun-audit
         run: |
           # Run audit and capture exit code (redirect instead of pipe to preserve exit code)
-          npm audit --audit-level=high > npm-audit-output.txt 2>&1 || AUDIT_EXIT=$?
-          cat npm-audit-output.txt
+          bun audit --audit-level=high > bun-audit-output.txt 2>&1 || AUDIT_EXIT=$?
+          cat bun-audit-output.txt
 
           if [ "${AUDIT_EXIT:-0}" -ne 0 ]; then
             echo "has_vulnerabilities=true" >> $GITHUB_OUTPUT
-            echo "::warning::NPM audit found high or critical vulnerabilities"
+            echo "::warning::Bun audit found high or critical vulnerabilities"
           else
             echo "has_vulnerabilities=false" >> $GITHUB_OUTPUT
           fi
         continue-on-error: true
 
-      - name: Upload NPM Audit Reports
+      - name: Upload Bun Audit Reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: npm-audit-reports
+          name: bun-audit-reports
           path: |
-            chronicle-web/npm-audit-report.json
-            chronicle-web/npm-audit-output.txt
+            chronicle-web/bun-audit-report.json
+            chronicle-web/bun-audit-output.txt
           retention-days: 30
 
       - name: Fail on High/Critical Vulnerabilities
-        if: steps.npm-audit.outputs.has_vulnerabilities == 'true'
+        if: steps.bun-audit.outputs.has_vulnerabilities == 'true'
         run: |
-          echo "::error::NPM audit found high or critical vulnerabilities in chronicle-web"
-          echo "Run 'npm audit' locally to see details and 'npm audit fix' to attempt auto-fix"
+          echo "::error::Bun audit found high or critical vulnerabilities in chronicle-web"
+          echo "Run 'bun audit' locally to see details"
           exit 1
 
   # ============================================================================
@@ -255,7 +258,7 @@ jobs:
   security-summary:
     name: Security Summary
     runs-on: ubuntu-latest
-    needs: [gradle-security-scan, npm-security-scan, container-image-scan]
+    needs: [gradle-security-scan, bun-security-scan, container-image-scan]
     if: always()
     steps:
       - name: Download all artifacts
@@ -276,10 +279,10 @@ jobs:
             echo "| Gradle Dependencies | :x: Failed |" >> $GITHUB_STEP_SUMMARY
           fi
 
-          if [ "${{ needs.npm-security-scan.result }}" == "success" ]; then
-            echo "| NPM Dependencies | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.bun-security-scan.result }}" == "success" ]; then
+            echo "| Bun Dependencies | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
           else
-            echo "| NPM Dependencies | :x: Failed |" >> $GITHUB_STEP_SUMMARY
+            echo "| Bun Dependencies | :x: Failed |" >> $GITHUB_STEP_SUMMARY
           fi
 
           if [ "${{ needs.container-image-scan.result }}" == "success" ]; then
@@ -295,7 +298,7 @@ jobs:
           echo "- Update vulnerable dependencies or add documented suppressions" >> $GITHUB_STEP_SUMMARY
 
       - name: Check Overall Status
-        if: needs.gradle-security-scan.result == 'failure' || needs.npm-security-scan.result == 'failure' || needs.container-image-scan.result == 'failure'
+        if: needs.gradle-security-scan.result == 'failure' || needs.bun-security-scan.result == 'failure' || needs.container-image-scan.result == 'failure'
         run: |
           echo "::error::Security scan found vulnerabilities. Review the reports and fix or suppress with documentation."
           exit 1

@@ -39,12 +39,12 @@ else
   skip_step "chronicle-api-tests (java missing)"
 fi
 
-if have_cmd node && have_cmd npm; then
-  run_step "chronicle-web-check" bash -lc "cd '$ROOT_DIR/chronicle-web' && npm run check"
-  run_step "chronicle-web-tests" bash -lc "cd '$ROOT_DIR/chronicle-web' && npm test -- --runInBand --watch=false"
+if have_cmd bun && have_cmd node; then
+  run_step "chronicle-web-check" bash -lc "cd '$ROOT_DIR/chronicle-web' && bun run check"
+  run_step "chronicle-web-tests" bash -lc "cd '$ROOT_DIR/chronicle-web' && bun run test -- --runInBand --watch=false"
 else
-  skip_step "chronicle-web-check (node/npm missing)"
-  skip_step "chronicle-web-tests (node/npm missing)"
+  skip_step "chronicle-web-check (bun or node missing)"
+  skip_step "chronicle-web-tests (bun or node missing)"
 fi
 
 if have_cmd docker && [[ -f "$ROOT_DIR/docker/.env" ]]; then

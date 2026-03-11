@@ -26,7 +26,7 @@ def main() -> int:
         return 0
 
     subprocess.run(
-        ["npx", "eslint", "--config", ".eslintrc", "--fix", rel[len("chronicle-web/"):]],
+        ["bunx", "eslint", "--config", ".eslintrc", "--fix", rel[len("chronicle-web/"):]],
         cwd=project_dir / "chronicle-web",
         check=False,
         stdout=subprocess.DEVNULL,
