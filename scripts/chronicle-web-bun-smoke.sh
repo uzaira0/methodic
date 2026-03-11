@@ -35,6 +35,9 @@ printf '\n== bun-tests ==\n'
 printf '\n== bun-react-audit ==\n'
 (cd "$WEB_DIR" && bun run react:audit)
 
+printf '\n== bun-e2e ==\n'
+(cd "$WEB_DIR" && bun run e2e)
+
 printf '\n== bun-modern-build ==\n'
 (cd "$WEB_DIR" && bun run modern:build)
 

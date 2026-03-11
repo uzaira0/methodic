@@ -122,9 +122,9 @@ Updated: 2026-03-11
    - [ ] Fix the next reusable primitive or feature slice needed to replace them.
    - [ ] Commit each component-migration slice independently.
 10. E2E and visual coverage
-   - [ ] Review whether the modern shell needs Playwright or another browser-level regression harness before route cutover.
-   - [ ] Fix the missing coverage path for theme, auth bootstrap, and responsive navigation.
-   - [ ] Commit the browser-test automation separately.
+   - [x] Review whether the modern shell needs Playwright or another browser-level regression harness before route cutover.
+   - [x] Fix the missing coverage path for theme, auth bootstrap, and responsive navigation with a Bun-run Playwright lane.
+   - [x] Commit the browser-test automation separately.
 
 ## Automation Added
 
