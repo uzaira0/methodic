@@ -84,10 +84,10 @@ Updated: 2026-03-11
 
 ## Next Bun/React Checklist
 
-1. Bun CI verification
-   - [ ] Review actual GitHub Action outcomes after the Bun workflow change lands remotely.
-   - [ ] Fix any Bun install, audit, or Node-compat issues discovered in CI.
-   - [ ] Commit the CI repair separately.
+1. Bun workflow drift guard
+   - [x] Review the current GitHub Action and security workflow files for Bun-specific assumptions.
+   - [x] Fix local and CI validation so workflow drift is caught before remote failures.
+   - [x] Commit the workflow-audit slice separately.
 2. Jest-on-Bun strategy
    - [ ] Review whether the legacy Jest suite should keep Node compatibility or migrate to `bun test`.
    - [ ] Fix the test runner strategy explicitly instead of leaving mixed expectations.

@@ -53,6 +53,12 @@ else
   skip_step "traefik-compose-config (docker or docker/.env missing)"
 fi
 
+if have_cmd rg; then
+  run_step "bun-workflow-audit" bash -lc "cd '$ROOT_DIR' && bash ./scripts/check-bun-workflows.sh"
+else
+  skip_step "bun-workflow-audit (rg missing)"
+fi
+
 printf '\nSummary\n'
 printf 'failures=%d skips=%d\n' "$failures" "$skips"
 

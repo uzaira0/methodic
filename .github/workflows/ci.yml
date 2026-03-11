@@ -89,5 +89,8 @@ jobs:
       - name: Compose validation
         run: docker compose --env-file docker/.env.example -f docker/docker-compose.traefik.yml config -q
 
+      - name: Bun workflow audit
+        run: bash ./scripts/check-bun-workflows.sh
+
       - name: Silent failure hunter
         run: bash ./scripts/silent-failure-hunter.sh
