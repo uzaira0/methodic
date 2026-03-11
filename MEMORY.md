@@ -118,9 +118,9 @@ Updated: 2026-03-11
    - [x] Fix docs, scripts, and validation to match the current decision: TypeScript for the modern shell, Flow retained explicitly as a legacy compatibility lane.
    - [x] Commit the language-strategy update separately.
 9. Component migration backlog
-   - [ ] Review the highest-traffic `lattice-ui-kit` / styled-components surfaces still blocking route migration.
-   - [ ] Fix the next reusable primitive or feature slice needed to replace them.
-   - [ ] Commit each component-migration slice independently.
+   - [x] Review the highest-traffic `lattice-ui-kit` / styled-components surfaces still blocking route migration.
+   - [x] Fix the next reusable primitive by extracting a shared modern-shell state panel and replacing duplicated loading/error/empty layouts.
+   - [x] Commit the component-migration slice independently.
 10. E2E and visual coverage
    - [x] Review whether the modern shell needs Playwright or another browser-level regression harness before route cutover.
    - [x] Fix the missing coverage path for theme, auth bootstrap, and responsive navigation with a Bun-run Playwright lane.
