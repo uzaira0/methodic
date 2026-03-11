@@ -2,14 +2,15 @@
 
 ## Blocking
 
-- `npm run check`
-- `npm test -- --runInBand --watch=false`
+- `bun run check`
+- `bun run test`
+- `bun run test:legacy -- --runInBand --watch=false`
 
 ## Advisory / Separate Backlog
 
-- `npm run check:full` because the repo still has independent Flow debt
-- `npm run lint:css` because CSS-in-JS stylelint cleanup is not yet normalized into the blocking gate
-- ESLint warnings emitted by `npm run check`
+- `bun run check:full` because the repo still has independent Flow/Jest legacy debt
+- `bun run lint:css` because CSS-in-JS stylelint cleanup is not yet normalized into the blocking gate
+- ESLint warnings emitted by `bun run check`
 
 ## Current Expectations
 

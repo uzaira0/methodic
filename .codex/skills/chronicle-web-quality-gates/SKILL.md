@@ -12,9 +12,10 @@ Read [references/gates.md](references/gates.md) if you need the current gate con
 ## Workflow
 
 1. Keep the requested blocking gate narrow and honest.
-   - `npm run check` is the blocking web gate: TypeScript policy scaffold + ESLint.
-   - `npm run test -- --runInBand --watch=false` is the runtime regression gate.
-   - `npm run check:full` is intentionally broader and may expose separate Flow backlog.
+   - `bun run check` is the blocking web gate: TypeScript policy scaffold + ESLint.
+   - `bun run test` is the Bun-native modern-shell regression gate.
+   - `bun run test:legacy -- --runInBand --watch=false` is the legacy compatibility regression gate.
+   - `bun run check:full` is intentionally broader and may expose separate Flow/Jest legacy backlog.
 
 2. Do not overstate TypeScript coverage.
    - `tsconfig.app.json` is a policy scaffold while source remains Flow-based.
@@ -31,4 +32,4 @@ Read [references/gates.md](references/gates.md) if you need the current gate con
 
 5. If lint or hooks auto-modify files, review for semantic drift.
    - Styled-components files are especially easy to damage with the wrong parser or fixer.
-   - Re-run `npm run check` and tests after any auto-fix pass.
+   - Re-run `bun run check` and the relevant test lanes after any auto-fix pass.

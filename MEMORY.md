@@ -113,10 +113,10 @@ Updated: 2026-03-11
    - [ ] Review which current Redux Saga / Immutable flows should migrate first to RTK Query and plain TS objects.
    - [ ] Fix the first shared API/data adapter needed for live route migration.
    - [ ] Commit the adapter and state slice separately.
-8. Flow retirement strategy
-   - [ ] Review whether the repo will perform real TS migration or preserve Flow in legacy surfaces for a longer period.
-   - [ ] Fix docs, scripts, and validation to match that decision instead of implying both paths equally.
-   - [ ] Commit the language-strategy update separately.
+8. Flow legacy-lane strategy
+   - [x] Review whether the repo will perform real TS migration or preserve Flow in legacy surfaces for a longer period.
+   - [x] Fix docs, scripts, and validation to match the current decision: TypeScript for the modern shell, Flow retained explicitly as a legacy compatibility lane.
+   - [x] Commit the language-strategy update separately.
 9. Component migration backlog
    - [ ] Review the highest-traffic `lattice-ui-kit` / styled-components surfaces still blocking route migration.
    - [ ] Fix the next reusable primitive or feature slice needed to replace them.

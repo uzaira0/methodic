@@ -25,10 +25,11 @@ Read [references/topology.md](references/topology.md) when you need the componen
 3. Prefer the smallest reliable validation set that still matches the affected surface.
    - JVM structure: `./gradlew projects`
    - API smoke: `./gradlew :chronicle-api:test`
-   - Web policy typecheck: `cd chronicle-web && npm run typecheck`
-   - Web lint/check: `cd chronicle-web && npm run check`
-   - Web full legacy sweep: `cd chronicle-web && npm run check:full`
-   - Web smoke: `cd chronicle-web && npm test -- --runInBand --watch=false`
+   - Web policy typecheck: `cd chronicle-web && bun run typecheck`
+   - Web lint/check: `cd chronicle-web && bun run check`
+   - Web Bun-native tests: `cd chronicle-web && bun run test`
+   - Web legacy compatibility tests: `cd chronicle-web && bun run test:legacy -- --runInBand --watch=false`
+   - Web full legacy sweep: `cd chronicle-web && bun run check:full`
    - Android smoke: `cd chronicle && ./gradlew assembleDebug`
    - Traefik syntax: `docker compose -f docker/docker-compose.traefik.yml config -q`
 
@@ -36,7 +37,7 @@ Read [references/topology.md](references/topology.md) when you need the componen
 
 - Do not assume the Android app is part of the root Gradle build. It is excluded from `settings.gradle.kts`.
 - Do not overstate TypeScript coverage in `chronicle-web`. The new `tsconfig.app.json` is a policy scaffold while the source tree is still Flow-based.
-- Do not treat the current `chronicle-web` ESLint warning backlog as equivalent to failing the blocking quality gate. `npm run check` is intentionally narrower than `npm run check:full`.
+- Do not treat the current `chronicle-web` ESLint warning backlog as equivalent to failing the blocking quality gate. `bun run check` is intentionally narrower than `bun run check:full`.
 - Do not treat `docker-compose.yml`, `docker-compose.prod.yml`, and `docker-compose.traefik.yml` as interchangeable. Confirm which deployment path the task targets.
 - Do not edit `build/`, `chronicle-web/node_modules/`, or packaged artifacts unless the task explicitly requires it.
 - Be cautious with remote Gradle scripts in `chronicle-api` and `chronicle-server`; changes there can have external build implications.
