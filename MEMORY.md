@@ -316,9 +316,9 @@ Updated: 2026-03-11
    - [x] Fix the config strategy for future institutional SSO domains.
    - [x] Commit the config/documentation changes separately.
 4. React 19 blocker removal: `react-redux`
-   - [ ] Review the current React-Redux usage surface and compatibility blocker.
-   - [ ] Fix or isolate the blocker toward a React 19-safe path.
-   - [ ] Commit the migration slice separately.
+   - [x] Review the current React-Redux usage surface and compatibility blocker.
+   - [x] Fix or isolate the blocker toward a React 19-safe path.
+   - [x] Commit the migration slice separately.
 5. React 19 blocker removal: Material UI 4
    - [ ] Review `@material-ui/core`, `@material-ui/lab`, and `@material-ui/pickers` usage.
    - [ ] Fix the next replacement tranche toward shadcn/Radix/Tailwind components.
