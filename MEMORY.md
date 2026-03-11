@@ -10,6 +10,8 @@ Updated: 2026-03-11
 - `chronicle-web` Bun tests now cover both the modern TypeScript shell and two migrated legacy helper tranches under `src/bun-legacy/`; Jest is now a narrower compatibility lane instead of the only test runtime.
 - `chronicle-web` bootstrap/auth helper coverage now runs under Bun for `fetchBootstrapToken`, `exchangeBootstrapToken`, `resolveLegacyBootstrapToken`, `storeAuthInfo`, `clearAuthInfo`, `logoutCookieSession`, and the shell-routing helpers.
 - `chronicle-web` route guards and Axios refresh now replay the temporary bootstrap auth flow instead of treating `AUTH_ATTEMPT` as a dead-end. The auth reducer also clears `isAuthenticating` on failure again, and legacy `auth0_user_info` storage is now migrated forward into the Chronicle storage key at runtime.
+- `chronicle-web` auth storage helpers now use provider-neutral symbol names while still cleaning up legacy browser storage values, and the Bun test lane covers that migration behavior.
+- `chronicle-api` and `chronicle-server` now expose provider-neutral user-search DTO naming through `UserSearchFields`, reducing Auth0-specific naming in the public API and controller/service layer.
 - The current web auth contract is: bootstrap JWT from `config.json` for testing, exchange it for backend-managed cookies, keep JWT state in memory only, and treat interactive SSO as future work.
 - The requested TypeScript error-catching spec has been mapped onto `chronicle-web/`, but the frontend is still Flow-based. `chronicle-web/tsconfig.app.json` is a forward-looking policy scaffold rather than full source coverage.
 - `chronicle-web` is now Bun-managed for install, lockfile, script execution, and the modern HTML build/dev/preview loop. Node is still present as a compatibility runtime for the legacy Jest/webpack stack while those tools remain in place.
@@ -23,6 +25,7 @@ Updated: 2026-03-11
 - `bun run modern:build`, `bun run modern:dev`, and `bun run modern:preview` all work in `chronicle-web/`.
 - `./scripts/chronicle-smoke.sh` is green except for JVM steps skipped because Java is missing locally.
 - `./scripts/chronicle-web-bootstrap-smoke.sh` is green and now catches order-dependent Bun test failures in the startup/auth boundary.
+- `./scripts/check-sso-drift.sh` now reports Auth0-specific symbol names separately from expected legacy storage-cleanup literals, and the symbol-name audit is green.
 - `./scripts/silent-failure-hunter.sh` finds only existing `console.error` sites, not swallowed catches or `queueMicrotask` patterns.
 - Backend support for the new auth flow exists in `chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/AuthTokenController.kt` and related security config.
 - Repo automation added:
@@ -565,9 +568,9 @@ Round 3 complete.
    - [ ] Fix the next backend implementation tranche so cookie-backed SSO can replace the temporary bootstrap-token path.
    - [ ] Commit the backend and contract changes separately.
 2. Remaining Auth0 runtime removal
-   - [ ] Review the remaining `chronicle-server` runtime classes and configs that still depend on Auth0 types or naming.
-   - [ ] Fix the next removal tranche without breaking current testing auth.
-   - [ ] Commit the Auth0 retirement slice separately.
+   - [x] Review the remaining `chronicle-server` runtime classes and configs that still depend on Auth0 types or naming.
+   - [x] Fix the next removal tranche without breaking current testing auth.
+   - [x] Commit the Auth0 retirement slice separately.
 3. React 19 runtime upgrade path
    - [ ] Review which remaining legacy dependencies still block upgrading `react` and `react-dom`.
    - [ ] Fix the next compatibility tranche toward a real React 19 upgrade.

@@ -32,8 +32,8 @@ This inventory maps the remaining Auth0-specific wiring in `chronicle-server` so
 - `chronicle-server/src/main/kotlin/com/openlattice/chronicle/directory/LocalUserDirectoryService.kt`
   - Depends directly on `Auth0Configuration`
   - Builds an in-memory `User` map from configured Auth0 users
-- `chronicle-api/src/main/kotlin/com/openlattice/chronicle/users/Auth0UserSearchFields.kt`
-  - Auth0-specific naming survives in the public API model used by user search
+- `chronicle-api/src/main/kotlin/com/openlattice/chronicle/users/UserSearchFields.kt`
+  - The DTO is now SSO-neutral, but the backing user directory services still rely on Auth0-oriented infrastructure
 
 ### Security and Configuration Coupling
 
@@ -49,7 +49,7 @@ This inventory maps the remaining Auth0-specific wiring in `chronicle-server` so
 ### Transitional Web Coupling To Remove Later
 
 - `chronicle-web/src/core/auth/storage/authStorageKeys.js`
-  - Legacy Auth0 storage key names still exist only for cleanup and migration of old browser state
+  - Only legacy browser-storage cleanup values remain for migration of old browser state; the exported symbols are now provider-neutral
 - `chronicle-web/src/core/auth/utils/getUserInfo.js`
   - Migrates legacy user info from old browser storage into the Chronicle storage key on read
 - `chronicle-web/src/core/auth/utils/storeAuthInfo.js`
@@ -65,7 +65,7 @@ This inventory maps the remaining Auth0-specific wiring in `chronicle-server` so
 2. Introduce provider-neutral auth/session interfaces for server bootstrap and local user lookup.
 3. Replace `LocalUserListingService` and `LocalUserDirectoryService` with SSO-neutral implementations or explicit test-only shims.
 4. Stop importing `Auth0Pod` from Chronicle server pods once replacement services exist.
-5. Remove the remaining legacy Auth0 storage key names and API/web symbols that still encode Auth0 as the identity model.
+5. Remove the remaining legacy browser-storage cleanup values and server/runtime symbols that still encode Auth0 as the identity model.
 6. Remove the `/chronicle/config.json` bootstrap path once institutional SSO is live.
 
 ### Blockers

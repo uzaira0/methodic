@@ -63,5 +63,5 @@ This bootstrap path is temporary. Institutional SSO should replace only the toke
 
 - Remove Auth0-specific runtime defaults from redirect and SSRF configuration.
 - Inventory remaining `Auth0Pod` and `Auth0Configuration` wiring in `chronicle-server`.
-- Finish removing the remaining legacy Auth0 storage key names and `/chronicle/config.json` dependencies from the web runtime.
+- Finish removing the remaining legacy browser-storage cleanup values and `/chronicle/config.json` dependencies from the web runtime.
 - Define the session/bootstrap endpoint that the modern shell will call once SSO is active.

@@ -54,8 +54,17 @@ if ! run_group \
 fi
 
 if ! run_group \
-  "web_legacy_user_storage" \
-  "AUTH0_USER_INFO|AUTH0_ID_TOKEN|USER_INFO_STORAGE_KEY|AUTH0_NONCE_STATE|Auth0NonceState" \
+  "web_auth0_symbol_names" \
+  "AUTH0_USER_INFO|AUTH0_ID_TOKEN|AUTH0_NONCE_STATE|Auth0NonceState|Auth0UserSearchFields" \
+  "$ROOT_DIR/chronicle-web/src" \
+  "$ROOT_DIR/chronicle-api/src/main/kotlin" \
+  "$ROOT_DIR/chronicle-server/src/main/kotlin"; then
+  :
+fi
+
+if ! run_group \
+  "web_legacy_storage_cleanup_values" \
+  "auth0_id_token|auth0_user_info" \
   "$ROOT_DIR/chronicle-web/src"; then
   :
 fi
