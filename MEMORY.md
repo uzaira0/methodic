@@ -38,9 +38,9 @@ Updated: 2026-03-11
    - [x] Fix `chronicle-web` to use `bun.lock` and Bun-oriented README commands.
    - [x] Commit the lockfile/doc update separately.
 3. Bun repo automation
-   - [ ] Review root scripts, CI, security scan, AGENTS guidance, and Claude hooks for npm-era assumptions.
-   - [ ] Fix repo automation and docs so `chronicle-web` workflows use Bun by default.
-   - [ ] Commit the repo-automation update separately.
+   - [x] Review root scripts, CI, security scan, AGENTS guidance, and Claude hooks for npm-era assumptions.
+   - [x] Fix repo automation and docs so `chronicle-web` workflows use Bun by default.
+   - [x] Commit the repo-automation update separately.
 4. Generated-output hygiene
    - [x] Review generated frontend output paths and current ignore rules.
    - [x] Fix `chronicle-web` so modern build artifacts do not dirty the worktree.
@@ -80,7 +80,50 @@ Updated: 2026-03-11
 13. Post-wave reassessment and skill/automation creation
    - [x] Review the broader repo after the Bun-first and modern-shell wave.
    - [x] Fix the work queue by creating a Bun smoke automation and a Bun workflow local skill with `skill-creator`.
-   - [ ] Commit the refreshed checklist and skill/automation additions separately.
+   - [x] Commit the refreshed checklist and skill/automation additions separately.
+
+## Next Bun/React Checklist
+
+1. Bun CI verification
+   - [ ] Review actual GitHub Action outcomes after the Bun workflow change lands remotely.
+   - [ ] Fix any Bun install, audit, or Node-compat issues discovered in CI.
+   - [ ] Commit the CI repair separately.
+2. Jest-on-Bun strategy
+   - [ ] Review whether the legacy Jest suite should keep Node compatibility or migrate to `bun test`.
+   - [ ] Fix the test runner strategy explicitly instead of leaving mixed expectations.
+   - [ ] Commit the runner decision separately.
+3. React 19 readiness audit
+   - [ ] Review `chronicle-web` dependencies for React 19 compatibility, especially `lattice-ui-kit`, Material UI 4, and Jest adapters.
+   - [ ] Fix the dependency graph or blockers needed for a safe React runtime upgrade.
+   - [ ] Commit the compatibility audit separately from the actual React bump.
+4. Legacy shell cutover plan
+   - [ ] Review how the Bun/modern shell should coexist with `src/index.js` and the Webpack app.
+   - [ ] Fix the route-cutover strategy so modern routes can become user-facing incrementally.
+   - [ ] Commit the cutover plan/doc or bootstrap change separately.
+5. Institutional SSO contract
+   - [ ] Review `chronicle-server` auth entry points, cookies, redirects, and logout behavior.
+   - [ ] Fix the server/web contract so institutional SSO replaces bootstrap-token assumptions cleanly.
+   - [ ] Commit the backend + web contract change together.
+6. Replace bootstrap-token auth
+   - [ ] Review every remaining dependency on `config.json` token bootstrap.
+   - [ ] Fix the testing bootstrap into a documented temporary path or remove it once SSO exists.
+   - [ ] Commit only the bootstrap-hardening or bootstrap-removal slice.
+7. API/data-layer modernization
+   - [ ] Review which current Redux Saga / Immutable flows should migrate first to RTK Query and plain TS objects.
+   - [ ] Fix the first shared API/data adapter needed for live route migration.
+   - [ ] Commit the adapter and state slice separately.
+8. Flow retirement strategy
+   - [ ] Review whether the repo will perform real TS migration or preserve Flow in legacy surfaces for a longer period.
+   - [ ] Fix docs, scripts, and validation to match that decision instead of implying both paths equally.
+   - [ ] Commit the language-strategy update separately.
+9. Component migration backlog
+   - [ ] Review the highest-traffic `lattice-ui-kit` / styled-components surfaces still blocking route migration.
+   - [ ] Fix the next reusable primitive or feature slice needed to replace them.
+   - [ ] Commit each component-migration slice independently.
+10. E2E and visual coverage
+   - [ ] Review whether the modern shell needs Playwright or another browser-level regression harness before route cutover.
+   - [ ] Fix the missing coverage path for theme, auth bootstrap, and responsive navigation.
+   - [ ] Commit the browser-test automation separately.
 
 ## Automation Added
 
