@@ -356,9 +356,9 @@ Updated: 2026-03-11
    - [x] Fix the audit into a prioritized replacement map.
    - [x] Commit the audit/update separately.
 14. Legacy auth bootstrap removal path
-   - [ ] Review every remaining dependency on `/chronicle/config.json`.
-   - [ ] Fix the next removal or isolation tranche toward institutional SSO.
-   - [ ] Commit the auth migration slice separately.
+   - [x] Review every remaining dependency on `/chronicle/config.json`.
+   - [x] Fix the next removal or isolation tranche toward institutional SSO.
+   - [x] Commit the auth migration slice separately.
 15. LocalStorage user-info dependency review
    - [x] Review remaining `AUTH0_USER_INFO` / browser storage reads in legacy code.
    - [x] Fix the next reduction tranche.
