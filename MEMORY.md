@@ -368,9 +368,9 @@ Updated: 2026-03-11
    - [ ] Fix the next representative route/theme/auth smoke scenarios.
    - [ ] Commit the E2E slice separately.
 17. Root JVM validation readiness
-   - [ ] Review what is still blocked locally because of missing Java and whether the scripts should enforce clearer behavior.
-   - [ ] Fix the preflight/smoke messaging or validation flow.
-   - [ ] Commit the automation update separately.
+   - [x] Review what is still blocked locally because of missing Java and whether the scripts should enforce clearer behavior.
+   - [x] Fix the preflight/smoke messaging or validation flow.
+   - [x] Commit the automation update separately.
 18. Docker and deployment doc reconciliation
    - [ ] Review the overlapping local/prod/Traefik deployment docs.
    - [ ] Fix the next documentation reconciliation tranche.

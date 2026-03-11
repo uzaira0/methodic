@@ -11,10 +11,15 @@ have_cmd() {
 
 check_required_cmd() {
   local name="$1"
+  local hint="${2:-}"
   if have_cmd "$name"; then
     printf '[ok] %s: %s\n' "$name" "$(command -v "$name")"
   else
-    printf '[missing] %s\n' "$name"
+    if [[ -n "$hint" ]]; then
+      printf '[missing] %s (%s)\n' "$name" "$hint"
+    else
+      printf '[missing] %s\n' "$name"
+    fi
     critical_missing=$((critical_missing + 1))
   fi
 }
@@ -36,13 +41,24 @@ printf 'Toolchain\n'
 check_required_cmd git
 check_required_cmd node
 check_required_cmd bun
-check_required_cmd java
+check_required_cmd java "required for ./gradlew projects and :chronicle-api:test"
 check_optional_cmd docker
 
 if [[ -n "${JAVA_HOME:-}" ]]; then
   printf '[ok] JAVA_HOME: %s\n' "$JAVA_HOME"
 else
-  printf '[warn] JAVA_HOME is not set\n'
+  printf '[warn] JAVA_HOME is not set'
+  if have_cmd java; then
+    java_bin="$(readlink -f "$(command -v java)" 2>/dev/null || command -v java)"
+    java_home_guess="$(cd "$(dirname "$java_bin")/.." && pwd 2>/dev/null || true)"
+    if [[ -n "$java_home_guess" ]]; then
+      printf ' (try: export JAVA_HOME=%s)\n' "$java_home_guess"
+    else
+      printf '\n'
+    fi
+  else
+    printf ' (install a JDK and export JAVA_HOME to enable JVM validation)\n'
+  fi
   warnings=$((warnings + 1))
 fi
 
@@ -85,5 +101,8 @@ printf '\nSummary\n'
 printf 'critical_missing=%d warnings=%d\n' "$critical_missing" "$warnings"
 
 if (( critical_missing > 0 )); then
+  if ! have_cmd java; then
+    printf 'blocked: gradle validation cannot run until a JDK is installed and JAVA_HOME is configured\n'
+  fi
   exit 1
 fi

@@ -35,8 +35,8 @@ if have_cmd java; then
   run_step "gradle-projects" bash -lc "cd '$ROOT_DIR' && ./gradlew projects"
   run_step "chronicle-api-tests" bash -lc "cd '$ROOT_DIR' && ./gradlew :chronicle-api:test"
 else
-  skip_step "gradle-projects (java missing)"
-  skip_step "chronicle-api-tests (java missing)"
+  skip_step "gradle-projects (java missing; install a JDK and set JAVA_HOME)"
+  skip_step "chronicle-api-tests (java missing; install a JDK and set JAVA_HOME)"
 fi
 
 if have_cmd bun && have_cmd node; then
@@ -63,6 +63,10 @@ fi
 
 printf '\nSummary\n'
 printf 'failures=%d skips=%d\n' "$failures" "$skips"
+
+if ! have_cmd java; then
+  printf 'note: JVM smoke steps are skipped until a JDK is installed and JAVA_HOME is configured\n'
+fi
 
 if (( failures > 0 )); then
   exit 1
