@@ -12,6 +12,7 @@ Updated: 2026-03-11
 - `chronicle-web` route guards and Axios refresh now replay the temporary bootstrap auth flow instead of treating `AUTH_ATTEMPT` as a dead-end. The auth reducer also clears `isAuthenticating` on failure again, and legacy `auth0_user_info` storage is now migrated forward into the Chronicle storage key at runtime.
 - `chronicle-web` auth storage helpers now use provider-neutral symbol names while still cleaning up legacy browser storage values, and the Bun test lane covers that migration behavior.
 - `chronicle-api` and `chronicle-server` now expose provider-neutral user-search DTO naming through `UserSearchFields`, reducing Auth0-specific naming in the public API and controller/service layer.
+- The participant dashboard deep link now cuts over to the modern shell at `/participant` and `/chronicle/participant`, with browser coverage proving the new route loads and handles missing query params explicitly.
 - The current web auth contract is: bootstrap JWT from `config.json` for testing, exchange it for backend-managed cookies, keep JWT state in memory only, and treat interactive SSO as future work.
 - The requested TypeScript error-catching spec has been mapped onto `chronicle-web/`, but the frontend is still Flow-based. `chronicle-web/tsconfig.app.json` is a forward-looking policy scaffold rather than full source coverage.
 - `chronicle-web` is now Bun-managed for install, lockfile, script execution, and the modern HTML build/dev/preview loop. Node is still present as a compatibility runtime for the legacy Jest/webpack stack while those tools remain in place.
@@ -26,6 +27,7 @@ Updated: 2026-03-11
 - `./scripts/chronicle-smoke.sh` is green except for JVM steps skipped because Java is missing locally.
 - `./scripts/chronicle-web-bootstrap-smoke.sh` is green and now catches order-dependent Bun test failures in the startup/auth boundary.
 - `./scripts/check-sso-drift.sh` now reports Auth0-specific symbol names separately from expected legacy storage-cleanup literals, and the symbol-name audit is green.
+- `bun run e2e` in `chronicle-web/` now covers the participant dashboard deep link in addition to the `/modern` and `/chronicle/modern` route set.
 - `./scripts/silent-failure-hunter.sh` finds only existing `console.error` sites, not swallowed catches or `queueMicrotask` patterns.
 - Backend support for the new auth flow exists in `chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/AuthTokenController.kt` and related security config.
 - Repo automation added:
@@ -588,9 +590,9 @@ Round 3 complete.
    - [ ] Fix the next survey route migration tranche with the modern component stack.
    - [ ] Commit the route migration separately.
 7. Participant dashboard modernization
-   - [ ] Review the participant dashboard shell and quick-action surfaces for the next modernization slice.
-   - [ ] Fix the next participant-facing route tranche with the modern UI primitives.
-   - [ ] Commit the route migration separately.
+   - [x] Review the participant dashboard shell and quick-action surfaces for the next modernization slice.
+   - [x] Fix the next participant-facing route tranche with the modern UI primitives.
+   - [x] Commit the route migration separately.
 8. Study list modernization
    - [ ] Review the legacy study list and org-study table surfaces for the next cutover target.
    - [ ] Fix the next study-list migration tranche in the modern shell.
