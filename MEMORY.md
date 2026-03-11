@@ -6,7 +6,7 @@ Updated: 2026-03-11
 
 - The monorepo has five active surfaces: `chronicle-server`, `chronicle-api`, `chronicle-web`, `chronicle` (Android), and shared `rhizome` libraries.
 - Root Gradle validation could not run in this workspace because `java` and `JAVA_HOME` were not configured.
-- `chronicle-web` now passes `bun run check`, `bun run test -- --runInBand --watch=false`, and the web portion of `./scripts/chronicle-smoke.sh`.
+- `chronicle-web` now passes `bun run check`, `bun run test`, `bun run test:legacy -- --runInBand --watch=false`, and the web portion of `./scripts/chronicle-smoke.sh`.
 - The current web auth contract is: bootstrap JWT from `config.json` for testing, exchange it for backend-managed cookies, keep JWT state in memory only, and treat interactive SSO as future work.
 - The requested TypeScript error-catching spec has been mapped onto `chronicle-web/`, but the frontend is still Flow-based. `chronicle-web/tsconfig.app.json` is a forward-looking policy scaffold rather than full source coverage.
 - `chronicle-web` is now Bun-managed for install, lockfile, script execution, and the modern HTML build/dev/preview loop. Node is still present as a compatibility runtime for the legacy Jest/webpack stack while those tools remain in place.
@@ -14,7 +14,8 @@ Updated: 2026-03-11
 
 ## Verified Signals
 
-- `bun run test -- --runInBand --watch=false` in `chronicle-web/` is green.
+- `bun run test` in `chronicle-web/` is green.
+- `bun run test:legacy -- --runInBand --watch=false` in `chronicle-web/` is green.
 - `bun run check` in `chronicle-web/` is green.
 - `bun run modern:build`, `bun run modern:dev`, and `bun run modern:preview` all work in `chronicle-web/`.
 - `./scripts/chronicle-smoke.sh` is green except for JVM steps skipped because Java is missing locally.
@@ -88,10 +89,10 @@ Updated: 2026-03-11
    - [x] Review the current GitHub Action and security workflow files for Bun-specific assumptions.
    - [x] Fix local and CI validation so workflow drift is caught before remote failures.
    - [x] Commit the workflow-audit slice separately.
-2. Jest-on-Bun strategy
-   - [ ] Review whether the legacy Jest suite should keep Node compatibility or migrate to `bun test`.
-   - [ ] Fix the test runner strategy explicitly instead of leaving mixed expectations.
-   - [ ] Commit the runner decision separately.
+2. Bun test-lane split
+   - [x] Review the Flow-era Jest surface and the new TypeScript/modern-shell surface separately.
+   - [x] Fix the runner strategy by making Bun-native tests the default modern lane and isolating legacy Jest as a Node compatibility lane.
+   - [x] Commit the runner split separately.
 3. React 19 readiness audit
    - [ ] Review `chronicle-web` dependencies for React 19 compatibility, especially `lattice-ui-kit`, Material UI 4, and Jest adapters.
    - [ ] Fix the dependency graph or blockers needed for a safe React runtime upgrade.

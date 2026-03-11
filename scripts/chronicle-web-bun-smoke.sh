@@ -29,8 +29,8 @@ fi
 printf '\n== bun-check ==\n'
 (cd "$WEB_DIR" && bun run check)
 
-printf '\n== bun-test ==\n'
-(cd "$WEB_DIR" && bun run test -- --runInBand --watch=false)
+printf '\n== bun-tests ==\n'
+(cd "$WEB_DIR" && bun run test:check)
 
 printf '\n== bun-modern-build ==\n'
 (cd "$WEB_DIR" && bun run modern:build)

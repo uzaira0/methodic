@@ -46,7 +46,8 @@ Use this file for work anywhere under `/opt/chronicle`.
 - Web policy typecheck: `cd chronicle-web && bun run typecheck`
 - Web lint/check: `cd chronicle-web && bun run check`
 - Web full legacy sweep: `cd chronicle-web && bun run check:full` (expected to reflect separate Flow backlog until that queue is addressed)
-- Web app: `cd chronicle-web && bun run test -- --runInBand --watch=false`
+- Web app Bun suite: `cd chronicle-web && bun run test`
+- Web app legacy suite: `cd chronicle-web && bun run test:legacy -- --runInBand --watch=false`
 - Android app: `cd chronicle && ./gradlew assembleDebug`
 - Traefik compose syntax: `docker compose -f docker/docker-compose.traefik.yml config -q`
 

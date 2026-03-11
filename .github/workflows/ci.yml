@@ -48,8 +48,11 @@ jobs:
       - name: Web check
         run: bun run check
 
-      - name: Jest
-        run: bun run test -- --runInBand --watch=false
+      - name: Bun tests
+        run: bun run test
+
+      - name: Legacy Jest compatibility
+        run: bun run test:legacy -- --runInBand --watch=false
 
   jvm-smoke:
     name: jvm smoke
