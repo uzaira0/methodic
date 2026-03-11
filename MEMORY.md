@@ -324,9 +324,9 @@ Updated: 2026-03-11
    - [ ] Fix the next replacement tranche toward shadcn/Radix/Tailwind components.
    - [ ] Commit the migration slice separately.
 6. Modern route cutover plan for `src/index.js`
-   - [ ] Review how the legacy and modern shells should coexist at runtime.
-   - [ ] Fix the next user-facing route cutover step.
-   - [ ] Commit the cutover slice separately.
+   - [x] Review how the legacy and modern shells should coexist at runtime.
+   - [x] Fix the next user-facing route cutover step.
+   - [x] Commit the cutover slice separately.
 7. Questionnaire route modernization
    - [ ] Review the questionnaire surfaces still tied to `lattice-ui-kit` and styled-components.
    - [ ] Fix the next questionnaire route migration tranche.
@@ -387,10 +387,9 @@ Updated: 2026-03-11
 ## Remaining Round 3 Execution Order
 
 1. React 19 blocker removal: Material UI 4
-2. Modern route cutover plan for `src/index.js`
-3. Questionnaire route modernization
-4. Time Use Diary UI modernization
-5. Redux Saga reduction in study/org flows
+2. Questionnaire route modernization
+3. Time Use Diary UI modernization
+4. Redux Saga reduction in study/org flows
 
 ## Automation Added
 
