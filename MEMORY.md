@@ -340,9 +340,9 @@ Updated: 2026-03-11
    - [x] Fix the next Bun migration tranche.
    - [x] Commit the migration slice separately.
 10. Flow-to-Bun runtime compatibility in shared legacy modules
-   - [ ] Review which remaining legacy utility modules still block direct Bun imports because of Flow syntax.
-   - [ ] Fix the next runtime-compatible helper cluster.
-   - [ ] Commit the compatibility slice separately.
+   - [x] Review which remaining legacy utility modules still block direct Bun imports because of Flow syntax.
+   - [x] Fix the next runtime-compatible helper cluster.
+   - [x] Commit the compatibility slice separately.
 11. Redux Saga reduction in study/org flows
    - [ ] Review the highest-traffic saga-based flows still untouched.
    - [ ] Fix the next RTK/RTK Query migration tranche.
