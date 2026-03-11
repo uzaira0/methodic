@@ -7,7 +7,7 @@ Updated: 2026-03-11
 - The monorepo has five active surfaces: `chronicle-server`, `chronicle-api`, `chronicle-web`, `chronicle` (Android), and shared `rhizome` libraries.
 - Root Gradle validation could not run in this workspace because `java` and `JAVA_HOME` were not configured.
 - `chronicle-web` now passes `bun run check`, `bun run test`, `bun run test:legacy -- --runInBand --watch=false`, and the web portion of `./scripts/chronicle-smoke.sh`.
-- `chronicle-web` Bun tests now cover both the modern TypeScript shell and the first migrated legacy helper tranche under `src/bun-legacy/`; Jest is now a narrower compatibility lane instead of the only test runtime.
+- `chronicle-web` Bun tests now cover both the modern TypeScript shell and two migrated legacy helper tranches under `src/bun-legacy/`; Jest is now a narrower compatibility lane instead of the only test runtime.
 - The current web auth contract is: bootstrap JWT from `config.json` for testing, exchange it for backend-managed cookies, keep JWT state in memory only, and treat interactive SSO as future work.
 - The requested TypeScript error-catching spec has been mapped onto `chronicle-web/`, but the frontend is still Flow-based. `chronicle-web/tsconfig.app.json` is a forward-looking policy scaffold rather than full source coverage.
 - `chronicle-web` is now Bun-managed for install, lockfile, script execution, and the modern HTML build/dev/preview loop. Node is still present as a compatibility runtime for the legacy Jest/webpack stack while those tools remain in place.
@@ -129,7 +129,11 @@ Updated: 2026-03-11
 11. Legacy Jest retirement tranche
    - [x] Review which remaining legacy helper suites can move to Bun without dragging in the full React/jsdom/Jest stack.
    - [x] Fix the first migration batch by converting config/bootstrap/axios helper coverage to Bun and shrinking the Jest compatibility lane.
-   - [ ] Commit the Bun migration tranche separately.
+   - [x] Commit the Bun migration tranche separately.
+12. Legacy auth-utils Bun tranche
+   - [x] Review which remaining auth/token utility tests are still pure enough to move off Jest next.
+   - [x] Fix the second migration batch by converting auth token, expiration, CSRF, and user-role helpers to Bun.
+   - [ ] Commit the auth-utils Bun tranche separately.
 
 ## Automation Added
 
