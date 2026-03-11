@@ -12,6 +12,7 @@ Use this file for work anywhere under `/opt/chronicle`.
 - Use `.codex/skills/review-fixes` when asked to review repo changes, run the silent failure hunter, or audit fixes for regressions and silent-failure patterns.
 - Use `.codex/skills/chronicle-web-quality-gates` when touching the web app's ESLint/TypeScript policy, Claude hooks, CI checks, or warning-vs-error gate behavior.
 - Use `.codex/skills/chronicle-institutional-sso` when working on Auth0 retirement, institutional SSO planning/cutover, `/chronicle/config.json` bootstrap isolation, or redirect/SSRF allowlist hardening.
+- Use `.codex/skills/chronicle-web-route-cutover` when changing `chronicle-web/src/index.js`, legacy-vs-modern bootstrap loading, webpack TS/CSS interop for modern routes, or the `/modern` route prefix.
 
 ## Repo Shape
 
@@ -27,6 +28,7 @@ Use this file for work anywhere under `/opt/chronicle`.
 - Run `./scripts/chronicle-smoke.sh` before handing off non-trivial changes when the environment supports it.
 - Run `./scripts/silent-failure-hunter.sh` when doing fix reviews or quality sweeps; use `--strict` only when you intentionally want it to fail on suspicious patterns.
 - Run `./scripts/check-sso-drift.sh` before and after institutional SSO/Auth0 migration work; use `--strict` to fail when Auth0-specific runtime defaults reappear.
+- Run `./scripts/chronicle-web-route-cutover-smoke.sh` after changes that touch the legacy/modern web shell boundary.
 - Check `git status --short` before assuming the workspace is clean; submodules may already be dirty.
 
 ## High-Signal Rules
@@ -36,6 +38,7 @@ Use this file for work anywhere under `/opt/chronicle`.
 - Treat `chronicle-web/tsconfig.app.json` as a policy scaffold, not proof that the Flow frontend has been migrated to TypeScript. TypeScript strictness is staged here for future TS adoption, but current source coverage is still Flow-based.
 - Treat `chronicle-web/bun run check` as the blocking web quality gate. Current ESLint warnings document legacy debt; they are not the same as the new bug-catching error gate.
 - Keep backlog execution itemized as `review -> fix -> commit` when working through the repo checklist. Do not bundle unrelated backlog items into a single commit unless the contract forces them to move together.
+- Treat `chronicle-web/src/index.js` and `chronicle-web/config/webpack/webpack.config.base.js` as route-cutover infrastructure. Validate both the legacy webpack shell and the modern Bun/Tailwind shell when those files move.
 - Validate Docker and Traefik edits with `docker compose -f docker/docker-compose.traefik.yml config -q` and the relevant compose file for the target environment.
 - Do not edit checked-in build outputs, `chronicle-web/node_modules`, `build/`, or packaged artifacts unless the task explicitly targets them.
 - Be careful with remote Gradle script usage in `chronicle-api` and `chronicle-server`; some builds still `apply from` GitHub-hosted Gradle scripts.
@@ -51,6 +54,7 @@ Use this file for work anywhere under `/opt/chronicle`.
 - Web app Bun suite: `cd chronicle-web && bun run test`
 - Web app legacy suite: `cd chronicle-web && bun run test:legacy -- --runInBand --watch=false`
 - Web browser smoke: `cd chronicle-web && bun run e2e`
+- Web route-cutover smoke: `./scripts/chronicle-web-route-cutover-smoke.sh`
 - React 19 blocker audit: `cd chronicle-web && bun run react:audit`
 - Android app: `cd chronicle && ./gradlew assembleDebug`
 - Traefik compose syntax: `docker compose -f docker/docker-compose.traefik.yml config -q`

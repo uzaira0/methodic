@@ -1,0 +1,4 @@
+interface:
+  display_name: "Chronicle Web Route Cutover"
+  short_description: "Validate the legacy/modern web shell boundary"
+  default_prompt: "Use $chronicle-web-route-cutover when changing the Chronicle web route-cutover path between the legacy webpack shell and the modern Bun/Tailwind shell."

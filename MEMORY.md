@@ -344,9 +344,9 @@ Updated: 2026-03-11
    - [x] Fix the next runtime-compatible helper cluster.
    - [x] Commit the compatibility slice separately.
 11. Redux Saga reduction in study/org flows
-   - [ ] Review the highest-traffic saga-based flows still untouched.
-   - [ ] Fix the next RTK/RTK Query migration tranche.
-   - [ ] Commit the state migration separately.
+   - [x] Review the highest-traffic saga-based flows still untouched.
+   - [x] Fix the next RTK/RTK Query migration tranche.
+   - [x] Commit the state migration separately.
 12. `lattice-ui-kit` dependency surface audit
    - [x] Review remaining import volume and highest-risk dependency hotspots.
    - [x] Fix the audit into a prioritized replacement map.
@@ -386,14 +386,67 @@ Updated: 2026-03-11
 
 ## Remaining Round 3 Execution Order
 
-1. Redux Saga reduction in study/org flows
+Round 3 complete.
+
+## Current 12-Item Execution Checklist: Round 4
+
+1. Institutional SSO server implementation
+   - [ ] Review the concrete login, callback, logout, and session-refresh flow needed for institutional SSO in `chronicle-server`.
+   - [ ] Fix the next backend implementation tranche so cookie-backed SSO can replace the temporary bootstrap-token path.
+   - [ ] Commit the backend and contract changes separately.
+2. Remaining Auth0 runtime removal
+   - [ ] Review the remaining `chronicle-server` runtime classes and configs that still depend on Auth0 types or naming.
+   - [ ] Fix the next removal tranche without breaking current testing auth.
+   - [ ] Commit the Auth0 retirement slice separately.
+3. React 19 runtime upgrade path
+   - [ ] Review which remaining legacy dependencies still block upgrading `react` and `react-dom`.
+   - [ ] Fix the next compatibility tranche toward a real React 19 upgrade.
+   - [ ] Commit the runtime-compatibility slice separately.
+4. Remaining Jest-to-Bun migration
+   - [ ] Review the remaining jsdom-heavy Jest suites for realistic Bun or Playwright conversion candidates.
+   - [ ] Fix the next migration tranche to shrink the Jest compatibility lane further.
+   - [ ] Commit the test migration separately.
+5. Flow compatibility lane reduction
+   - [ ] Review the highest-churn Flow files still sitting on the legacy bootstrap and route boundary.
+   - [ ] Fix the next Flow-to-plain-JS or Flow-to-TS compatibility tranche.
+   - [ ] Commit the language-lane reduction separately.
+6. Survey route modernization
+   - [ ] Review the hourly and daily survey routes still tied to `lattice-ui-kit` and styled-components.
+   - [ ] Fix the next survey route migration tranche with the modern component stack.
+   - [ ] Commit the route migration separately.
+7. Participant dashboard modernization
+   - [ ] Review the participant dashboard shell and quick-action surfaces for the next modernization slice.
+   - [ ] Fix the next participant-facing route tranche with the modern UI primitives.
+   - [ ] Commit the route migration separately.
+8. Study list and study detail modernization
+   - [ ] Review the legacy studies list, study detail, and settings surfaces for the next cutover target.
+   - [ ] Fix the next study-management route tranche in the modern shell.
+   - [ ] Commit the route migration separately.
+9. Legacy/modern browser regression expansion
+   - [ ] Review what is still untested across the webpack-served `/modern` route prefix and the Bun preview route set.
+   - [ ] Fix the next browser-smoke tranche so both entry paths are covered.
+   - [ ] Commit the browser test expansion separately.
+10. Android/root validation readiness
+   - [ ] Review the current blockers around Java, `JAVA_HOME`, and Android/root validation coverage.
+   - [ ] Fix the next readiness or automation tranche so more of the repo can be validated in one pass.
+   - [ ] Commit the validation update separately.
+11. Deployment path consolidation
+   - [ ] Review the remaining divergence between local Bun/webpack commands and Docker/Traefik entrypoints.
+   - [ ] Fix the next deployment-doc or automation tranche to narrow that gap.
+   - [ ] Commit the deployment update separately.
+12. Post-round reassessment
+   - [ ] Review the repo after the fourth execution round.
+   - [ ] Fix the work queue by generating the next checklist from the remaining modernization surface.
+   - [ ] Commit the updated work queue separately.
 
 ## Automation Added
 
 - `scripts/chronicle-preflight.sh` checks toolchain and repo readiness.
 - `scripts/chronicle-smoke.sh` runs a lightweight validation sweep and skips surfaces whose prerequisites are missing.
 - `scripts/chronicle-web-bun-smoke.sh` runs the Bun-managed `chronicle-web` install/check/test/build loop in one place.
+- `scripts/chronicle-web-route-cutover-smoke.sh` validates the mixed legacy-webpack and modern-Bun route-cutover path and restores generated build outputs afterward.
 - `scripts/check-sso-drift.sh` audits remaining Auth0 wiring, bootstrap-token paths, and legacy user-storage touchpoints.
 - `scripts/silent-failure-hunter.sh` scans for common silent-failure and swallowed-error patterns.
 - `.codex/skills/chronicle-web-bun-workflow` captures the Bun-specific frontend workflow, touchpoints, and validation path.
 - `.codex/skills/chronicle-institutional-sso` captures the Auth0-to-SSO migration workflow and drift-audit command.
+- `.codex/skills/chronicle-web-route-cutover` captures the workflow for the legacy/modern web shell boundary and the mixed validation path.
