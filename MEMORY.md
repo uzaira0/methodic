@@ -360,9 +360,9 @@ Updated: 2026-03-11
    - [ ] Fix the next removal or isolation tranche toward institutional SSO.
    - [ ] Commit the auth migration slice separately.
 15. LocalStorage user-info dependency review
-   - [ ] Review remaining `AUTH0_USER_INFO` / browser storage reads in legacy code.
-   - [ ] Fix the next reduction tranche.
-   - [ ] Commit the cleanup separately.
+   - [x] Review remaining `AUTH0_USER_INFO` / browser storage reads in legacy code.
+   - [x] Fix the next reduction tranche.
+   - [x] Commit the cleanup separately.
 16. Browser smoke expansion
    - [ ] Review the current Playwright coverage for the modern shell.
    - [ ] Fix the next representative route/theme/auth smoke scenarios.
