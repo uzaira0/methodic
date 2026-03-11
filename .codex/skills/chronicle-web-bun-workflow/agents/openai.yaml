@@ -1,0 +1,4 @@
+interface:
+  display_name: "Chronicle Web Bun Workflow"
+  short_description: "Run and maintain the Bun web toolchain"
+  default_prompt: "Use $chronicle-web-bun-workflow to validate or update the Bun-managed chronicle-web workflow."

@@ -78,12 +78,14 @@ Updated: 2026-03-11
    - [x] Fix it with richer cards, filters, persisted notes, and ownership/status signals.
    - [x] Commit the studies-board enhancement separately.
 13. Post-wave reassessment and skill/automation creation
-   - [ ] Review the broader repo after the Bun-first and modern-shell wave.
-   - [ ] Fix the work queue by creating any relevant automations and local skills with `skill-creator`.
+   - [x] Review the broader repo after the Bun-first and modern-shell wave.
+   - [x] Fix the work queue by creating a Bun smoke automation and a Bun workflow local skill with `skill-creator`.
    - [ ] Commit the refreshed checklist and skill/automation additions separately.
 
 ## Automation Added
 
 - `scripts/chronicle-preflight.sh` checks toolchain and repo readiness.
 - `scripts/chronicle-smoke.sh` runs a lightweight validation sweep and skips surfaces whose prerequisites are missing.
+- `scripts/chronicle-web-bun-smoke.sh` runs the Bun-managed `chronicle-web` install/check/test/build loop in one place.
 - `scripts/silent-failure-hunter.sh` scans for common silent-failure and swallowed-error patterns.
+- `.codex/skills/chronicle-web-bun-workflow` captures the Bun-specific frontend workflow, touchpoints, and validation path.

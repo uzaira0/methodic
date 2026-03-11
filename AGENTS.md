@@ -8,6 +8,7 @@ Use this file for work anywhere under `/opt/chronicle`.
 
 - Use `.codex/skills/chronicle-workspace` for general monorepo navigation, validation, and deployment work.
 - Use `.codex/skills/chronicle-web-auth-migration` when touching the web auth flow, cookie handling, Axios auth headers, or the backend cookie endpoints.
+- Use `.codex/skills/chronicle-web-bun-workflow` when touching `chronicle-web` package management, Bun scripts, `bun.lock`, Bun build/dev/preview flow, or the root automation that drives frontend Bun commands.
 - Use `.codex/skills/review-fixes` when asked to review repo changes, run the silent failure hunter, or audit fixes for regressions and silent-failure patterns.
 - Use `.codex/skills/chronicle-web-quality-gates` when touching the web app's ESLint/TypeScript policy, Claude hooks, CI checks, or warning-vs-error gate behavior.
 
@@ -15,7 +16,7 @@ Use this file for work anywhere under `/opt/chronicle`.
 
 - Root Gradle build covers `chronicle-api`, `chronicle-server`, `rhizome`, and `rhizome-client`.
 - The Android app lives in `chronicle/` but is excluded from the root `settings.gradle.kts`; use `chronicle/gradlew` for Android-only work.
-- The web app in `chronicle-web/` is a separate React 18 + Flow + Jest toolchain.
+- The web app in `chronicle-web/` is a separate React 18 + Flow + Jest toolchain with a Bun-managed package/build workflow.
 - `chronicle-web/` is also a nested git repository; commit web-app history inside `chronicle-web/` and then update the root repo pointer separately.
 - Deployment and security infrastructure live in `docker/` with multiple compose variants (`docker-compose.yml`, `docker-compose.prod.yml`, `docker-compose.traefik.yml`, security overlays, monitoring overlays).
 
