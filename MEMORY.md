@@ -249,56 +249,139 @@ Updated: 2026-03-11
    - [x] Fix the warning with the least disruptive export change.
    - [x] Commit the cleanup separately.
 8. `containers/tud/components/QuestionnaireForm.js` propTypes surface
-   - [ ] Review the full questionnaire-form prop contract.
-   - [ ] Fix the missing propTypes cluster.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the full questionnaire-form prop contract.
+   - [x] Fix the missing propTypes cluster.
+   - [x] Commit the cleanup separately.
 9. `containers/tud/components/TimeUseSummary.js` propTypes surface
-   - [ ] Review the summary component props.
-   - [ ] Fix missing propTypes.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the summary component props.
+   - [x] Fix missing propTypes.
+   - [x] Commit the cleanup separately.
 10. `containers/tud/constants/GeneralConstants.js` export hygiene
-   - [ ] Review the constants module export surface.
-   - [ ] Fix the warning with the least disruptive export change.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the constants module export surface.
+   - [x] Fix the warning with the least disruptive export change.
+   - [x] Commit the cleanup separately.
 11. `core/api/authorizations/index.js` export hygiene
-   - [ ] Review the API barrel export surface.
-   - [ ] Fix the warning with the least disruptive export change.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the API barrel export surface.
+   - [x] Fix the warning with the least disruptive export change.
+   - [x] Commit the cleanup separately.
 12. `core/api/organization/index.js` export hygiene
-   - [ ] Review the API barrel export surface.
-   - [ ] Fix the warning with the least disruptive export change.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the API barrel export surface.
+   - [x] Fix the warning with the least disruptive export change.
+   - [x] Commit the cleanup separately.
 13. `core/api/principal/index.js` export hygiene
-   - [ ] Review the API barrel export surface.
-   - [ ] Fix the warning with the least disruptive export change.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the API barrel export surface.
+   - [x] Fix the warning with the least disruptive export change.
+   - [x] Commit the cleanup separately.
 14. `core/redux/reducers/index.js` export hygiene
-   - [ ] Review the reducer barrel export surface.
-   - [ ] Fix the warning with the least disruptive export change.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the reducer barrel export surface.
+   - [x] Fix the warning with the least disruptive export change.
+   - [x] Commit the cleanup separately.
 15. `core/router/DefaultUnauthorized.js` unstable nested component
-   - [ ] Review the nested component/render helper warning.
-   - [ ] Fix or locally document the stable render path.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the nested component/render helper warning.
+   - [x] Fix or locally document the stable render path.
+   - [x] Commit the cleanup separately.
 16. `core/tracking/google/GoogleAnalytics.js` export hygiene
-   - [ ] Review the analytics export surface.
-   - [ ] Fix the warning with the least disruptive export change.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the analytics export surface.
+   - [x] Fix the warning with the least disruptive export change.
+   - [x] Commit the cleanup separately.
 17. `index.js` enrollment/bootstrap console path
-   - [ ] Review current `console.error` usage in bootstrap failure handling.
-   - [ ] Fix the warning without losing startup diagnostics.
-   - [ ] Commit the cleanup separately.
+   - [x] Review current `console.error` usage in bootstrap failure handling.
+   - [x] Fix the warning without losing startup diagnostics.
+   - [x] Commit the cleanup separately.
 18. Residual survey component propTypes sweep
-   - [ ] Review any remaining survey-component propType gaps after items 2-4 land.
-   - [ ] Fix the remaining gaps if new warnings appear.
-   - [ ] Commit the cleanup separately.
+   - [x] Review any remaining survey-component propType gaps after items 2-4 land.
+   - [x] Fix the remaining gaps if new warnings appear.
+   - [x] Commit the cleanup separately.
 19. Residual TUD component propTypes sweep
-   - [ ] Review any remaining TUD propType gaps after items 8-9 land.
-   - [ ] Fix the remaining gaps if new warnings appear.
-   - [ ] Commit the cleanup separately.
+   - [x] Review any remaining TUD propType gaps after items 8-9 land.
+   - [x] Fix the remaining gaps if new warnings appear.
+   - [x] Commit the cleanup separately.
 20. Post-round reassessment
-   - [ ] Review the repo after the second 20-item pass.
-   - [ ] Fix the work queue by generating the next execution checklist from the remaining warning and modernization surface.
+   - [x] Review the repo after the second 20-item pass.
+   - [x] Fix the work queue by generating the next execution checklist from the remaining warning and modernization surface.
+   - [x] Commit the updated work queue separately.
+
+## Current 20-Item Execution Checklist: Round 3
+
+1. Institutional SSO backend contract
+   - [ ] Review `chronicle-server` authentication entry points, redirects, cookies, and logout assumptions tied to Auth0.
+   - [ ] Fix the contract design for institutional SSO replacement.
+   - [ ] Commit the contract/doc changes separately.
+2. Auth0 dependency inventory in `chronicle-server`
+   - [ ] Review remaining `Auth0Pod`, `Auth0Configuration`, and Auth0-specific user services.
+   - [ ] Fix the inventory into an actionable migration map.
+   - [ ] Commit the audit/update separately.
+3. Redirect and SSRF allowlist modernization
+   - [ ] Review Auth0-specific domains in redirect and SSRF configs.
+   - [ ] Fix the config strategy for future institutional SSO domains.
+   - [ ] Commit the config/documentation changes separately.
+4. React 19 blocker removal: `react-redux`
+   - [ ] Review the current React-Redux usage surface and compatibility blocker.
+   - [ ] Fix or isolate the blocker toward a React 19-safe path.
+   - [ ] Commit the migration slice separately.
+5. React 19 blocker removal: Material UI 4
+   - [ ] Review `@material-ui/core`, `@material-ui/lab`, and `@material-ui/pickers` usage.
+   - [ ] Fix the next replacement tranche toward shadcn/Radix/Tailwind components.
+   - [ ] Commit the migration slice separately.
+6. Modern route cutover plan for `src/index.js`
+   - [ ] Review how the legacy and modern shells should coexist at runtime.
+   - [ ] Fix the next user-facing route cutover step.
+   - [ ] Commit the cutover slice separately.
+7. Questionnaire route modernization
+   - [ ] Review the questionnaire surfaces still tied to `lattice-ui-kit` and styled-components.
+   - [ ] Fix the next questionnaire route migration tranche.
+   - [ ] Commit the route migration separately.
+8. Time Use Diary UI modernization
+   - [ ] Review TUD surfaces still tied to `lattice-ui-kit` and styled-components.
+   - [ ] Fix the next TUD UI migration tranche.
+   - [ ] Commit the route migration separately.
+9. Remaining Jest compatibility lane reduction
+   - [ ] Review the seven remaining legacy Jest suites for Bun migration candidates.
+   - [ ] Fix the next Bun migration tranche.
+   - [ ] Commit the migration slice separately.
+10. Flow-to-Bun runtime compatibility in shared legacy modules
+   - [ ] Review which remaining legacy utility modules still block direct Bun imports because of Flow syntax.
+   - [ ] Fix the next runtime-compatible helper cluster.
+   - [ ] Commit the compatibility slice separately.
+11. Redux Saga reduction in study/org flows
+   - [ ] Review the highest-traffic saga-based flows still untouched.
+   - [ ] Fix the next RTK/RTK Query migration tranche.
+   - [ ] Commit the state migration separately.
+12. `lattice-ui-kit` dependency surface audit
+   - [ ] Review remaining import volume and highest-risk dependency hotspots.
+   - [ ] Fix the audit into a prioritized replacement map.
+   - [ ] Commit the audit/update separately.
+13. `styled-components` dependency surface audit
+   - [ ] Review remaining styled-components usage and route concentration.
+   - [ ] Fix the audit into a prioritized replacement map.
+   - [ ] Commit the audit/update separately.
+14. Legacy auth bootstrap removal path
+   - [ ] Review every remaining dependency on `/chronicle/config.json`.
+   - [ ] Fix the next removal or isolation tranche toward institutional SSO.
+   - [ ] Commit the auth migration slice separately.
+15. LocalStorage user-info dependency review
+   - [ ] Review remaining `AUTH0_USER_INFO` / browser storage reads in legacy code.
+   - [ ] Fix the next reduction tranche.
+   - [ ] Commit the cleanup separately.
+16. Browser smoke expansion
+   - [ ] Review the current Playwright coverage for the modern shell.
+   - [ ] Fix the next representative route/theme/auth smoke scenarios.
+   - [ ] Commit the E2E slice separately.
+17. Root JVM validation readiness
+   - [ ] Review what is still blocked locally because of missing Java and whether the scripts should enforce clearer behavior.
+   - [ ] Fix the preflight/smoke messaging or validation flow.
+   - [ ] Commit the automation update separately.
+18. Docker and deployment doc reconciliation
+   - [ ] Review the overlapping local/prod/Traefik deployment docs.
+   - [ ] Fix the next documentation reconciliation tranche.
+   - [ ] Commit the doc update separately.
+19. Skill and automation refresh after lint burn-down
+   - [ ] Review whether the existing local skills and smoke scripts reflect the new warning-free web gate.
+   - [ ] Fix any stale guidance or missing automations.
+   - [ ] Commit the skill/automation update separately.
+20. Post-round reassessment
+   - [ ] Review the repo after the third 20-item pass.
+   - [ ] Fix the work queue by generating the next execution checklist from the remaining modernization surface.
    - [ ] Commit the updated work queue separately.
 
 ## Automation Added
