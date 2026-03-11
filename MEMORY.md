@@ -110,9 +110,9 @@ Updated: 2026-03-11
    - [ ] Fix the testing bootstrap into a documented temporary path or remove it once SSO exists.
    - [ ] Commit only the bootstrap-hardening or bootstrap-removal slice.
 7. API/data-layer modernization
-   - [ ] Review which current Redux Saga / Immutable flows should migrate first to RTK Query and plain TS objects.
-   - [ ] Fix the first shared API/data adapter needed for live route migration.
-   - [ ] Commit the adapter and state slice separately.
+   - [x] Review which current Redux Saga / Immutable flows should migrate first to RTK Query and plain TS objects.
+   - [x] Fix the first shared API/data adapter by moving the modern studies planning surface behind an RTK Query slice and store middleware.
+   - [x] Commit the adapter and state slice separately.
 8. Flow legacy-lane strategy
    - [x] Review whether the repo will perform real TS migration or preserve Flow in legacy surfaces for a longer period.
    - [x] Fix docs, scripts, and validation to match the current decision: TypeScript for the modern shell, Flow retained explicitly as a legacy compatibility lane.
