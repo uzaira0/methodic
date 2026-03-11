@@ -8,6 +8,7 @@ Updated: 2026-03-11
 - Root Gradle validation could not run in this workspace because `java` and `JAVA_HOME` were not configured.
 - `chronicle-web` now passes `bun run check`, `bun run test`, `bun run test:legacy -- --runInBand --watch=false`, and the web portion of `./scripts/chronicle-smoke.sh`.
 - `chronicle-web` Bun tests now cover both the modern TypeScript shell and two migrated legacy helper tranches under `src/bun-legacy/`; Jest is now a narrower compatibility lane instead of the only test runtime.
+- `chronicle-web` bootstrap/auth helper coverage now runs under Bun for `fetchBootstrapToken`, `exchangeBootstrapToken`, `resolveLegacyBootstrapToken`, `storeAuthInfo`, `clearAuthInfo`, `logoutCookieSession`, and the shell-routing helpers.
 - The current web auth contract is: bootstrap JWT from `config.json` for testing, exchange it for backend-managed cookies, keep JWT state in memory only, and treat interactive SSO as future work.
 - The requested TypeScript error-catching spec has been mapped onto `chronicle-web/`, but the frontend is still Flow-based. `chronicle-web/tsconfig.app.json` is a forward-looking policy scaffold rather than full source coverage.
 - `chronicle-web` is now Bun-managed for install, lockfile, script execution, and the modern HTML build/dev/preview loop. Node is still present as a compatibility runtime for the legacy Jest/webpack stack while those tools remain in place.
@@ -20,11 +21,13 @@ Updated: 2026-03-11
 - `bun run check` in `chronicle-web/` is green.
 - `bun run modern:build`, `bun run modern:dev`, and `bun run modern:preview` all work in `chronicle-web/`.
 - `./scripts/chronicle-smoke.sh` is green except for JVM steps skipped because Java is missing locally.
+- `./scripts/chronicle-web-bootstrap-smoke.sh` is green and now catches order-dependent Bun test failures in the startup/auth boundary.
 - `./scripts/silent-failure-hunter.sh` finds only existing `console.error` sites, not swallowed catches or `queueMicrotask` patterns.
 - Backend support for the new auth flow exists in `chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/AuthTokenController.kt` and related security config.
 - Repo automation added:
   - `scripts/chronicle-preflight.sh`
   - `scripts/chronicle-smoke.sh`
+  - `scripts/chronicle-web-bootstrap-smoke.sh`
   - `scripts/silent-failure-hunter.sh`
   - `.claude/settings.json` hooks for secret protection and post-edit web linting
   - `.github/workflows/ci.yml` for web checks, JVM smoke, compose validation, and silent-failure scanning
@@ -388,7 +391,90 @@ Updated: 2026-03-11
 
 Round 3 complete.
 
-## Current 12-Item Execution Checklist: Round 4
+## Current 20-Item Execution Checklist: Round 5
+
+1. Legacy bootstrap style duplication audit
+   - [x] Review the duplicated normalize/global-style setup across the legacy and enrollment shells.
+   - [x] Fix the duplication by extracting a shared scaffold component.
+   - [x] Commit the cleanup separately.
+2. Shared legacy shell scaffold
+   - [x] Review whether the legacy shell wrappers can share a single render frame without changing behavior.
+   - [x] Fix the shell wrappers to use the shared scaffold.
+   - [x] Commit the scaffold integration separately.
+3. Shared bootstrap error renderer
+   - [x] Review the repeated inline startup failure UI in the legacy entrypoint and shell bootstrap code.
+   - [x] Fix the repetition with a shared bootstrap error renderer.
+   - [x] Commit the renderer extraction separately.
+4. Shell route helper extraction
+   - [x] Review the inline enrollment and modern-route detection logic in `chronicle-web/src/index.js`.
+   - [x] Fix the boundary by extracting shared shell-routing helpers.
+   - [x] Commit the route-helper extraction separately.
+5. Bun coverage for shell route helpers
+   - [x] Review the new route helper behavior across enrollment and modern route prefixes.
+   - [x] Fix the regression risk with Bun coverage for the helper module.
+   - [x] Commit the test addition separately.
+6. Legacy bootstrap token resolution extraction
+   - [x] Review the existing-token versus `config.json` fallback logic inside `renderLegacyShell`.
+   - [x] Fix the bootstrap path by extracting a dedicated resolution helper.
+   - [x] Commit the helper extraction separately.
+7. Bun coverage for legacy bootstrap resolution
+   - [x] Review the token-resolution branches for valid existing tokens, config fallback, and no-token startup.
+   - [x] Fix the regression risk with Bun coverage for the resolver.
+   - [x] Commit the test addition separately.
+8. Legacy shell logging cleanup
+   - [x] Review the remaining startup diagnostics in `renderLegacyShell`.
+   - [x] Fix the console-path drift by using the repo logger and shared bootstrap error rendering.
+   - [x] Commit the logging cleanup separately.
+9. Existing-token exchange failure handling
+   - [x] Review whether the valid-existing-token path could still fail before app initialization.
+   - [x] Fix the boundary so existing-token exchange now flows through the same failure-handling path.
+   - [x] Commit the error-handling cleanup separately.
+10. Shared auth endpoint constants
+   - [x] Review the duplicated auth/bootstrap endpoint strings across legacy and modern code.
+   - [x] Fix the duplication with a shared auth-endpoints module.
+   - [x] Commit the constants extraction separately.
+11. TypeScript typing for shared auth endpoints
+   - [x] Review the modern TypeScript shell import path for the shared JS endpoint module.
+   - [x] Fix the TS gate by adding declarations for the shared auth endpoints.
+   - [x] Commit the typing addition separately.
+12. Logout helper extraction
+   - [x] Review the inline backend logout request in `clearAuthInfo`.
+   - [x] Fix it by extracting a dedicated logout helper.
+   - [x] Commit the helper extraction separately.
+13. Bun coverage for logout helper
+   - [x] Review the logout request contract for method and credential behavior.
+   - [x] Fix the regression risk with Bun coverage for the helper.
+   - [x] Commit the test addition separately.
+14. `storeAuthInfo` Bun migration
+   - [x] Review whether the remaining `storeAuthInfo` suite is pure enough to leave the Jest lane.
+   - [x] Fix the lane split by rewriting `storeAuthInfo` coverage for Bun.
+   - [x] Commit the Bun migration separately.
+15. Retire Jest `storeAuthInfo` coverage
+   - [x] Review whether the old Jest `storeAuthInfo` suite still provides unique coverage after the Bun rewrite.
+   - [x] Fix the duplication by deleting the redundant Jest suite.
+   - [x] Commit the Jest retirement separately.
+16. `clearAuthInfo` Bun migration
+   - [x] Review whether `clearAuthInfo` still needs Jest or can run as a pure Bun helper test.
+   - [x] Fix the lane split by rewriting `clearAuthInfo` coverage for Bun.
+   - [x] Commit the Bun migration separately.
+17. Retire Jest `clearAuthInfo` coverage
+   - [x] Review whether the old Jest `clearAuthInfo` suite still provides unique coverage after the Bun rewrite.
+   - [x] Fix the duplication by deleting the redundant Jest suite.
+   - [x] Commit the Jest retirement separately.
+18. Route-cutover deep-link browser coverage
+   - [x] Review whether direct `/modern/...` and `/chronicle/modern/...` deep links are covered in Playwright.
+   - [x] Fix the gap with explicit browser tests for both basename entry paths.
+   - [x] Commit the browser coverage expansion separately.
+19. Focused bootstrap/auth smoke automation
+   - [x] Review whether the startup/auth boundary has a repeatable focused validation path separate from the full route-cutover sweep.
+   - [x] Fix the gap with `scripts/chronicle-web-bootstrap-smoke.sh`.
+   - [x] Commit the smoke automation separately.
+20. Bootstrap-boundary skill refresh
+   - [x] Review whether the local skills reflect the new startup/auth helper boundary and focused smoke path.
+   - [x] Fix the guidance by adding `.codex/skills/chronicle-web-bootstrap-boundary` and wiring it into repo docs.
+   - [x] Commit the skill and guidance update separately.
+
+## Current 20-Item Execution Checklist: Round 6
 
 1. Institutional SSO server implementation
    - [ ] Review the concrete login, callback, logout, and session-refresh flow needed for institutional SSO in `chronicle-server`.
@@ -418,24 +504,56 @@ Round 3 complete.
    - [ ] Review the participant dashboard shell and quick-action surfaces for the next modernization slice.
    - [ ] Fix the next participant-facing route tranche with the modern UI primitives.
    - [ ] Commit the route migration separately.
-8. Study list and study detail modernization
-   - [ ] Review the legacy studies list, study detail, and settings surfaces for the next cutover target.
+8. Study list modernization
+   - [ ] Review the legacy study list and org-study table surfaces for the next cutover target.
+   - [ ] Fix the next study-list migration tranche in the modern shell.
+   - [ ] Commit the route migration separately.
+9. Study detail and settings modernization
+   - [ ] Review the study detail, study settings, and participant-management surfaces for the next cutover target.
    - [ ] Fix the next study-management route tranche in the modern shell.
    - [ ] Commit the route migration separately.
-9. Legacy/modern browser regression expansion
+10. Legacy/modern browser regression expansion
    - [ ] Review what is still untested across the webpack-served `/modern` route prefix and the Bun preview route set.
    - [ ] Fix the next browser-smoke tranche so both entry paths are covered.
    - [ ] Commit the browser test expansion separately.
-10. Android/root validation readiness
-   - [ ] Review the current blockers around Java, `JAVA_HOME`, and Android/root validation coverage.
+11. Webpack-served `/modern` smoke coverage
+   - [ ] Review whether the mixed webpack shell serves the modern routes with the same basename behavior as Bun preview.
+   - [ ] Fix the gap with an automated webpack-served route smoke.
+   - [ ] Commit the mixed-runtime smoke expansion separately.
+12. Material UI 4 removal from legacy shell
+   - [ ] Review the remaining Material UI 4 providers and components still coupled to the legacy shell.
+   - [ ] Fix the next removal tranche toward a React 19-safe stack.
+   - [ ] Commit the dependency removal separately.
+13. `lattice-ui-kit` hotspot replacement tranche
+   - [ ] Review the highest-traffic `lattice-ui-kit` surfaces still blocking route migration.
+   - [ ] Fix the next replacement tranche with the modern component stack.
+   - [ ] Commit the dependency reduction separately.
+14. `styled-components` hotspot replacement tranche
+   - [ ] Review the highest-traffic `styled-components` surfaces still blocking route migration.
+   - [ ] Fix the next replacement tranche with Tailwind/CVA primitives.
+   - [ ] Commit the dependency reduction separately.
+15. Redux Saga reduction in dashboard flows
+   - [ ] Review the remaining saga-driven dashboard study-count and summary-stat flows.
+   - [ ] Fix the next shared request-helper or RTK migration tranche.
+   - [ ] Commit the state reduction separately.
+16. Immutable reduction in shared view models
+   - [ ] Review the highest-churn shared selectors and helper modules still forcing Immutable data through the route boundary.
+   - [ ] Fix the next plain-object compatibility tranche.
+   - [ ] Commit the data-shape reduction separately.
+17. Modern router cutover breadth
+   - [ ] Review which additional user-facing routes can move under the modern router without breaking current URLs.
+   - [ ] Fix the next runtime cutover tranche in `chronicle-web/src/index.js`.
+   - [ ] Commit the cutover slice separately.
+18. Root JVM validation readiness
+   - [ ] Review the current blockers around Java, `JAVA_HOME`, and root validation coverage.
    - [ ] Fix the next readiness or automation tranche so more of the repo can be validated in one pass.
    - [ ] Commit the validation update separately.
-11. Deployment path consolidation
+19. Deployment path consolidation
    - [ ] Review the remaining divergence between local Bun/webpack commands and Docker/Traefik entrypoints.
    - [ ] Fix the next deployment-doc or automation tranche to narrow that gap.
    - [ ] Commit the deployment update separately.
-12. Post-round reassessment
-   - [ ] Review the repo after the fourth execution round.
+20. Post-round reassessment
+   - [ ] Review the repo after the sixth execution round.
    - [ ] Fix the work queue by generating the next checklist from the remaining modernization surface.
    - [ ] Commit the updated work queue separately.
 
@@ -444,9 +562,11 @@ Round 3 complete.
 - `scripts/chronicle-preflight.sh` checks toolchain and repo readiness.
 - `scripts/chronicle-smoke.sh` runs a lightweight validation sweep and skips surfaces whose prerequisites are missing.
 - `scripts/chronicle-web-bun-smoke.sh` runs the Bun-managed `chronicle-web` install/check/test/build loop in one place.
+- `scripts/chronicle-web-bootstrap-smoke.sh` validates the temporary bootstrap-token path, cookie exchange/logout helpers, and modern deep-link coverage in one place.
 - `scripts/chronicle-web-route-cutover-smoke.sh` validates the mixed legacy-webpack and modern-Bun route-cutover path and restores generated build outputs afterward.
 - `scripts/check-sso-drift.sh` audits remaining Auth0 wiring, bootstrap-token paths, and legacy user-storage touchpoints.
 - `scripts/silent-failure-hunter.sh` scans for common silent-failure and swallowed-error patterns.
 - `.codex/skills/chronicle-web-bun-workflow` captures the Bun-specific frontend workflow, touchpoints, and validation path.
 - `.codex/skills/chronicle-institutional-sso` captures the Auth0-to-SSO migration workflow and drift-audit command.
+- `.codex/skills/chronicle-web-bootstrap-boundary` captures the Chronicle web startup/auth boundary workflow and the focused bootstrap smoke path.
 - `.codex/skills/chronicle-web-route-cutover` captures the workflow for the legacy/modern web shell boundary and the mixed validation path.
