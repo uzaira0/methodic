@@ -332,9 +332,9 @@ Updated: 2026-03-11
    - [x] Fix the next questionnaire route migration tranche.
    - [x] Commit the route migration separately.
 8. Time Use Diary UI modernization
-   - [ ] Review TUD surfaces still tied to `lattice-ui-kit` and styled-components.
-   - [ ] Fix the next TUD UI migration tranche.
-   - [ ] Commit the route migration separately.
+   - [x] Review TUD surfaces still tied to `lattice-ui-kit` and styled-components.
+   - [x] Fix the next TUD UI migration tranche.
+   - [x] Commit the route migration separately.
 9. Remaining Jest compatibility lane reduction
    - [x] Review the seven remaining legacy Jest suites for Bun migration candidates.
    - [x] Fix the next Bun migration tranche.
@@ -386,8 +386,7 @@ Updated: 2026-03-11
 
 ## Remaining Round 3 Execution Order
 
-1. Time Use Diary UI modernization
-2. Redux Saga reduction in study/org flows
+1. Redux Saga reduction in study/org flows
 
 ## Automation Added
 
