@@ -93,10 +93,10 @@ Updated: 2026-03-11
    - [x] Review the Flow-era Jest surface and the new TypeScript/modern-shell surface separately.
    - [x] Fix the runner strategy by making Bun-native tests the default modern lane and isolating legacy Jest as a Node compatibility lane.
    - [x] Commit the runner split separately.
-3. React 19 readiness audit
-   - [ ] Review `chronicle-web` dependencies for React 19 compatibility, especially `lattice-ui-kit`, Material UI 4, and Jest adapters.
-   - [ ] Fix the dependency graph or blockers needed for a safe React runtime upgrade.
-   - [ ] Commit the compatibility audit separately from the actual React bump.
+3. React 19 blocker audit
+   - [x] Review `chronicle-web` dependencies for React 19 compatibility, especially `lattice-ui-kit`, Material UI 4, and the React bindings around the legacy shell.
+   - [x] Fix the audit path so it emits checked-in markdown and JSON reports plus a non-zero `--check` mode while blockers remain.
+   - [x] Commit the compatibility audit separately from the actual React bump.
 4. Legacy shell cutover plan
    - [ ] Review how the Bun/modern shell should coexist with `src/index.js` and the Webpack app.
    - [ ] Fix the route-cutover strategy so modern routes can become user-facing incrementally.

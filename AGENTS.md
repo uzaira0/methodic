@@ -48,6 +48,7 @@ Use this file for work anywhere under `/opt/chronicle`.
 - Web full legacy sweep: `cd chronicle-web && bun run check:full` (expected to reflect separate Flow backlog until that queue is addressed)
 - Web app Bun suite: `cd chronicle-web && bun run test`
 - Web app legacy suite: `cd chronicle-web && bun run test:legacy -- --runInBand --watch=false`
+- React 19 blocker audit: `cd chronicle-web && bun run react:audit`
 - Android app: `cd chronicle && ./gradlew assembleDebug`
 - Traefik compose syntax: `docker compose -f docker/docker-compose.traefik.yml config -q`
 
