@@ -158,29 +158,29 @@ Updated: 2026-03-11
    - [x] Fix the warning with the least disruptive export change.
    - [x] Commit the cleanup separately.
 6. `containers/enrollment/EnrollmentLink.js` useless fragment
-   - [ ] Review the current enrollment-link render tree.
-   - [ ] Fix the fragment warning while preserving behavior.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the current enrollment-link render tree.
+   - [x] Fix the fragment warning while preserving behavior.
+   - [x] Commit the cleanup separately.
 7. `containers/study/ParticipantsTable.js` unstable nested component
-   - [ ] Review the nested render helper that currently trips the React warning.
-   - [ ] Fix it by extracting or stabilizing the component usage.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the nested render helper that currently trips the React warning.
+   - [x] Fix it by extracting or stabilizing the component usage.
+   - [x] Commit the cleanup separately.
 8. `containers/study/components/ChangeEnrollmentModal.js` effect dependencies
-   - [ ] Review the effect logic and dependency expectations.
-   - [ ] Fix the missing dependency warning without changing user-facing behavior.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the effect logic and dependency expectations.
+   - [x] Fix the missing dependency warning without changing user-facing behavior.
+   - [x] Commit the cleanup separately.
 9. `containers/study/components/CreateStudyForm.js` memo and fragment warnings
-   - [ ] Review the `useMemo` dependency contract and JSX fragment usage.
-   - [ ] Fix both warnings while keeping form behavior stable.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the `useMemo` dependency contract and JSX fragment usage.
+   - [x] Fix both warnings while keeping form behavior stable.
+   - [x] Commit the cleanup separately.
 10. `containers/study/components/ParticipantInfoModal.js` effect dependencies
-   - [ ] Review the state sync effect and current dependency omissions.
-   - [ ] Fix the warning without introducing loops.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the state sync effect and current dependency omissions.
+   - [x] Fix the warning without introducing loops.
+   - [x] Commit the cleanup separately.
 11. `containers/study/components/ParticipantRow.js` memo dependencies
-   - [ ] Review the memoized row-data path.
-   - [ ] Fix the dependency warning without changing row behavior.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the memoized row-data path.
+   - [x] Fix the dependency warning without changing row behavior.
+   - [x] Commit the cleanup separately.
 12. `containers/study/components/StudyDetails.js` propTypes surface
    - [ ] Review the actual prop usage across `study` and `limits`.
    - [ ] Fix the propTypes warning cluster.
