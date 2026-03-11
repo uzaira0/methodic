@@ -182,41 +182,41 @@ Updated: 2026-03-11
    - [x] Fix the dependency warning without changing row behavior.
    - [x] Commit the cleanup separately.
 12. `containers/study/components/StudyDetails.js` propTypes surface
-   - [ ] Review the actual prop usage across `study` and `limits`.
-   - [ ] Fix the propTypes warning cluster.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the actual prop usage across `study` and `limits`.
+   - [x] Fix the propTypes warning cluster.
+   - [x] Commit the cleanup separately.
 13. `containers/survey/DailyAppUsageSurvey.js` propTypes surface
-   - [ ] Review the required props.
-   - [ ] Fix missing propTypes.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the required props.
+   - [x] Fix missing propTypes.
+   - [x] Commit the cleanup separately.
 14. `containers/survey/HourlyAppUsageSurvey.js` propTypes surface
-   - [ ] Review the required props.
-   - [ ] Fix missing propTypes.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the required props.
+   - [x] Fix missing propTypes.
+   - [x] Commit the cleanup separately.
 15. `containers/survey/components/HourlySurvey.js` propTypes surface
-   - [ ] Review the Immutable-backed props used by the component.
-   - [ ] Fix the missing propTypes with shapes broad enough for the current data model.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the Immutable-backed props used by the component.
+   - [x] Fix the missing propTypes with shapes broad enough for the current data model.
+   - [x] Commit the cleanup separately.
 16. `containers/survey/components/HourlySurveyInstructions.js` propTypes surface
-   - [ ] Review the button and step props.
-   - [ ] Fix missing propTypes.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the button and step props.
+   - [x] Fix missing propTypes.
+   - [x] Commit the cleanup separately.
 17. `containers/survey/components/HourlyUsageSurveyAppBar.js` propTypes surface
-   - [ ] Review the progress-step prop usage.
-   - [ ] Fix missing propTypes.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the progress-step prop usage.
+   - [x] Fix missing propTypes.
+   - [x] Commit the cleanup separately.
 18. `containers/survey/components/InstructionsModal.js` propTypes surface
-   - [ ] Review the modal prop usage.
-   - [ ] Fix missing propTypes.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the modal prop usage.
+   - [x] Fix missing propTypes.
+   - [x] Commit the cleanup separately.
 19. `containers/survey/components/SelectAppUsageTimeSlots.js` propTypes surface
-   - [ ] Review the list/map prop usage and callback requirements.
-   - [ ] Fix missing propTypes.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the list/map prop usage and callback requirements.
+   - [x] Fix missing propTypes.
+   - [x] Commit the cleanup separately.
 20. `containers/survey/components/SelectAppsByUser.js` propTypes surface
-   - [ ] Review the apps data and selection props.
-   - [ ] Fix missing propTypes.
-   - [ ] Commit the cleanup separately.
+   - [x] Review the apps data and selection props.
+   - [x] Fix missing propTypes.
+   - [x] Commit the cleanup separately.
 
 ## Automation Added
 
