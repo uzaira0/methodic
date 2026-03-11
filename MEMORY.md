@@ -364,9 +364,9 @@ Updated: 2026-03-11
    - [x] Fix the next reduction tranche.
    - [x] Commit the cleanup separately.
 16. Browser smoke expansion
-   - [ ] Review the current Playwright coverage for the modern shell.
-   - [ ] Fix the next representative route/theme/auth smoke scenarios.
-   - [ ] Commit the E2E slice separately.
+   - [x] Review the current Playwright coverage for the modern shell.
+   - [x] Fix the next representative route/theme/auth smoke scenarios.
+   - [x] Commit the E2E slice separately.
 17. Root JVM validation readiness
    - [x] Review what is still blocked locally because of missing Java and whether the scripts should enforce clearer behavior.
    - [x] Fix the preflight/smoke messaging or validation flow.
@@ -386,15 +386,11 @@ Updated: 2026-03-11
 
 ## Remaining Round 3 Execution Order
 
-1. React 19 blocker removal: `react-redux`
-2. React 19 blocker removal: Material UI 4
-3. Modern route cutover plan for `src/index.js`
-4. Remaining Jest compatibility lane reduction
-5. Flow-to-Bun runtime compatibility in shared legacy modules
-6. Redux Saga reduction in study/org flows
-7. Browser smoke expansion
-8. Questionnaire route modernization
-9. Time Use Diary UI modernization
+1. React 19 blocker removal: Material UI 4
+2. Modern route cutover plan for `src/index.js`
+3. Questionnaire route modernization
+4. Time Use Diary UI modernization
+5. Redux Saga reduction in study/org flows
 
 ## Automation Added
 
