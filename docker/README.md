@@ -55,9 +55,11 @@ nginx routes requests as follows:
 
 Authentication is in a testing-only transitional state for local development.
 
-- The current web flow can bootstrap a JWT from `/chronicle/config.json`.
-- `docker/generate-jwt.sh --write-config` produces the config consumed by that path.
-- The frontend exchanges that JWT for Chronicle-managed cookies; it is not the final institutional SSO design.
+- The active web flow checks `/chronicle/v3/auth/session` first.
+- Test-friendly deployments may expose `/chronicle/v3/auth/testing-login` so the
+  server can mint Chronicle-managed cookies directly.
+- `docker/generate-jwt.sh` is now a manual diagnostic helper for
+  `/chronicle/v3/auth/set-cookie`, not the primary frontend bootstrap path.
 
 ### Database
 

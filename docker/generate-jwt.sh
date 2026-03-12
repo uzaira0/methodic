@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# generate-jwt.sh — Generate a signed JWT for self-hosted Chronicle deployments
+# generate-jwt.sh — Generate a signed JWT for manual Chronicle auth diagnostics
 #
 # Reads JWT_SECRET from .env (or environment) and produces an HS256-signed JWT
-# with sub=local-admin, 30-day expiry. Outputs the token to stdout and
-# optionally writes docker/chronicle-config.json for the frontend.
+# with sub=local-admin, 30-day expiry. Outputs the token to stdout and can still
+# optionally write docker/chronicle-config.json for legacy compatibility only.
 #
 # Usage:
-#   ./generate-jwt.sh              # print token to stdout
-#   ./generate-jwt.sh --write-config  # also write chronicle-config.json
+#   ./generate-jwt.sh                 # print token to stdout for manual POST to /chronicle/v3/auth/set-cookie
+#   ./generate-jwt.sh --write-config  # legacy compatibility only
 #
 # Requirements: openssl, base64 (GNU coreutils or macOS)
 
@@ -53,9 +53,9 @@ TOKEN="${H}.${P}.${SIGNATURE}"
 
 echo "$TOKEN"
 
-# Optionally write config.json for the frontend
+# Optionally write the legacy config.json compatibility artifact
 if [ "${1:-}" = "--write-config" ]; then
   CONFIG_FILE="${SCRIPT_DIR}/chronicle-config.json"
   printf '{"token":"%s"}\n' "$TOKEN" > "$CONFIG_FILE"
-  echo "Wrote ${CONFIG_FILE}" >&2
+  echo "Wrote ${CONFIG_FILE} (legacy compatibility artifact; current web runtime does not require it)" >&2
 fi

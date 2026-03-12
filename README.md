@@ -41,17 +41,23 @@ git clone --recurse-submodules git@github.com:methodic-labs/chronicle.git
    # Edit docker/.env with your POSTGRES_PASSWORD, JWT_SECRET, etc.
    ```
 
-2. Generate a JWT for the frontend:
-
-   ```bash
-   cd docker && bash generate-jwt.sh --write-config
-   ```
-
-3. Start all services:
+2. Start all services:
 
    ```bash
    docker compose -p chronicle -f docker/docker-compose.traefik.yml up -d
    ```
+
+3. If the deployment is using the temporary local testing-login bridge, verify
+   it from the backend instead of relying on `/chronicle/config.json`:
+
+   ```bash
+   curl -s -X POST http://localhost/chronicle/v3/auth/testing-login \
+     -H 'Content-Type: application/json' \
+     -d '{}'
+   ```
+
+   For manual JWT diagnostics only, `cd docker && bash generate-jwt.sh` still
+   prints a signed token that can be POSTed to `/chronicle/v3/auth/set-cookie`.
 
 See [`docker/DEPLOYMENT-MATRIX.md`](docker/DEPLOYMENT-MATRIX.md) for which compose path to use, and [`docker/DEPLOYMENT.md`](docker/DEPLOYMENT.md) for full production instructions.
 

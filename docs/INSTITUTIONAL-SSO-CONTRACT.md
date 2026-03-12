@@ -1,6 +1,6 @@
 ## Chronicle Institutional SSO Contract
 
-Updated: 2026-03-11
+Updated: 2026-03-12
 
 ### Scope
 
@@ -8,14 +8,18 @@ This document defines the target authentication contract for Chronicle as Auth0 
 
 ### Current Transitional Model
 
-- `chronicle-web` may bootstrap a JWT from `/chronicle/config.json` in test-only environments.
-- The browser exchanges that JWT with `POST /chronicle/v3/auth/set-cookie`.
-- `chronicle-server` validates the JWT and sets:
+- `chronicle-web` checks `GET /chronicle/v3/auth/session` on startup.
+- When no SSO-backed session exists, test-friendly environments may use
+  `POST /chronicle/v3/auth/testing-login` to mint a server-managed session.
+- Transitional tooling may still POST a JWT to `/chronicle/v3/auth/set-cookie`,
+  but the active web runtime no longer depends on `/chronicle/config.json`.
+- `chronicle-server` sets:
   - `chronicle_auth` as an `httpOnly`, `Secure`, `SameSite=Strict` cookie scoped to `/chronicle`
   - `ol_csrf_token` as a readable cookie scoped to `/chronicle`
 - Subsequent API calls rely on cookies plus the `X-CSRF-Token` header.
 
-This bootstrap path is temporary. Institutional SSO should replace only the token acquisition step, not the cookie and CSRF contract.
+Institutional SSO should replace only the session acquisition step, not the
+cookie and CSRF contract.
 
 ### Target Institutional SSO Contract
 
@@ -35,19 +39,22 @@ This bootstrap path is temporary. Institutional SSO should replace only the toke
 
 ### Server Responsibilities
 
-- Keep `/chronicle/v3/auth/set-cookie` and `/chronicle/v3/auth/logout` stable until the SSO callback flow replaces the bootstrap-token step.
-- Accept a JWT only as a temporary migration bridge or test-environment bootstrap.
+- Keep `/chronicle/v3/auth/session`, `/chronicle/v3/auth/testing-login`,
+  `/chronicle/v3/auth/set-cookie`, and `/chronicle/v3/auth/logout` stable until
+  the SSO callback flow replaces the testing-login bridge.
+- Accept a JWT only as a temporary migration bridge or manual test/bootstrap path.
 - Move the long-lived authenticated session to Chronicle cookies, not JS-readable bearer tokens.
 - Reject open redirects unless the destination is same-origin or explicitly configured.
 - Reject outbound HTTP targets unless they are explicitly allowed.
 
 ### Web Responsibilities
 
-- Treat `/chronicle/config.json` as a testing-only bootstrap path.
+- Treat `/chronicle/v3/auth/session` as the source of truth for current auth state.
+- Treat `/chronicle/v3/auth/testing-login` as the temporary testing bridge.
 - Use `withCredentials: true` for authenticated API requests.
 - Send `X-CSRF-Token` using the readable CSRF cookie.
-- Keep route guards and Axios refresh behavior aligned on the same bootstrap/session replay contract until SSO replaces the test-token path.
-- Move user/session bootstrap toward a dedicated session endpoint once institutional SSO is live.
+- Keep route guards and Axios refresh behavior aligned on the same session/bootstrap replay contract until SSO replaces the testing-login path.
+- Do not reintroduce `/chronicle/config.json` as an active runtime dependency.
 
 ### Deployment Inputs Needed Before Final Cutover
 
@@ -61,7 +68,9 @@ This bootstrap path is temporary. Institutional SSO should replace only the toke
 
 ### Immediate Follow-Up Work
 
-- Remove Auth0-specific runtime defaults from redirect and SSRF configuration.
-- Inventory remaining `Auth0Pod` and `Auth0Configuration` wiring in `chronicle-server`.
-- Finish removing the remaining legacy browser-storage cleanup values and `/chronicle/config.json` dependencies from the web runtime.
-- Define the session/bootstrap endpoint that the modern shell will call once SSO is active.
+- Replace the testing-login bridge with the real institutional redirect/callback flow.
+- Remove the remaining legacy deployment references to `/chronicle/config.json`
+  and `auth0.yaml`.
+- Finish removing legacy browser-storage cleanup values once all active sessions
+  have passed through the Chronicle-owned storage keys.
+- Define the callback, logout, and role-mapping inputs for the chosen SSO provider.

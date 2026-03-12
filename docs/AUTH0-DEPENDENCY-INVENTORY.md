@@ -1,39 +1,36 @@
-## Chronicle Server Auth0 Dependency Inventory
+## Chronicle Server Auth And Legacy Config Inventory
 
-Updated: 2026-03-11
+Updated: 2026-03-12
 
 ### Purpose
 
-This inventory maps the remaining Auth0-specific wiring in `chronicle-server` so institutional SSO replacement can be executed in ordered slices instead of broad search-and-replace work.
+This inventory maps the remaining provider-specific and legacy-named auth wiring
+now that the active Chronicle server runtime has already been cut over away from
+`Auth0Pod` and `/chronicle/config.json`.
 
-### Runtime Wiring
+### Active Runtime State
 
-#### Server bootstrap pods
+- `chronicle-server` no longer imports or registers `Auth0Pod` in its active
+  bootstrap path.
+- The active auth/session contract is owned by
+  `chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/AuthTokenController.kt`
+  via `/chronicle/v3/auth/session`, `/testing-login`, `/set-cookie`, and `/logout`.
+- The modern and legacy web shells now rely on that server session bridge rather
+  than a runtime `/chronicle/config.json` fetch.
 
-- `chronicle-server/src/main/kotlin/com/openlattice/chronicle/ChronicleServer.kt`
-  - Imports `com.geekbeast.auth0.Auth0Pod`
-  - Registers `Auth0Pod::class.java` in `rhizomePods`
-- `chronicle-server/src/main/kotlin/com/openlattice/chronicle/pods/ChronicleServerServicesPod.kt`
-  - Imports `Auth0Pod` and `Auth0Configuration`
-  - Uses `@Import(Auth0Pod::class, ...)`
-  - Injects `Auth0Configuration`
-  - Constructs `LocalUserListingService(auth0Configuration)`
-  - Constructs `LocalUserDirectoryService(auth0Configuration)`
-- `chronicle-server/src/main/kotlin/com/openlattice/chronicle/mapstores/MapstoresPod.kt`
-  - Imports `Auth0Pod`
-  - Uses `@Import(PostgresPod::class, Auth0Pod::class)`
+### Remaining Config And Naming Debt
 
-#### Auth0-backed local user services
+#### Config-backed local user services
 
-- `chronicle-server/src/main/kotlin/com/openlattice/chronicle/users/LocalUserListingService.kt`
-  - Depends directly on `Auth0Configuration`
-  - Generates local JWTs from configured Auth0 clients and users
-  - Logs generated JWTs at startup
-- `chronicle-server/src/main/kotlin/com/openlattice/chronicle/directory/LocalUserDirectoryService.kt`
-  - Depends directly on `Auth0Configuration`
-  - Builds an in-memory `User` map from configured Auth0 users
+- `chronicle-server/src/main/kotlin/com/openlattice/chronicle/users/ConfiguredUserListingService.kt`
+  - Still provides testing-login JWT minting for non-SSO environments
+  - Should become either an explicit local-test-only shim or an institutional SSO adapter
+- `chronicle-server/src/main/kotlin/com/openlattice/chronicle/directory/ConfiguredUserDirectoryService.kt`
+  - Still builds the local user directory from deployment config
+  - Needs to align with the eventual institutional identity source
 - `chronicle-api/src/main/kotlin/com/openlattice/chronicle/users/UserSearchFields.kt`
-  - The DTO is now SSO-neutral, but the backing user directory services still rely on Auth0-oriented infrastructure
+  - The DTO is now provider-neutral, but Android and any remaining clients need
+    to keep pace with the renamed contract
 
 ### Security and Configuration Coupling
 
@@ -43,8 +40,11 @@ This inventory maps the remaining Auth0-specific wiring in `chronicle-server` so
   - Previously defaulted outbound allowlists to Auth0 hosts
 - `chronicle-server/src/main/resources/ssrf.yaml`
   - Previously shipped with Auth0 hosts as the checked-in default
+- `docker/auth0.yaml`, `docker/auth0.yaml.template`, and related backup/restore scripts
+  - File names are still legacy even though the active server session bridge no
+    longer depends on Auth0-hosted runtime defaults
 - `docs/SECURITY-HARDENING.md`
-  - Still contains Auth0-specific examples and CSP references that need a later pass
+  - Still contains some legacy examples and CSP references that should be rewritten
 
 ### Transitional Web Coupling To Remove Later
 
@@ -54,21 +54,22 @@ This inventory maps the remaining Auth0-specific wiring in `chronicle-server` so
   - Migrates legacy user info from old browser storage into the Chronicle storage key on read
 - `chronicle-web/src/core/auth/utils/storeAuthInfo.js`
   - Writes the Chronicle user info storage key while leaving JWT persistence disabled
-- `chronicle-web/src/core/auth/bootstrap/fetchBootstrapToken.js`
-  - Maintains `/chronicle/config.json` bootstrap for non-SSO testing
 - `chronicle-web/src/core/auth/bootstrap/bootstrapLegacyAuthSession.js`
-  - Replays the temporary bootstrap-token path for route guards and Axios refresh until SSO replaces it
+  - Replays the temporary server testing-login/session path for route guards and Axios refresh until SSO replaces it
 
 ### Ordered Removal Plan
 
-1. Remove Auth0-specific runtime defaults from redirect and SSRF configuration.
-2. Introduce provider-neutral auth/session interfaces for server bootstrap and local user lookup.
-3. Replace `LocalUserListingService` and `LocalUserDirectoryService` with SSO-neutral implementations or explicit test-only shims.
-4. Stop importing `Auth0Pod` from Chronicle server pods once replacement services exist.
-5. Remove the remaining legacy browser-storage cleanup values and server/runtime symbols that still encode Auth0 as the identity model.
-6. Remove the `/chronicle/config.json` bootstrap path once institutional SSO is live.
+1. Replace `ConfiguredUserListingService` and `ConfiguredUserDirectoryService`
+   with explicit institutional SSO integrations or test-only local shims.
+2. Rename the remaining legacy deployment artifacts (`auth0.yaml`,
+   `auth0.yaml.template`) to Chronicle-owned auth config names.
+3. Remove the remaining legacy browser-storage cleanup values and server/runtime
+   symbols that still encode the old identity model.
+4. Remove the testing-login bridge once institutional SSO is live.
 
 ### Blockers
 
 - Local JVM validation is currently blocked in this workspace because `java` and `JAVA_HOME` are not configured.
-- The broader `rhizome` authentication stack still provides `Auth0Pod` and `Auth0Configuration`, so server removal needs to coordinate with those shared libraries instead of patching Chronicle in isolation.
+- Deployment compose and backup/restore flows still use legacy auth file names,
+  and the user-edited `docker/docker-compose.traefik.yml` must be reconciled
+  carefully rather than overwritten blindly.

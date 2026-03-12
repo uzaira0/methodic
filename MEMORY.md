@@ -17,6 +17,7 @@ Updated: 2026-03-12
 - The study questionnaire admin surface no longer depends on `lattice-ui-kit`, `styled-components`, or FontAwesome for its active list/builder/modal UI. That route now uses the modern card/button/dialog primitives and passes `bun run check`.
 - Study-admin deep links for `/studies/:studyId/questionnaires` and `/studies/:studyId/time-use-diary` now load directly in the modern shell. Those routes are backed by a new RTK Query slice, direct route-cutover matching, Bun tests, and Playwright coverage instead of the legacy shell.
 - `chronicle-server` now has direct controller-level coverage for `/chronicle/v3/auth/session`, `/chronicle/v3/auth/testing-login`, `/chronicle/v3/auth/set-cookie`, and `/chronicle/v3/auth/logout` behavior via `AuthTokenControllerTest`. The remaining gap is execution in this workspace because Java is still missing.
+- Root docs and Docker docs now describe the active `/chronicle/v3/auth/session` and `/chronicle/v3/auth/testing-login` flow instead of promoting `/chronicle/config.json` as the current web contract. A new shared-contract review doc also records the remaining `chronicle-api` Auth0 DTO coupling and the current Android impact.
 - The current web auth contract is: bootstrap JWT from `config.json` for testing, exchange it for backend-managed cookies, keep JWT state in memory only, and treat interactive SSO as future work.
 - The requested TypeScript error-catching spec has been mapped onto `chronicle-web/`, but the frontend is still Flow-based. `chronicle-web/tsconfig.app.json` is a forward-looking policy scaffold rather than full source coverage.
 - `chronicle-web` is now Bun-managed for install, lockfile, script execution, and the modern HTML build/dev/preview loop. Node is still present as a compatibility runtime for the legacy Jest/webpack stack while those tools remain in place.
@@ -67,14 +68,14 @@ Updated: 2026-03-12
 5. Restore real JVM validation for `chronicle-server`
    - [x] Review local and CI prerequisites for Gradle/JVM validation now that server auth work has landed.
    - [x] Fix the repo automation/docs so server validation is runnable and explicit when Java is available.
-   - [ ] Commit the JVM validation readiness update separately.
+   - [x] Commit the JVM validation readiness update separately.
 6. Add direct server-side auth/session tests
    - [x] Review existing `chronicle-server` test patterns and the current auth/session controller contract.
    - [x] Fix the missing coverage by adding direct tests for session, testing-login, cookies, logout, and CSRF behavior.
-   - [ ] Commit the auth/session server tests separately.
+   - [x] Commit the auth/session server tests separately.
 7. Consolidate deployment and auth configuration
-   - [ ] Review the remaining Docker, Traefik, and doc references to `Auth0` and `/chronicle/config.json`.
-   - [ ] Fix the deployment/auth docs and runtime configuration to match the current server-session bridge.
+   - [x] Review the remaining Docker, Traefik, and doc references to `Auth0` and `/chronicle/config.json`.
+   - [x] Fix the deployment/auth docs and runtime guidance outside the user-edited Traefik compose file to match the current server-session bridge.
    - [ ] Commit the deployment/auth consolidation separately.
 8. Expand repo automations and local skills
    - [ ] Review which of the new migration checks still require manual repetition.
@@ -89,12 +90,12 @@ Updated: 2026-03-12
    - [x] Fix the coverage gap with direct Playwright deep-link assertions and Bun route tests for the new study-admin routes.
    - [x] Commit the coverage expansion separately.
 11. Reconcile and document API/server/web contracts
-   - [ ] Review the active auth/session/bootstrap and route-cutover contracts across server, API, and web.
-   - [ ] Fix the contract docs and any mismatched call sites uncovered by the review.
+   - [x] Review the active auth/session/bootstrap and route-cutover contracts across server, API, and web.
+   - [x] Fix the contract docs and mismatched guidance uncovered by the review.
    - [ ] Commit the contract reconciliation separately.
 12. Review Android and `chronicle-api` impacts and align shared contracts
-   - [ ] Review Android and `chronicle-api` touchpoints affected by the auth and DTO migration work.
-   - [ ] Fix any stale contract references or document the required follow-up clearly in-code and in repo docs.
+   - [x] Review Android and `chronicle-api` touchpoints affected by the auth and DTO migration work.
+   - [x] Fix the repo guidance by documenting the current Android/API findings and remaining provider-specific DTO debt.
    - [ ] Commit the Android/API alignment tranche separately.
 
 1. Bun-native modern shell

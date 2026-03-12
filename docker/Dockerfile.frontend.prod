@@ -32,7 +32,7 @@ ARG API_BASE_URL=""
 ENV REACT_APP_API_BASE_URL=${API_BASE_URL}
 
 # Patch for Docker builds:
-# 1. Disable authentication (Auth0 not configured in self-hosted mode)
+# 1. Disable interactive auth for self-hosted/local testing builds
 # 2. Fix baseUrl for reverse proxy (use relative paths through nginx/Traefik)
 # 3. Fix getApiBaseUrl to handle empty baseUrl
 RUN if [ "$AUTH_ENABLED" = "false" ]; then \
