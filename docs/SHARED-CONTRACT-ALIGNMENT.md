@@ -24,10 +24,10 @@ and route modernization work.
 
 - `UserSearchFields` is provider-neutral and now models `email` and `name`
   instead of Auth0-shaped field names.
-- `PrincipalApi` still returns `com.auth0.json.mgmt.users.User` for user listing
-  and search endpoints.
-- `chronicle-api/build.gradle` still depends on the Auth0 Java SDK because of
-  those DTOs.
+- `PrincipalApi` now returns the Chronicle-owned `ChronicleUserProfile` DTO for
+  user listing and search endpoints instead of leaking Auth0 `User` types.
+- `chronicle-api/build.gradle` no longer needs the Auth0 Java SDK for
+  `PrincipalApi`.
 - `chronicle-api/chronicle.yaml` still exposes the user-search schema, but it
   does not currently model the new web/server auth session endpoints because the
   web client uses direct fetches instead of the Retrofit interface.
@@ -44,10 +44,20 @@ and route modernization work.
   but Android is also not yet aligned to consume the new auth/session contract
   if that becomes necessary.
 
+#### Validation lane
+
+- `scripts/chronicle-production-like-validation.sh` is now the repo's highest
+  signal production-style validation path while institutional SSO is still not
+  available.
+- That script validates Traefik compose syntax, SSO/Auth0 drift, the Bun web
+  quality gate, legacy web compatibility tests, browser smoke, route-cutover
+  behavior, and the server auth smoke when Java is available.
+
 ### Recommended Next Shared-Contract Changes
 
 1. Replace Auth0 `User` DTO usage in `chronicle-api` with a Chronicle-owned
    provider-neutral user summary type.
+   Status: completed for the principal listing/search contract.
 2. Decide whether the auth/session endpoints belong in `chronicle-api`; if they
    do, add explicit DTOs and Retrofit contracts instead of leaving the web as a
    direct-fetch special case.
@@ -58,5 +68,5 @@ and route modernization work.
 ### Status
 
 - Web/server contract drift: reduced
-- API/shared DTO drift: still present
+- API/shared DTO drift: reduced, but server internals still store Auth0-shaped user objects
 - Android auth impact: reviewed, no direct breakage found

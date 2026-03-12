@@ -75,6 +75,24 @@ bun install
 bun run modern:dev
 ```
 
+## Production-Like Validation
+
+Until institutional SSO is available, the closest production-style validation
+lane is still based on the current session/testing-login bridge plus the full
+web and server smoke path:
+
+```bash
+./scripts/chronicle-production-like-validation.sh
+```
+
+Notes:
+- This validates the Traefik compose path, web checks/tests/browser smoke,
+  route-cutover behavior, SSO drift, and the server auth smoke when Java is
+  available.
+- If the checked-out repo has an unwritable `.gradle` directory, set
+  `CHRONICLE_GRADLE_PROJECT_CACHE_DIR` and `GRADLE_USER_HOME` to writable
+  locations before running the script.
+
 ## CI/CD Workflows
 
 | Workflow | File | Purpose |

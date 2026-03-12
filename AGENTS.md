@@ -32,6 +32,7 @@ Use this file for work anywhere under `/opt/chronicle`.
 - Run `./scripts/check-sso-drift.sh` before and after institutional SSO/Auth0 migration work; use `--strict` to fail when Auth0-specific runtime defaults reappear.
 - Run `./scripts/chronicle-web-bootstrap-smoke.sh` after changes that touch the temporary bootstrap-token path, cookie exchange/logout helpers, or legacy bootstrap startup/rendering.
 - Run `./scripts/chronicle-web-route-cutover-smoke.sh` after changes that touch the legacy/modern web shell boundary.
+- Run `./scripts/chronicle-production-like-validation.sh` before calling the repo production-ready; it is the current highest-signal full-stack validation path while institutional SSO is still unavailable.
 - Check `git status --short` before assuming the workspace is clean; submodules may already be dirty.
 
 ## High-Signal Rules
@@ -61,6 +62,7 @@ Use this file for work anywhere under `/opt/chronicle`.
 - Web browser smoke: `cd chronicle-web && bun run e2e`
 - Web bootstrap/auth smoke: `./scripts/chronicle-web-bootstrap-smoke.sh`
 - Web route-cutover smoke: `./scripts/chronicle-web-route-cutover-smoke.sh`
+- Production-like validation: `./scripts/chronicle-production-like-validation.sh`
 - React 19 blocker audit: `cd chronicle-web && bun run react:audit`
 - Android app: `cd chronicle && ./gradlew assembleDebug`
 - Traefik compose syntax: `docker compose -f docker/docker-compose.traefik.yml config -q`

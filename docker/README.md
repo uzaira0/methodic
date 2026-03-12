@@ -141,3 +141,16 @@ bun run modern:dev
 ```
 
 The modern Bun dev server runs on port 5173 by default. The legacy webpack shell remains available only for compatibility work.
+
+## Production-Like Validation
+
+Before treating a Docker-backed environment as release-ready, run the current
+production-like validation lane from the repo root:
+
+```bash
+./scripts/chronicle-production-like-validation.sh
+```
+
+This does not prove real institutional SSO because that integration is not
+available yet. It does verify the current Chronicle-owned auth/session bridge,
+compose syntax, web checks/tests, and browser smoke.
