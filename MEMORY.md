@@ -12,11 +12,14 @@ Updated: 2026-03-12
 - `chronicle-web` route guards and Axios refresh now replay the temporary bootstrap auth flow instead of treating `AUTH_ATTEMPT` as a dead-end. The auth reducer also clears `isAuthenticating` on failure again, and legacy `auth0_user_info` storage is now migrated forward into the Chronicle storage key at runtime.
 - `chronicle-web` auth storage helpers now use provider-neutral symbol names while still cleaning up legacy browser storage values, and the Bun test lane covers that migration behavior.
 - `chronicle-api` and `chronicle-server` now expose provider-neutral user-search DTO naming through `UserSearchFields`, reducing Auth0-specific naming in the public API and controller/service layer.
+- `chronicle-api` principal user endpoints now expose a Chronicle-owned `ChronicleUserProfile` DTO instead of leaking Auth0 `User` objects across the shared module boundary. `chronicle-server` maps directory users into that DTO for controller responses and test Retrofit clients.
 - The participant dashboard deep link now cuts over to the modern shell at `/participant` and `/chronicle/participant`, with browser coverage proving the new route loads and handles missing query params explicitly.
 - The direct `/studies`, `/chronicle/studies`, `/dashboard`, and `/chronicle/dashboard` entrypoints now cut over to the modern shell, which makes the modern studies board and dashboard routes user-facing instead of `/modern`-only.
 - The study questionnaire admin surface no longer depends on `lattice-ui-kit`, `styled-components`, or FontAwesome for its active list/builder/modal UI. That route now uses the modern card/button/dialog primitives and passes `bun run check`.
 - Study-admin deep links for `/studies/:studyId/questionnaires` and `/studies/:studyId/time-use-diary` now load directly in the modern shell. Those routes are backed by a new RTK Query slice, direct route-cutover matching, Bun tests, and Playwright coverage instead of the legacy shell.
 - The legacy study shell tabs no longer depend on `styled-components` or `lattice-ui-kit` layout primitives, reducing another active legacy UI anchor in the study route family.
+- The legacy survey and Time Use Diary entry routes no longer depend on `GET_STUDY_SETTINGS` or `VERIFY_PARTICIPANT` saga/request-state bootstrapping. They now fetch study settings and participant validity locally through `useLegacyStudyBootstrap`, which removes another active saga/Immutable dependency from user-facing route startup.
+- The legacy participant dashboard and study details panel no longer depend on `lattice-ui-kit` layout primitives or `styled-components`, reducing two more active study/participant UI surfaces still rendered through the legacy shell.
 - `chronicle-server` now has direct controller-level coverage for `/chronicle/v3/auth/session`, `/chronicle/v3/auth/testing-login`, `/chronicle/v3/auth/set-cookie`, and `/chronicle/v3/auth/logout` behavior via `AuthTokenControllerTest`. The remaining gap is execution in this workspace because Java is still missing.
 - Root docs and Docker docs now describe the active `/chronicle/v3/auth/session` and `/chronicle/v3/auth/testing-login` flow instead of promoting `/chronicle/config.json` as the current web contract. A new shared-contract review doc also records the remaining `chronicle-api` Auth0 DTO coupling and the current Android impact.
 - Repo automation now includes a dedicated server auth smoke script and a repo-local `chronicle-server-auth-contract` skill for controller, cookie, and JVM CI work.
@@ -37,6 +40,7 @@ Updated: 2026-03-12
 - `./scripts/check-sso-drift.sh` now reports Auth0-specific symbol names separately from expected legacy storage-cleanup literals, and the symbol-name audit is green.
 - `bun run e2e` in `chronicle-web/` now covers the participant dashboard deep link in addition to the `/modern` and `/chronicle/modern` route set.
 - `./scripts/chronicle-web-route-cutover-smoke.sh` now validates the broader direct-route cutover behavior through `/dashboard`, `/studies`, and `/participant`.
+- `./scripts/chronicle-web-route-cutover-smoke.sh` remained green after the survey/TUD bootstrap bypass and the additional study-surface cleanup.
 - `./scripts/silent-failure-hunter.sh` finds only existing `console.error` sites, not swallowed catches or `queueMicrotask` patterns.
 - Backend support for the new auth flow exists in `chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/AuthTokenController.kt` and related security config.
 - Repo automation added:
