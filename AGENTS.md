@@ -51,6 +51,7 @@ Use this file for work anywhere under `/opt/chronicle`.
 
 - Root JVM structure: `./gradlew projects`
 - API module: `./gradlew :chronicle-api:test`
+- Server auth/session contract: `./scripts/chronicle-server-auth-smoke.sh`
 - Web policy typecheck: `cd chronicle-web && bun run typecheck`
 - Web lint/check: `cd chronicle-web && bun run check`
 - Web full legacy sweep: `cd chronicle-web && bun run check:full` (blocking Bun-native gate plus explicit Flow/Jest legacy sweep)

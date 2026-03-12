@@ -82,6 +82,9 @@ jobs:
       - name: chronicle-api tests
         run: ./gradlew :chronicle-api:test --no-daemon
 
+      - name: chronicle-server auth/session tests
+        run: ./gradlew :chronicle-server:test --tests com.openlattice.chronicle.controllers.AuthTokenControllerTest --no-daemon
+
   repo-automation:
     name: repo automation
     runs-on: ubuntu-latest

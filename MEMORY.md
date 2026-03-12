@@ -16,6 +16,7 @@ Updated: 2026-03-12
 - The direct `/studies`, `/chronicle/studies`, `/dashboard`, and `/chronicle/dashboard` entrypoints now cut over to the modern shell, which makes the modern studies board and dashboard routes user-facing instead of `/modern`-only.
 - The study questionnaire admin surface no longer depends on `lattice-ui-kit`, `styled-components`, or FontAwesome for its active list/builder/modal UI. That route now uses the modern card/button/dialog primitives and passes `bun run check`.
 - Study-admin deep links for `/studies/:studyId/questionnaires` and `/studies/:studyId/time-use-diary` now load directly in the modern shell. Those routes are backed by a new RTK Query slice, direct route-cutover matching, Bun tests, and Playwright coverage instead of the legacy shell.
+- `chronicle-server` now has direct controller-level coverage for `/chronicle/v3/auth/session`, `/chronicle/v3/auth/testing-login`, `/chronicle/v3/auth/set-cookie`, and `/chronicle/v3/auth/logout` behavior via `AuthTokenControllerTest`. The remaining gap is execution in this workspace because Java is still missing.
 - The current web auth contract is: bootstrap JWT from `config.json` for testing, exchange it for backend-managed cookies, keep JWT state in memory only, and treat interactive SSO as future work.
 - The requested TypeScript error-catching spec has been mapped onto `chronicle-web/`, but the frontend is still Flow-based. `chronicle-web/tsconfig.app.json` is a forward-looking policy scaffold rather than full source coverage.
 - `chronicle-web` is now Bun-managed for install, lockfile, script execution, and the modern HTML build/dev/preview loop. Node is still present as a compatibility runtime for the legacy Jest/webpack stack while those tools remain in place.
@@ -28,6 +29,7 @@ Updated: 2026-03-12
 - `bun run check` in `chronicle-web/` is green.
 - `bun run modern:build`, `bun run modern:dev`, and `bun run modern:preview` all work in `chronicle-web/`.
 - `./scripts/chronicle-smoke.sh` is green except for JVM steps skipped because Java is missing locally.
+- `./scripts/chronicle-server-auth-smoke.sh` exists as the dedicated JVM smoke entry for the server auth/session contract.
 - `./scripts/chronicle-web-bootstrap-smoke.sh` is green and now catches order-dependent Bun test failures in the startup/auth boundary.
 - `./scripts/check-sso-drift.sh` now reports Auth0-specific symbol names separately from expected legacy storage-cleanup literals, and the symbol-name audit is green.
 - `bun run e2e` in `chronicle-web/` now covers the participant dashboard deep link in addition to the `/modern` and `/chronicle/modern` route set.
@@ -63,12 +65,12 @@ Updated: 2026-03-12
    - [x] Fix the next slice by moving the study questionnaire and study TUD admin routes onto RTK Query instead of saga/Immutable-backed fetch flows.
    - [x] Commit the state migration separately.
 5. Restore real JVM validation for `chronicle-server`
-   - [ ] Review local and CI prerequisites for Gradle/JVM validation now that server auth work has landed.
-   - [ ] Fix the repo automation/docs so server validation is runnable and explicit when Java is available.
+   - [x] Review local and CI prerequisites for Gradle/JVM validation now that server auth work has landed.
+   - [x] Fix the repo automation/docs so server validation is runnable and explicit when Java is available.
    - [ ] Commit the JVM validation readiness update separately.
 6. Add direct server-side auth/session tests
-   - [ ] Review existing `chronicle-server` test patterns and the current auth/session controller contract.
-   - [ ] Fix the missing coverage by adding direct tests for session, testing-login, cookies, logout, and CSRF behavior.
+   - [x] Review existing `chronicle-server` test patterns and the current auth/session controller contract.
+   - [x] Fix the missing coverage by adding direct tests for session, testing-login, cookies, logout, and CSRF behavior.
    - [ ] Commit the auth/session server tests separately.
 7. Consolidate deployment and auth configuration
    - [ ] Review the remaining Docker, Traefik, and doc references to `Auth0` and `/chronicle/config.json`.

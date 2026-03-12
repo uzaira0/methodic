@@ -34,9 +34,11 @@ printf 'root: %s\n' "$ROOT_DIR"
 if have_cmd java; then
   run_step "gradle-projects" bash -lc "cd '$ROOT_DIR' && ./gradlew projects"
   run_step "chronicle-api-tests" bash -lc "cd '$ROOT_DIR' && ./gradlew :chronicle-api:test"
+  run_step "chronicle-server-auth-tests" bash -lc "cd '$ROOT_DIR' && ./scripts/chronicle-server-auth-smoke.sh"
 else
   skip_step "gradle-projects (java missing; install a JDK and set JAVA_HOME)"
   skip_step "chronicle-api-tests (java missing; install a JDK and set JAVA_HOME)"
+  skip_step "chronicle-server-auth-tests (java missing; install a JDK and set JAVA_HOME)"
 fi
 
 if have_cmd bun && have_cmd node; then
