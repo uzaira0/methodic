@@ -13,6 +13,7 @@ Updated: 2026-03-11
 - `chronicle-web` auth storage helpers now use provider-neutral symbol names while still cleaning up legacy browser storage values, and the Bun test lane covers that migration behavior.
 - `chronicle-api` and `chronicle-server` now expose provider-neutral user-search DTO naming through `UserSearchFields`, reducing Auth0-specific naming in the public API and controller/service layer.
 - The participant dashboard deep link now cuts over to the modern shell at `/participant` and `/chronicle/participant`, with browser coverage proving the new route loads and handles missing query params explicitly.
+- The direct `/studies`, `/chronicle/studies`, `/dashboard`, and `/chronicle/dashboard` entrypoints now cut over to the modern shell, which makes the modern studies board and dashboard routes user-facing instead of `/modern`-only.
 - The current web auth contract is: bootstrap JWT from `config.json` for testing, exchange it for backend-managed cookies, keep JWT state in memory only, and treat interactive SSO as future work.
 - The requested TypeScript error-catching spec has been mapped onto `chronicle-web/`, but the frontend is still Flow-based. `chronicle-web/tsconfig.app.json` is a forward-looking policy scaffold rather than full source coverage.
 - `chronicle-web` is now Bun-managed for install, lockfile, script execution, and the modern HTML build/dev/preview loop. Node is still present as a compatibility runtime for the legacy Jest/webpack stack while those tools remain in place.
@@ -28,6 +29,7 @@ Updated: 2026-03-11
 - `./scripts/chronicle-web-bootstrap-smoke.sh` is green and now catches order-dependent Bun test failures in the startup/auth boundary.
 - `./scripts/check-sso-drift.sh` now reports Auth0-specific symbol names separately from expected legacy storage-cleanup literals, and the symbol-name audit is green.
 - `bun run e2e` in `chronicle-web/` now covers the participant dashboard deep link in addition to the `/modern` and `/chronicle/modern` route set.
+- `./scripts/chronicle-web-route-cutover-smoke.sh` now validates the broader direct-route cutover behavior through `/dashboard`, `/studies`, and `/participant`.
 - `./scripts/silent-failure-hunter.sh` finds only existing `console.error` sites, not swallowed catches or `queueMicrotask` patterns.
 - Backend support for the new auth flow exists in `chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/AuthTokenController.kt` and related security config.
 - Repo automation added:
@@ -594,9 +596,9 @@ Round 3 complete.
    - [x] Fix the next participant-facing route tranche with the modern UI primitives.
    - [x] Commit the route migration separately.
 8. Study list modernization
-   - [ ] Review the legacy study list and org-study table surfaces for the next cutover target.
-   - [ ] Fix the next study-list migration tranche in the modern shell.
-   - [ ] Commit the route migration separately.
+   - [x] Review the legacy study list and org-study table surfaces for the next cutover target.
+   - [x] Fix the next study-list migration tranche in the modern shell.
+   - [x] Commit the route migration separately.
 9. Study detail and settings modernization
    - [ ] Review the study detail, study settings, and participant-management surfaces for the next cutover target.
    - [ ] Fix the next study-management route tranche in the modern shell.
