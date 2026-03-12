@@ -1,6 +1,6 @@
 # Chronicle Memory
 
-Updated: 2026-03-11
+Updated: 2026-03-12
 
 ## Current State
 
@@ -14,6 +14,7 @@ Updated: 2026-03-11
 - `chronicle-api` and `chronicle-server` now expose provider-neutral user-search DTO naming through `UserSearchFields`, reducing Auth0-specific naming in the public API and controller/service layer.
 - The participant dashboard deep link now cuts over to the modern shell at `/participant` and `/chronicle/participant`, with browser coverage proving the new route loads and handles missing query params explicitly.
 - The direct `/studies`, `/chronicle/studies`, `/dashboard`, and `/chronicle/dashboard` entrypoints now cut over to the modern shell, which makes the modern studies board and dashboard routes user-facing instead of `/modern`-only.
+- The study questionnaire admin surface no longer depends on `lattice-ui-kit`, `styled-components`, or FontAwesome for its active list/builder/modal UI. That route now uses the modern card/button/dialog primitives and passes `bun run check`.
 - The current web auth contract is: bootstrap JWT from `config.json` for testing, exchange it for backend-managed cookies, keep JWT state in memory only, and treat interactive SSO as future work.
 - The requested TypeScript error-catching spec has been mapped onto `chronicle-web/`, but the frontend is still Flow-based. `chronicle-web/tsconfig.app.json` is a forward-looking policy scaffold rather than full source coverage.
 - `chronicle-web` is now Bun-managed for install, lockfile, script execution, and the modern HTML build/dev/preview loop. Node is still present as a compatibility runtime for the legacy Jest/webpack stack while those tools remain in place.
@@ -41,6 +42,57 @@ Updated: 2026-03-11
   - `.github/workflows/ci.yml` for web checks, JVM smoke, compose validation, and silent-failure scanning
 
 ## Active Modernization Checklist
+
+## Current 12-Step Execution Checklist
+
+1. Replace `lattice-ui-kit`, Material UI 4 surfaces, and `styled-components` across `chronicle-web`
+   - [x] Review the highest-traffic questionnaire admin surface still using the legacy UI stack.
+   - [x] Fix the questionnaire admin list/builder/modal surface to use the modern UI primitives instead of `lattice-ui-kit`, `styled-components`, and FontAwesome.
+   - [x] Commit the questionnaire admin modernization in `chronicle-web`.
+2. Cut real product routes over to the modern shell until the legacy shell is no longer the default path
+   - [ ] Review the next study-admin and participant-facing routes still pinned to the legacy shell.
+   - [ ] Fix the next route tranche by cutting real product routes into the modern shell and validating deep links.
+   - [ ] Commit the route-cutover tranche separately.
+3. Retire Flow from `chronicle-web` and make touched frontend modules JS/TS-compatible
+   - [ ] Review the route and component files touched in the next tranche for Flow-only syntax.
+   - [ ] Fix those touched modules so they run in the Bun/modern lane without Flow syntax dependency.
+   - [ ] Commit the touched-file Flow retirement separately.
+4. Reduce and remove legacy Redux Saga, Immutable, and `redux-reqseq` usage
+   - [ ] Review the questionnaire, TUD, and study-admin data paths for the highest-value state migration slice.
+   - [ ] Fix the next slice by moving fetch/state behavior toward RTK Query, Redux Toolkit, or Zustand.
+   - [ ] Commit the state migration separately.
+5. Restore real JVM validation for `chronicle-server`
+   - [ ] Review local and CI prerequisites for Gradle/JVM validation now that server auth work has landed.
+   - [ ] Fix the repo automation/docs so server validation is runnable and explicit when Java is available.
+   - [ ] Commit the JVM validation readiness update separately.
+6. Add direct server-side auth/session tests
+   - [ ] Review existing `chronicle-server` test patterns and the current auth/session controller contract.
+   - [ ] Fix the missing coverage by adding direct tests for session, testing-login, cookies, logout, and CSRF behavior.
+   - [ ] Commit the auth/session server tests separately.
+7. Consolidate deployment and auth configuration
+   - [ ] Review the remaining Docker, Traefik, and doc references to `Auth0` and `/chronicle/config.json`.
+   - [ ] Fix the deployment/auth docs and runtime configuration to match the current server-session bridge.
+   - [ ] Commit the deployment/auth consolidation separately.
+8. Expand repo automations and local skills
+   - [ ] Review which of the new migration checks still require manual repetition.
+   - [ ] Fix the gap by adding or updating automations/skills for the current route, auth, and validation boundary.
+   - [ ] Commit the automation/skill tranche separately.
+9. Fully modernize questionnaire and TUD flows into the new UI/state stack
+   - [ ] Review the remaining TUD and questionnaire routes for the next end-to-end modernization slice.
+   - [ ] Fix the next participant/admin flow so it uses the modern UI and state stack.
+   - [ ] Commit the flow modernization separately.
+10. Expand browser and integration coverage beyond smoke tests
+   - [ ] Review the migrated questionnaire/TUD/study routes for missing browser-level assertions.
+   - [ ] Fix the coverage gap with representative end-to-end or integration tests.
+   - [ ] Commit the coverage expansion separately.
+11. Reconcile and document API/server/web contracts
+   - [ ] Review the active auth/session/bootstrap and route-cutover contracts across server, API, and web.
+   - [ ] Fix the contract docs and any mismatched call sites uncovered by the review.
+   - [ ] Commit the contract reconciliation separately.
+12. Review Android and `chronicle-api` impacts and align shared contracts
+   - [ ] Review Android and `chronicle-api` touchpoints affected by the auth and DTO migration work.
+   - [ ] Fix any stale contract references or document the required follow-up clearly in-code and in repo docs.
+   - [ ] Commit the Android/API alignment tranche separately.
 
 1. Bun-native modern shell
    - [x] Review whether Bun can replace the modern HTML dev/build loop directly.
