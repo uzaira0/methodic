@@ -21,6 +21,8 @@ Updated: 2026-03-12
 - The legacy survey and Time Use Diary entry routes no longer depend on `GET_STUDY_SETTINGS` or `VERIFY_PARTICIPANT` saga/request-state bootstrapping. They now fetch study settings and participant validity locally through `useLegacyStudyBootstrap`, which removes another active saga/Immutable dependency from user-facing route startup.
 - The legacy participant dashboard and study details panel no longer depend on `lattice-ui-kit` layout primitives or `styled-components`, reducing two more active study/participant UI surfaces still rendered through the legacy shell.
 - The active survey and TUD helper components for dialogs, success states, buttons, the TUD header, and the TUD progress bar no longer depend on `lattice-ui-kit` or `styled-components`. Those flows now use a local `SimpleDialog` plus plain HTML/CSS helpers instead of the old UI kit for those surfaces.
+- The study participant info modal no longer depends on `lattice-ui-kit` or the `updateParticipantAnnotations` saga/request-sequence path. It now saves annotations directly through the study API and uses the shared `SimpleDialog` helper.
+- The study dashboard shell no longer depends on `styled-components` or `lattice-ui-kit` grid wrappers for its top-level layout, reducing another active legacy wrapper in the study route family.
 - `chronicle-server` now has direct controller-level coverage for `/chronicle/v3/auth/session`, `/chronicle/v3/auth/testing-login`, `/chronicle/v3/auth/set-cookie`, and `/chronicle/v3/auth/logout` behavior via `AuthTokenControllerTest`. The remaining gap is execution in this workspace because Java is still missing.
 - Root docs and Docker docs now describe the active `/chronicle/v3/auth/session` and `/chronicle/v3/auth/testing-login` flow instead of promoting `/chronicle/config.json` as the current web contract. A new shared-contract review doc also records the remaining `chronicle-api` Auth0 DTO coupling and the current Android impact.
 - Repo automation now includes a dedicated server auth smoke script and a repo-local `chronicle-server-auth-contract` skill for controller, cookie, and JVM CI work.
@@ -43,6 +45,7 @@ Updated: 2026-03-12
 - `./scripts/chronicle-web-route-cutover-smoke.sh` now validates the broader direct-route cutover behavior through `/dashboard`, `/studies`, and `/participant`.
 - `./scripts/chronicle-web-route-cutover-smoke.sh` remained green after the survey/TUD bootstrap bypass and the additional study-surface cleanup.
 - `scripts/chronicle-server-auth-smoke.sh` now supports `CHRONICLE_GRADLE_PROJECT_CACHE_DIR`, which allows local execution on machines where the checked-out repo contains an unwritable project `.gradle` directory.
+- A user-space Temurin JDK 21 is now available at `/home/uzair/.local/jdks/temurin-21`, and the server auth smoke now gets past the previous `java`/cache-path blocker into real Gradle project configuration and compilation.
 - `./scripts/silent-failure-hunter.sh` finds only existing `console.error` sites, not swallowed catches or `queueMicrotask` patterns.
 - Backend support for the new auth flow exists in `chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/AuthTokenController.kt` and related security config.
 - Repo automation added:
