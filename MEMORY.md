@@ -18,7 +18,8 @@ Updated: 2026-03-12
 - Study-admin deep links for `/studies/:studyId/questionnaires` and `/studies/:studyId/time-use-diary` now load directly in the modern shell. Those routes are backed by a new RTK Query slice, direct route-cutover matching, Bun tests, and Playwright coverage instead of the legacy shell.
 - `chronicle-server` now has direct controller-level coverage for `/chronicle/v3/auth/session`, `/chronicle/v3/auth/testing-login`, `/chronicle/v3/auth/set-cookie`, and `/chronicle/v3/auth/logout` behavior via `AuthTokenControllerTest`. The remaining gap is execution in this workspace because Java is still missing.
 - Root docs and Docker docs now describe the active `/chronicle/v3/auth/session` and `/chronicle/v3/auth/testing-login` flow instead of promoting `/chronicle/config.json` as the current web contract. A new shared-contract review doc also records the remaining `chronicle-api` Auth0 DTO coupling and the current Android impact.
-- The current web auth contract is: bootstrap JWT from `config.json` for testing, exchange it for backend-managed cookies, keep JWT state in memory only, and treat interactive SSO as future work.
+- Repo automation now includes a dedicated server auth smoke script and a repo-local `chronicle-server-auth-contract` skill for controller, cookie, and JVM CI work.
+- The current web auth contract is: check `/chronicle/v3/auth/session`, use `/chronicle/v3/auth/testing-login` only in test-friendly environments, exchange manual JWTs only through `/chronicle/v3/auth/set-cookie`, and keep the long-lived session in backend-managed cookies while institutional SSO remains future work.
 - The requested TypeScript error-catching spec has been mapped onto `chronicle-web/`, but the frontend is still Flow-based. `chronicle-web/tsconfig.app.json` is a forward-looking policy scaffold rather than full source coverage.
 - `chronicle-web` is now Bun-managed for install, lockfile, script execution, and the modern HTML build/dev/preview loop. Node is still present as a compatibility runtime for the legacy Jest/webpack stack while those tools remain in place.
 - `chronicle-web` ESLint warnings still document legacy debt, but blocking errors are now under control in the requested gate.
@@ -76,10 +77,10 @@ Updated: 2026-03-12
 7. Consolidate deployment and auth configuration
    - [x] Review the remaining Docker, Traefik, and doc references to `Auth0` and `/chronicle/config.json`.
    - [x] Fix the deployment/auth docs and runtime guidance outside the user-edited Traefik compose file to match the current server-session bridge.
-   - [ ] Commit the deployment/auth consolidation separately.
+   - [x] Commit the deployment/auth consolidation separately.
 8. Expand repo automations and local skills
-   - [ ] Review which of the new migration checks still require manual repetition.
-   - [ ] Fix the gap by adding or updating automations/skills for the current route, auth, and validation boundary.
+   - [x] Review which of the new migration checks still require manual repetition.
+   - [x] Fix the gap by adding or updating automations/skills for the current route, auth, and validation boundary.
    - [ ] Commit the automation/skill tranche separately.
 9. Fully modernize questionnaire and TUD flows into the new UI/state stack
    - [x] Review the remaining TUD and questionnaire routes for the next end-to-end modernization slice.
@@ -92,11 +93,11 @@ Updated: 2026-03-12
 11. Reconcile and document API/server/web contracts
    - [x] Review the active auth/session/bootstrap and route-cutover contracts across server, API, and web.
    - [x] Fix the contract docs and mismatched guidance uncovered by the review.
-   - [ ] Commit the contract reconciliation separately.
+   - [x] Commit the contract reconciliation separately.
 12. Review Android and `chronicle-api` impacts and align shared contracts
    - [x] Review Android and `chronicle-api` touchpoints affected by the auth and DTO migration work.
    - [x] Fix the repo guidance by documenting the current Android/API findings and remaining provider-specific DTO debt.
-   - [ ] Commit the Android/API alignment tranche separately.
+   - [x] Commit the Android/API alignment tranche separately.
 
 1. Bun-native modern shell
    - [x] Review whether Bun can replace the modern HTML dev/build loop directly.

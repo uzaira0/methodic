@@ -12,6 +12,7 @@ Use this file for work anywhere under `/opt/chronicle`.
 - Use `.codex/skills/review-fixes` when asked to review repo changes, run the silent failure hunter, or audit fixes for regressions and silent-failure patterns.
 - Use `.codex/skills/chronicle-web-quality-gates` when touching the web app's ESLint/TypeScript policy, Claude hooks, CI checks, or warning-vs-error gate behavior.
 - Use `.codex/skills/chronicle-institutional-sso` when working on Auth0 retirement, institutional SSO planning/cutover, `/chronicle/config.json` bootstrap isolation, or redirect/SSRF allowlist hardening.
+- Use `.codex/skills/chronicle-server-auth-contract` when changing `AuthTokenController`, cookie/session/logout behavior, the testing-login bridge, server auth tests, or JVM smoke/CI coverage for the auth contract.
 - Use `.codex/skills/chronicle-web-bootstrap-boundary` when changing `chronicle-web` bootstrap loading, `config.json` token fallback, cookie exchange/logout helpers, legacy bootstrap rendering, or the Bun coverage around the startup/auth boundary.
 - Use `.codex/skills/chronicle-web-route-cutover` when changing `chronicle-web/src/index.js`, legacy-vs-modern bootstrap loading, webpack TS/CSS interop for modern routes, or the `/modern` route prefix.
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Chronicle Server Auth"
+  short_description: "Validate Chronicle server auth contract"
+  default_prompt: "Use $chronicle-server-auth-contract to validate Chronicle auth/session controller changes."
