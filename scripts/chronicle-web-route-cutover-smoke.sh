@@ -17,4 +17,4 @@ cd "$WEB"
 bun run check
 bun run build:dev
 bun run test:legacy -- --runInBand --watch=false
-bun run e2e
+CI=1 bun run e2e
