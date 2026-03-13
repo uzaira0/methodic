@@ -75,6 +75,15 @@ Use this file for work anywhere under `/opt/chronicle`.
 - The web app is actively migrating pure helper coverage off Jest and onto Bun; the legacy Jest lane is now down to the translation compatibility suite plus any future browser-heavy leftovers.
 - The requested frontend error-catching tooling is now wired into `chronicle-web` through `tsconfig.app.json`, ESLint 8 rules, package scripts, Claude hooks, CI, and the smoke scripts.
 - `chronicle-server` auth/session runtime now uses provider-neutral `ChronicleUserProfile` surfaces for principal and directory service paths, and auth smoke execution is green with Java 21.
+- `chronicle-server` auth config loading now points at Chronicle-owned `chronicle-auth.yaml`, and deployment docs/scripts now follow the same naming convention.
+- The legacy `docker/auth0.yaml.template` file was retired and replaced by `docker/chronicle-auth.yaml(.template)`.
 - Root docs and Docker docs describe overlapping but not identical local/prod deployment paths.
 - The Android app is operationally separate from the root Gradle build and CI path.
 - Repo-quality enforcement now spans project hooks, CI, lint rules, and the silent failure hunter; use those before declaring a fix safe.
+
+## Immediate Next Actions
+
+- Complete institutional SSO backend implementation for production auth handoff.
+- Eliminate remaining React-19 blockers (lattice-ui-kit, Material UI 4, and styled-components dependencies from active family routes).
+- Continue retiring Redux-Saga/Immutable/redux-reqseq in live study/survey/TUD/participant flows.
+- Finish Round 8 migration tasks before attempting a production-state declaration.

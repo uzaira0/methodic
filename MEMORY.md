@@ -1,6 +1,6 @@
 # Chronicle Memory
 
-Updated: 2026-03-12
+Updated: 2026-03-13
 
 ## Current State
 
@@ -24,6 +24,7 @@ Updated: 2026-03-12
 - The study participant info modal no longer depends on `lattice-ui-kit` or the `updateParticipantAnnotations` saga/request-sequence path. It now saves annotations directly through the study API and uses the shared `SimpleDialog` helper.
 - The study dashboard shell no longer depends on `styled-components` or `lattice-ui-kit` grid wrappers for its top-level layout, reducing another active legacy wrapper in the study route family.
 - `chronicle-server` now has direct controller-level coverage for `/chronicle/v3/auth/session`, `/chronicle/v3/auth/testing-login`, `/chronicle/v3/auth/set-cookie`, and `/chronicle/v3/auth/logout` behavior via `AuthTokenControllerTest`. Server-side auth/runtime migration and contract checks now execute in this workspace when `JAVA_HOME` points at a valid JDK.
+- Docker auth config artifacts now use `chronicle-auth.yaml` naming, and deployment templates/scripts are aligned with that migration.
 - Root docs and Docker docs now describe the active `/chronicle/v3/auth/session` and `/chronicle/v3/auth/testing-login` flow instead of promoting `/chronicle/config.json` as the current web contract. A new shared-contract review doc also records the remaining `chronicle-api` Auth0 DTO coupling and the current Android impact.
 - Repo automation now includes a dedicated server auth smoke script and a repo-local `chronicle-server-auth-contract` skill for controller, cookie, and JVM CI work.
 - The current web auth contract is: check `/chronicle/v3/auth/session`, use `/chronicle/v3/auth/testing-login` only in test-friendly environments, exchange manual JWTs only through `/chronicle/v3/auth/set-cookie`, and keep the long-lived session in backend-managed cookies while institutional SSO remains future work.
@@ -715,6 +716,56 @@ Round 3 complete.
    - [ ] Review the repo after the sixth execution round.
    - [ ] Fix the work queue by generating the next checklist from the remaining modernization surface.
    - [ ] Commit the updated work queue separately.
+
+## Current 20-Item Execution Checklist: Round 9 (Active)
+
+1. Legacy runtime audit + migration slice
+   - [ ] Review `containers/study`, `containers/survey`, `containers/tud`, and `containers/participant` for the next highest-traffic legacy import tranche.
+   - [ ] Fix one targeted family route using modern primitives/state while preserving URL contracts.
+   - [ ] Commit the tranche independently.
+2. Route boundary safety
+   - [ ] Review `chronicle-web/src/index.js` and the modern router fallback behavior after each direct-route migration.
+   - [ ] Fix any dead routes or regressions introduced by mixed legacy/modern routing.
+   - [ ] Commit the route boundary patch separately.
+3. Auth bootstrap hardening
+   - [ ] Review all startup bootstrap fallback paths for accidental active reliance on legacy `/chronicle/config.json`.
+   - [ ] Fix fallback handling so non-test paths stay cookie/session-driven.
+   - [ ] Commit the auth-boundary slice separately.
+4. Server-side auth contract continuity
+   - [ ] Review `chronicle-server` auth/session endpoints and redirect/logout invariants for SSO-compatibility.
+   - [ ] Fix any contract drift introduced by legacy shim updates.
+   - [ ] Commit the contract hardening separately.
+5. Java/JVM validation readiness
+   - [ ] Review local and CI prerequisites for the full JVM validation pass.
+   - [ ] Fix docs/scripts that still assume missing Java/JDK behavior.
+   - [ ] Commit the validation update separately.
+6. React 19 blocker conversion
+   - [ ] Review the current highest-frequency `lattice-ui-kit`, Material UI 4, and styled-components dependencies.
+   - [ ] Fix one concrete dependency surface in a user-facing route tranche.
+   - [ ] Commit the blocker-removal slice separately.
+7. Redux-Saga/Immutable/deprecated request-state reduction
+   - [ ] Review one additional state-heavy family (study/survey/TUD/participant) for migration opportunity.
+   - [ ] Replace request flow with RTK or store-native equivalents or remove from live routes.
+   - [ ] Commit migration slice separately.
+8. Browser coverage expansion
+   - [ ] Review Playwright paths for new modernized route tranches and legacy fallback paths.
+   - [ ] Fix missing coverage and ensure direct route assertions pass on both `/chronicle` and root basenames.
+   - [ ] Commit coverage updates separately.
+9. Deployment/doc reconciliation
+   - [ ] Review compose, script, and docs surface for any remaining `auth0` naming or config-token confusion.
+   - [ ] Fix inconsistent wording and config behavior.
+   - [ ] Commit documentation and automation changes separately.
+10. Skill/automation hygiene
+   - [ ] Review `.codex/skills` for migration coverage of the active Round 9 stack.
+   - [ ] Create or update a skill for the most painful repeated checks.
+   - [ ] Commit skill updates separately.
+11. Legacy test-lane simplification
+   - [ ] Review the next small Jest-only helpers that can move fully to Bun or be retired.
+   - [ ] Fix that tranche and retire obsolete compatibility coverage.
+   - [ ] Commit the testing-lane slice separately.
+12. Post-round handoff
+   - [ ] Review remaining open blockers and the new queue state.
+   - [ ] Produce a fresh shortlist before the next cycle and commit this handoff note.
 
 ## Automation Added
 
