@@ -26,6 +26,16 @@ if [[ -n "$JAVA_BIN" ]]; then
   export PATH="${JAVA_HOME}/bin:${PATH}"
 fi
 
+if [[ -z "${GRADLE_USER_HOME:-}" ]]; then
+  if [[ -n "$PROJECT_CACHE_DIR" ]]; then
+    GRADLE_USER_HOME="${PROJECT_CACHE_DIR%/}/gradle-user-home"
+  else
+    GRADLE_USER_HOME="${TMPDIR:-/tmp}/chronicle-gradle-user-home"
+  fi
+fi
+mkdir -p "$GRADLE_USER_HOME"
+export GRADLE_USER_HOME
+
 cd "$ROOT_DIR"
 
 if ! command -v rsync >/dev/null 2>&1; then
