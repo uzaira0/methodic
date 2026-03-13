@@ -74,6 +74,7 @@ Use this file for work anywhere under `/opt/chronicle`.
 - The web app is mid-migration from localStorage JWT handling to backend-managed httpOnly cookies, with institutional SSO as the intended successor to the current bootstrap-token testing flow.
 - The web app is actively migrating pure helper coverage off Jest and onto Bun; the legacy Jest lane is now down to the translation compatibility suite plus any future browser-heavy leftovers.
 - The requested frontend error-catching tooling is now wired into `chronicle-web` through `tsconfig.app.json`, ESLint 8 rules, package scripts, Claude hooks, CI, and the smoke scripts.
+- `chronicle-server` auth/session runtime now uses provider-neutral `ChronicleUserProfile` surfaces for principal and directory service paths, and auth smoke execution is green with Java 21.
 - Root docs and Docker docs describe overlapping but not identical local/prod deployment paths.
 - The Android app is operationally separate from the root Gradle build and CI path.
 - Repo-quality enforcement now spans project hooks, CI, lint rules, and the silent failure hunter; use those before declaring a fix safe.

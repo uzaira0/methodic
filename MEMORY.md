@@ -23,7 +23,7 @@ Updated: 2026-03-12
 - The active survey and TUD helper components for dialogs, success states, buttons, the TUD header, and the TUD progress bar no longer depend on `lattice-ui-kit` or `styled-components`. Those flows now use a local `SimpleDialog` plus plain HTML/CSS helpers instead of the old UI kit for those surfaces.
 - The study participant info modal no longer depends on `lattice-ui-kit` or the `updateParticipantAnnotations` saga/request-sequence path. It now saves annotations directly through the study API and uses the shared `SimpleDialog` helper.
 - The study dashboard shell no longer depends on `styled-components` or `lattice-ui-kit` grid wrappers for its top-level layout, reducing another active legacy wrapper in the study route family.
-- `chronicle-server` now has direct controller-level coverage for `/chronicle/v3/auth/session`, `/chronicle/v3/auth/testing-login`, `/chronicle/v3/auth/set-cookie`, and `/chronicle/v3/auth/logout` behavior via `AuthTokenControllerTest`. The remaining gap is execution in this workspace because Java is still missing.
+- `chronicle-server` now has direct controller-level coverage for `/chronicle/v3/auth/session`, `/chronicle/v3/auth/testing-login`, `/chronicle/v3/auth/set-cookie`, and `/chronicle/v3/auth/logout` behavior via `AuthTokenControllerTest`. Server-side auth/runtime migration and contract checks now execute in this workspace when `JAVA_HOME` points at a valid JDK.
 - Root docs and Docker docs now describe the active `/chronicle/v3/auth/session` and `/chronicle/v3/auth/testing-login` flow instead of promoting `/chronicle/config.json` as the current web contract. A new shared-contract review doc also records the remaining `chronicle-api` Auth0 DTO coupling and the current Android impact.
 - Repo automation now includes a dedicated server auth smoke script and a repo-local `chronicle-server-auth-contract` skill for controller, cookie, and JVM CI work.
 - The current web auth contract is: check `/chronicle/v3/auth/session`, use `/chronicle/v3/auth/testing-login` only in test-friendly environments, exchange manual JWTs only through `/chronicle/v3/auth/set-cookie`, and keep the long-lived session in backend-managed cookies while institutional SSO remains future work.
@@ -37,8 +37,9 @@ Updated: 2026-03-12
 - `bun run test:legacy -- --runInBand --watch=false` in `chronicle-web/` is green.
 - `bun run check` in `chronicle-web/` is green.
 - `bun run modern:build`, `bun run modern:dev`, and `bun run modern:preview` all work in `chronicle-web/`.
-- `./scripts/chronicle-smoke.sh` is green except for JVM steps skipped because Java is missing locally.
+- `./scripts/chronicle-smoke.sh` is green except for JVM steps previously skipped when Java was unavailable locally.
 - `./scripts/chronicle-server-auth-smoke.sh` exists as the dedicated JVM smoke entry for the server auth/session contract.
+- `./scripts/chronicle-server-auth-smoke.sh` runs successfully in this workspace with `JAVA_HOME=/home/uzair/.local/jdks/temurin-21` and compiles+tests `chronicle-server` auth/session paths including `AuthTokenControllerTest`.
 - `./scripts/chronicle-web-bootstrap-smoke.sh` is green and now catches order-dependent Bun test failures in the startup/auth boundary.
 - `./scripts/check-sso-drift.sh` now reports Auth0-specific symbol names separately from expected legacy storage-cleanup literals, and the symbol-name audit is green.
 - `bun run e2e` in `chronicle-web/` now covers the participant dashboard deep link in addition to the `/modern` and `/chronicle/modern` route set.
