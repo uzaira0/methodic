@@ -37,7 +37,7 @@ and route modernization work.
 - No direct Android references were found for:
   - `/chronicle/v3/auth/session`
   - `/chronicle/v3/auth/testing-login`
-  - `/chronicle/config.json`
+  - `/chronicle/config.json` is only a legacy compatibility artifact and is not part of the active runtime contract.
   - `chronicle_auth`
   - `ol_csrf_token`
 - That means the recent web/server auth changes do not currently break Android,
@@ -68,5 +68,5 @@ and route modernization work.
 ### Status
 
 - Web/server contract drift: reduced
-- API/shared DTO drift: reduced, but server internals still store Auth0-shaped user objects
+- API/shared DTO drift: reduced, and `chronicle-server` now stores provider-neutral `ChronicleUserProfile` in runtime user services
 - Android auth impact: reviewed, no direct breakage found
