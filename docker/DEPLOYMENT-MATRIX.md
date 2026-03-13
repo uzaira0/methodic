@@ -17,8 +17,9 @@ Use this matrix to choose the correct Docker Compose entrypoint. The compose fil
 - The root [README.md](/opt/chronicle/README.md) assumes `docker-compose.traefik.yml`.
 - The active web auth path uses `/chronicle/v3/auth/session` plus
   `/chronicle/v3/auth/testing-login` in test-friendly environments.
-- `docker/chronicle-config.json` and related `/chronicle/config.json` handling
-  remain legacy deployment artifacts, not the active runtime contract.
+- `docker/chronicle-config.json` is only a manual-diagnostics artifact produced by
+  `generate-jwt.sh`; it is not deployed by default and is not part of the active
+  runtime contract.
 - External-domain and SSO allowlists must now be configured explicitly; do not assume Auth0 defaults.
 
 ## Validation
