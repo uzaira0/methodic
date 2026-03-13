@@ -40,9 +40,8 @@ now that the active Chronicle server runtime has already been cut over away from
   - Previously defaulted outbound allowlists to Auth0 hosts
 - `chronicle-server/src/main/resources/ssrf.yaml`
   - Previously shipped with Auth0 hosts as the checked-in default
-- `docker/auth0.yaml`, `docker/auth0.yaml.template`, and related backup/restore scripts
-  - File names are still legacy even though the active server session bridge no
-    longer depends on Auth0-hosted runtime defaults
+- `docker/chronicle-auth.yaml`, `docker/chronicle-auth.yaml.template`, and related backup/restore scripts
+  - Legacy Auth0 artifact names were migrated to Chronicle-owned auth config names in Docker-backed deployments and scripts.
 - `docs/SECURITY-HARDENING.md`
   - Still contains some legacy examples and CSP references that should be rewritten
 
@@ -61,15 +60,16 @@ now that the active Chronicle server runtime has already been cut over away from
 
 1. Replace `ConfiguredUserListingService` and `ConfiguredUserDirectoryService`
    with explicit institutional SSO integrations or test-only local shims.
-2. Rename the remaining legacy deployment artifacts (`auth0.yaml`,
-   `auth0.yaml.template`) to Chronicle-owned auth config names.
+2. Completed: rename deployment artifacts (`chronicle-auth.yaml`,
+   `chronicle-auth.yaml.template`) to Chronicle-owned names.
 3. Remove the remaining legacy browser-storage cleanup values and server/runtime
    symbols that still encode the old identity model.
 4. Remove the testing-login bridge once institutional SSO is live.
 
 ### Blockers
 
-- Local JVM validation is currently blocked in this workspace because `java` and `JAVA_HOME` are not configured.
-- Deployment compose and backup/restore flows still use legacy auth file names,
-  and the user-edited `docker/docker-compose.traefik.yml` must be reconciled
-  carefully rather than overwritten blindly.
+- JVM validation is now runnable in this workspace when Java 21 is configured via
+  `JAVA_HOME`.
+- Deployment compose and backup/restore flows now reference Chronicle-owned auth
+  filenames, but the migration is still incomplete across all deployment
+  variants and operator documentation.

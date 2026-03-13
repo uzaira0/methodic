@@ -115,7 +115,7 @@ do_full_backup() {
 
     # 3. Config/secrets
     log "  Backing up config and secrets..."
-    for CONF_FILE in .env rhizome-docker.yaml auth0.yaml; do
+    for CONF_FILE in .env rhizome-docker.yaml chronicle-auth.yaml; do
         if [ ! -f "${SCRIPT_DIR}/${CONF_FILE}" ]; then
             log_err "Required config file missing: ${SCRIPT_DIR}/${CONF_FILE}"
             exit 1
@@ -126,7 +126,7 @@ do_full_backup() {
         -C "$SCRIPT_DIR" \
         .env \
         rhizome-docker.yaml \
-        auth0.yaml \
+        chronicle-auth.yaml \
         postgres-ssl/
     encrypt_file "$CONFIG_TMP" "${BACKUP_DIR}/config-secrets.tar.gz.enc"
     rm -f "$CONFIG_TMP"

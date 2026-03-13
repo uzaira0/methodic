@@ -70,7 +70,7 @@ cookie and CSRF contract.
 
 - Replace the testing-login bridge with the real institutional redirect/callback flow.
 - Remove the remaining legacy deployment references to `/chronicle/config.json`
-  and `auth0.yaml`.
+  and `chronicle-auth.yaml` artifacts.
 - Finish removing legacy browser-storage cleanup values once all active sessions
   have passed through the Chronicle-owned storage keys.
 - Define the callback, logout, and role-mapping inputs for the chosen SSO provider.

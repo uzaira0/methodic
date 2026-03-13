@@ -38,8 +38,17 @@ for path in "${TARGET_PATHS[@]}"; do
   for pattern in "${PATTERNS[@]}"; do
     matches="$(cd "$TARGET_DIR" && rg -n --multiline -g '*.js' -g '*.jsx' -g '*.ts' -g '*.tsx' "$pattern" "$path" || true)"
     if [[ -n "$matches" ]]; then
-      # Exclude commented lines only.
-      active_matches="$(printf "%s\n" "$matches" | rg -v '^\s*//')"
+      # Exclude commented lines only (after file:line: separators).
+      active_matches="$(printf '%s\n' "$matches" | while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        if [[ "$line" == *:*:* ]]; then
+          content="${line#*:*:}"
+          if [[ "$content" =~ ^[[:space:]]*// ]]; then
+            continue
+          fi
+        fi
+        printf '%s\n' "$line"
+      done)"
       if [[ -n "$active_matches" ]]; then
         echo
         echo "==> $path has legacy runtime dependency markers"

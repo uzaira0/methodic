@@ -136,7 +136,7 @@ if [ -f "${BACKUP_DIR}/config-secrets.tar.gz.enc" ]; then
     CONFIG_TMP=$(mktemp)
     decrypt_file "${BACKUP_DIR}/config-secrets.tar.gz.enc" "$CONFIG_TMP"
 
-    if confirm "This will overwrite .env, rhizome-docker.yaml, auth0.yaml, and postgres-ssl/ in ${SCRIPT_DIR}"; then
+    if confirm "This will overwrite .env, rhizome-docker.yaml, chronicle-auth.yaml, and postgres-ssl/ in ${SCRIPT_DIR}"; then
         tar -xzf "$CONFIG_TMP" -C "$SCRIPT_DIR"
         log_ok "Config and secrets restored to ${SCRIPT_DIR}"
     else

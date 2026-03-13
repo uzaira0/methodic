@@ -266,7 +266,7 @@ jobs:
                 maximumPoolSize: 10
           RHIZOME
 
-          cat > ci-config/auth0.yaml <<AUTH0
+          cat > ci-config/chronicle-auth.yaml <<CHRONICLE_AUTH
           domain: "localhost"
           clientId: "dummy-client-id"
           clientSecret: "${JWT_SECRET}"
@@ -277,7 +277,7 @@ jobs:
               base64EncodedSecret: false
               signingAlgorithm: "HS256"
           managementApiUrl: "localhost"
-          AUTH0
+          CHRONICLE_AUTH
 
           # Generate a short-lived JWT for CI tests
           b64url() { openssl base64 -e -A | tr '+/' '-_' | tr -d '='; }
