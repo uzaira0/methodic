@@ -15,6 +15,7 @@ Use this file for work anywhere under `/opt/chronicle`.
 - Use `.codex/skills/chronicle-server-auth-contract` when changing `AuthTokenController`, cookie/session/logout behavior, the testing-login bridge, server auth tests, or JVM smoke/CI coverage for the auth contract.
 - Use `.codex/skills/chronicle-web-bootstrap-boundary` when changing `chronicle-web` bootstrap loading, `config.json` token fallback, cookie exchange/logout helpers, legacy bootstrap rendering, or the Bun coverage around the startup/auth boundary.
 - Use `.codex/skills/chronicle-web-route-cutover` when changing `chronicle-web/src/index.js`, legacy-vs-modern bootstrap loading, webpack TS/CSS interop for modern routes, or the `/modern` route prefix.
+- Use `.codex/skills/chronicle-legacy-runtime-retirement` when migrating study, survey, TUD, or participant flows off legacy redux/Immutable/redux-reqseq/legacy UI kit dependencies.
 
 ## Repo Shape
 
@@ -48,6 +49,7 @@ Use this file for work anywhere under `/opt/chronicle`.
 - Do not edit checked-in build outputs, `chronicle-web/node_modules`, `build/`, or packaged artifacts unless the task explicitly targets them.
 - Be careful with remote Gradle script usage in `chronicle-api` and `chronicle-server`; some builds still `apply from` GitHub-hosted Gradle scripts.
 - `.claude/settings.json` is a committed project policy file; `.claude/settings.local.json` remains machine-local.
+- Run `./scripts/check-legacy-runtime-stack.sh` before and after changes in `containers/study`, `containers/survey`, `containers/tud`, and `containers/participant`.
 
 ## Validation Matrix
 
