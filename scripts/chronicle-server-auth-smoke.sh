@@ -72,6 +72,17 @@ rsync -a \
   "$ROOT_DIR/" \
   "$SMOKE_WORKDIR/"
 
+for module in chronicle-api chronicle-server rhizome rhizome-client; do
+  if [[ -d "$ROOT_DIR/$module" ]]; then
+    rsync -a \
+      --delete \
+      --exclude '.gradle/' \
+      --exclude 'build/' \
+      "$ROOT_DIR/$module/" \
+      "$SMOKE_WORKDIR/$module/"
+  fi
+done
+
 cd "$SMOKE_WORKDIR"
 GRADLE_ARGS=( :chronicle-server:test --tests "$TEST_NAME" --no-daemon --no-watch-fs )
 
