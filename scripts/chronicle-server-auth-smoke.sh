@@ -17,8 +17,12 @@ if [[ -z "$JAVA_BIN" && -x "${HOME}/.local/jdks/temurin-21/bin/java" ]]; then
 fi
 
 if [[ -z "$JAVA_BIN" ]] && ! command -v java >/dev/null 2>&1; then
-  echo "chronicle-server auth smoke requires java and JAVA_HOME"
-  exit 1
+  if command -v docker >/dev/null 2>&1; then
+    echo "chronicle-server auth smoke will run in docker via eclipse-temurin:21-jdk."
+  else
+    echo "chronicle-server auth smoke requires java, JAVA_HOME, or docker."
+    exit 1
+  fi
 fi
 
 if [[ -n "$JAVA_BIN" ]]; then
@@ -91,4 +95,15 @@ if [[ -n "$PROJECT_CACHE_DIR" ]]; then
   GRADLE_ARGS=( --project-cache-dir "$PROJECT_CACHE_DIR" "${GRADLE_ARGS[@]}" )
 fi
 
-./gradlew "${GRADLE_ARGS[@]}"
+if [[ -n "$JAVA_BIN" ]]; then
+  ./gradlew "${GRADLE_ARGS[@]}"
+else
+  mkdir -p "$GRADLE_USER_HOME"
+  docker run --rm \
+    -v "$SMOKE_WORKDIR:/workspace" \
+    -v "$GRADLE_USER_HOME:/gradle-user-home" \
+    -w /workspace \
+    -e GRADLE_USER_HOME=/gradle-user-home \
+    eclipse-temurin:21-jdk \
+    bash -lc "./gradlew ${GRADLE_ARGS[*]}"
+fi
