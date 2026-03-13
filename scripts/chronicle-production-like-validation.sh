@@ -22,15 +22,9 @@ run_step "Web legacy compatibility tests" bash -lc "cd '$WEB_DIR' && bun run tes
 run_step "Web route-cutover smoke" ./scripts/chronicle-web-route-cutover-smoke.sh
 run_step "Web browser smoke" bash -lc "cd '$WEB_DIR' && bun run e2e"
 
-if command -v java >/dev/null 2>&1 || [[ -n "${JAVA_HOME:-}" ]] || [[ -x "${HOME}/.local/jdks/temurin-21/bin/java" ]]; then
-  export CHRONICLE_GRADLE_PROJECT_CACHE_DIR="${CHRONICLE_GRADLE_PROJECT_CACHE_DIR:-/tmp/chronicle-gradle-project-cache}"
-  export GRADLE_USER_HOME="${GRADLE_USER_HOME:-/tmp/chronicle-gradle-user-home}"
-  run_step "Server auth smoke" ./scripts/chronicle-server-auth-smoke.sh
-else
-  echo
-  echo "==> Server auth smoke"
-  echo "Skipping JVM validation because java is not available on PATH."
-fi
+export CHRONICLE_GRADLE_PROJECT_CACHE_DIR="${CHRONICLE_GRADLE_PROJECT_CACHE_DIR:-/tmp/chronicle-gradle-project-cache}"
+export GRADLE_USER_HOME="${GRADLE_USER_HOME:-/tmp/chronicle-gradle-user-home}"
+run_step "Server auth smoke" ./scripts/chronicle-server-auth-smoke.sh
 
 echo
 echo "Production-like validation completed."
