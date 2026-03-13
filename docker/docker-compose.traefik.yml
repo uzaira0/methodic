@@ -388,7 +388,7 @@ services:
       - "traefik.http.routers.chronicle-config-json.priority=30"
       - "traefik.http.routers.chronicle-config-json.service=chronicle-frontend"
       - "traefik.http.routers.chronicle-config-json.middlewares=chronicle-internal-only,chronicle-frontend-strip"
-      - "traefik.http.middlewares.chronicle-internal-only.ipallowlist.sourcerange=127.0.0.1/32,172.30.0.0/16,172.25.0.0/16"
+      - "traefik.http.middlewares.chronicle-internal-only.ipallowlist.sourcerange=${CHRONICLE_INTERNAL_IP_ALLOWLIST:-127.0.0.1/32,172.30.0.0/16,172.25.0.0/16}"
 
       # Security headers for frontend
       - "traefik.http.middlewares.chronicle-frontend-headers.headers.frameDeny=true"
@@ -551,7 +551,7 @@ services:
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
       GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_COOKIE_SECURE: ${GF_SECURITY_COOKIE_SECURE:-true}
       GF_SECURITY_DISABLE_GRAVATAR: "true"
       GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
