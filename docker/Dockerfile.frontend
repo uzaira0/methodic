@@ -1,19 +1,13 @@
 # Frontend build stage
-FROM node:18.20-alpine AS builder
+FROM oven/bun:1-alpine AS builder
 
 WORKDIR /app
 
-# Copy the local tgz dependency first
-COPY chronicle-web/lattice-ui-kit-0.47.0.tgz ./
+# Copy Bun lockfile and package manifest
+COPY chronicle-web/package.json chronicle-web/bun.lock ./
 
-# Copy package files
-COPY chronicle-web/package.json chronicle-web/package-lock.json ./
-
-# Fix the lattice-ui-kit path in package.json to use local file
-RUN sed -i 's|"lattice-ui-kit": "file:.*lattice-ui-kit-0.47.0.tgz"|"lattice-ui-kit": "file:./lattice-ui-kit-0.47.0.tgz"|' package.json
-
-# Install dependencies (use install instead of ci due to lock file sync issues)
-RUN npm install --legacy-peer-deps
+# Install dependencies with Bun lockfile
+RUN bun install --frozen-lockfile
 
 # Copy source files
 COPY chronicle-web/ ./
@@ -38,7 +32,7 @@ RUN if [ "$AUTH_ENABLED" = "false" ]; then \
     sed -i "s|return \\\`\\\${getConfig().get('baseUrl')}/\\\${API_TO_PATH_MAP.get(api)}\\\`;|const baseUrl = getConfig().get('baseUrl'); return baseUrl ? \\\`\\\${baseUrl}/\\\${API_TO_PATH_MAP.get(api)}\\\` : \\\`/\\\${API_TO_PATH_MAP.get(api)}\\\`;|" src/core/api/axios/getApiBaseUrl.js
 
 # Build the production bundle
-RUN npm run build:prod
+RUN bun run build:prod
 
 # Output stage - just the built files
 FROM alpine:3.21

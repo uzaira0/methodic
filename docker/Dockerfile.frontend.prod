@@ -1,25 +1,19 @@
 # Production Dockerfile for chronicle-web frontend
-# Multi-stage build: Node for building, nginx for serving
+# Multi-stage build: Bun for building, nginx for serving
 
 # Build stage
-FROM node:18.20-alpine AS builder
+FROM oven/bun:1-alpine AS builder
 
 WORKDIR /app
 
-# Install build dependencies
+# Install dependencies for native modules (node-gyp compatibility path)
 RUN apk add --no-cache python3 make g++
 
 # Copy package files
-COPY chronicle-web/package.json chronicle-web/package-lock.json ./
-
-# Copy lattice-ui-kit tgz if it exists
-COPY chronicle-web/lattice-ui-kit-*.tgz ./
-
-# Fix the lattice-ui-kit path for Docker environment
-RUN sed -i 's|"lattice-ui-kit": "file:[^"]*lattice-ui-kit-\([^"]*\).tgz"|"lattice-ui-kit": "file:./lattice-ui-kit-\1.tgz"|g' package.json
+COPY chronicle-web/package.json chronicle-web/bun.lock ./
 
 # Install dependencies
-RUN npm install --legacy-peer-deps
+RUN bun install --frozen-lockfile
 
 # Copy source files
 COPY chronicle-web/config ./config
@@ -40,10 +34,10 @@ RUN if [ "$AUTH_ENABLED" = "false" ]; then \
     fi && \
     sed -i 's/baseUrl = "localhost";/baseUrl = "";/' src/core/config/Configuration.js && \
     sed -i 's/else if (baseUrl !== null \&\& baseUrl !== undefined)/else if (baseUrl !== null \&\& baseUrl !== undefined \&\& baseUrl !== "")/' src/core/config/Configuration.js && \
-    sed -i "s|return \\\`\\\${getConfig().get('baseUrl')}/\\\${API_TO_PATH_MAP.get(api)}\\\`;|const baseUrl = getConfig().get('baseUrl'); return baseUrl ? \\\`\\\${baseUrl}/\\\${API_TO_PATH_MAP.get(api)}\\\` : \\\`/\\\${API_TO_PATH_MAP.get(api)}\\\`;|" src/core/api/axios/getApiBaseUrl.js
+    sed -i "s|return \\\`\\\$\{getConfig().get('baseUrl')\}/\\\$\{API_TO_PATH_MAP.get(api)\}\\\`;|const baseUrl = getConfig().get('baseUrl'); return baseUrl ? \\\`\\\$\{baseUrl\}/\\\$\{API_TO_PATH_MAP.get(api)\}\\\` : \\\`/\\\$\{API_TO_PATH_MAP.get(api)\}\\\`;|" src/core/api/axios/getApiBaseUrl.js
 
 # Build production bundle
-RUN npm run build:prod
+RUN bun run build:prod
 
 # Production stage - serve with nginx
 FROM nginx:1.27.4-alpine
