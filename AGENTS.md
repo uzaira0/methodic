@@ -38,6 +38,8 @@ Use this file for work anywhere under `/opt/chronicle`.
 
 ## High-Signal Rules
 
+- **New backend controllers require 3 things**: (1) dual `@RequestMapping(value = ["/chronicle/v3/...", "/v3/..."])` paths because the servlet at `/chronicle/*` strips the prefix for Spring 6 PathPatternParser matching, (2) explicit listing in `ChronicleServerMvcPod`'s `@ComponentScan` `basePackageClasses`, (3) if public, BOTH path variants in `ChronicleServerSecurityPod`'s `permitAll()` AND a skip entry in `ChronicleCookieOrBearerTokenResolver`. Failure to do ALL THREE results in silent 404s with no error logged.
+- **Auth endpoint routing**: Auth endpoints MUST use the Traefik mobile router path (`/chronicle/v3/auth/...`), NOT the web API path (`/chronicle/api/web/...`). The web router strips `/chronicle/api/web`, leaving `/v3/...` which Jetty can't route (servlet mapped to `/chronicle/*`).
 - Treat `chronicle-api` changes as cross-project changes. DTO and Retrofit interface edits can affect `chronicle-server`, `chronicle-web`, and `chronicle`.
 - Treat `chronicle-web` auth changes as a coordinated migration. Frontend utilities, Axios setup, bootstrap flow, Jest tests, and `chronicle-server` cookie endpoints move together.
 - Treat `chronicle-web/tsconfig.app.json` as a policy scaffold, not proof that the Flow frontend has been migrated to TypeScript. TypeScript strictness is staged here for future TS adoption, but current source coverage is still Flow-based.
