@@ -6,18 +6,14 @@ rules:
               $RET $METHOD(..., @RequestBody $TYPE $PARAM, ...) { ... }
           - pattern: |
               fun $METHOD(..., @RequestBody $PARAM: $TYPE, ...): $RET { ... }
-      - pattern-not:
-          - pattern: |
-              $RET $METHOD(..., @Valid @RequestBody $TYPE $PARAM, ...) { ... }
-      - pattern-not:
-          - pattern: |
-              $RET $METHOD(..., @RequestBody @Valid $TYPE $PARAM, ...) { ... }
-      - pattern-not:
-          - pattern: |
-              fun $METHOD(..., @Valid @RequestBody $PARAM: $TYPE, ...): $RET { ... }
-      - pattern-not:
-          - pattern: |
-              fun $METHOD(..., @RequestBody @Valid $PARAM: $TYPE, ...): $RET { ... }
+      - pattern-not: |
+          $RET $METHOD(..., @Valid @RequestBody $TYPE $PARAM, ...) { ... }
+      - pattern-not: |
+          $RET $METHOD(..., @RequestBody @Valid $TYPE $PARAM, ...) { ... }
+      - pattern-not: |
+          fun $METHOD(..., @Valid @RequestBody $PARAM: $TYPE, ...): $RET { ... }
+      - pattern-not: |
+          fun $METHOD(..., @RequestBody @Valid $PARAM: $TYPE, ...): $RET { ... }
     message: >
       @RequestBody parameter without @Valid annotation. Request body inputs
       should be validated with @Valid to enforce Bean Validation constraints
@@ -38,18 +34,14 @@ rules:
               $RET $METHOD(..., @RequestBody $TYPE $PARAM, ...) { ... }
           - pattern: |
               fun $METHOD(..., @RequestBody $PARAM: $TYPE, ...): $RET { ... }
-      - pattern-not:
-          - pattern: |
-              $RET $METHOD(..., @Size(...) @RequestBody $TYPE $PARAM, ...) { ... }
-      - pattern-not:
-          - pattern: |
-              $RET $METHOD(..., @RequestBody @Size(...) $TYPE $PARAM, ...) { ... }
-      - pattern-not:
-          - pattern: |
-              fun $METHOD(..., @Size(...) @RequestBody $PARAM: $TYPE, ...): $RET { ... }
-      - pattern-not:
-          - pattern: |
-              fun $METHOD(..., @RequestBody @Size(...) $PARAM: $TYPE, ...): $RET { ... }
+      - pattern-not: |
+          $RET $METHOD(..., @Size(...) @RequestBody $TYPE $PARAM, ...) { ... }
+      - pattern-not: |
+          $RET $METHOD(..., @RequestBody @Size(...) $TYPE $PARAM, ...) { ... }
+      - pattern-not: |
+          fun $METHOD(..., @Size(...) @RequestBody $PARAM: $TYPE, ...): $RET { ... }
+      - pattern-not: |
+          fun $METHOD(..., @RequestBody @Size(...) $PARAM: $TYPE, ...): $RET { ... }
     message: >
       @RequestBody parameter without @Size constraint. Upload and data
       ingestion endpoints should enforce size limits on request bodies to
