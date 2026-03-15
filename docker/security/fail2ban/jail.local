@@ -10,8 +10,8 @@ findtime = 600
 maxretry = 10
 # Ban action: use Docker network iptables
 banaction = iptables-multiport
-# Log backend: auto-detect
-backend = auto
+# Log backend: poll file (not systemd journal)
+backend = polling
 # Ignore local IPs
 ignoreip = 127.0.0.1/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
 

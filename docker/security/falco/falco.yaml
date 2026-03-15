@@ -1,5 +1,19 @@
 # Falco configuration for Chronicle deployment
-# Minimal config — uses defaults for most settings
+
+# Engine — use modern eBPF (no kernel module needed)
+engine:
+  kind: modern_ebpf
+
+# Plugins — container metadata enrichment
+plugins:
+  - name: container
+    library_path: libcontainer.so
+    init_config:
+      label_max_len: 100
+      with_size: false
+
+load_plugins:
+  - container
 
 # Output settings
 json_output: true
@@ -14,7 +28,7 @@ rules_file:
   - /etc/falco/falco_rules.yaml
   - /etc/falco/chronicle-rules.yaml
 
-# Output to stdout (Docker logging picks this up → Loki via Promtail)
+# Output to stdout (Docker logging picks this up -> Loki via Promtail)
 stdout_output:
   enabled: true
 

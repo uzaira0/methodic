@@ -29,7 +29,10 @@ services:
   # Sits between Traefik and the backend:
   #   Traefik → Coraza WAF (:8080) → Backend (:40320)
   coraza-waf:
-    image: corazawaf/coraza-caddy:v2.2.0
+    build:
+      context: ./security/coraza
+      dockerfile: Dockerfile
+    image: chronicle-waf:latest
     container_name: chronicle-waf
     restart: unless-stopped
     volumes:
@@ -128,7 +131,7 @@ services:
   # Requires: Traefik access log volume shared at /var/log/traefik/
   # Configure Traefik: --accesslog --accesslog.filepath=/var/log/traefik/access.log
   fail2ban:
-    image: crazymax/fail2ban:1.1.0-r4
+    image: crazymax/fail2ban:1.1.0
     container_name: chronicle-fail2ban
     restart: unless-stopped
     cap_add:
