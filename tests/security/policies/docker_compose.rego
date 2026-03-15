@@ -115,7 +115,7 @@ _is_secret_key(key) {
 }
 
 _is_variable_substitution(val) {
-	re_match(`\$\{[A-Za-z_][A-Za-z0-9_]*\}`, val)
+	re_match(`\$\{[A-Za-z_][A-Za-z0-9_]*[^}]*\}`, val)
 }
 
 # ---------------------------------------------------------------------------
