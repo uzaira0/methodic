@@ -34,6 +34,14 @@ This document describes the security measures implemented to protect Chronicle a
 | Network | SSRF (Server-Side Request Forgery) prevention | ✓ Implemented |
 | Dependencies | CVE scanning (OWASP + npm audit) | ✓ Implemented |
 | Error Handling | Error Response Sanitization | ✓ Implemented |
+| Infrastructure | OPA policy validation (Docker Compose) | ✓ Implemented |
+| Testing | Rate limit load testing (k6) | ✓ Implemented |
+| SAST | ReDoS pattern scanning (semgrep) | ✓ Implemented |
+| Testing | Business logic testing (OWASP WSTG-BUSL) | ✓ Implemented |
+| Testing | Race condition testing (CWE-362) | ✓ Implemented |
+| Container | Container security audit | ✓ Implemented |
+| Infrastructure | Security overlay (WAF, Vault, Fail2ban, Falco) | ✓ Implemented |
+| Supply Chain | SLSA image provenance and SBOM | ✓ Implemented |
 
 ---
 
@@ -1689,3 +1697,115 @@ cd chronicle-web && npm run security
 3. Check Response Headers for all security headers
 4. Console tab should show no CSP violations (unless there are issues)
 5. To test clickjacking protection: Try embedding the site in an iframe on another domain - it should be blocked
+
+---
+
+## OPA Policy Validation
+
+Docker Compose configurations are validated against OPA/Conftest policies at `tests/security/policies/docker_compose.rego`. Seven policy rules enforce:
+
+1. **No `:latest` image tags** — all images must be version-pinned
+2. **Memory limits required** on all services
+3. **Health checks required** on all services
+4. **No host networking** (except Fail2ban)
+5. **Secret environment variables** use `${VAR}` substitution
+6. **Config volume mounts** are read-only (`:ro`)
+7. **`no-new-privileges`** security option
+
+```bash
+# Run OPA policy validation
+conftest test docker/docker-compose.traefik.yml --policy tests/security/policies/
+```
+
+---
+
+## Rate Limit Validation
+
+The `RateLimitFilter` is validated with k6 load tests at `tests/load/k6-rate-limit-validation.js`:
+
+- **Baseline**: verify rate limit headers present
+- **Exceed**: trigger 429 responses, verify `Retry-After` header
+- **Auth**: verify stricter limits on authentication endpoints
+- **Recovery**: confirm limits reset after window expires
+
+```bash
+# Run rate limit validation
+k6 run tests/load/k6-rate-limit-validation.js
+```
+
+---
+
+## ReDoS Scanning
+
+Regular expression denial-of-service patterns are detected via custom semgrep rules at `tests/security/rules/redos.yaml`:
+
+- **Nested quantifiers**: `(a+)+`, `(a*)*`
+- **Overlapping alternations**
+- **Catastrophic backtracking patterns**
+
+Integrated into Layer 1 (SAST) of `run-all-security.sh`.
+
+---
+
+## Business Logic Testing
+
+OWASP WSTG-BUSL coverage via `tests/security/business-logic-tests.sh`:
+
+- **Study cross-contamination isolation** — verify data cannot leak between studies
+- **Privilege escalation attempts** — confirm role boundaries are enforced
+- **Enrollment boundary enforcement** — validate participant limits
+- **Unauthorized export/purge prevention** — block data operations without proper authorization
+
+---
+
+## Race Condition Testing
+
+CWE-362 coverage via `tests/security/k6-race-conditions.js`:
+
+- **Double enrollment** — 10 concurrent VUs, exactly 1 success expected
+- **HMAC nonce replay protection** — concurrent reuse of the same nonce is rejected
+- **Parallel delete safety** — concurrent deletions do not corrupt state
+- **Settings update consistency** — concurrent updates resolve without data loss
+
+---
+
+## Container Security Audit
+
+Runtime container security verified by `tests/security/container-security-tests.sh`:
+
+- **Non-root user audit** — backend runs as `chronicle` user
+- **Capability restriction** — no added capabilities for application containers
+- **Docker socket access prevention** — `/var/run/docker.sock` is not mounted in app containers
+- **PID namespace isolation** — containers use separate PID namespaces
+- **Memory limit enforcement** — all containers have memory limits set
+
+---
+
+## Security Overlay
+
+Optional security infrastructure deployed via `docker-compose.security.yml`:
+
+| Component | Image | Purpose |
+|-----------|-------|---------|
+| **Coraza WAF** | v2.2.0 | OWASP CRS rule-based firewall between Traefik and backend |
+| **HashiCorp Vault** | 1.15 | Secrets management replacing `.env` plaintext |
+| **Fail2ban** | 1.1.0-r4 | IP banning for rate limit abuse and brute force |
+| **Falco** | 0.43.0 | Container runtime syscall monitoring |
+
+```bash
+# Deploy with security overlay
+docker compose -f docker-compose.traefik.yml -f docker-compose.security.yml -p chronicle up -d
+```
+
+Test scripts: `test-waf.sh`, `test-vault.sh`, `test-fail2ban.sh`, `test-falco.sh`
+
+---
+
+## SLSA / Image Provenance
+
+Build provenance and SBOM generation via `tests/security/verify-image-provenance.sh`:
+
+- **Image signing** with cosign
+- **SPDX SBOM generation** with Trivy
+- **License compliance checking** — copyleft detection
+- **Vulnerability summary** per image

@@ -1,0 +1,97 @@
+rules:
+  - id: chronicle-missing-request-body-validation
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $RET $METHOD(..., @RequestBody $TYPE $PARAM, ...) { ... }
+          - pattern: |
+              fun $METHOD(..., @RequestBody $PARAM: $TYPE, ...): $RET { ... }
+      - pattern-not:
+          - pattern: |
+              $RET $METHOD(..., @Valid @RequestBody $TYPE $PARAM, ...) { ... }
+      - pattern-not:
+          - pattern: |
+              $RET $METHOD(..., @RequestBody @Valid $TYPE $PARAM, ...) { ... }
+      - pattern-not:
+          - pattern: |
+              fun $METHOD(..., @Valid @RequestBody $PARAM: $TYPE, ...): $RET { ... }
+      - pattern-not:
+          - pattern: |
+              fun $METHOD(..., @RequestBody @Valid $PARAM: $TYPE, ...): $RET { ... }
+    message: >
+      @RequestBody parameter without @Valid annotation. Request body inputs
+      should be validated with @Valid to enforce Bean Validation constraints
+      (e.g., @NotNull, @Size) and prevent malformed or malicious payloads
+      from reaching business logic.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-400
+      owasp: "A03:2021"
+      category: security
+      confidence: MEDIUM
+
+  - id: chronicle-missing-size-limit
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $RET $METHOD(..., @RequestBody $TYPE $PARAM, ...) { ... }
+          - pattern: |
+              fun $METHOD(..., @RequestBody $PARAM: $TYPE, ...): $RET { ... }
+      - pattern-not:
+          - pattern: |
+              $RET $METHOD(..., @Size(...) @RequestBody $TYPE $PARAM, ...) { ... }
+      - pattern-not:
+          - pattern: |
+              $RET $METHOD(..., @RequestBody @Size(...) $TYPE $PARAM, ...) { ... }
+      - pattern-not:
+          - pattern: |
+              fun $METHOD(..., @Size(...) @RequestBody $PARAM: $TYPE, ...): $RET { ... }
+      - pattern-not:
+          - pattern: |
+              fun $METHOD(..., @RequestBody @Size(...) $PARAM: $TYPE, ...): $RET { ... }
+    message: >
+      @RequestBody parameter without @Size constraint. Upload and data
+      ingestion endpoints should enforce size limits on request bodies to
+      prevent denial-of-service via oversized payloads. Consider adding
+      @Size(max=...) or configuring spring.servlet.multipart.max-file-size
+      and spring.codec.max-in-memory-size.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-400
+      owasp: "A03:2021"
+      category: security
+      confidence: LOW
+
+  - id: chronicle-unsafe-file-path
+    patterns:
+      - pattern-either:
+          - pattern: |
+              new File($BASE + $USER_INPUT)
+          - pattern: |
+              new File($BASE, $USER_INPUT)
+          - pattern: |
+              Paths.get($BASE + $USER_INPUT)
+          - pattern: |
+              Paths.get($BASE, $USER_INPUT)
+          - pattern: |
+              Path.of($BASE + $USER_INPUT)
+          - pattern: |
+              Path.of($BASE, $USER_INPUT)
+          - pattern: |
+              File($BASE + $USER_INPUT)
+          - pattern: |
+              File($BASE, $USER_INPUT)
+    message: >
+      File path constructed using string concatenation or user-supplied input.
+      This may allow path traversal attacks (e.g., "../../etc/passwd") if the
+      input is not sanitized. Validate and canonicalize file paths before use,
+      and ensure the resolved path stays within the expected directory.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-434
+      owasp: "A01:2021"
+      category: security
+      confidence: MEDIUM

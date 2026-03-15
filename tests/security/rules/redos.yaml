@@ -1,0 +1,73 @@
+rules:
+  - id: chronicle-redos-nested-quantifier
+    patterns:
+      - pattern-either:
+          - pattern: Pattern.compile($X)
+          - pattern: Pattern.compile($X, $FLAGS)
+          - pattern: Regex($X)
+          - pattern: Regex($X, $OPTIONS)
+      - metavariable-regex:
+          metavariable: $X
+          # Matches source text including surrounding quotes, e.g. "(a+)+"
+          regex: >-
+            .*\([\.\\\w\[\]^]*[\+\*][^)]*\)[\+\*].*
+    message: >-
+      Potential ReDoS vulnerability: nested quantifiers detected in regex pattern.
+      Patterns like (a+)+, (a*)*, (a+)*, or (a*)+ cause exponential backtracking
+      on non-matching input, leading to Regular Expression Denial of Service (ReDoS).
+      Refactor the regex to avoid nesting quantifiers inside quantified groups.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-1333
+      owasp: "A06:2021"
+      category: security
+
+  - id: chronicle-redos-overlapping-alternation
+    patterns:
+      - pattern-either:
+          - pattern: Pattern.compile($X)
+          - pattern: Pattern.compile($X, $FLAGS)
+          - pattern: Regex($X)
+          - pattern: Regex($X, $OPTIONS)
+      - metavariable-regex:
+          metavariable: $X
+          # Matches source text including surrounding quotes
+          regex: >-
+            .*\([^)]*\|[^)]*\)[\+\*].*
+    message: >-
+      Potential ReDoS vulnerability: overlapping alternation inside a quantified group.
+      Patterns like (a|a)+, (\w|\d)+, or (.*|.+)+ contain alternation branches that
+      can match the same input, causing exponential backtracking on non-matching input.
+      Ensure alternation branches are mutually exclusive or refactor to avoid ambiguity.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-1333
+      owasp: "A06:2021"
+      category: security
+
+  - id: chronicle-redos-catastrophic-backtracking
+    patterns:
+      - pattern-either:
+          - pattern: Pattern.compile($X)
+          - pattern: Pattern.compile($X, $FLAGS)
+          - pattern: Regex($X)
+          - pattern: Regex($X, $OPTIONS)
+      - metavariable-regex:
+          metavariable: $X
+          # Matches source text including surrounding quotes
+          regex: >-
+            .*[\.\[\]\\a-zA-Z\w][\+\*][\.\[\]\\a-zA-Z\w][\+\*].*
+    message: >-
+      Potential ReDoS vulnerability: multiple adjacent unbounded quantifiers detected.
+      Patterns like .*.*,  .+.+, or \w+\d+ cause catastrophic backtracking because
+      the regex engine tries exponentially many ways to split the input between the
+      quantified expressions. Use atomic groups, possessive quantifiers, or refactor
+      to eliminate ambiguous repetition.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-1333
+      owasp: "A06:2021"
+      category: security
