@@ -101,17 +101,30 @@ fi
 # =============================================================================
 if should_run "dast"; then
   log "Layer 2: DAST — OWASP ZAP (requires running stack)"
-  if docker image ls ghcr.io/zaproxy/zaproxy 2>/dev/null | grep -q zaproxy; then
+  # Try multiple ZAP image names (ghcr.io or Docker Hub)
+  ZAP_IMAGE=""
+  for img in "zaproxy/zap-stable" "ghcr.io/zaproxy/zaproxy:stable"; do
+    if docker image inspect "$img" &>/dev/null; then
+      ZAP_IMAGE="$img"
+      break
+    fi
+  done
+  if [ -n "$ZAP_IMAGE" ]; then
     if docker network ls --format '{{.Name}}' | grep -q chronicle_chronicle-internal; then
+      # ZAP baseline scan: crawls the app and checks for common vulnerabilities
+      # Targets frontend via internal Docker network (not publicly exposed)
+      chmod 777 "$REPORT_DIR" 2>/dev/null || true
       docker run --rm --network=chronicle_chronicle-internal \
-        ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
-        -t http://chronicle-frontend:8080/ \
-        -J "$REPORT_DIR/zap-baseline.json" 2>&1 | tail -10 && pass "DAST baseline" || fail "DAST baseline"
+        -v "$REPORT_DIR:/zap/wrk:z" \
+        "$ZAP_IMAGE" zap-baseline.py \
+        -t http://chronicle-frontend:80/ \
+        -J zap-baseline.json \
+        -I 2>&1 | tail -15 && pass "DAST baseline" || fail "DAST baseline"
     else
       skip "OWASP ZAP (chronicle network not found — is the stack running?)"
     fi
   else
-    skip "OWASP ZAP (docker image not pulled — run: docker pull ghcr.io/zaproxy/zaproxy:stable)"
+    skip "OWASP ZAP (image not found — run: docker pull zaproxy/zap-stable)"
   fi
 fi
 
