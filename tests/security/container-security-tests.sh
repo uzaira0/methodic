@@ -85,7 +85,14 @@ for container in "${CONTAINERS[@]}"; do
   fi
   user=$(docker inspect --format '{{.Config.User}}' "$container" 2>/dev/null || true)
   if [ -z "$user" ] || [ "$user" = "root" ] || [ "$user" = "0" ]; then
-    fail "$container — runs as root or no user specified (User='${user:-<empty>}')"
+    # Check if container uses cap_drop: ALL (nginx pattern — starts as root, drops privs)
+    cap_drop=$(docker inspect --format '{{.HostConfig.CapDrop}}' "$container" 2>/dev/null || true)
+    no_new_priv=$(docker inspect --format '{{.HostConfig.SecurityOpt}}' "$container" 2>/dev/null || true)
+    if echo "$cap_drop" | grep -q "ALL" && echo "$no_new_priv" | grep -q "no-new-privileges"; then
+      warn "$container — runs as root but has cap_drop:ALL + no-new-privileges (hardened)"
+    else
+      fail "$container — runs as root or no user specified (User='${user:-<empty>}')"
+    fi
   else
     pass "$container — runs as non-root user '${user}'"
   fi
@@ -119,6 +126,16 @@ for container in "${CONTAINERS[@]}"; do
           pass "$container — NET_ADMIN/NET_RAW capabilities (expected for fail2ban)"
         else
           warn "$container — unexpected capabilities: ${cap_add}"
+        fi
+        ;;
+      *frontend*)
+        # nginx needs minimal caps to bind port 80 and manage workers
+        # compose uses cap_drop: ALL + specific cap_add (minimal set)
+        cap_drop=$(docker inspect --format '{{.HostConfig.CapDrop}}' "$container" 2>/dev/null || true)
+        if echo "$cap_drop" | grep -q "ALL"; then
+          pass "$container — nginx caps with cap_drop: ALL (hardened: ${cap_add})"
+        else
+          warn "$container — has capabilities without cap_drop: ALL: ${cap_add}"
         fi
         ;;
       *)

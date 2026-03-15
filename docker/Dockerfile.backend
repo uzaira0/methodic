@@ -73,6 +73,9 @@ ENV CHRONICLE_SERVER_ARGS="local postgres medialocal"
 
 EXPOSE 40320
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl -sf http://127.0.0.1:40320/chronicle/prometheus/ || exit 1
+
 LABEL org.opencontainers.image.source="https://github.com/methodic-labs/chronicle"
 LABEL org.opencontainers.image.vendor="Methodic Labs"
 
