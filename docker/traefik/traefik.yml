@@ -21,14 +21,14 @@ entryPoints:
 api:
   insecure: true
 
-# Access logging for Fail2ban integration
+# Access logging for CrowdSec + Fail2ban
 accessLog:
   filePath: /var/log/traefik/access.log
   bufferingSize: 100
 
-# WAF plugin (optional — uncomment when a stable Traefik WAF plugin is available)
-# experimental:
-#   plugins:
-#     coraza:
-#       moduleName: github.com/jcchavezs/coraza-http-wasm-traefik
-#       version: v0.3.0
+# CrowdSec bouncer plugin for WAF + IP reputation
+experimental:
+  plugins:
+    crowdsec-bouncer:
+      moduleName: github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin
+      version: v1.5.1

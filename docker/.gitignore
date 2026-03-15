@@ -19,3 +19,4 @@ certs/
 tls/*.crt
 tls/*.key
 tls/*.pem
+docker/traefik/dynamic/crowdsec-waf.yml

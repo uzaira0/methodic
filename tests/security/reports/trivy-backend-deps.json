@@ -1,0 +1,63 @@
+{
+  "SchemaVersion": 2,
+  "Trivy": {
+    "Version": "0.69.3"
+  },
+  "ReportID": "019cf3d2-4ef4-7353-b108-142dc6edb298",
+  "CreatedAt": "2026-03-15T18:26:12.212218962-05:00",
+  "ArtifactID": "sha256:fa6ab747e8d1747444803a2c991c78709df5dc19b1d7507eeac2cf4f31050e2c",
+  "ArtifactName": "/opt/chronicle/chronicle-server",
+  "ArtifactType": "repository",
+  "Metadata": {
+    "RepoURL": "https://github.com/methodic-labs/chronicle-server.git",
+    "Branch": "develop",
+    "Commit": "3556c1fc33e8e406763d73ec48774b938accdc93",
+    "CommitMsg": "fix: eliminate ReDoS patterns in ErrorSanitizationConfig regex\n\nReplace three regex patterns with catastrophic backtracking risk:\n- SELECT .+? FROM: use \\S+ alternation to avoid ambiguous quantifiers\n- WHERE .+? AND|OR: eliminate trailing \\s*$ alternation causing backtracking\n- ([REDACTED]\\s*)+: replace nested quantifier with non-capturing group\n\nFound by custom semgrep ReDoS rules (tests/security/rules/redos.yaml).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) \u003cnoreply@anthropic.com\u003e",
+    "Author": "uzaira0 \u003cuzair.alam@bcm.edu\u003e",
+    "Committer": "uzaira0 \u003cuzair.alam@bcm.edu\u003e"
+  },
+  "Results": [
+    {
+      "Target": "build/tmp/.cache/expanded/zip_3a83c50b4a016f281c4e9f3500d16b55/META-INF/maven/org.jacoco/org.jacoco.agent/pom.xml",
+      "Class": "lang-pkgs",
+      "Type": "pom",
+      "Packages": [
+        {
+          "ID": "org.jacoco:org.jacoco.agent:0.8.7::df92113a",
+          "Name": "org.jacoco:org.jacoco.agent",
+          "Identifier": {
+            "PURL": "pkg:maven/org.jacoco/org.jacoco.agent@0.8.7",
+            "UID": "17c6c8c327a5c77a"
+          },
+          "Version": "0.8.7",
+          "Licenses": [
+            "EPL-2.0"
+          ],
+          "Relationship": "root",
+          "AnalyzedBy": "pom"
+        }
+      ]
+    },
+    {
+      "Target": "build/tmp/.cache/expanded/zip_9892ccb804f78c0637616b68610d363f/META-INF/maven/org.jacoco/org.jacoco.agent/pom.xml",
+      "Class": "lang-pkgs",
+      "Type": "pom",
+      "Packages": [
+        {
+          "ID": "org.jacoco:org.jacoco.agent:0.8.13::c8bf3ec3",
+          "Name": "org.jacoco:org.jacoco.agent",
+          "Identifier": {
+            "PURL": "pkg:maven/org.jacoco/org.jacoco.agent@0.8.13",
+            "UID": "f9975ef0fde620ea"
+          },
+          "Version": "0.8.13",
+          "Licenses": [
+            "EPL-2.0"
+          ],
+          "Relationship": "root",
+          "AnalyzedBy": "pom"
+        }
+      ]
+    }
+  ]
+}

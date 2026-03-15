@@ -4,25 +4,72 @@
 #   docker compose -f docker-compose.traefik.yml -f docker-compose.security.yml -p chronicle up -d
 #
 # Components:
-#   1. Coraza WAF — Traefik plugin middleware (no separate container)
-#   2. HashiCorp Vault — secrets management (replaces .env for sensitive values)
+#   1. CrowdSec — IPS + WAF (AppSec) with Traefik bouncer plugin
+#   2. HashiCorp Vault — secrets management
 #   3. Fail2ban — IP banning for rate-limit abuse and brute force
 #   4. Falco — container runtime security monitoring
 #
-# WAF is configured in traefik/dynamic/chronicle-waf.yml as a Traefik middleware.
-# Apply it to backend routes by adding 'chronicle-waf@file' to router middlewares.
-#
 # Post-deployment:
+#   - Generate bouncer API key: docker exec chronicle-crowdsec cscli bouncers add traefik-bouncer
+#   - Add the key to CROWDSEC_BOUNCER_API_KEY in .env
+#   - Restart Traefik to pick up the key
 #   - Initialize Vault: docker exec chronicle-vault sh /vault/scripts/init-vault.sh
+#   - Check CrowdSec: docker exec chronicle-crowdsec cscli metrics
 #   - Check Falco alerts: docker logs chronicle-falco
 #   - Check Fail2ban status: docker exec chronicle-fail2ban fail2ban-client status
 
 services:
 
-  # WAF middleware is not currently available as a stable Traefik plugin.
-  # The backend's Spring Security, RateLimitFilter, and input validation
-  # provide application-layer security. WAF can be added when a production-ready
-  # Traefik plugin becomes available (Coraza WASM plugin has stack overflow bugs).
+  # =========================================
+  # CrowdSec — IPS + WAF (AppSec)
+  # =========================================
+  # Behavior-based intrusion prevention system with OWASP AppSec rules.
+  # Analyzes Traefik access logs + inspects HTTP requests via AppSec.
+  # Shares threat intelligence across the CrowdSec network.
+  #
+  # The Traefik bouncer plugin (configured in traefik.yml) queries CrowdSec
+  # to decide whether to allow or block each request.
+  crowdsec:
+    image: crowdsecurity/crowdsec:v1.7.6
+    container_name: chronicle-crowdsec
+    restart: unless-stopped
+    environment:
+      # Install collections on first start
+      COLLECTIONS: >-
+        crowdsecurity/traefik
+        crowdsecurity/http-cve
+        crowdsecurity/appsec-virtual-patching
+        crowdsecurity/appsec-generic-rules
+      # Enroll with CrowdSec console (optional — for threat intelligence sharing)
+      # ENROLL_KEY: ${CROWDSEC_ENROLL_KEY:-}
+    volumes:
+      - ./security/crowdsec/acquis.yaml:/etc/crowdsec/acquis.yaml:ro,z
+      - ./security/crowdsec/acquis.d:/etc/crowdsec/acquis.d:ro,z
+      - crowdsec_db:/var/lib/crowdsec/data
+      - crowdsec_config:/etc/crowdsec
+      # Read Traefik access logs for behavior analysis
+      - traefik_access_logs:/var/log/traefik:ro
+    networks:
+      - chronicle-internal
+      - traefik
+    healthcheck:
+      test: ["CMD", "cscli", "version"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # CrowdSec bouncer plugin is configured in traefik/traefik.yml
+  # (experimental.plugins section). The middleware is defined in
+  # traefik/dynamic/crowdsec-waf.yml (file provider).
+
+  # CrowdSec WAF middleware is defined via Traefik file provider
+  # (see traefik/dynamic/crowdsec-waf.yml) and applied to backend routes
+  # by overriding the middleware chain on the mobile and web routers.
 
   # =========================================
   # HashiCorp Vault — Secrets Management
@@ -57,10 +104,6 @@ services:
   # =========================================
   # Fail2ban — Abuse Protection
   # =========================================
-  # Monitors Traefik access logs and bans abusive IPs:
-  #   - 20+ rate-limited (429) responses → 1h ban
-  #   - 10+ auth failures (401) → 2h ban
-  #   - 30+ 404s (scanning) → 4h ban
   fail2ban:
     image: crazymax/fail2ban:1.1.0
     container_name: chronicle-fail2ban
@@ -77,7 +120,6 @@ services:
       - ./security/fail2ban/jail.local:/etc/fail2ban/jail.local:ro,z
       - ./security/fail2ban/filter.d:/etc/fail2ban/filter.d:ro,z
       - fail2ban_data:/var/lib/fail2ban
-      # Mount Traefik access logs (written by chronicle-traefik)
       - traefik_access_logs:/var/log/traefik:ro
     network_mode: host
     deploy:
@@ -109,6 +151,8 @@ services:
           memory: 512M
 
 volumes:
+  crowdsec_db:
+  crowdsec_config:
   vault_data:
   vault_logs:
   fail2ban_data:
