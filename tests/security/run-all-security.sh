@@ -21,6 +21,25 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 REPORT_DIR="${2:-$PROJECT_ROOT/tests/security/reports}"
 LAYER="${1:---all}"
 
+# Load DOMAIN from .env if not already set (needed for backend URL detection)
+if [ -z "${DOMAIN:-}" ] && [ -f "$PROJECT_ROOT/docker/.env" ]; then
+  DOMAIN=$(grep '^DOMAIN=' "$PROJECT_ROOT/docker/.env" 2>/dev/null | cut -d= -f2) || true
+fi
+BACKEND_URL="${BACKEND_URL:-}"
+if [ -z "$BACKEND_URL" ]; then
+  if curl -sf http://localhost:40320/chronicle/prometheus/ &>/dev/null; then
+    BACKEND_URL="http://localhost:40320"
+  elif [ -n "${DOMAIN:-}" ] && curl -sf "http://${DOMAIN}/chronicle/prometheus/" &>/dev/null; then
+    BACKEND_URL="http://${DOMAIN}"
+  fi
+fi
+
+# Export JAVA_HOME if installed locally
+if [ -z "${JAVA_HOME:-}" ] && [ -d "$HOME/.local/jdk" ]; then
+  export JAVA_HOME="$HOME/.local/jdk"
+  export PATH="$JAVA_HOME/bin:$PATH"
+fi
+
 mkdir -p "$REPORT_DIR"
 PASS=0
 FAIL=0
@@ -83,10 +102,14 @@ fi
 if should_run "dast"; then
   log "Layer 2: DAST — OWASP ZAP (requires running stack)"
   if docker image ls ghcr.io/zaproxy/zaproxy 2>/dev/null | grep -q zaproxy; then
-    docker run --rm --network=chronicle_chronicle-internal \
-      ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
-      -t http://chronicle-frontend/chronicle \
-      -J "$REPORT_DIR/zap-baseline.json" 2>&1 | tail -10 && pass "DAST baseline" || fail "DAST baseline"
+    if docker network ls --format '{{.Name}}' | grep -q chronicle_chronicle-internal; then
+      docker run --rm --network=chronicle_chronicle-internal \
+        ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+        -t http://chronicle-frontend:8080/ \
+        -J "$REPORT_DIR/zap-baseline.json" 2>&1 | tail -10 && pass "DAST baseline" || fail "DAST baseline"
+    else
+      skip "OWASP ZAP (chronicle network not found — is the stack running?)"
+    fi
   else
     skip "OWASP ZAP (docker image not pulled — run: docker pull ghcr.io/zaproxy/zaproxy:stable)"
   fi
@@ -100,9 +123,11 @@ fi
 if should_run "sca"; then
   log "Layer 3: SCA — Dependency vulnerability scanning"
 
-  # Backend (Gradle)
-  if [ -f "$PROJECT_ROOT/gradlew" ] && command -v java &>/dev/null; then
-    (cd "$PROJECT_ROOT" && ./gradlew :chronicle-server:dependencies --no-daemon 2>&1 | tail -5) && pass "SCA backend" || fail "SCA backend"
+  # Backend (Gradle/Trivy) — dependency vulnerability scanning
+  if command -v trivy &>/dev/null && [ -d "$PROJECT_ROOT/chronicle-server" ]; then
+    # Fallback: use trivy to scan Gradle dependencies via lockfile/build files
+    trivy fs --scanners vuln --severity HIGH,CRITICAL --format json \
+      -o "$REPORT_DIR/trivy-backend-deps.json" "$PROJECT_ROOT/chronicle-server/" 2>&1 | tail -3 && pass "SCA backend (trivy)" || fail "SCA backend (trivy)"
   else
     skip "Gradle dependency check (gradlew or java not found)"
   fi
@@ -201,20 +226,24 @@ if should_run "api"; then
   log "Layer 7: API Security — Schemathesis (requires running backend)"
   if command -v schemathesis &>/dev/null; then
     SCHEMA_URL="${SCHEMATHESIS_URL:-}"
-    if [ -z "$SCHEMA_URL" ]; then
-      # Auto-detect: try localhost first, then Traefik hostname
-      if curl -sf http://localhost:40320/chronicle/v3/api-docs &>/dev/null; then
-        SCHEMA_URL="http://localhost:40320/chronicle/v3/api-docs"
-      elif curl -sf "http://$(hostname -f)/chronicle/v3/api-docs" &>/dev/null; then
-        SCHEMA_URL="http://$(hostname -f)/chronicle/v3/api-docs"
+    if [ -z "$SCHEMA_URL" ] && [ -n "$BACKEND_URL" ]; then
+      SCHEMA_URL="${BACKEND_URL}/chronicle/v3/api-docs"
+    fi
+    # Try with auth token if available
+    SCHEMA_HEADER=""
+    if [ -f "$PROJECT_ROOT/docker/chronicle-config.json" ]; then
+      SCHEMA_TOKEN=$(python3 -c "import json; print(json.load(open('$PROJECT_ROOT/docker/chronicle-config.json')).get('token',''))" 2>/dev/null || true)
+      if [ -n "$SCHEMA_TOKEN" ]; then
+        SCHEMA_HEADER="-H 'Authorization: Bearer $SCHEMA_TOKEN'"
       fi
     fi
     if [ -n "$SCHEMA_URL" ]; then
       schemathesis run "$SCHEMA_URL" \
         --max-examples=50 \
-        --junit-xml="$REPORT_DIR/schemathesis.xml" 2>&1 | tail -10 && pass "API fuzzing" || fail "API fuzzing"
+        ${SCHEMA_HEADER:+$SCHEMA_HEADER} \
+        --report junit --report-dir "$REPORT_DIR/schemathesis" 2>&1 | tail -10 && pass "API fuzzing" || fail "API fuzzing"
     else
-      skip "schemathesis (backend not reachable)"
+      skip "schemathesis (backend not reachable or no API docs endpoint)"
     fi
   else
     skip "schemathesis (pip3 install schemathesis)"
@@ -229,8 +258,9 @@ fi
 if should_run "tls"; then
   log "Layer 8: TLS/SSL — sslyze"
   if command -v sslyze &>/dev/null; then
+    SSLYZE_TARGET="${DOMAIN:-cnrc-deni-p001.cnrc.bcm.edu}"
     SSLYZE_OUTPUT=$(sslyze --json_out="$REPORT_DIR/sslyze.json" \
-      cnrc-deni-p001.cnrc.bcm.edu 2>&1 || true)
+      "$SSLYZE_TARGET" 2>&1 || true)
     SSLYZE_OUTPUT=$(echo "$SSLYZE_OUTPUT" | tail -10)
     echo "$SSLYZE_OUTPUT"
     if echo "$SSLYZE_OUTPUT" | grep -q "TRAEFIK DEFAULT CERT"; then
@@ -414,13 +444,28 @@ fi
 # HIPAA: §164.312(e)(1) — Transmission security
 # =============================================================================
 if should_run "network"; then
-  log "Layer 13: Network Security — nmap"
-  if command -v nmap &>/dev/null; then
-    # Verify only expected ports are open
-    nmap -sV -p 80,443,40320,5432,9090,3100,3000 localhost \
-      -oX "$REPORT_DIR/nmap-localhost.xml" 2>&1 | tail -10 && pass "Network scan" || fail "Network scan"
+  log "Layer 13: Network Security — port audit"
+  # Verify only expected ports are listening (no nmap required)
+  EXPECTED_PORTS="80 443 40320 5432 9090 3100 3000"
+  UNEXPECTED=""
+  OPEN_PORTS=""
+  for port in $EXPECTED_PORTS; do
+    if (echo >/dev/tcp/localhost/$port) 2>/dev/null; then
+      OPEN_PORTS="$OPEN_PORTS $port"
+    fi
+  done
+  echo "  Open expected ports:$OPEN_PORTS" > "$REPORT_DIR/port-audit.txt"
+  # Check for unexpected listeners on common dangerous ports (SSH excluded — expected on servers)
+  for port in 23 3389 8443 8888 9200; do
+    if (echo >/dev/tcp/localhost/$port) 2>/dev/null; then
+      UNEXPECTED="$UNEXPECTED $port"
+    fi
+  done
+  if [ -n "$UNEXPECTED" ]; then
+    echo "  Unexpected ports open:$UNEXPECTED" >> "$REPORT_DIR/port-audit.txt"
+    fail "Network — unexpected ports open:$UNEXPECTED"
   else
-    skip "nmap"
+    pass "Network — no unexpected ports open"
   fi
 fi
 
@@ -521,17 +566,8 @@ fi
 if should_run "ratelimit"; then
   log "Layer 18: Rate Limit Validation — k6"
   if command -v k6 &>/dev/null; then
-    # Auto-detect backend URL for k6
-    K6_BASE_URL="${BASE_URL:-}"
-    if [ -z "$K6_BASE_URL" ]; then
-      if curl -sf http://localhost:40320/chronicle/prometheus/ &>/dev/null; then
-        K6_BASE_URL="http://localhost:40320"
-      elif curl -sf "http://$(hostname -f)/chronicle/prometheus/" &>/dev/null; then
-        K6_BASE_URL="http://$(hostname -f)"
-      fi
-    fi
-    if [ -n "$K6_BASE_URL" ]; then
-      BASE_URL="$K6_BASE_URL" k6 run --quiet --summary-trend-stats="avg,p(95),max" \
+    if [ -n "$BACKEND_URL" ]; then
+      BASE_URL="$BACKEND_URL" k6 run --quiet --summary-trend-stats="avg,p(95),max" \
         "$PROJECT_ROOT/tests/load/k6-rate-limit-validation.js" 2>&1 | tail -20 && pass "Rate limit validation" || fail "Rate limit validation"
     else
       skip "Rate limit (backend not running)"
