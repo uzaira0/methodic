@@ -225,23 +225,22 @@ fi
 if should_run "api"; then
   log "Layer 7: API Security — Schemathesis (requires running backend)"
   if command -v schemathesis &>/dev/null; then
-    SCHEMA_URL="${SCHEMATHESIS_URL:-}"
-    if [ -z "$SCHEMA_URL" ] && [ -n "$BACKEND_URL" ]; then
-      SCHEMA_URL="${BACKEND_URL}/chronicle/v3/api-docs"
-    fi
-    # Check if OpenAPI docs endpoint exists (requires auth)
+    # Use local OpenAPI spec file with schemathesis, targeting the running backend
+    SCHEMA_FILE="$PROJECT_ROOT/chronicle-api/chronicle.yaml"
     SCHEMA_TOKEN=""
     if [ -f "$PROJECT_ROOT/docker/chronicle-config.json" ]; then
       SCHEMA_TOKEN=$(python3 -c "import json; print(json.load(open('$PROJECT_ROOT/docker/chronicle-config.json')).get('token',''))" 2>/dev/null || true)
     fi
-    SCHEMA_STATUS=$(curl -sf -o /dev/null -w '%{http_code}' "$SCHEMA_URL" -H "Authorization: Bearer $SCHEMA_TOKEN" 2>/dev/null || echo "000")
-    if [ "$SCHEMA_STATUS" = "200" ]; then
-      schemathesis run "$SCHEMA_URL" \
+    if [ -f "$SCHEMA_FILE" ] && [ -n "$BACKEND_URL" ]; then
+      schemathesis run "$SCHEMA_FILE" \
+        --base-url "$BACKEND_URL" \
         --max-examples=50 \
         -H "Authorization: Bearer $SCHEMA_TOKEN" \
         --report junit --report-dir "$REPORT_DIR/schemathesis" 2>&1 | tail -10 && pass "API fuzzing" || fail "API fuzzing"
+    elif [ -f "$SCHEMA_FILE" ]; then
+      skip "schemathesis (OpenAPI spec found but backend not reachable)"
     else
-      skip "schemathesis (no OpenAPI spec at $SCHEMA_URL — status $SCHEMA_STATUS)"
+      skip "schemathesis (no OpenAPI spec at $SCHEMA_FILE)"
     fi
   else
     skip "schemathesis (pip3 install schemathesis)"
