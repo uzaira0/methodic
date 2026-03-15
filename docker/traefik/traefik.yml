@@ -1,0 +1,27 @@
+global:
+  sendAnonymousUsage: false
+
+providers:
+  docker:
+    exposedByDefault: false
+    watch: true
+    network: traefik-apps
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+entryPoints:
+  web:
+    address: :80
+  websecure:
+    address: :443
+    http3:
+      advertisedPort: 443
+
+api:
+  insecure: true
+
+# Access logging for Fail2ban integration
+accessLog:
+  filePath: /var/log/traefik/access.log
+  bufferingSize: 100

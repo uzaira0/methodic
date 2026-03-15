@@ -1,0 +1,24 @@
+# WAF routes — higher priority than direct backend routes
+# Traffic flow: Client → Traefik → WAF (Coraza CRS) → Backend
+http:
+  routers:
+    chronicle-waf-mobile:
+      rule: "Host(`cnrc-deni-p001.cnrc.bcm.edu`) && (PathPrefix(`/chronicle/v3/`) || PathPrefix(`/chronicle/v2/`) || PathPrefix(`/chronicle/study/`) || PathPrefix(`/chronicle/limits/`))"
+      entryPoints:
+        - web
+      service: chronicle-waf
+      priority: 25
+    chronicle-waf-web:
+      rule: "Host(`cnrc-deni-p001.cnrc.bcm.edu`) && PathPrefix(`/chronicle/api/web/`)"
+      entryPoints:
+        - web
+      service: chronicle-waf
+      priority: 25
+  services:
+    chronicle-waf:
+      loadBalancer:
+        servers:
+          - url: "http://chronicle-waf:8080"
+        healthCheck:
+          path: /prometheus/
+          interval: 30s

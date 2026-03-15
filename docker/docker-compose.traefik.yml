@@ -14,6 +14,41 @@ name: chronicle
 #   2. docker-compose -f docker-compose.traefik.yml up -d
 
 services:
+
+  # =========================================
+  # Traefik Reverse Proxy
+  # =========================================
+  # Replaces Dokploy-managed Traefik. Routes all HTTP/HTTPS traffic.
+  # Other apps (flash-processing, sleep-scoring, ios-screen-time) connect
+  # to the traefik-apps network and are auto-discovered via Docker labels.
+  traefik:
+    image: traefik:v3.6.10
+    container_name: chronicle-traefik
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro,z
+      - ./traefik/dynamic:/etc/traefik/dynamic:ro,z
+      - traefik_access_logs:/var/log/traefik
+    networks:
+      - traefik
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
   # PostgreSQL Database with Transparent Data Encryption (TDE) and SSL/TLS
   # Uses Percona Distribution for PostgreSQL with pg_tde extension for HIPAA/GDPR compliance
   # SSL/TLS encryption in transit protects data between application and database
@@ -573,10 +608,14 @@ networks:
       config:
         - subnet: 172.30.0.0/16
   traefik:
+    # Shared network for Traefik to reach all routed services.
+    # Other compose projects (flash-processing, sleep-scoring, etc.) connect
+    # to this network via `external: true` + `name: traefik-apps` in their compose files.
     external: true
-    name: ${TRAEFIK_NETWORK:-traefik}
+    name: traefik-apps
 
 volumes:
+  traefik_access_logs:
   postgres_data:
   # Separate volume for TDE keyring to ensure key persistence
   # IMPORTANT: Back up this volume securely - loss of keys means loss of encrypted data

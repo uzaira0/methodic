@@ -59,18 +59,17 @@ services:
       - "traefik.http.services.chronicle-waf.loadbalancer.server.port=8080"
 
       # WAF route for web API (higher priority than direct backend routes)
+      # WAF does its own filtering — no external middlewares needed
       - "traefik.http.routers.chronicle-waf-web.rule=Host(`${DOMAIN}`) && PathPrefix(`/chronicle/api/web/`)"
-      - "traefik.http.routers.chronicle-waf-web.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.chronicle-waf-web.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
       - "traefik.http.routers.chronicle-waf-web.priority=25"
       - "traefik.http.routers.chronicle-waf-web.service=chronicle-waf"
-      - "traefik.http.routers.chronicle-waf-web.middlewares=chronicle-web-strip,chronicle-web-ratelimit,chronicle-web-headers,chronicle-web-cors"
 
       # WAF route for mobile API
       - "traefik.http.routers.chronicle-waf-mobile.rule=Host(`${DOMAIN}`) && (PathPrefix(`/chronicle/v3/`) || PathPrefix(`/chronicle/v2/`) || PathPrefix(`/chronicle/study/`) || PathPrefix(`/chronicle/limits/`))"
-      - "traefik.http.routers.chronicle-waf-mobile.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.chronicle-waf-mobile.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
       - "traefik.http.routers.chronicle-waf-mobile.priority=25"
       - "traefik.http.routers.chronicle-waf-mobile.service=chronicle-waf"
-      - "traefik.http.routers.chronicle-waf-mobile.middlewares=chronicle-mobile-ratelimit,chronicle-mobile-headers,chronicle-mobile-cors"
 
   # Override backend to lower priority so WAF routes take precedence
   chronicle-backend:
@@ -146,8 +145,8 @@ services:
       - ./security/fail2ban/jail.local:/etc/fail2ban/jail.local:ro,z
       - ./security/fail2ban/filter.d:/etc/fail2ban/filter.d:ro,z
       - fail2ban_data:/var/lib/fail2ban
-      # Mount Traefik access log (requires Traefik accesslog configuration)
-      - traefik_logs:/var/log/traefik:ro
+      # Mount Traefik access logs (written by chronicle-traefik)
+      - traefik_access_logs:/var/log/traefik:ro
     network_mode: host
     deploy:
       resources:
@@ -190,15 +189,9 @@ volumes:
   vault_logs:
   fail2ban_data:
   falco_logs:
-  # Traefik access log volume
-  # If using an external Traefik, create this volume and configure Traefik to write to it:
-  #   docker volume create traefik_logs
-  # Then configure Traefik: --accesslog --accesslog.filepath=/var/log/traefik/access.log
-  # If volume doesn't exist, Fail2ban will start but won't detect any events.
-  traefik_logs:
 
 networks:
   chronicle-internal:
   traefik:
     external: true
-    name: ${TRAEFIK_NETWORK:-traefik}
+    name: traefik-apps

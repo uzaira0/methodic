@@ -1,4 +1,4 @@
-# Build Caddy with Coraza WAF module
+# Build Caddy with Coraza WAF module (includes embedded OWASP CRS)
 FROM caddy:2.9.1-builder AS builder
 
 RUN xcaddy build \
