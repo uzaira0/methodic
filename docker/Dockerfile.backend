@@ -11,21 +11,43 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the entire project (needed for submodule dependencies in development mode)
-COPY . /app
+# --- Layer 1: Dependency resolution (cached when deps unchanged) ---
+# Copy only build config files first so dependencies are cached independently
+COPY gradlew gradlew
+COPY gradle/ gradle/
+COPY settings.gradle settings.gradle
+COPY build.gradle build.gradle
+COPY gradles/ gradles/
+COPY chronicle-api/build.gradle chronicle-api/build.gradle
+COPY chronicle-server/build.gradle chronicle-server/build.gradle
+COPY rhizome/build.gradle rhizome/build.gradle
+COPY rhizome-client/build.gradle rhizome-client/build.gradle
 
-# Convert Windows line endings to Unix for all shell scripts
-RUN find . -name "gradlew" -exec dos2unix {} \; && \
-    find . -name "*.sh" -exec dos2unix {} \;
+# Convert line endings for gradlew
+RUN dos2unix gradlew
 
 # Ensure git repo exists with a tag so publish.gradle's `git describe` works.
 # Docker COPY strips .git, so we init a fresh repo with a version tag.
 RUN git config --global user.email "build@docker" && git config --global user.name "Docker Build" && \
     git init && git add -A && git commit -m "docker build" --allow-empty && git tag v0.0.0
 
-# Build the application with reduced memory footprint
+# Pre-fetch dependencies (this layer is cached when only source code changes)
 ENV GRADLE_OPTS="-Xmx1g -Xms256m -Dorg.gradle.jvmargs='-Xmx1g -Xms256m'"
-RUN ./gradlew :chronicle-server:installDist --no-daemon -PdevelopmentMode=true -Dorg.gradle.jvmargs="-Xmx1g -Xms256m"
+RUN ./gradlew dependencies --no-daemon -PdevelopmentMode=true || true
+
+# --- Layer 2: Full source + build (only this layer rebuilds on code changes) ---
+COPY . /app
+
+# Convert Windows line endings to Unix for all shell scripts
+RUN find . -name "gradlew" -exec dos2unix {} \; && \
+    find . -name "*.sh" -exec dos2unix {} \;
+
+# Refresh git state after full COPY overwrites the .git init
+RUN git config --global user.email "build@docker" && git config --global user.name "Docker Build" && \
+    git init && git add -A && git commit -m "docker build" --allow-empty && git tag -f v0.0.0
+
+# Build the application with build cache
+RUN ./gradlew :chronicle-server:installDist --build-cache --no-daemon -PdevelopmentMode=true -Dorg.gradle.jvmargs="-Xmx1g -Xms256m"
 
 # Runtime stage
 FROM eclipse-temurin:17-jre

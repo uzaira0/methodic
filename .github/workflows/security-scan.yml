@@ -85,7 +85,6 @@ jobs:
         with:
           sarif_file: chronicle-server/build/reports/dependency-check-report.sarif
           category: gradle-dependency-check
-        continue-on-error: true
 
       - name: Check for Critical Vulnerabilities
         if: steps.dependency-check.conclusion == 'failure'

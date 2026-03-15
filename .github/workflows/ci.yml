@@ -49,7 +49,7 @@ jobs:
         run: bun run check
 
       - name: Bun tests
-        run: bun run test
+        run: bun test --coverage src/modern src/bun-legacy
 
       - name: Legacy Jest compatibility
         run: bun run test:legacy -- --runInBand --watch=false
@@ -75,15 +75,73 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/develop' }}
 
       - name: Gradle project listing
         run: ./gradlew projects --no-daemon
 
       - name: chronicle-api tests
-        run: ./gradlew :chronicle-api:test --no-daemon
+        run: ./gradlew :chronicle-api:test --build-cache --no-daemon
 
-      - name: chronicle-server auth/session tests
-        run: ./gradlew :chronicle-server:test --tests com.openlattice.chronicle.controllers.AuthTokenControllerTest --no-daemon
+      - name: chronicle-server controller tests
+        run: ./gradlew :chronicle-server:test --tests "com.openlattice.chronicle.controllers.*" --build-cache --no-daemon
+
+      - name: Generate JaCoCo coverage report
+        if: always()
+        run: ./gradlew :chronicle-server:jacocoTestReport --build-cache --no-daemon
+
+      - name: Upload JaCoCo report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-coverage-report
+          path: chronicle-server/build/reports/jacoco/test/html/
+          retention-days: 14
+
+  mutation-testing:
+    name: Stryker mutation testing
+    runs-on: ubuntu-latest
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/develop'
+    defaults:
+      run:
+        working-directory: chronicle-web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node compatibility runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Configure registry for FontAwesome
+        env:
+          FONTAWESOME_NPM_AUTH_TOKEN: ${{ secrets.FONTAWESOME_NPM_AUTH_TOKEN }}
+        run: |
+          if [ -n "$FONTAWESOME_NPM_AUTH_TOKEN" ]; then
+            printf "%s\n" "@fortawesome:registry=https://npm.fontawesome.com/" >> ~/.npmrc
+            printf "%s\n" "//npm.fontawesome.com/:_authToken=$FONTAWESOME_NPM_AUTH_TOKEN" >> ~/.npmrc
+          fi
+
+      - name: Install web deps
+        run: bun install --frozen-lockfile
+
+      - name: Run Stryker mutation testing
+        run: bun run test:mutate
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stryker-mutation-report
+          path: chronicle-web/reports/mutation/
+          retention-days: 14
 
   repo-automation:
     name: repo automation
