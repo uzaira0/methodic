@@ -229,21 +229,19 @@ if should_run "api"; then
     if [ -z "$SCHEMA_URL" ] && [ -n "$BACKEND_URL" ]; then
       SCHEMA_URL="${BACKEND_URL}/chronicle/v3/api-docs"
     fi
-    # Try with auth token if available
-    SCHEMA_HEADER=""
+    # Check if OpenAPI docs endpoint exists (requires auth)
+    SCHEMA_TOKEN=""
     if [ -f "$PROJECT_ROOT/docker/chronicle-config.json" ]; then
       SCHEMA_TOKEN=$(python3 -c "import json; print(json.load(open('$PROJECT_ROOT/docker/chronicle-config.json')).get('token',''))" 2>/dev/null || true)
-      if [ -n "$SCHEMA_TOKEN" ]; then
-        SCHEMA_HEADER="-H 'Authorization: Bearer $SCHEMA_TOKEN'"
-      fi
     fi
-    if [ -n "$SCHEMA_URL" ]; then
+    SCHEMA_STATUS=$(curl -sf -o /dev/null -w '%{http_code}' "$SCHEMA_URL" -H "Authorization: Bearer $SCHEMA_TOKEN" 2>/dev/null || echo "000")
+    if [ "$SCHEMA_STATUS" = "200" ]; then
       schemathesis run "$SCHEMA_URL" \
         --max-examples=50 \
-        ${SCHEMA_HEADER:+$SCHEMA_HEADER} \
+        -H "Authorization: Bearer $SCHEMA_TOKEN" \
         --report junit --report-dir "$REPORT_DIR/schemathesis" 2>&1 | tail -10 && pass "API fuzzing" || fail "API fuzzing"
     else
-      skip "schemathesis (backend not reachable or no API docs endpoint)"
+      skip "schemathesis (no OpenAPI spec at $SCHEMA_URL — status $SCHEMA_STATUS)"
     fi
   else
     skip "schemathesis (pip3 install schemathesis)"

@@ -25,3 +25,10 @@ api:
 accessLog:
   filePath: /var/log/traefik/access.log
   bufferingSize: 100
+
+# WAF plugin (optional — uncomment when a stable Traefik WAF plugin is available)
+# experimental:
+#   plugins:
+#     coraza:
+#       moduleName: github.com/jcchavezs/coraza-http-wasm-traefik
+#       version: v0.3.0
