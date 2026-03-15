@@ -7,7 +7,18 @@ set -euo pipefail
 # while allowing legitimate requests through.
 # =============================================================================
 
-BASE_URL="${BASE_URL:-http://localhost:40320}"
+# WAF is accessed via Traefik, not direct backend port
+# Auto-detect: use DOMAIN from .env if BASE_URL not set
+if [ -z "${BASE_URL:-}" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  DOMAIN=$(grep '^DOMAIN=' "$PROJECT_ROOT/docker/.env" 2>/dev/null | cut -d= -f2) || true
+  if [ -n "${DOMAIN:-}" ]; then
+    BASE_URL="http://${DOMAIN}"
+  else
+    BASE_URL="http://localhost:40320"
+  fi
+fi
 AUTH_TOKEN="${AUTH_TOKEN:-}"
 
 # ---------------------------------------------------------------------------
