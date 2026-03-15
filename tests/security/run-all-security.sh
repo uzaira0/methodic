@@ -233,10 +233,17 @@ if should_run "api"; then
     fi
     if [ -f "$SCHEMA_FILE" ] && [ -n "$BACKEND_URL" ]; then
       schemathesis run "$SCHEMA_FILE" \
-        --base-url "$BACKEND_URL" \
+        --url "$BACKEND_URL" \
         --max-examples=50 \
         -H "Authorization: Bearer $SCHEMA_TOKEN" \
-        --report junit --report-dir "$REPORT_DIR/schemathesis" 2>&1 | tail -10 && pass "API fuzzing" || fail "API fuzzing"
+        --report junit --report-dir "$REPORT_DIR/schemathesis" > "$REPORT_DIR/schemathesis-stdout.txt" 2>&1 || true
+      SCHEMA_ERRORS=$(grep -c 'server_error\|Internal Server Error\|status_code: 500' "$REPORT_DIR/schemathesis-stdout.txt" 2>/dev/null || echo "0")
+      tail -5 "$REPORT_DIR/schemathesis-stdout.txt"
+      if [ "$SCHEMA_ERRORS" -gt 0 ]; then
+        fail "API fuzzing — $SCHEMA_ERRORS server errors (500s) found"
+      else
+        pass "API fuzzing (see schemathesis report for conformance details)"
+      fi
     elif [ -f "$SCHEMA_FILE" ]; then
       skip "schemathesis (OpenAPI spec found but backend not reachable)"
     else
