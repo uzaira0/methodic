@@ -46,7 +46,11 @@
 			SecRule ARGS "@contains waftest" "id:999,phase:1,deny,status:403,msg:'WAF test rule triggered'"
 
 			# Exclude health check and Prometheus endpoints from WAF scanning
+			# Must run before CRS rules to avoid 920350 (IP-based Host header) on healthchecks
 			SecRule REQUEST_URI "@beginsWith /prometheus/" "id:1000,phase:1,pass,t:none,nolog,ctl:ruleEngine=Off"
+
+			# Allow numeric IP Host header for internal healthchecks (Docker healthcheck uses 127.0.0.1)
+			SecRule REMOTE_ADDR "@ipMatch 127.0.0.1,172.16.0.0/12,10.0.0.0/8" "id:1002,phase:1,pass,t:none,nolog,ctl:ruleRemoveById=920350"
 
 			# Exclude JSON API bodies from false-positive-prone rules
 			SecRule REQUEST_HEADERS:Content-Type "@contains application/json" "id:1001,phase:1,pass,t:none,nolog,ctl:requestBodyProcessor=JSON"
