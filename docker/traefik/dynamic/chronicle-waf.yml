@@ -19,6 +19,3 @@ http:
       loadBalancer:
         servers:
           - url: "http://chronicle-waf:8080"
-        healthCheck:
-          path: /prometheus/
-          interval: 30s
