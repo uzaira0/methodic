@@ -150,6 +150,37 @@ rotate_hazelcast() {
     log_ok "Hazelcast password rotation complete"
 }
 
+rotate_crowdsec() {
+    log "Rotating CrowdSec bouncer API key..."
+    if [ "$DRY_RUN" = true ]; then
+        log_warn "[DRY RUN] Would delete and recreate CrowdSec bouncer"
+        return
+    fi
+
+    backup_env
+
+    if ! docker ps --filter name=chronicle-crowdsec --format '{{.Names}}' 2>/dev/null | grep -q chronicle-crowdsec; then
+        log_err "CrowdSec container not running — cannot rotate bouncer key"
+        return 1
+    fi
+
+    # Delete old bouncer and create new one
+    docker exec chronicle-crowdsec cscli bouncers delete traefik-bouncer 2>/dev/null || true
+    local new_key
+    new_key=$(docker exec chronicle-crowdsec cscli bouncers add traefik-bouncer -o raw 2>/dev/null)
+
+    if [ -z "$new_key" ]; then
+        log_err "Failed to generate new CrowdSec bouncer key"
+        return 1
+    fi
+
+    update_env "CROWDSEC_BOUNCER_API_KEY" "$new_key"
+
+    log_warn "CrowdSec bouncer key rotated. Restart Traefik:"
+    log_warn "  docker compose -f docker-compose.traefik.yml -p chronicle restart traefik"
+    log_ok "CrowdSec bouncer key rotation complete"
+}
+
 # Parse args
 if [ "${1:-}" = "--dry-run" ]; then
     DRY_RUN=true
@@ -163,17 +194,19 @@ case "$TARGET" in
     db)        rotate_db ;;
     grafana)   rotate_grafana ;;
     hazelcast) rotate_hazelcast ;;
+    crowdsec)  rotate_crowdsec ;;
     all)
         rotate_jwt
         rotate_db
         rotate_grafana
         rotate_hazelcast
+        rotate_crowdsec
         log ""
         log_warn "ALL secrets rotated. Full restart required:"
         log_warn "  docker compose -f docker-compose.traefik.yml -p chronicle restart"
         ;;
     *)
-        echo "Usage: $0 [--dry-run] <jwt|db|grafana|hazelcast|all>"
+        echo "Usage: $0 [--dry-run] <jwt|db|grafana|hazelcast|crowdsec|all>"
         exit 1
         ;;
 esac
