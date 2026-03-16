@@ -27,6 +27,8 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    environment:
+      CROWDSEC_BOUNCER_API_KEY: ${CROWDSEC_BOUNCER_API_KEY}
     ports:
       - "80:80"
       - "443:443"
@@ -34,8 +36,15 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro,z
-      - ./traefik/dynamic:/etc/traefik/dynamic:ro,z
+      - ./traefik/dynamic/crowdsec-waf.yml.template:/etc/traefik/crowdsec-waf.yml.template:ro,z
+      - ./traefik/dynamic:/etc/traefik/dynamic:z
       - traefik_access_logs:/var/log/traefik
+    entrypoint:
+      - sh
+      - -c
+      - |
+        sed "s|\$${CROWDSEC_BOUNCER_API_KEY}|$$CROWDSEC_BOUNCER_API_KEY|g" /etc/traefik/crowdsec-waf.yml.template > /etc/traefik/dynamic/crowdsec-waf.yml
+        exec traefik
     networks:
       - traefik
     deploy:

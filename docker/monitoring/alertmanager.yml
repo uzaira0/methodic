@@ -16,8 +16,9 @@ route:
 
 receivers:
   - name: default
-    # WARNING: No receivers configured — alerts will be silently discarded.
-    # Configure at least one receiver before production deployment.
+    # Alerts logged to Alertmanager stdout (docker logs chronicle-alertmanager).
+    # Loki/Promtail can scrape these for the audit dashboard.
+    # TODO: Enable email/webhook when SMTP is configured.
     webhook_configs: []
     # To enable email alerts, uncomment and configure:
     # email_configs:

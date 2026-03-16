@@ -1,0 +1,15 @@
+# CrowdSec bouncer middleware — WAF + IP reputation
+http:
+  middlewares:
+    crowdsec-waf:
+      plugin:
+        crowdsec-bouncer:
+          Enabled: true
+          CrowdsecLapiScheme: http
+          CrowdsecLapiHost: chronicle-crowdsec:8080
+          CrowdsecLapiKey: "${CROWDSEC_BOUNCER_API_KEY}"
+          CrowdsecAppsecEnabled: true
+          CrowdsecAppsecHost: chronicle-crowdsec:7422
+          CrowdsecAppsecKey: "uwjDlud4AYG4x5IMVV89zCxyNdIhecx/qUwEJmKhMK8"
+          CrowdsecAppsecFailureBlock: true
+          CrowdsecAppsecUnreachableBlock: false

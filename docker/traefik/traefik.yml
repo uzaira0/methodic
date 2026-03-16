@@ -19,7 +19,7 @@ entryPoints:
       advertisedPort: 443
 
 api:
-  insecure: true
+  dashboard: false
 
 ping: {}
 
