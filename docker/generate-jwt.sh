@@ -2,7 +2,7 @@
 # generate-jwt.sh — Generate a signed JWT for manual Chronicle auth diagnostics
 #
 # Reads JWT_SECRET from .env (or environment) and produces an HS256-signed JWT
-# with sub=local-admin, 30-day expiry. Outputs the token to stdout and can still
+# with sub=local-admin, 24-hour expiry. Outputs the token to stdout and can still
 # optionally write docker/chronicle-config.json for legacy compatibility only.
 #
 # Usage:
@@ -39,7 +39,7 @@ b64url() {
 # --- build JWT ---
 
 NOW=$(date +%s)
-EXP=$((NOW + 30 * 86400))  # 30 days
+EXP=$((NOW + 24 * 3600))  # 24 hours
 
 HEADER='{"alg":"HS256","typ":"JWT"}'
 PAYLOAD="{\"iss\":\"https://localhost/\",\"aud\":\"dummy-client-id\",\"sub\":\"local-admin\",\"iat\":${NOW},\"exp\":${EXP}}"
