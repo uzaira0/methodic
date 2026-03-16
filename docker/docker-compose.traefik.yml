@@ -114,11 +114,11 @@ services:
       -c archive_mode=on
       -c archive_command='mkdir -p /pgdata/wal_archive && test ! -f /pgdata/wal_archive/%f && cp %p /pgdata/wal_archive/%f'
       -c max_wal_senders=3
-    pids_limit: 200
     deploy:
       resources:
         limits:
           memory: 1G
+          pids: 200
 
   postgres-replica:
     image: percona/percona-distribution-postgresql:17.5-3
@@ -258,7 +258,7 @@ services:
       resources:
         limits:
           memory: 3G
-    pids_limit: 200
+          pids: 200
     depends_on:
       postgres:
         condition: service_healthy
@@ -435,11 +435,11 @@ services:
       timeout: 3s
       start_period: 5s
       retries: 3
-    pids_limit: 200
     deploy:
       resources:
         limits:
           memory: 128M
+          pids: 200
     networks:
       - chronicle-internal
       - traefik

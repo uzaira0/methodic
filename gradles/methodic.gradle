@@ -68,10 +68,10 @@ configurations.all {
         dependency.useTarget(targetProject)
       }
     }
-    // Redirect deprecated net.jpountz.lz4:lz4 to org.lz4:lz4-java
+    // Redirect all lz4 variants to org.lz4:lz4-java (fixes capability conflicts)
     if (dependency.requested instanceof ModuleComponentSelector
-        && dependency.requested.group == "net.jpountz.lz4"
-        && dependency.requested.module == "lz4") {
+        && ((dependency.requested.group == "net.jpountz.lz4" && dependency.requested.module == "lz4")
+            || (dependency.requested.group == "at.yawk.lz4" && dependency.requested.module == "lz4-java"))) {
       dependency.useTarget("org.lz4:lz4-java:${lz4_version}")
     }
   }
