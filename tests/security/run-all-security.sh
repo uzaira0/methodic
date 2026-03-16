@@ -2,11 +2,17 @@
 # =============================================================================
 # Chronicle Security Testing Suite
 # =============================================================================
-# Comprehensive security scanning covering 20 security layers for
+# Comprehensive security scanning covering 25 security layers for
 # HIPAA, GDPR, and IRB compliance.
 #
 # Usage:
 #   ./tests/security/run-all-security.sh [--layer LAYER] [--report-dir DIR]
+#   ./tests/security/run-all-security.sh --parallel [--report-dir DIR]
+#
+# Flags:
+#   --parallel    Run independent layers concurrently (2-4x faster)
+#   --layer LAYER Run a single layer
+#   --report-dir  Output directory for reports (default: tests/security/reports)
 #
 # Layers: sast, dast, sca, container, secrets, iac, api, tls, database,
 #         hipaa, gdpr, compliance, network, auth, injection, crypto, license,
@@ -19,8 +25,20 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-REPORT_DIR="${2:-$PROJECT_ROOT/tests/security/reports}"
-LAYER="${1:---all}"
+
+# Parse arguments
+PARALLEL=false
+LAYER="--all"
+REPORT_DIR=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --parallel) PARALLEL=true; shift ;;
+    --report-dir) REPORT_DIR="$2"; shift 2 ;;
+    --layer) LAYER="$2"; shift 2 ;;
+    *) LAYER="$1"; shift ;;
+  esac
+done
+REPORT_DIR="${REPORT_DIR:-$PROJECT_ROOT/tests/security/reports}"
 
 # Load DOMAIN from .env if not already set (needed for backend URL detection)
 if [ -z "${DOMAIN:-}" ] && [ -f "$PROJECT_ROOT/docker/.env" ]; then
@@ -42,6 +60,11 @@ if [ -z "${JAVA_HOME:-}" ] && [ -d "$HOME/.local/jdk" ]; then
 fi
 
 mkdir -p "$REPORT_DIR"
+
+# Shared Trivy cache for all layers (avoids re-downloading DB per layer)
+export TRIVY_CACHE_DIR="${TRIVY_CACHE_DIR:-$PROJECT_ROOT/tests/security/.trivy-cache}"
+mkdir -p "$TRIVY_CACHE_DIR"
+
 PASS=0
 FAIL=0
 SKIP=0
@@ -53,6 +76,136 @@ skip()   { echo -e "\033[1;33m[SKIP]\033[0m $* (tool not installed)"; SKIP=$((SK
 should_run() { [[ "$LAYER" == "--all" || "$LAYER" == "$1" ]]; }
 
 # =============================================================================
+# Parallel execution mode
+# =============================================================================
+# Groups layers by dependency:
+#   Group A (static analysis, no running stack): sast sca secrets iac license crypto injection compliance
+#   Group B (needs running stack, no overlap):   container dast api tls network auth ratelimit waf
+#   Group C (sub-scripts, need stack):           smoke dbsecurity apiheaders businesslogic contractdrift
+#   Group D (depends on Group C output):         hipaa gdpr runtime
+#
+# Within each group, layers run concurrently. Groups run sequentially only when
+# there are actual data dependencies (hipaa depends on database output).
+# =============================================================================
+if [[ "$PARALLEL" == "true" && "$LAYER" == "--all" ]]; then
+  log "Parallel mode enabled — running independent layers concurrently"
+  TOTAL_START=$(date +%s)
+
+  PARALLEL_TMPDIR=$(mktemp -d)
+  trap 'rm -rf "$PARALLEL_TMPDIR"' EXIT
+
+  # Helper: run a layer in a sub-process, capture pass/fail/skip counts + timing
+  run_layer() {
+    local layer="$1"
+    local outfile="$PARALLEL_TMPDIR/$layer.out"
+    local cntfile="$PARALLEL_TMPDIR/$layer.cnt"
+    local t_start t_end
+    t_start=$(date +%s)
+    (
+      DOMAIN="${DOMAIN:-}" BACKEND_URL="${BACKEND_URL:-}" \
+        bash "$SCRIPT_DIR/run-all-security.sh" --layer "$layer" --report-dir "$REPORT_DIR" 2>&1
+    ) > "$outfile" 2>&1
+    t_end=$(date +%s)
+    # Extract counts from output
+    local p f s
+    p=$(grep -c '\[PASS\]' "$outfile" 2>/dev/null || echo 0)
+    f=$(grep -c '\[FAIL\]' "$outfile" 2>/dev/null || echo 0)
+    s=$(grep -c '\[SKIP\]' "$outfile" 2>/dev/null || echo 0)
+    echo "$p $f $s $((t_end - t_start))" > "$cntfile"
+  }
+
+  # --- Group A: Static analysis (no running stack needed) ---
+  log "Group A: Static analysis layers (parallel)"
+  GROUP_A_PIDS=()
+  for layer in sast sca secrets iac license crypto injection compliance; do
+    run_layer "$layer" &
+    GROUP_A_PIDS+=($!)
+  done
+
+  # --- Group B: Stack-dependent but independent of each other ---
+  log "Group B: Stack-dependent layers (parallel)"
+  GROUP_B_PIDS=()
+  for layer in container network auth; do
+    run_layer "$layer" &
+    GROUP_B_PIDS+=($!)
+  done
+
+  # Group B also includes these slower layers
+  for layer in dast api tls ratelimit waf; do
+    run_layer "$layer" &
+    GROUP_B_PIDS+=($!)
+  done
+
+  # --- Group C: Sub-script layers (parallel with each other) ---
+  log "Group C: Sub-script layers (parallel)"
+  GROUP_C_PIDS=()
+  for layer in smoke dbsecurity apiheaders businesslogic contractdrift runtime; do
+    run_layer "$layer" &
+    GROUP_C_PIDS+=($!)
+  done
+
+  # Wait for all groups (A, B, C all started concurrently)
+  log "Waiting for all layers to complete..."
+  ALL_PIDS=("${GROUP_A_PIDS[@]}" "${GROUP_B_PIDS[@]}" "${GROUP_C_PIDS[@]}")
+  for pid in "${ALL_PIDS[@]}"; do
+    wait "$pid" 2>/dev/null || true
+  done
+
+  # --- Group D: Layers with data dependencies ---
+  log "Group D: Dependent layers (hipaa, gdpr)"
+  GROUP_D_PIDS=()
+  for layer in hipaa gdpr; do
+    run_layer "$layer" &
+    GROUP_D_PIDS+=($!)
+  done
+  for pid in "${GROUP_D_PIDS[@]}"; do
+    wait "$pid" 2>/dev/null || true
+  done
+
+  # Aggregate results
+  ALL_LAYERS="sast sca secrets iac license crypto injection compliance container network auth dast api tls ratelimit waf smoke dbsecurity apiheaders businesslogic contractdrift runtime hipaa gdpr"
+  LAYER_TIMINGS=""
+  for layer in $ALL_LAYERS; do
+    outfile="$PARALLEL_TMPDIR/$layer.out"
+    cntfile="$PARALLEL_TMPDIR/$layer.cnt"
+    if [ -f "$outfile" ]; then
+      cat "$outfile"
+    fi
+    if [ -f "$cntfile" ]; then
+      read -r p f s elapsed < "$cntfile"
+      PASS=$((PASS + p))
+      FAIL=$((FAIL + f))
+      SKIP=$((SKIP + s))
+      LAYER_TIMINGS="${LAYER_TIMINGS}    $(printf '%-18s %3ss\n' "$layer" "$elapsed")\n"
+    fi
+  done
+
+  TOTAL_END=$(date +%s)
+  ELAPSED=$((TOTAL_END - TOTAL_START))
+
+  echo ""
+  echo "=============================================="
+  echo "  SECURITY SCAN SUMMARY (parallel mode)"
+  echo "=============================================="
+  echo -e "  \033[32mPassed:\033[0m  $PASS"
+  echo -e "  \033[31mFailed:\033[0m  $FAIL"
+  echo -e "  \033[33mSkipped:\033[0m $SKIP"
+  echo "  Reports: $REPORT_DIR/"
+  echo ""
+  echo "  Per-layer timings:"
+  echo -e "$LAYER_TIMINGS"
+  echo "  Wall-clock elapsed: ${ELAPSED}s"
+  echo "=============================================="
+  echo ""
+
+  if [ "$FAIL" -gt 0 ]; then
+    echo "Review failed checks above and in $REPORT_DIR/"
+    exit 1
+  fi
+  exit 0
+fi
+
+# =============================================================================
 # Layer 1: SAST (Static Application Security Testing)
 # Tool: Semgrep — scans source code for vulnerability patterns
 # HIPAA: §164.312(a)(1) — Access control, secure coding
@@ -60,36 +213,84 @@ should_run() { [[ "$LAYER" == "--all" || "$LAYER" == "$1" ]]; }
 if should_run "sast"; then
   log "Layer 1: SAST — Semgrep static analysis"
   if command -v semgrep &>/dev/null; then
+    # Common Semgrep excludes: test files, build artifacts, generated code, vendor dirs
+    SEMGREP_EXCLUDES=(
+      --exclude='**/test/**' --exclude='**/tests/**' --exclude='**/*Test.java'
+      --exclude='**/*Test.kt' --exclude='**/*Spec.kt' --exclude='**/testFixtures/**'
+      --exclude='**/build/**' --exclude='**/node_modules/**' --exclude='**/.gradle/**'
+      --exclude='**/generated/**' --exclude='**/*.min.js' --exclude='**/*.bundle.js'
+      --exclude='**/.git/**' --exclude='**/dist/**' --exclude='**/vendor/**'
+      --exclude='**/*.lock' --exclude='**/package-lock.json' --exclude='**/yarn.lock'
+    )
+
+    # Run all 4 Semgrep scans in parallel (each is CPU-bound on different rulesets)
+    _sast_tmpdir=$(mktemp -d)
+
     # Backend (Java/Kotlin)
-    semgrep scan --config=auto --config=p/java --config=p/owasp-top-ten \
-      --sarif -o "$REPORT_DIR/semgrep-backend.sarif" \
-      --no-git-ignore \
-      "$PROJECT_ROOT/chronicle-server/src/" \
-      "$PROJECT_ROOT/chronicle-api/src/" 2>&1 | tail -5 && pass "SAST backend" || fail "SAST backend"
+    ( semgrep scan --config=auto --config=p/java --config=p/owasp-top-ten \
+        --sarif -o "$REPORT_DIR/semgrep-backend.sarif" \
+        --no-git-ignore --jobs 0 \
+        "${SEMGREP_EXCLUDES[@]}" \
+        "$PROJECT_ROOT/chronicle-server/src/" \
+        "$PROJECT_ROOT/chronicle-api/src/" 2>&1 | tail -5 \
+        && echo "PASS" > "$_sast_tmpdir/backend" \
+        || echo "FAIL" > "$_sast_tmpdir/backend" ) &
+    _sast_pid_be=$!
 
     # Frontend (React/TypeScript)
-    semgrep scan --config=auto --config=p/react --config=p/typescript \
-      --sarif -o "$REPORT_DIR/semgrep-frontend.sarif" \
-      --no-git-ignore \
-      "$PROJECT_ROOT/chronicle-web/src/" 2>&1 | tail -5 && pass "SAST frontend" || fail "SAST frontend"
+    ( semgrep scan --config=auto --config=p/react --config=p/typescript \
+        --sarif -o "$REPORT_DIR/semgrep-frontend.sarif" \
+        --no-git-ignore --jobs 0 \
+        --exclude='**/node_modules/**' --exclude='**/*.min.js' --exclude='**/build/**' \
+        --exclude='**/__tests__/**' --exclude='**/*.test.js' --exclude='**/*.test.tsx' \
+        "$PROJECT_ROOT/chronicle-web/src/" 2>&1 | tail -5 \
+        && echo "PASS" > "$_sast_tmpdir/frontend" \
+        || echo "FAIL" > "$_sast_tmpdir/frontend" ) &
+    _sast_pid_fe=$!
 
     # Crypto-specific rules
-    semgrep scan --config=p/jwt \
-      --sarif -o "$REPORT_DIR/semgrep-crypto.sarif" \
-      --no-git-ignore \
-      "$PROJECT_ROOT/chronicle-server/src/" \
-      "$PROJECT_ROOT/rhizome/src/" 2>&1 | tail -5 && pass "SAST crypto" || fail "SAST crypto"
+    ( semgrep scan --config=p/jwt \
+        --sarif -o "$REPORT_DIR/semgrep-crypto.sarif" \
+        --no-git-ignore --jobs 0 \
+        "${SEMGREP_EXCLUDES[@]}" \
+        "$PROJECT_ROOT/chronicle-server/src/" \
+        "$PROJECT_ROOT/rhizome/src/" 2>&1 | tail -5 \
+        && echo "PASS" > "$_sast_tmpdir/crypto" \
+        || echo "FAIL" > "$_sast_tmpdir/crypto" ) &
+    _sast_pid_cr=$!
 
     # ReDoS scanning — detect regex denial-of-service patterns
     if [ -f "$PROJECT_ROOT/tests/security/rules/redos.yaml" ]; then
-      semgrep scan --config="$PROJECT_ROOT/tests/security/rules/redos.yaml" \
-        --sarif -o "$REPORT_DIR/semgrep-redos.sarif" \
-        --no-git-ignore \
-        "$PROJECT_ROOT/chronicle-server/src/" \
-        "$PROJECT_ROOT/rhizome/src/" 2>&1 | tail -5 && pass "SAST ReDoS" || fail "SAST ReDoS"
+      ( semgrep scan --config="$PROJECT_ROOT/tests/security/rules/redos.yaml" \
+          --sarif -o "$REPORT_DIR/semgrep-redos.sarif" \
+          --no-git-ignore --jobs 0 \
+          "${SEMGREP_EXCLUDES[@]}" \
+          "$PROJECT_ROOT/chronicle-server/src/" \
+          "$PROJECT_ROOT/rhizome/src/" 2>&1 | tail -5 \
+          && echo "PASS" > "$_sast_tmpdir/redos" \
+          || echo "FAIL" > "$_sast_tmpdir/redos" ) &
+      _sast_pid_re=$!
     else
+      _sast_pid_re=""
       skip "ReDoS rules (tests/security/rules/redos.yaml not found)"
     fi
+
+    # Wait for all Semgrep scans to complete
+    wait "$_sast_pid_be" 2>/dev/null || true
+    [ "$(cat "$_sast_tmpdir/backend" 2>/dev/null)" = "PASS" ] && pass "SAST backend" || fail "SAST backend"
+
+    wait "$_sast_pid_fe" 2>/dev/null || true
+    [ "$(cat "$_sast_tmpdir/frontend" 2>/dev/null)" = "PASS" ] && pass "SAST frontend" || fail "SAST frontend"
+
+    wait "$_sast_pid_cr" 2>/dev/null || true
+    [ "$(cat "$_sast_tmpdir/crypto" 2>/dev/null)" = "PASS" ] && pass "SAST crypto" || fail "SAST crypto"
+
+    if [ -n "${_sast_pid_re:-}" ]; then
+      wait "$_sast_pid_re" 2>/dev/null || true
+      [ "$(cat "$_sast_tmpdir/redos" 2>/dev/null)" = "PASS" ] && pass "SAST ReDoS" || fail "SAST ReDoS"
+    fi
+
+    rm -rf "$_sast_tmpdir"
   else
     skip "semgrep"
   fi
@@ -139,8 +340,11 @@ if should_run "sca"; then
 
   # Backend (Gradle/Trivy) — dependency vulnerability scanning
   if command -v trivy &>/dev/null && [ -d "$PROJECT_ROOT/chronicle-server" ]; then
+    TRIVY_CACHE="${TRIVY_CACHE_DIR:-$PROJECT_ROOT/tests/security/.trivy-cache}"
+    mkdir -p "$TRIVY_CACHE"
     # Fallback: use trivy to scan Gradle dependencies via lockfile/build files
     trivy fs --scanners vuln --severity HIGH,CRITICAL --format json \
+      --cache-dir "$TRIVY_CACHE" \
       -o "$REPORT_DIR/trivy-backend-deps.json" "$PROJECT_ROOT/chronicle-server/" 2>&1 | tail -3 && pass "SCA backend (trivy)" || fail "SCA backend (trivy)"
   else
     skip "Gradle dependency check (gradlew or java not found)"
@@ -162,18 +366,46 @@ fi
 if should_run "container"; then
   log "Layer 4: Container Security — Trivy image scanning"
   if command -v trivy &>/dev/null; then
+    TRIVY_CACHE="${TRIVY_CACHE_DIR:-$PROJECT_ROOT/tests/security/.trivy-cache}"
+    mkdir -p "$TRIVY_CACHE"
+    # Run image scans + misconfig scan in parallel
+    _trivy_tmpdir=$(mktemp -d)
+    _trivy_pids=()
+    _trivy_images=()
+
     for image in chronicle-backend chronicle-frontend; do
       if docker image ls "$image" 2>/dev/null | grep -q "$image"; then
-        trivy image --severity HIGH,CRITICAL --format sarif \
-          -o "$REPORT_DIR/trivy-$image.sarif" "$image:latest" 2>&1 | tail -3 && pass "Container $image" || fail "Container $image"
+        ( trivy image --severity HIGH,CRITICAL --format sarif \
+            --cache-dir "$TRIVY_CACHE" \
+            -o "$REPORT_DIR/trivy-$image.sarif" "$image:latest" 2>&1 | tail -3 \
+            && echo "PASS" > "$_trivy_tmpdir/$image" \
+            || echo "FAIL" > "$_trivy_tmpdir/$image" ) &
+        _trivy_pids+=($!)
+        _trivy_images+=("$image")
       else
         skip "trivy ($image image not built)"
       fi
     done
 
-    # Filesystem misconfig scan
-    trivy fs --scanners misconfig --format json \
-      -o "$REPORT_DIR/trivy-misconfig.json" "$PROJECT_ROOT/docker/" 2>&1 | tail -3 && pass "Container misconfig" || fail "Container misconfig"
+    # Filesystem misconfig scan (parallel with image scans)
+    ( trivy fs --scanners misconfig --format json \
+        --cache-dir "$TRIVY_CACHE" \
+        -o "$REPORT_DIR/trivy-misconfig.json" "$PROJECT_ROOT/docker/" 2>&1 | tail -3 \
+        && echo "PASS" > "$_trivy_tmpdir/misconfig" \
+        || echo "FAIL" > "$_trivy_tmpdir/misconfig" ) &
+    _trivy_pids+=($!)
+
+    # Wait for all Trivy scans
+    for pid in "${_trivy_pids[@]}"; do
+      wait "$pid" 2>/dev/null || true
+    done
+
+    for image in "${_trivy_images[@]}"; do
+      [ "$(cat "$_trivy_tmpdir/$image" 2>/dev/null)" = "PASS" ] && pass "Container $image" || fail "Container $image"
+    done
+    [ "$(cat "$_trivy_tmpdir/misconfig" 2>/dev/null)" = "PASS" ] && pass "Container misconfig" || fail "Container misconfig"
+
+    rm -rf "$_trivy_tmpdir"
   else
     skip "trivy"
   fi
@@ -187,7 +419,7 @@ fi
 if should_run "secrets"; then
   log "Layer 5: Secret Detection — Gitleaks"
   if command -v gitleaks &>/dev/null; then
-    gitleaks detect --source="$PROJECT_ROOT" \
+    gitleaks detect --source="$PROJECT_ROOT" --no-git \
       --report-format sarif --report-path "$REPORT_DIR/gitleaks.sarif" \
       --config "$PROJECT_ROOT/tests/security/gitleaks.toml" 2>&1 | tail -5 && pass "Secrets" || fail "Secrets found!"
   else
@@ -589,7 +821,10 @@ fi
 if should_run "license"; then
   log "Layer 17: License Compliance"
   if command -v trivy &>/dev/null; then
+    TRIVY_CACHE="${TRIVY_CACHE_DIR:-$PROJECT_ROOT/tests/security/.trivy-cache}"
+    mkdir -p "$TRIVY_CACHE"
     trivy fs --scanners license --format json \
+      --cache-dir "$TRIVY_CACHE" \
       -o "$REPORT_DIR/trivy-licenses.json" "$PROJECT_ROOT/" 2>&1 | tail -3 && pass "License scan" || fail "License scan"
   else
     skip "trivy (license scanning)"

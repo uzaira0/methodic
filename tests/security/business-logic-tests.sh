@@ -18,8 +18,66 @@ set -euo pipefail
 #   ADMIN_STUDY_ID    - study UUID for admin-endpoint tests (defaults to STUDY_A)
 # ---------------------------------------------------------------------------
 
-BASE_URL="${BASE_URL:-http://localhost:40320}"
+# Auto-detect BASE_URL: try localhost first, fall back to DOMAIN via Traefik
+if [ -z "${BASE_URL:-}" ]; then
+    if curl -sf -o /dev/null -m 3 http://localhost:40320/chronicle/v3/ 2>/dev/null || \
+       [ "$(curl -s -o /dev/null -w '%{http_code}' -m 3 http://localhost:40320/chronicle/v3/ 2>/dev/null)" != "000" ]; then
+        BASE_URL="http://localhost:40320"
+    else
+        _domain="${DOMAIN:-}"
+        if [ -z "$_domain" ]; then
+            _script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+            _project_root="$(cd "$_script_dir/../.." && pwd)"
+            if [ -f "$_project_root/docker/.env" ]; then
+                _domain=$(grep '^DOMAIN=' "$_project_root/docker/.env" 2>/dev/null | cut -d= -f2 || true)
+            fi
+        fi
+        if [ -n "$_domain" ]; then
+            BASE_URL="http://${_domain}"
+        else
+            BASE_URL="http://localhost:40320"
+        fi
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Auto-detect AUTH_TOKEN from .env JWT_SECRET if not provided
+# ---------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+if [ -z "${AUTH_TOKEN:-}" ]; then
+    _jwt_secret=""
+    if [ -f "$PROJECT_ROOT/docker/.env" ]; then
+        _jwt_secret=$(grep '^JWT_SECRET=' "$PROJECT_ROOT/docker/.env" 2>/dev/null | cut -d= -f2- || true)
+    fi
+    if [ -n "$_jwt_secret" ]; then
+        AUTH_TOKEN=$(JWT_SECRET="$_jwt_secret" "$PROJECT_ROOT/docker/generate-jwt.sh" 2>/dev/null || true)
+    fi
+fi
 AUTH_TOKEN="${AUTH_TOKEN:-}"
+
+# ---------------------------------------------------------------------------
+# Auto-detect study IDs and participant from database if not provided
+# ---------------------------------------------------------------------------
+_run_sql() {
+    local _pw=""
+    if [ -f "$PROJECT_ROOT/docker/.env" ]; then
+        _pw=$(grep '^POSTGRES_PASSWORD=' "$PROJECT_ROOT/docker/.env" 2>/dev/null | sed 's/^POSTGRES_PASSWORD=//') || true
+    fi
+    docker exec -e PGPASSWORD="$_pw" chronicle-postgres psql -h 127.0.0.1 -U chronicle -d chronicle -t -A -c "$1" 2>/dev/null
+}
+
+if [ -z "${STUDY_A:-}" ] || [ -z "${STUDY_B:-}" ]; then
+    mapfile -t _studies < <(_run_sql "SELECT study_id FROM studies ORDER BY study_id LIMIT 2;" 2>/dev/null)
+    STUDY_A="${STUDY_A:-${_studies[0]:-}}"
+    STUDY_B="${STUDY_B:-${_studies[1]:-}}"
+fi
+
+if [ -z "${PARTICIPANT_ID:-}" ]; then
+    PARTICIPANT_ID=$(_run_sql "SELECT participant_id FROM study_participants LIMIT 1;" 2>/dev/null || true)
+fi
+
 STUDY_A="${STUDY_A:-}"
 STUDY_B="${STUDY_B:-}"
 PARTICIPANT_ID="${PARTICIPANT_ID:-}"

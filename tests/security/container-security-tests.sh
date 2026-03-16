@@ -50,6 +50,41 @@ log "Chronicle Container Runtime Security Audit"
 log "Containers discovered: ${CONTAINERS[*]}"
 echo ""
 
+# Pre-fetch all container inspect data in a single docker call
+# (replaces N*8 individual docker inspect calls with one batch call)
+_INSPECT_JSON=$(docker inspect "${CONTAINERS[@]}" 2>/dev/null || echo "[]")
+eval "$(echo "$_INSPECT_JSON" | python3 -c "
+import json, sys, shlex
+data = json.load(sys.stdin)
+for c in data:
+    name = c.get('Name','').lstrip('/')
+    user = c.get('Config',{}).get('User','')
+    cap_drop = ' '.join(c.get('HostConfig',{}).get('CapDrop') or [])
+    cap_add = ' '.join(c.get('HostConfig',{}).get('CapAdd') or [])
+    sec_opts = ' '.join(c.get('HostConfig',{}).get('SecurityOpt') or [])
+    readonly_rootfs = str(c.get('HostConfig',{}).get('ReadonlyRootfs', False)).lower()
+    pid_mode = c.get('HostConfig',{}).get('PidMode','')
+    net_mode = c.get('HostConfig',{}).get('NetworkMode','')
+    mem = c.get('HostConfig',{}).get('Memory', 0) or 0
+    mounts = json.dumps(c.get('Mounts',[]))
+    safe = name.replace('-','_')
+    print(f'declare -- _user_{safe}={shlex.quote(user)}')
+    print(f'declare -- _capdrop_{safe}={shlex.quote(cap_drop)}')
+    print(f'declare -- _capadd_{safe}={shlex.quote(cap_add)}')
+    print(f'declare -- _secopt_{safe}={shlex.quote(sec_opts)}')
+    print(f'declare -- _readonly_{safe}={shlex.quote(readonly_rootfs)}')
+    print(f'declare -- _pidmode_{safe}={shlex.quote(pid_mode)}')
+    print(f'declare -- _netmode_{safe}={shlex.quote(net_mode)}')
+    print(f'declare -- _mem_{safe}={shlex.quote(str(mem))}')
+    print(f'declare -- _mounts_{safe}={shlex.quote(mounts)}')
+" 2>/dev/null)" 2>/dev/null || true
+unset _INSPECT_JSON
+
+_cget() {
+  local var="_${1}_${2//-/_}"
+  echo "${!var:-}"
+}
+
 # Classify containers -------------------------------------------------------
 APP_CONTAINERS=()
 for c in "${CONTAINERS[@]}"; do
@@ -83,11 +118,10 @@ for container in "${CONTAINERS[@]}"; do
   if ! is_app_container "$container"; then
     continue
   fi
-  user=$(docker inspect --format '{{.Config.User}}' "$container" 2>/dev/null || true)
+  user=$(_cget user "$container")
   if [ -z "$user" ] || [ "$user" = "root" ] || [ "$user" = "0" ]; then
-    # Check if container uses cap_drop: ALL (nginx pattern — starts as root, drops privs)
-    cap_drop=$(docker inspect --format '{{.HostConfig.CapDrop}}' "$container" 2>/dev/null || true)
-    no_new_priv=$(docker inspect --format '{{.HostConfig.SecurityOpt}}' "$container" 2>/dev/null || true)
+    cap_drop=$(_cget capdrop "$container")
+    no_new_priv=$(_cget secopt "$container")
     if echo "$cap_drop" | grep -q "ALL" && echo "$no_new_priv" | grep -q "no-new-privileges"; then
       warn "$container — runs as root but has cap_drop:ALL + no-new-privileges (hardened)"
     else
@@ -104,7 +138,7 @@ done
 echo ""
 log "Test 2: Linux Capability Audit"
 for container in "${CONTAINERS[@]}"; do
-  cap_add=$(docker inspect --format '{{.HostConfig.CapAdd}}' "$container" 2>/dev/null || true)
+  cap_add=$(_cget capadd "$container")
   # Normalize: docker returns [] or <nil> or [CAP1 CAP2]
   if [ -z "$cap_add" ] || [ "$cap_add" = "[]" ] || [ "$cap_add" = "<nil>" ]; then
     pass "$container — no added capabilities"
@@ -131,7 +165,7 @@ for container in "${CONTAINERS[@]}"; do
       *frontend*)
         # nginx needs minimal caps to bind port 80 and manage workers
         # compose uses cap_drop: ALL + specific cap_add (minimal set)
-        cap_drop=$(docker inspect --format '{{.HostConfig.CapDrop}}' "$container" 2>/dev/null || true)
+        cap_drop=$(_cget capdrop "$container")
         if echo "$cap_drop" | grep -q "ALL"; then
           pass "$container — nginx caps with cap_drop: ALL (hardened: ${cap_add})"
         else
@@ -155,7 +189,7 @@ done
 echo ""
 log "Test 3: Read-Only Root Filesystem"
 for container in "${CONTAINERS[@]}"; do
-  readonly_rootfs=$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$container" 2>/dev/null || true)
+  readonly_rootfs=$(_cget readonly "$container")
   if [ "$readonly_rootfs" = "true" ]; then
     pass "$container — read-only root filesystem"
   else
@@ -169,7 +203,7 @@ done
 echo ""
 log "Test 4: No New Privileges Flag"
 for container in "${CONTAINERS[@]}"; do
-  sec_opts=$(docker inspect --format '{{.HostConfig.SecurityOpt}}' "$container" 2>/dev/null || true)
+  sec_opts=$(_cget secopt "$container")
   if echo "$sec_opts" | grep -qE "no-new-privileges(:true)?"; then
     pass "$container — no-new-privileges is set"
   else
@@ -186,7 +220,7 @@ log "Test 5: Volume Mount Audit"
 SENSITIVE_PATHS=("/" "/etc" "/var/run/docker.sock")
 
 for container in "${CONTAINERS[@]}"; do
-  mounts_json=$(docker inspect --format '{{json .Mounts}}' "$container" 2>/dev/null || true)
+  mounts_json=$(_cget mounts "$container")
   if [ -z "$mounts_json" ] || [ "$mounts_json" = "null" ] || [ "$mounts_json" = "[]" ]; then
     info "$container — no volume mounts"
     continue
@@ -199,7 +233,7 @@ for container in "${CONTAINERS[@]}"; do
     has_docker_sock=true
     if echo "$mounts_json" | python3 -c "
 import json, sys
-mounts = json.load(sys.stdin)
+mounts = json.loads(sys.stdin.read())
 for m in mounts:
     src = m.get('Source', '')
     if 'docker.sock' in src:
@@ -232,7 +266,7 @@ sys.exit(0)
 
     echo "$mounts_json" | python3 -c "
 import json, sys
-mounts = json.load(sys.stdin)
+mounts = json.loads(sys.stdin.read())
 target = '${spath}'
 for m in mounts:
     src = m.get('Source', '')
@@ -269,7 +303,7 @@ done
 echo ""
 log "Test 6: PID Namespace Isolation"
 for container in "${CONTAINERS[@]}"; do
-  pid_mode=$(docker inspect --format '{{.HostConfig.PidMode}}' "$container" 2>/dev/null || true)
+  pid_mode=$(_cget pidmode "$container")
   if [ "$pid_mode" = "host" ]; then
     if is_app_container "$container"; then
       fail "$container — uses host PID namespace"
@@ -287,7 +321,7 @@ done
 echo ""
 log "Test 7: Network Mode"
 for container in "${CONTAINERS[@]}"; do
-  net_mode=$(docker inspect --format '{{.HostConfig.NetworkMode}}' "$container" 2>/dev/null || true)
+  net_mode=$(_cget netmode "$container")
   if [ "$net_mode" = "host" ]; then
     case "$container" in
       *fail2ban*)
@@ -312,7 +346,7 @@ done
 echo ""
 log "Test 8: Memory Limits"
 for container in "${CONTAINERS[@]}"; do
-  mem_limit=$(docker inspect --format '{{.HostConfig.Memory}}' "$container" 2>/dev/null || true)
+  mem_limit=$(_cget mem "$container")
   if [ -z "$mem_limit" ] || [ "$mem_limit" = "0" ]; then
     warn "$container — no memory limit set (unlimited)"
   else

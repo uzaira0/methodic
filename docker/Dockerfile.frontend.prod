@@ -20,17 +20,16 @@ COPY chronicle-web/ ./
 # Build production bundle with Bun native bundler
 RUN bun run modern:build
 
-# Generate version.json with git hash and build timestamp
+# Remove source maps (not needed in production) and generate version.json
+RUN find /app/dist -name '*.map' -delete 2>/dev/null; true
 RUN echo "{\"version\":\"${GIT_SHA}\",\"buildTime\":\"$(date -Iseconds)\"}" > /app/dist/version.json
 
-# Production stage with nginx (non-root)
-FROM nginx:1.27.4-alpine
+# Production stage with nginx (non-root) — alpine-slim is ~36MB smaller than alpine
+FROM nginx:1.27.4-alpine-slim
 
-# Upgrade Alpine packages to patch CVEs in base image (libxml2, openssl, libpng, etc.)
-RUN apk upgrade --no-cache
-
-# Fix permissions for rootless operation (PID file, cache dirs)
-RUN sed -i 's|pid        /var/run/nginx.pid;|pid        /tmp/nginx.pid;|' /etc/nginx/nginx.conf && \
+# Upgrade Alpine packages to patch CVEs, then fix permissions for rootless operation
+RUN apk upgrade --no-cache && \
+    sed -i 's|pid        /var/run/nginx.pid;|pid        /tmp/nginx.pid;|' /etc/nginx/nginx.conf && \
     mkdir -p /var/cache/nginx/client_temp /var/cache/nginx/proxy_temp \
              /var/cache/nginx/fastcgi_temp /var/cache/nginx/uwsgi_temp \
              /var/cache/nginx/scgi_temp && \

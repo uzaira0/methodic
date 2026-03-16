@@ -20,7 +20,37 @@ set -euo pipefail
 #   NEW_JWT_SECRET    - current signing key (for secret-rotation test)
 # ---------------------------------------------------------------------------
 
-BASE_URL="${BASE_URL:-http://localhost:40320}"
+SCRIPT_DIR_SM="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT_SM="$(cd "$SCRIPT_DIR_SM/../.." && pwd)"
+
+# Auto-detect BASE_URL: try localhost first, fall back to DOMAIN via Traefik
+if [ -z "${BASE_URL:-}" ]; then
+    if curl -sf -o /dev/null -m 3 http://localhost:40320/chronicle/v3/ 2>/dev/null || \
+       [ "$(curl -s -o /dev/null -w '%{http_code}' -m 3 http://localhost:40320/chronicle/v3/ 2>/dev/null)" != "000" ]; then
+        BASE_URL="http://localhost:40320"
+    else
+        _domain="${DOMAIN:-}"
+        if [ -z "$_domain" ] && [ -f "$PROJECT_ROOT_SM/docker/.env" ]; then
+            _domain=$(grep '^DOMAIN=' "$PROJECT_ROOT_SM/docker/.env" 2>/dev/null | cut -d= -f2 || true)
+        fi
+        if [ -n "$_domain" ]; then
+            BASE_URL="http://${_domain}"
+        else
+            BASE_URL="http://localhost:40320"
+        fi
+    fi
+fi
+
+# Auto-detect JWT_SECRET from .env if not provided
+if [ -z "${JWT_SECRET:-}" ] && [ -f "$PROJECT_ROOT_SM/docker/.env" ]; then
+    JWT_SECRET=$(grep '^JWT_SECRET=' "$PROJECT_ROOT_SM/docker/.env" 2>/dev/null | cut -d= -f2- || true)
+fi
+
+# Auto-detect AUTH_TOKEN from JWT_SECRET if not provided
+if [ -z "${AUTH_TOKEN:-}" ] && [ -n "${JWT_SECRET:-}" ]; then
+    AUTH_TOKEN=$(JWT_SECRET="$JWT_SECRET" "$PROJECT_ROOT_SM/docker/generate-jwt.sh" 2>/dev/null || true)
+fi
+
 AUTH_TOKEN="${AUTH_TOKEN:-}"
 JWT_SECRET="${JWT_SECRET:-}"
 OLD_JWT_SECRET="${OLD_JWT_SECRET:-}"

@@ -71,34 +71,39 @@ echo ""
 # =========================================================================
 log "=== 1. TDE Encryption (per-table) ==="
 
-# Collect all public tables
-mapfile -t TABLES < <(
-  run_sql "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename;"
-)
+# Collect all public tables AND their TDE status in a single query
+# This avoids N+1 docker exec calls (was: 1 for table list + 1 per table)
+TDE_BATCH=$(run_sql "
+  SELECT t.tablename || '|' || COALESCE(
+    CASE WHEN e.extname IS NOT NULL
+      THEN (SELECT pg_tde_is_encrypted(c.oid::regclass)::text
+            FROM pg_class c WHERE c.relname = t.tablename AND c.relnamespace = 'public'::regnamespace)
+      ELSE 'no_ext'
+    END, 'ERROR')
+  FROM pg_tables t
+  LEFT JOIN pg_extension e ON e.extname = 'pg_tde'
+  WHERE t.schemaname = 'public'
+  ORDER BY t.tablename;
+" 2>/dev/null || echo "")
 
-if [ "${#TABLES[@]}" -eq 0 ]; then
+if [ -z "$TDE_BATCH" ]; then
   fail "No public tables found — cannot verify TDE"
 else
-  info "Found ${#TABLES[@]} public tables to check"
-
-  # Check if pg_tde extension is available before running per-table checks
-  TDE_EXT=$(run_sql "SELECT 1 FROM pg_extension WHERE extname = 'pg_tde' LIMIT 1;")
-  if [ "$TDE_EXT" != "1" ]; then
-    for tbl in "${TABLES[@]}"; do
+  TABLE_COUNT=0
+  while IFS='|' read -r tbl result; do
+    [ -z "$tbl" ] && continue
+    TABLE_COUNT=$((TABLE_COUNT + 1))
+    if [ "$result" = "no_ext" ]; then
       skip "TDE: $tbl (pg_tde extension not loaded)"
-    done
-  else
-    for tbl in "${TABLES[@]}"; do
-      result=$(run_sql "SELECT pg_tde_is_encrypted('public.${tbl}'::regclass);" 2>/dev/null || echo "ERROR")
-      if [ "$result" = "t" ]; then
-        pass "TDE: $tbl is encrypted"
-      elif [ "$result" = "f" ]; then
-        fail "TDE: $tbl is NOT encrypted"
-      else
-        skip "TDE: $tbl — could not determine encryption status"
-      fi
-    done
-  fi
+    elif [ "$result" = "t" ] || [ "$result" = "true" ]; then
+      pass "TDE: $tbl is encrypted"
+    elif [ "$result" = "f" ] || [ "$result" = "false" ]; then
+      fail "TDE: $tbl is NOT encrypted"
+    else
+      skip "TDE: $tbl — could not determine encryption status"
+    fi
+  done <<< "$TDE_BATCH"
+  info "Found $TABLE_COUNT public tables checked"
 fi
 
 echo ""
@@ -108,8 +113,25 @@ echo ""
 # =========================================================================
 log "=== 2. SSL Configuration ==="
 
+# Batch all SSL settings into a single query (was 4 separate docker exec calls)
+SSL_BATCH=$(run_sql "
+  SELECT name || '|' || setting FROM pg_settings
+  WHERE name IN ('ssl', 'ssl_min_protocol_version', 'ssl_prefer_server_ciphers', 'password_encryption')
+  ORDER BY name;
+" 2>/dev/null || echo "")
+
+# Parse batched results
+SSL_ON=""; SSL_MIN=""; SSL_CIPHERS=""; PWD_ENC=""
+while IFS='|' read -r name setting; do
+  case "$name" in
+    ssl) SSL_ON="$setting" ;;
+    ssl_min_protocol_version) SSL_MIN="$setting" ;;
+    ssl_prefer_server_ciphers) SSL_CIPHERS="$setting" ;;
+    password_encryption) PWD_ENC="$setting" ;;
+  esac
+done <<< "$SSL_BATCH"
+
 # 2a. ssl = on
-SSL_ON=$(run_sql "SHOW ssl;")
 if [ "$SSL_ON" = "on" ]; then
   pass "ssl = on"
 else
@@ -117,7 +139,6 @@ else
 fi
 
 # 2b. ssl_min_protocol_version >= TLSv1.2
-SSL_MIN=$(run_sql "SHOW ssl_min_protocol_version;")
 case "$SSL_MIN" in
   TLSv1.2|TLSv1.3)
     pass "ssl_min_protocol_version = $SSL_MIN"
@@ -131,7 +152,6 @@ case "$SSL_MIN" in
 esac
 
 # 2c. ssl_prefer_server_ciphers
-SSL_CIPHERS=$(run_sql "SHOW ssl_prefer_server_ciphers;")
 if [ "$SSL_CIPHERS" = "on" ]; then
   pass "ssl_prefer_server_ciphers = on"
 else
@@ -139,7 +159,6 @@ else
 fi
 
 # 2d. password_encryption = scram-sha-256
-PWD_ENC=$(run_sql "SHOW password_encryption;")
 if [ "$PWD_ENC" = "scram-sha-256" ]; then
   pass "password_encryption = scram-sha-256"
 else
@@ -344,8 +363,28 @@ echo ""
 # =========================================================================
 log "=== 5. Connection Security ==="
 
+# Batch connection security checks into a single query (was 4 docker exec calls)
+CONN_BATCH=$(run_sql "
+  SELECT 'max_connections|' || current_setting('max_connections')
+  UNION ALL
+  SELECT 'conn_count|' || count(*)::text FROM pg_stat_activity
+  UNION ALL
+  SELECT 'statement_timeout|' || current_setting('statement_timeout')
+  UNION ALL
+  SELECT 'idle_in_transaction_session_timeout|' || current_setting('idle_in_transaction_session_timeout');
+" 2>/dev/null || echo "")
+
+MAX_CONN=""; CURR_CONN=""; STMT_TIMEOUT=""; IDLE_TIMEOUT=""
+while IFS='|' read -r key val; do
+  case "$key" in
+    max_connections) MAX_CONN="$val" ;;
+    conn_count) CURR_CONN="$val" ;;
+    statement_timeout) STMT_TIMEOUT="$val" ;;
+    idle_in_transaction_session_timeout) IDLE_TIMEOUT="$val" ;;
+  esac
+done <<< "$CONN_BATCH"
+
 # 5a. max_connections is set (and reasonable)
-MAX_CONN=$(run_sql "SHOW max_connections;")
 if [ -n "$MAX_CONN" ] && [ "$MAX_CONN" -gt 0 ] 2>/dev/null; then
   pass "max_connections = $MAX_CONN"
   if [ "$MAX_CONN" -gt 500 ]; then
@@ -356,7 +395,6 @@ else
 fi
 
 # 5b. Current connection count is within limits
-CURR_CONN=$(run_sql "SELECT count(*) FROM pg_stat_activity;")
 if [ -n "$CURR_CONN" ] && [ -n "$MAX_CONN" ] 2>/dev/null; then
   USAGE_PCT=$((CURR_CONN * 100 / MAX_CONN))
   if [ "$USAGE_PCT" -lt 80 ]; then
@@ -369,7 +407,6 @@ else
 fi
 
 # 5c. statement_timeout is set (prevents runaway queries)
-STMT_TIMEOUT=$(run_sql "SHOW statement_timeout;")
 if [ -n "$STMT_TIMEOUT" ] && [ "$STMT_TIMEOUT" != "0" ]; then
   pass "statement_timeout = $STMT_TIMEOUT"
 else
@@ -377,7 +414,6 @@ else
 fi
 
 # 5d. idle_in_transaction_session_timeout
-IDLE_TIMEOUT=$(run_sql "SHOW idle_in_transaction_session_timeout;")
 if [ -n "$IDLE_TIMEOUT" ] && [ "$IDLE_TIMEOUT" != "0" ]; then
   pass "idle_in_transaction_session_timeout = $IDLE_TIMEOUT"
 else
@@ -391,8 +427,28 @@ echo ""
 # =========================================================================
 log "=== 6. Extensions ==="
 
+# Batch extension checks into a single query (was 4 docker exec calls)
+EXT_BATCH=$(run_sql "
+  SELECT 'pg_tde_ext|' || COALESCE((SELECT '1' FROM pg_extension WHERE extname = 'pg_tde' LIMIT 1), '0')
+  UNION ALL
+  SELECT 'pgaudit_ext|' || COALESCE((SELECT '1' FROM pg_extension WHERE extname = 'pgaudit' LIMIT 1), '0')
+  UNION ALL
+  SELECT 'shared_preload|' || current_setting('shared_preload_libraries')
+  UNION ALL
+  SELECT 'table_access_method|' || current_setting('default_table_access_method');
+" 2>/dev/null || echo "")
+
+PG_TDE=""; PG_AUDIT=""; PRELOAD=""; TAM=""
+while IFS='|' read -r key val; do
+  case "$key" in
+    pg_tde_ext) PG_TDE="$val" ;;
+    pgaudit_ext) PG_AUDIT="$val" ;;
+    shared_preload) PRELOAD="$val" ;;
+    table_access_method) TAM="$val" ;;
+  esac
+done <<< "$EXT_BATCH"
+
 # 6a. pg_tde loaded
-PG_TDE=$(run_sql "SELECT 1 FROM pg_extension WHERE extname = 'pg_tde' LIMIT 1;")
 if [ "$PG_TDE" = "1" ]; then
   pass "pg_tde extension loaded"
 else
@@ -400,12 +456,9 @@ else
 fi
 
 # 6b. pgaudit loaded (if configured)
-PG_AUDIT=$(run_sql "SELECT 1 FROM pg_extension WHERE extname = 'pgaudit' LIMIT 1;")
 if [ "$PG_AUDIT" = "1" ]; then
   pass "pgaudit extension loaded"
 else
-  # Check if it's in shared_preload_libraries even if not CREATE EXTENSION'd
-  PRELOAD=$(run_sql "SHOW shared_preload_libraries;")
   if echo "$PRELOAD" | grep -qi "pgaudit"; then
     pass "pgaudit in shared_preload_libraries (not yet CREATE EXTENSION'd)"
   else
@@ -414,7 +467,6 @@ else
 fi
 
 # 6c. pg_tde in shared_preload_libraries
-PRELOAD=$(run_sql "SHOW shared_preload_libraries;")
 if echo "$PRELOAD" | grep -qi "pg_tde"; then
   pass "pg_tde in shared_preload_libraries"
 else
@@ -422,7 +474,6 @@ else
 fi
 
 # 6d. Check for default_table_access_method = tde_heap (full-database TDE)
-TAM=$(run_sql "SHOW default_table_access_method;" 2>/dev/null || echo "")
 if [ "$TAM" = "tde_heap" ] || [ "$TAM" = "tde_heap_basic" ]; then
   pass "default_table_access_method = $TAM (new tables encrypted by default)"
 else
@@ -437,12 +488,40 @@ echo ""
 # =========================================================================
 log "=== 7. Data Integrity ==="
 
+# Batch all data integrity checks into a single query (was 8 docker exec calls)
+INTEGRITY_BATCH=$(run_sql "
+  SELECT 'fk_sp|' || count(*) FROM information_schema.table_constraints WHERE table_name = 'study_participants' AND constraint_type = 'FOREIGN KEY'
+  UNION ALL
+  SELECT 'pk_sp|' || count(*) FROM information_schema.table_constraints WHERE table_name = 'study_participants' AND constraint_type = 'PRIMARY KEY'
+  UNION ALL
+  SELECT 'idx_sp|' || count(*) FROM pg_indexes WHERE tablename = 'study_participants'
+  UNION ALL
+  SELECT 'idx_sd|' || count(*) FROM pg_indexes WHERE tablename = 'sensor_data'
+  UNION ALL
+  SELECT 'idx_ue|' || count(*) FROM pg_indexes WHERE tablename = 'chronicle_usage_events'
+  UNION ALL
+  SELECT 'idx_audit|' || count(*) FROM pg_indexes WHERE tablename = 'audit'
+  UNION ALL
+  SELECT 'pk_studies|' || count(*) FROM information_schema.table_constraints WHERE table_name = 'studies' AND constraint_type = 'PRIMARY KEY'
+  UNION ALL
+  SELECT 'fk_dev|' || count(*) FROM information_schema.table_constraints WHERE table_name = 'devices' AND constraint_type = 'FOREIGN KEY';
+" 2>/dev/null || echo "")
+
+FK_SP=0; PK_SP=0; IDX_SP=0; IDX_SD=0; IDX_UE=0; IDX_AUDIT=0; PK_STUDIES=0; FK_DEV=0
+while IFS='|' read -r key val; do
+  case "$key" in
+    fk_sp) FK_SP="$val" ;;
+    pk_sp) PK_SP="$val" ;;
+    idx_sp) IDX_SP="$val" ;;
+    idx_sd) IDX_SD="$val" ;;
+    idx_ue) IDX_UE="$val" ;;
+    idx_audit) IDX_AUDIT="$val" ;;
+    pk_studies) PK_STUDIES="$val" ;;
+    fk_dev) FK_DEV="$val" ;;
+  esac
+done <<< "$INTEGRITY_BATCH"
+
 # 7a. Foreign key constraints on study_participants
-FK_SP=$(run_sql "
-  SELECT count(*) FROM information_schema.table_constraints
-  WHERE table_name = 'study_participants'
-    AND constraint_type = 'FOREIGN KEY';
-")
 if [ "$FK_SP" -gt 0 ] 2>/dev/null; then
   pass "Foreign key constraints on study_participants ($FK_SP FK(s))"
 else
@@ -450,23 +529,13 @@ else
 fi
 
 # 7b. Primary key on study_participants
-PK_SP=$(run_sql "
-  SELECT count(*) FROM information_schema.table_constraints
-  WHERE table_name = 'study_participants'
-    AND constraint_type = 'PRIMARY KEY';
-")
 if [ "$PK_SP" -gt 0 ] 2>/dev/null; then
   pass "Primary key exists on study_participants"
 else
   fail "No primary key on study_participants"
 fi
 
-# 7c. Indexes on frequently queried columns
-# Check for indexes on study_participants
-IDX_SP=$(run_sql "
-  SELECT count(*) FROM pg_indexes
-  WHERE tablename = 'study_participants';
-")
+# 7c. Indexes on study_participants
 if [ "$IDX_SP" -gt 0 ] 2>/dev/null; then
   pass "Indexes exist on study_participants ($IDX_SP index(es))"
 else
@@ -474,10 +543,6 @@ else
 fi
 
 # 7d. Indexes on sensor_data
-IDX_SD=$(run_sql "
-  SELECT count(*) FROM pg_indexes
-  WHERE tablename = 'sensor_data';
-")
 if [ "$IDX_SD" -gt 0 ] 2>/dev/null; then
   pass "Indexes exist on sensor_data ($IDX_SD index(es))"
 else
@@ -485,10 +550,6 @@ else
 fi
 
 # 7e. Indexes on chronicle_usage_events
-IDX_UE=$(run_sql "
-  SELECT count(*) FROM pg_indexes
-  WHERE tablename = 'chronicle_usage_events';
-")
 if [ "$IDX_UE" -gt 0 ] 2>/dev/null; then
   pass "Indexes exist on chronicle_usage_events ($IDX_UE index(es))"
 else
@@ -496,10 +557,6 @@ else
 fi
 
 # 7f. Indexes on audit table
-IDX_AUDIT=$(run_sql "
-  SELECT count(*) FROM pg_indexes
-  WHERE tablename = 'audit';
-")
 if [ "$IDX_AUDIT" -gt 0 ] 2>/dev/null; then
   pass "Indexes exist on audit ($IDX_AUDIT index(es))"
 else
@@ -507,11 +564,6 @@ else
 fi
 
 # 7g. Check that studies table has a primary key
-PK_STUDIES=$(run_sql "
-  SELECT count(*) FROM information_schema.table_constraints
-  WHERE table_name = 'studies'
-    AND constraint_type = 'PRIMARY KEY';
-")
 if [ "$PK_STUDIES" -gt 0 ] 2>/dev/null; then
   pass "Primary key exists on studies"
 else
@@ -519,11 +571,6 @@ else
 fi
 
 # 7h. Foreign key constraints on devices
-FK_DEV=$(run_sql "
-  SELECT count(*) FROM information_schema.table_constraints
-  WHERE table_name = 'devices'
-    AND constraint_type = 'FOREIGN KEY';
-")
 if [ "$FK_DEV" -gt 0 ] 2>/dev/null; then
   pass "Foreign key constraints on devices ($FK_DEV FK(s))"
 else
