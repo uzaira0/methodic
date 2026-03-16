@@ -21,6 +21,8 @@ entryPoints:
 api:
   insecure: true
 
+ping: {}
+
 # Access logging for CrowdSec + Fail2ban
 accessLog:
   filePath: /var/log/traefik/access.log

@@ -181,6 +181,9 @@ services:
       CHRONICLE_SERVER_XMS: ${BACKEND_XMS:-"-Xms512m"}
       CHRONICLE_SERVER_XMX: ${BACKEND_XMX:-"-Xmx2g"}
       CHRONICLE_SERVER_ARGS: "local postgres medialocal"
+      # Domain names for CORS configuration (used by envsubst in cors.yaml.template)
+      DOMAIN: ${DOMAIN}
+      EXT_DOMAIN: ${EXT_DOMAIN:-}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB}
@@ -596,7 +599,7 @@ services:
       - audit_logs:/var/log/chronicle:ro
     command: -config.file=/etc/promtail/config.yml
     healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 -O /dev/null http://localhost:9080/ready || exit 1"]
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/9080' || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -655,6 +658,8 @@ services:
       - "traefik.http.services.chronicle-grafana.loadbalancer.server.port=3000"
       # IP-restrict Grafana (C-8: prevent public access to metrics/audit logs)
       - "traefik.http.routers.chronicle-grafana.middlewares=chronicle-internal-only@docker"
+      # Define the internal-only middleware (allow private networks only)
+      - "traefik.http.middlewares.chronicle-internal-only.ipallowlist.sourcerange=127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 
 networks:
   chronicle-internal:
