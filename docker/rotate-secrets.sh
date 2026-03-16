@@ -93,9 +93,11 @@ rotate_db() {
     # If DB ALTER fails, restore .env from backup so they stay in sync.
     update_env "POSTGRES_PASSWORD" "$new_password"
 
-    # Use psql variable binding to avoid SQL injection from special chars in password
-    if ! docker exec chronicle-postgres psql -U "$db_user" -d chronicle \
-        -v "pw=${new_password}" -c "ALTER USER ${db_user} WITH PASSWORD :'pw';"; then
+    # Get current password to authenticate, then change it
+    local old_password
+    old_password=$(grep '^POSTGRES_PASSWORD=' "${ENV_FILE}.bak."* 2>/dev/null | tail -1 | cut -d= -f2-)
+    if ! docker exec -e PGPASSWORD="$old_password" -e NEW_PW="$new_password" chronicle-postgres \
+        sh -c "psql -h 127.0.0.1 -U $db_user -d chronicle -c \"ALTER USER $db_user WITH PASSWORD '\$NEW_PW';\""; then
         log_err "ALTER USER failed — restoring .env from backup"
         local latest_backup
         latest_backup=$(ls -t "${ENV_FILE}".bak.* 2>/dev/null | head -1)
@@ -103,7 +105,7 @@ rotate_db() {
             cp "$latest_backup" "$ENV_FILE"
             log_err "Restored .env from ${latest_backup}"
         fi
-        exit 1
+        return 1
     fi
 
     log_warn "Database password rotated. Restart chronicle-backend:"
