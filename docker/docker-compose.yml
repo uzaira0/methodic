@@ -39,7 +39,7 @@ services:
     expose:
       - "40320"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:40320/chronicle/v3/study"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:40320/chronicle/v3/study > /dev/null"]
       interval: 30s
       timeout: 10s
       retries: 3

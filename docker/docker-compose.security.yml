@@ -143,6 +143,12 @@ services:
       - ./security/falco/falco.yaml:/etc/falco/falco.yaml:ro,z
       - ./security/falco/chronicle-rules.yaml:/etc/falco/chronicle-rules.yaml:ro,z
       - falco_logs:/var/log/falco
+    healthcheck:
+      test: ["CMD-SHELL", "falco --version >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks:
       - chronicle-internal
     deploy:
