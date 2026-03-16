@@ -1,0 +1,682 @@
+{
+  "tools": {
+    "gitleaks": 0,
+    "hadolint-backend": 2,
+    "hadolint-frontend": 0,
+    "hadolint": 2,
+    "results_sarif": 4,
+    "semgrep-backend": 8,
+    "semgrep-crypto": 0,
+    "semgrep-frontend": 2,
+    "semgrep-redos": 0,
+    "semgrep-sqli": 34,
+    "trivy-chronicle-backend": 15,
+    "trivy-chronicle-frontend": 27
+  },
+  "by_severity": {
+    "error": 46,
+    "warning": 48,
+    "note": 0
+  },
+  "total": 94,
+  "findings": [
+    {
+      "tool": "hadolint-backend",
+      "rule": "DL3008",
+      "level": "warning",
+      "location": "docker/Dockerfile.backend:7",
+      "message": "Pin versions in apt get install. Instead of `apt-get install <package>` use `apt-get install <package>=<version>`"
+    },
+    {
+      "tool": "hadolint-backend",
+      "rule": "DL3008",
+      "level": "warning",
+      "location": "docker/Dockerfile.backend:59",
+      "message": "Pin versions in apt get install. Instead of `apt-get install <package>` use `apt-get install <package>=<version>`"
+    },
+    {
+      "tool": "hadolint",
+      "rule": "DL3008",
+      "level": "warning",
+      "location": "/opt/chronicle/docker/Dockerfile.backend:7",
+      "message": "Pin versions in apt get install. Instead of `apt-get install <package>` use `apt-get install <package>=<version>`"
+    },
+    {
+      "tool": "hadolint",
+      "rule": "DL3008",
+      "level": "warning",
+      "location": "/opt/chronicle/docker/Dockerfile.backend:59",
+      "message": "Pin versions in apt get install. Instead of `apt-get install <package>` use `apt-get install <package>=<version>`"
+    },
+    {
+      "tool": "results_sarif",
+      "rule": "CKV_DOCKER_2",
+      "level": "error",
+      "location": "docker/Dockerfile.frontend:1",
+      "message": "Ensure that HEALTHCHECK instructions have been added to container images"
+    },
+    {
+      "tool": "results_sarif",
+      "rule": "CKV_DOCKER_3",
+      "level": "error",
+      "location": "docker/Dockerfile.frontend:1",
+      "message": "Ensure that a user for the container has been created"
+    },
+    {
+      "tool": "results_sarif",
+      "rule": "CKV_DOCKER_2",
+      "level": "error",
+      "location": "docker/Dockerfile.frontend.dev:1",
+      "message": "Ensure that HEALTHCHECK instructions have been added to container images"
+    },
+    {
+      "tool": "results_sarif",
+      "rule": "CKV_DOCKER_3",
+      "level": "error",
+      "location": "docker/Dockerfile.frontend.dev:1",
+      "message": "Ensure that a user for the container has been created"
+    },
+    {
+      "tool": "semgrep-backend",
+      "rule": "kotlin.lang.security.cookie-missing-httponly.cookie-missing-httponly",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/AuthTokenController.kt:153",
+      "message": "A cookie was detected without setting the 'HttpOnly' flag. The 'HttpOnly' flag for cookies instructs the browser to forb"
+    },
+    {
+      "tool": "semgrep-backend",
+      "rule": "kotlin.lang.security.cookie-missing-secure-flag.cookie-missing-secure-flag",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/AuthTokenController.kt:153",
+      "message": "A cookie was detected without setting the 'secure' flag. The 'secure' flag for cookies prevents the client from transmit"
+    },
+    {
+      "tool": "semgrep-backend",
+      "rule": "kotlin.lang.security.cookie-missing-httponly.cookie-missing-httponly",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/AuthTokenController.kt:162",
+      "message": "A cookie was detected without setting the 'HttpOnly' flag. The 'HttpOnly' flag for cookies instructs the browser to forb"
+    },
+    {
+      "tool": "semgrep-backend",
+      "rule": "kotlin.lang.security.cookie-missing-secure-flag.cookie-missing-secure-flag",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/AuthTokenController.kt:162",
+      "message": "A cookie was detected without setting the 'secure' flag. The 'secure' flag for cookies prevents the client from transmit"
+    },
+    {
+      "tool": "semgrep-backend",
+      "rule": "kotlin.lang.security.cookie-missing-httponly.cookie-missing-httponly",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/AuthTokenController.kt:180",
+      "message": "A cookie was detected without setting the 'HttpOnly' flag. The 'HttpOnly' flag for cookies instructs the browser to forb"
+    },
+    {
+      "tool": "semgrep-backend",
+      "rule": "kotlin.lang.security.cookie-missing-secure-flag.cookie-missing-secure-flag",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/AuthTokenController.kt:180",
+      "message": "A cookie was detected without setting the 'secure' flag. The 'secure' flag for cookies prevents the client from transmit"
+    },
+    {
+      "tool": "semgrep-backend",
+      "rule": "kotlin.lang.security.cookie-missing-httponly.cookie-missing-httponly",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/AuthTokenController.kt:189",
+      "message": "A cookie was detected without setting the 'HttpOnly' flag. The 'HttpOnly' flag for cookies instructs the browser to forb"
+    },
+    {
+      "tool": "semgrep-backend",
+      "rule": "kotlin.lang.security.cookie-missing-secure-flag.cookie-missing-secure-flag",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/AuthTokenController.kt:189",
+      "message": "A cookie was detected without setting the 'secure' flag. The 'secure' flag for cookies prevents the client from transmit"
+    },
+    {
+      "tool": "semgrep-frontend",
+      "rule": "javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp",
+      "level": "warning",
+      "location": "chronicle-web/src/modern/lib/bootstrap-auth.ts:44",
+      "message": "RegExp() called with a `name` function argument, this might allow an attacker to cause a Regular Expression Denial-of-Se"
+    },
+    {
+      "tool": "semgrep-frontend",
+      "rule": "javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal",
+      "level": "warning",
+      "location": "chronicle-web/src/modern/state/golden-file.test.ts:11",
+      "message": "Detected possible user input going into a `path.join` or `path.resolve` function. This could possibly lead to a path tra"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/auditing/RedshiftAuditingManager.kt:94",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/ImportController.kt:415",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/mapstores/authorization/PrincipalTreesMapstore.kt:57",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/mapstores/authorization/PrincipalTreesMapstore.kt:119",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/notifications/NotificationService.kt:142",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/upload/AppDataUploadService.kt:308",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/upload/AppDataUploadService.kt:559",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/upload/AppDataUploadService.kt:578",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/storage/local/LocalBlobDataService.kt:27",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/storage/rls/RLSConnectionCustomizer.kt:53",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/storage/rls/RLSConnectionCustomizer.kt:71",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/storage/tasks/MoveAndroidSensorDataToStorageTask.kt:87",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/storage/tasks/MoveToEventStorageTask.kt:68",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/storage/tasks/MoveToEventStorageTask.kt:257",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/storage/tasks/MoveToEventStorageTask.kt:277",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/storage/tasks/MoveToIosEventStorageTask.kt:82",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/storage/tasks/MoveToIosEventStorageTask.kt:244",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/storage/tasks/MoveToIosEventStorageTask.kt:273",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/upgrades/AppFilteringUpgrade.kt:103",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/upgrades/AppFilteringUpgrade.kt:106",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/upgrades/ParticipantStatsUpgrade.kt:90",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/upgrades/RowLevelSecurityUpgrade.kt:92",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/upgrades/StudyLimitsUpgrade.kt:97",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/upgrades/UploadAtUpgrade.kt:81",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/upgrades/UploadAtUpgrade.kt:83",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "rhizome/src/main/java/com/geekbeast/postgres/PostgresTableManager.java:79",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-statement-execute",
+      "level": "warning",
+      "location": "rhizome/src/main/java/com/geekbeast/postgres/PostgresTableManager.java:81",
+      "message": "Direct Statement.execute() with a string variable detected. This may be vulnerable to SQL injection if the argument incl"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "rhizome/src/main/java/com/geekbeast/postgres/PostgresTableManager.java:87",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-statement-execute",
+      "level": "warning",
+      "location": "rhizome/src/main/java/com/geekbeast/postgres/PostgresTableManager.java:88",
+      "message": "Direct Statement.execute() with a string variable detected. This may be vulnerable to SQL injection if the argument incl"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "rhizome/src/main/java/com/geekbeast/postgres/PostgresTableManager.java:107",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-statement-execute",
+      "level": "warning",
+      "location": "rhizome/src/main/java/com/geekbeast/postgres/PostgresTableManager.java:108",
+      "message": "Direct Statement.execute() with a string variable detected. This may be vulnerable to SQL injection if the argument incl"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-statement-execute",
+      "level": "warning",
+      "location": "rhizome/src/main/java/com/geekbeast/postgres/streams/BasePostgresIterable.kt:71",
+      "message": "Direct Statement.execute() with a string variable detected. This may be vulnerable to SQL injection if the argument incl"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-raw-statement",
+      "level": "warning",
+      "location": "rhizome/src/main/java/com/geekbeast/postgres/streams/BasePostgresIterable.kt:75",
+      "message": "Use of createStatement() detected. Prefer PreparedStatement with parameterized queries to prevent SQL injection vulnerab"
+    },
+    {
+      "tool": "semgrep-sqli",
+      "rule": "tests.security.rules.chronicle-statement-execute",
+      "level": "warning",
+      "location": "rhizome/src/main/java/com/geekbeast/postgres/streams/BasePostgresIterable.kt:80",
+      "message": "Direct Statement.execute() with a string variable detected. This may be vulnerable to SQL injection if the argument incl"
+    },
+    {
+      "tool": "trivy-chronicle-backend",
+      "rule": "GHSA-72hv-8253-57qq",
+      "level": "error",
+      "location": "server/lib/hazelcast-5.5.0.jar:1",
+      "message": "Package: com.fasterxml.jackson.core:jackson-core\nInstalled Version: 2.17.2\nVulnerability GHSA-72hv-8253-57qq\nSeverity: H"
+    },
+    {
+      "tool": "trivy-chronicle-backend",
+      "rule": "GHSA-72hv-8253-57qq",
+      "level": "error",
+      "location": "server/lib/jackson-core-2.21.0.jar:1",
+      "message": "Package: com.fasterxml.jackson.core:jackson-core\nInstalled Version: 2.21.0\nVulnerability GHSA-72hv-8253-57qq\nSeverity: H"
+    },
+    {
+      "tool": "trivy-chronicle-backend",
+      "rule": "CVE-2024-7254",
+      "level": "error",
+      "location": "server/lib/protobuf-java-3.23.2.jar:1",
+      "message": "Package: com.google.protobuf:protobuf-java\nInstalled Version: 3.23.2\nVulnerability CVE-2024-7254\nSeverity: HIGH\nFixed Ve"
+    },
+    {
+      "tool": "trivy-chronicle-backend",
+      "rule": "CVE-2025-48734",
+      "level": "error",
+      "location": "server/lib/commons-beanutils-1.9.4.jar:1",
+      "message": "Package: commons-beanutils:commons-beanutils\nInstalled Version: 1.9.4\nVulnerability CVE-2025-48734\nSeverity: HIGH\nFixed "
+    },
+    {
+      "tool": "trivy-chronicle-backend",
+      "rule": "CVE-2025-55163",
+      "level": "error",
+      "location": "server/lib/grpc-netty-shaded-1.55.1.jar:1",
+      "message": "Package: io.grpc:grpc-netty-shaded\nInstalled Version: 1.55.1\nVulnerability CVE-2025-55163\nSeverity: HIGH\nFixed Version: "
+    },
+    {
+      "tool": "trivy-chronicle-backend",
+      "rule": "CVE-2025-55163",
+      "level": "error",
+      "location": "server/lib/netty-codec-http2-4.1.86.Final.jar:1",
+      "message": "Package: io.netty:netty-codec-http2\nInstalled Version: 4.1.86.Final\nVulnerability CVE-2025-55163\nSeverity: HIGH\nFixed Ve"
+    },
+    {
+      "tool": "trivy-chronicle-backend",
+      "rule": "GHSA-xpw8-rcwv-8f8p",
+      "level": "error",
+      "location": "server/lib/netty-codec-http2-4.1.86.Final.jar:1",
+      "message": "Package: io.netty:netty-codec-http2\nInstalled Version: 4.1.86.Final\nVulnerability GHSA-xpw8-rcwv-8f8p\nSeverity: HIGH\nFix"
+    },
+    {
+      "tool": "trivy-chronicle-backend",
+      "rule": "CVE-2025-24970",
+      "level": "error",
+      "location": "server/lib/netty-handler-4.1.97.Final.jar:1",
+      "message": "Package: io.netty:netty-handler\nInstalled Version: 4.1.97.Final\nVulnerability CVE-2025-24970\nSeverity: HIGH\nFixed Versio"
+    },
+    {
+      "tool": "trivy-chronicle-backend",
+      "rule": "CVE-2025-12183",
+      "level": "error",
+      "location": "server/lib/lz4-1.3.jar:1",
+      "message": "Package: net.jpountz.lz4:lz4\nInstalled Version: 1.3\nVulnerability CVE-2025-12183\nSeverity: HIGH\nFixed Version: \nLink: [C"
+    },
+    {
+      "tool": "trivy-chronicle-backend",
+      "rule": "CVE-2025-66566",
+      "level": "error",
+      "location": "server/lib/lz4-1.3.jar:1",
+      "message": "Package: net.jpountz.lz4:lz4\nInstalled Version: 1.3\nVulnerability CVE-2025-66566\nSeverity: HIGH\nFixed Version: \nLink: [C"
+    },
+    {
+      "tool": "trivy-chronicle-backend",
+      "rule": "CVE-2025-5115",
+      "level": "error",
+      "location": "server/lib/jetty-http2-common-12.0.20.jar:1",
+      "message": "Package: org.eclipse.jetty.http2:jetty-http2-common\nInstalled Version: 12.0.20\nVulnerability CVE-2025-5115\nSeverity: HIG"
+    },
+    {
+      "tool": "trivy-chronicle-backend",
+      "rule": "CVE-2026-1605",
+      "level": "error",
+      "location": "server/lib/jetty-server-12.0.20.jar:1",
+      "message": "Package: org.eclipse.jetty:jetty-server\nInstalled Version: 12.0.20\nVulnerability CVE-2026-1605\nSeverity: HIGH\nFixed Vers"
+    },
+    {
+      "tool": "trivy-chronicle-backend",
+      "rule": "CVE-2025-49146",
+      "level": "error",
+      "location": "server/lib/postgresql-42.7.5.jar:1",
+      "message": "Package: org.postgresql:postgresql\nInstalled Version: 42.7.5\nVulnerability CVE-2025-49146\nSeverity: HIGH\nFixed Version: "
+    },
+    {
+      "tool": "trivy-chronicle-backend",
+      "rule": "CVE-2023-34455",
+      "level": "error",
+      "location": "server/lib/snappy-java-1.1.2.1.jar:1",
+      "message": "Package: org.xerial.snappy:snappy-java\nInstalled Version: 1.1.2.1\nVulnerability CVE-2023-34455\nSeverity: HIGH\nFixed Vers"
+    },
+    {
+      "tool": "trivy-chronicle-backend",
+      "rule": "CVE-2023-43642",
+      "level": "error",
+      "location": "server/lib/snappy-java-1.1.2.1.jar:1",
+      "message": "Package: org.xerial.snappy:snappy-java\nInstalled Version: 1.1.2.1\nVulnerability CVE-2023-43642\nSeverity: HIGH\nFixed Vers"
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-31498",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: c-ares\nInstalled Version: 1.34.3-r0\nVulnerability CVE-2025-31498\nSeverity: HIGH\nFixed Version: 1.34.5-r0\nLink: "
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-15467",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libcrypto3\nInstalled Version: 3.3.3-r0\nVulnerability CVE-2025-15467\nSeverity: CRITICAL\nFixed Version: 3.3.6-r0\n"
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-69419",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libcrypto3\nInstalled Version: 3.3.3-r0\nVulnerability CVE-2025-69419\nSeverity: HIGH\nFixed Version: 3.3.6-r0\nLink"
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-69421",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libcrypto3\nInstalled Version: 3.3.3-r0\nVulnerability CVE-2025-69421\nSeverity: HIGH\nFixed Version: 3.3.6-r0\nLink"
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2024-8176",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libexpat\nInstalled Version: 2.6.4-r0\nVulnerability CVE-2024-8176\nSeverity: HIGH\nFixed Version: 2.7.0-r0\nLink: ["
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2026-25210",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libexpat\nInstalled Version: 2.6.4-r0\nVulnerability CVE-2026-25210\nSeverity: HIGH\nFixed Version: 2.7.4-r0\nLink: "
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-64720",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libpng\nInstalled Version: 1.6.44-r0\nVulnerability CVE-2025-64720\nSeverity: HIGH\nFixed Version: 1.6.53-r0\nLink: "
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-65018",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libpng\nInstalled Version: 1.6.44-r0\nVulnerability CVE-2025-65018\nSeverity: HIGH\nFixed Version: 1.6.53-r0\nLink: "
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-66293",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libpng\nInstalled Version: 1.6.44-r0\nVulnerability CVE-2025-66293\nSeverity: HIGH\nFixed Version: 1.6.53-r0\nLink: "
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2026-22695",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libpng\nInstalled Version: 1.6.44-r0\nVulnerability CVE-2026-22695\nSeverity: HIGH\nFixed Version: 1.6.54-r0\nLink: "
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2026-22801",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libpng\nInstalled Version: 1.6.44-r0\nVulnerability CVE-2026-22801\nSeverity: HIGH\nFixed Version: 1.6.54-r0\nLink: "
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2026-25646",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libpng\nInstalled Version: 1.6.44-r0\nVulnerability CVE-2026-25646\nSeverity: HIGH\nFixed Version: 1.6.55-r0\nLink: "
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-15467",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libssl3\nInstalled Version: 3.3.3-r0\nVulnerability CVE-2025-15467\nSeverity: CRITICAL\nFixed Version: 3.3.6-r0\nLin"
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-69419",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libssl3\nInstalled Version: 3.3.3-r0\nVulnerability CVE-2025-69419\nSeverity: HIGH\nFixed Version: 3.3.6-r0\nLink: ["
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-69421",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libssl3\nInstalled Version: 3.3.3-r0\nVulnerability CVE-2025-69421\nSeverity: HIGH\nFixed Version: 3.3.6-r0\nLink: ["
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2024-56171",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libxml2\nInstalled Version: 2.13.4-r3\nVulnerability CVE-2024-56171\nSeverity: CRITICAL\nFixed Version: 2.13.4-r4\nL"
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-49794",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libxml2\nInstalled Version: 2.13.4-r3\nVulnerability CVE-2025-49794\nSeverity: CRITICAL\nFixed Version: 2.13.9-r0\nL"
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-49796",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libxml2\nInstalled Version: 2.13.4-r3\nVulnerability CVE-2025-49796\nSeverity: CRITICAL\nFixed Version: 2.13.9-r0\nL"
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-24928",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libxml2\nInstalled Version: 2.13.4-r3\nVulnerability CVE-2025-24928\nSeverity: HIGH\nFixed Version: 2.13.4-r4\nLink:"
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-27113",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libxml2\nInstalled Version: 2.13.4-r3\nVulnerability CVE-2025-27113\nSeverity: HIGH\nFixed Version: 2.13.4-r5\nLink:"
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-32414",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libxml2\nInstalled Version: 2.13.4-r3\nVulnerability CVE-2025-32414\nSeverity: HIGH\nFixed Version: 2.13.4-r6\nLink:"
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-32415",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libxml2\nInstalled Version: 2.13.4-r3\nVulnerability CVE-2025-32415\nSeverity: HIGH\nFixed Version: 2.13.4-r6\nLink:"
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-49795",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libxml2\nInstalled Version: 2.13.4-r3\nVulnerability CVE-2025-49795\nSeverity: HIGH\nFixed Version: 2.13.9-r0\nLink:"
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-6021",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libxml2\nInstalled Version: 2.13.4-r3\nVulnerability CVE-2025-6021\nSeverity: HIGH\nFixed Version: 2.13.9-r0\nLink: "
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2024-55549",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libxslt\nInstalled Version: 1.1.42-r1\nVulnerability CVE-2024-55549\nSeverity: HIGH\nFixed Version: 1.1.42-r2\nLink:"
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-24855",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: libxslt\nInstalled Version: 1.1.42-r1\nVulnerability CVE-2025-24855\nSeverity: HIGH\nFixed Version: 1.1.42-r2\nLink:"
+    },
+    {
+      "tool": "trivy-chronicle-frontend",
+      "rule": "CVE-2025-31115",
+      "level": "error",
+      "location": "library/chronicle-frontend:1",
+      "message": "Package: xz-libs\nInstalled Version: 5.6.3-r0\nVulnerability CVE-2025-31115\nSeverity: HIGH\nFixed Version: 5.6.3-r1\nLink: ["
+    }
+  ]
+}

@@ -10,7 +10,7 @@
 #
 # Layers: sast, dast, sca, container, secrets, iac, api, tls, database,
 #         hipaa, gdpr, compliance, network, auth, injection, crypto, license,
-#         ratelimit, waf, runtime
+#         ratelimit, waf, runtime, smoke, dbsecurity, apiheaders
 #
 # All tools produce structured output (SARIF/JSON/JUnit XML) in the report dir.
 # =============================================================================
@@ -637,6 +637,79 @@ if should_run "runtime"; then
     bash "$PROJECT_ROOT/tests/security/test-falco.sh" 2>&1 | tail -10 && pass "Falco runtime" || fail "Falco runtime"
   else
     skip "Falco (security overlay not deployed)"
+  fi
+fi
+
+# =============================================================================
+# Layer 21: Smoke Tests
+# Service health, configuration, and deployment validation
+# =============================================================================
+if should_run "smoke"; then
+  log "Layer 21: Smoke Tests — service health and configuration"
+  if docker ps &>/dev/null; then
+    SMOKE_EXIT=0
+    SMOKE_OUTPUT=$(bash "$PROJECT_ROOT/tests/security/smoke-tests.sh" 2>&1) || SMOKE_EXIT=$?
+    echo "$SMOKE_OUTPUT"
+    SMOKE_PASS=$(echo "$SMOKE_OUTPUT" | grep -c '\[PASS\]' || true)
+    SMOKE_FAIL=$(echo "$SMOKE_OUTPUT" | grep -c '\[FAIL\]' || true)
+    SMOKE_SKIP=$(echo "$SMOKE_OUTPUT" | grep -c '\[SKIP\]' || true)
+    if [ "$SMOKE_EXIT" -eq 0 ]; then
+      pass "Smoke tests ($SMOKE_PASS passed, $SMOKE_SKIP skipped)"
+    else
+      fail "Smoke tests ($SMOKE_FAIL failed, $SMOKE_PASS passed, $SMOKE_SKIP skipped)"
+    fi
+  else
+    skip "Smoke tests (Docker not running)"
+  fi
+fi
+
+# =============================================================================
+# Layer 22: Database Security
+# TDE, permissions, configuration, and data integrity audit
+# HIPAA: §164.312(a)(1) — Access control, §164.312(a)(2)(iv) — Encryption
+# =============================================================================
+if should_run "dbsecurity"; then
+  log "Layer 22: Database Security — TDE, permissions, configuration"
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q chronicle-postgres; then
+    DBSEC_EXIT=0
+    DBSEC_OUTPUT=$(bash "$PROJECT_ROOT/tests/security/database-security-tests.sh" 2>&1) || DBSEC_EXIT=$?
+    echo "$DBSEC_OUTPUT"
+    DBSEC_PASS=$(echo "$DBSEC_OUTPUT" | grep -c '\[PASS\]' || true)
+    DBSEC_FAIL=$(echo "$DBSEC_OUTPUT" | grep -c '\[FAIL\]' || true)
+    DBSEC_SKIP=$(echo "$DBSEC_OUTPUT" | grep -c '\[SKIP\]' || true)
+    if [ "$DBSEC_EXIT" -eq 0 ]; then
+      pass "Database security audit ($DBSEC_PASS passed, $DBSEC_SKIP skipped)"
+    else
+      fail "Database security audit ($DBSEC_FAIL failed, $DBSEC_PASS passed, $DBSEC_SKIP skipped)"
+    fi
+  else
+    skip "Database security (chronicle-postgres not running)"
+  fi
+fi
+
+# =============================================================================
+# Layer 23: API & Header Security
+# HTTP headers, authentication, authorization, input validation, CORS
+# HIPAA: §164.312(e)(1) — Transmission security
+# =============================================================================
+if should_run "apiheaders"; then
+  log "Layer 23: API & Header Security — headers, auth, input validation"
+  if [ -n "$BACKEND_URL" ]; then
+    APIHDR_EXIT=0
+    APIHDR_OUTPUT=$(BACKEND_URL="$BACKEND_URL" bash "$PROJECT_ROOT/tests/security/api-header-tests.sh" 2>&1) || APIHDR_EXIT=$?
+    echo "$APIHDR_OUTPUT"
+    APIHDR_PASS=$(echo "$APIHDR_OUTPUT" | grep -c '\[PASS\]' || true)
+    APIHDR_FAIL=$(echo "$APIHDR_OUTPUT" | grep -c '\[FAIL\]' || true)
+    APIHDR_SKIP=$(echo "$APIHDR_OUTPUT" | grep -c '\[SKIP\]' || true)
+    if [ "$APIHDR_EXIT" -eq 0 ]; then
+      pass "API & Header security tests ($APIHDR_PASS passed, $APIHDR_SKIP skipped)"
+    elif [ "$APIHDR_EXIT" -eq 2 ]; then
+      skip "API & Header security (backend unreachable)"
+    else
+      fail "API & Header security tests ($APIHDR_FAIL failed, $APIHDR_PASS passed, $APIHDR_SKIP skipped)"
+    fi
+  else
+    skip "API & Header security (backend not reachable)"
   fi
 fi
 

@@ -56,13 +56,13 @@ info() {
 # ---------------------------------------------------------------------------
 # Pre-check: WAF container must be running
 # ---------------------------------------------------------------------------
-info "Checking for chronicle-waf container..."
+info "Checking for chronicle-crowdsec container..."
 
-WAF_CONTAINER=$(docker ps --filter name=chronicle-waf --format '{{.Names}}' 2>/dev/null || true)
+WAF_CONTAINER=$(docker ps --filter name=chronicle-crowdsec --format '{{.Names}}' 2>/dev/null || true)
 
 if [[ -z "$WAF_CONTAINER" ]]; then
     echo ""
-    info "chronicle-waf container is not running."
+    info "chronicle-crowdsec container is not running."
     info "Deploy the security overlay first, then re-run this script."
     echo ""
     printf "${YELLOW}All tests skipped.${NC}\n"

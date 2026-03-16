@@ -40,9 +40,10 @@ b64url() {
 
 NOW=$(date +%s)
 EXP=$((NOW + 7 * 86400))  # 7 days
+JTI=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null || openssl rand -hex 16)
 
 HEADER='{"alg":"HS256","typ":"JWT"}'
-PAYLOAD="{\"iss\":\"https://localhost/\",\"aud\":\"dummy-client-id\",\"sub\":\"local-admin\",\"iat\":${NOW},\"exp\":${EXP}}"
+PAYLOAD="{\"iss\":\"https://localhost/\",\"aud\":\"dummy-client-id\",\"sub\":\"local-admin\",\"iat\":${NOW},\"exp\":${EXP},\"jti\":\"${JTI}\"}"
 
 H=$(printf '%s' "$HEADER" | b64url)
 P=$(printf '%s' "$PAYLOAD" | b64url)

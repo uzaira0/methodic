@@ -99,7 +99,7 @@ fi
 # ---------------------------------------------------------------------------
 header "Test 2: Jail Configuration"
 
-JAILS=("chronicle-ratelimit" "chronicle-auth" "chronicle-scanner")
+JAILS=("chronicle-ratelimit" "chronicle-auth-bruteforce" "chronicle-scanner")
 JAIL_DESCRIPTIONS=("rate-limit 429 responses" "auth failure 401 responses" "scanner 404 responses")
 
 for i in "${!JAILS[@]}"; do
@@ -190,7 +190,7 @@ else
     info "Waiting 5 seconds for Fail2ban to process logs..."
     sleep 5
 
-    AUTH_STATUS=$(f2b fail2ban-client status chronicle-auth 2>&1) || true
+    AUTH_STATUS=$(f2b fail2ban-client status chronicle-auth-bruteforce 2>&1) || true
     AUTH_BANNED=$(echo "${AUTH_STATUS}" | grep -i "currently banned" | grep -oP '\d+' || echo "0")
 
     if [[ "${AUTH_BANNED}" -gt 0 ]]; then

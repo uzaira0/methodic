@@ -40,6 +40,42 @@ groups:
           summary: "HikariCP connection timeouts detected"
           description: "Connection timeout rate is {{ $value }}/s — clients are failing to get DB connections."
 
+  - name: security_alerts
+    rules:
+      # Backend uses Dropwizard metrics (not standard http_requests_total).
+      # These alerts use the available HikariCP and up{} metrics.
+      # HTTP-level alerts (429, 401 spikes) require Traefik metrics or Loki log queries.
+
+      - alert: DatabaseConnectionExhaustion
+        expr: HikariPool_1_pool_PendingConnections > 5
+        for: 2m
+        labels:
+          severity: critical
+          compliance: hipaa
+        annotations:
+          summary: "Database connection pool exhaustion"
+          description: "{{ $value }} pending DB connections — possible DoS or resource exhaustion attack."
+
+      - alert: AllPoolsNearCapacity
+        expr: (HikariPool_1_pool_ActiveConnections / HikariPool_1_pool_MaxConnections) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          compliance: hipaa
+        annotations:
+          summary: "HikariCP pool nearing capacity"
+          description: "Pool 1 is at {{ $value | humanizePercentage }} capacity. May indicate unusual load or attack."
+
+      - alert: ConnectionTimeoutSpike
+        expr: rate(HikariPool_1_pool_ConnectionTimeoutRate_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          compliance: hipaa
+        annotations:
+          summary: "Database connection timeout spike"
+          description: "Connection timeout rate is {{ $value }}/s — possible resource exhaustion attack."
+
   - name: chronicle-reliability
     rules:
       # Backend health endpoint down

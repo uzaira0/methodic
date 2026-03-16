@@ -77,9 +77,9 @@ separator "Check 1: Loki Reachable"
 info "Loki provides centralized audit log aggregation."
 info "During an incident, Loki is the primary source for audit trail queries."
 
-LOKI_RESPONSE=$(curl -s --max-time 5 http://localhost:3100/ready 2>/dev/null || echo "UNREACHABLE")
+LOKI_RESPONSE=$(docker exec chronicle-loki wget -q -O /dev/null http://localhost:3100/ready 2>&1 && echo "ready" || echo "UNREACHABLE")
 if echo "$LOKI_RESPONSE" | grep -qi "ready"; then
-  ready "Loki is reachable and ready (http://localhost:3100)"
+  ready "Loki is reachable and ready (via docker exec chronicle-loki)"
 else
   not_ready "Loki is NOT reachable — audit trail unavailable (response: $LOKI_RESPONSE)"
 fi
@@ -93,7 +93,7 @@ info "Sample LogQL query: {job=\"audit_logs\"}"
 info "During an incident, query Loki directly for rapid audit event search:"
 info "  curl 'http://localhost:3100/loki/api/v1/query?query={job=\"audit_logs\"}&limit=100'"
 
-AUDIT_RESPONSE=$(curl -s --max-time 10 'http://localhost:3100/loki/api/v1/query?query={job="audit_logs"}&limit=5' 2>/dev/null || echo "QUERY_FAILED")
+AUDIT_RESPONSE=$(docker exec chronicle-loki wget -q -O - 'http://localhost:3100/loki/api/v1/query?query={job="audit_logs"}&limit=5' 2>/dev/null || echo "QUERY_FAILED")
 if echo "$AUDIT_RESPONSE" | grep -q '"status":"success"'; then
   RESULT_COUNT=$(echo "$AUDIT_RESPONSE" | python3 -c "
 import json, sys
@@ -123,7 +123,7 @@ info "  HikariPool_1_pool_ActiveConnections — DB connection pool saturation"
 info "  HikariPool_1_pool_PendingConnections — requests waiting for a connection"
 info "  Query UI: http://localhost:9090/graph"
 
-TARGETS_RESPONSE=$(curl -s --max-time 5 http://localhost:9090/api/v1/targets 2>/dev/null || echo "UNREACHABLE")
+TARGETS_RESPONSE=$(docker exec chronicle-prometheus wget -q -O - http://localhost:9090/api/v1/targets 2>/dev/null || echo "UNREACHABLE")
 if echo "$TARGETS_RESPONSE" | grep -q '"status":"success"'; then
   BACKEND_UP=$(echo "$TARGETS_RESPONSE" | python3 -c "
 import json, sys
@@ -141,7 +141,7 @@ except:
     warn "Prometheus reachable but no targets are 'up' — metrics may be stale"
   fi
 else
-  not_ready "Prometheus is NOT reachable at http://localhost:9090"
+  not_ready "Prometheus is NOT reachable (via docker exec chronicle-prometheus)"
 fi
 
 # =============================================================================
@@ -154,11 +154,11 @@ info "  Backend overview:  http://localhost:3000/d/chronicle-backend"
 info "  Audit log viewer:  http://localhost:3000/d/chronicle-audit"
 info "  Via Traefik:       https://<host>/grafana"
 
-GRAFANA_HTTP=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://localhost:3000/api/health 2>/dev/null || echo "000")
-if [ "$GRAFANA_HTTP" = "200" ]; then
-  ready "Grafana is accessible (HTTP 200)"
+GRAFANA_RESPONSE=$(docker exec chronicle-grafana wget -q -O /dev/null http://localhost:3000/api/health 2>&1 && echo "OK" || echo "UNREACHABLE")
+if echo "$GRAFANA_RESPONSE" | grep -qi "OK"; then
+  ready "Grafana is accessible (via docker exec chronicle-grafana)"
 else
-  not_ready "Grafana is NOT accessible (HTTP $GRAFANA_HTTP) — dashboards unavailable for triage"
+  not_ready "Grafana is NOT accessible — dashboards unavailable for triage (response: $GRAFANA_RESPONSE)"
 fi
 
 # =============================================================================
@@ -170,6 +170,11 @@ BACKUP_DIR="/opt/chronicle/backups"
 info "Backup directory: $BACKUP_DIR"
 info "During an incident, the most recent backup determines your Recovery Point Objective."
 info "Restore procedure: docker/restore-chronicle.sh"
+
+if [ ! -d "$BACKUP_DIR" ]; then
+  info "Backup directory does not exist yet — creating $BACKUP_DIR (backup script creates it on first run)"
+  mkdir -p "$BACKUP_DIR" 2>/dev/null || true
+fi
 
 if [ -d "$BACKUP_DIR" ]; then
   LATEST_BACKUP=$(find "$BACKUP_DIR" -maxdepth 1 -name "*.sql.gz.enc" -o -name "*.sql.gz" -o -name "*.dump" -o -name "*.dump.enc" 2>/dev/null | \
@@ -188,7 +193,7 @@ if [ -d "$BACKUP_DIR" ]; then
     not_ready "No backup files found in $BACKUP_DIR — RPO is undefined!"
   fi
 else
-  not_ready "Backup directory $BACKUP_DIR does not exist!"
+  not_ready "Backup directory $BACKUP_DIR could not be created!"
 fi
 
 # =============================================================================

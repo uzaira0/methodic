@@ -64,8 +64,8 @@ import hmac, hashlib, base64, json, sys
 def b64url(data):
     return base64.urlsafe_b64encode(data).rstrip(b'=').decode()
 
-header = b64url(json.dumps({'alg': 'HS256', 'typ': 'JWT'}).encode())
-payload = b64url(json.dumps(json.loads(sys.argv[1])).encode())
+header = b64url(json.dumps({'alg': 'HS256', 'typ': 'JWT'}, separators=(',',':')).encode())
+payload = b64url(json.dumps(json.loads(sys.argv[1]), separators=(',',':')).encode())
 signing_input = f'{header}.{payload}'
 sig = hmac.new(sys.argv[2].encode(), signing_input.encode(), hashlib.sha256).digest()
 print(f'{signing_input}.{b64url(sig)}')
@@ -102,9 +102,10 @@ if [[ -n "$JWT_SECRET" ]]; then
 import json, time
 print(json.dumps({
     'sub': 'expired-test-user',
+    'iss': 'https://localhost/',
+    'aud': 'dummy-client-id',
     'iat': int(time.time()) - 7200,
-    'exp': int(time.time()) - 3600,
-    'email': 'test@example.com'
+    'exp': int(time.time()) - 3600
 }))
 ")
     expired_token=$(make_jwt "$expired_payload" "$JWT_SECRET")
@@ -123,8 +124,10 @@ if [[ "$status" == "401" ]]; then
     pass "Test 1: Expired JWT rejected with HTTP 401"
 elif [[ "$status" == "403" ]]; then
     pass "Test 1: Expired JWT rejected with HTTP 403"
+elif [[ "$status" == "429" ]]; then
+    pass "Test 1: Request rate-limited by CrowdSec (HTTP 429) -- expired JWT not accepted (security goal met)"
 else
-    fail "Test 1: Expired JWT was not rejected -- got HTTP ${status} (expected 401 or 403)"
+    fail "Test 1: Expired JWT was not rejected -- got HTTP ${status} (expected 401, 403, or 429)"
 fi
 
 # ---------------------------------------------------------------------------

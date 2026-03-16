@@ -78,6 +78,7 @@ services:
       - postgres_tde_keyring:/var/lib/postgresql/tde-keyring
       # Initialization script for TDE setup
       - ./init-db-encryption.sh:/docker-entrypoint-initdb.d/20-init-db-encryption.sh:ro
+      - ./init-audit-immutability.sh:/docker-entrypoint-initdb.d/30-init-audit-immutability.sh:ro
       # SSL/TLS certificates for encryption in transit
       # Generate with: ./init-postgres-ssl.sh
       - ./postgres-ssl/server/server.crt:/var/lib/postgresql/ssl/server.crt:ro,z
@@ -102,11 +103,67 @@ services:
       -c ssl_min_protocol_version=TLSv1.2
       -c ssl_prefer_server_ciphers=on
       -c password_encryption=scram-sha-256
-      -c shared_preload_libraries=pg_tde,percona_pg_telemetry
+      -c shared_preload_libraries=pg_tde,pgaudit,percona_pg_telemetry
+      -c pgaudit.log=ddl,role,write
+      -c pgaudit.log_catalog=off
+      -c pgaudit.log_client=on
+      -c pgaudit.log_level=log
+      -c pgaudit.log_statement_once=on
+      -c wal_level=replica
+      -c archive_mode=on
+      -c archive_command='mkdir -p /pgdata/wal_archive && test ! -f /pgdata/wal_archive/%f && cp %p /pgdata/wal_archive/%f'
+      -c max_wal_senders=3
+    pids_limit: 200
     deploy:
       resources:
         limits:
           memory: 1G
+
+  postgres-replica:
+    image: percona/percona-distribution-postgresql:17.5-3
+    container_name: chronicle-postgres-replica
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      PGDATA: /pgdata/data
+      # Replica connects to primary for streaming replication
+      POSTGRES_PRIMARY_HOST: postgres
+      POSTGRES_PRIMARY_PORT: 5432
+    volumes:
+      - postgres_replica_data:/pgdata
+    networks:
+      - chronicle-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    # Start as standby using pg_basebackup from primary
+    command: >
+      bash -c '
+      set -e
+      if [ ! -f /pgdata/data/PG_VERSION ]; then
+        echo "Initializing replica from primary..."
+        rm -rf /pgdata/data/*
+        until pg_isready -h postgres -p 5432 -U "${POSTGRES_USER}"; do sleep 2; done
+        if ! pg_basebackup -h postgres -p 5432 -U "${POSTGRES_USER}" -D /pgdata/data -Fp -Xs -P -R; then
+          echo "pg_basebackup failed — cleaning up partial data directory"
+          rm -rf /pgdata/data/*
+          exit 1
+        fi
+      fi
+      exec postgres -c hot_standby=on
+      '
+    profiles:
+      - ha
 
   chronicle-backend:
     build:
@@ -200,6 +257,7 @@ services:
       resources:
         limits:
           memory: 3G
+    pids_limit: 200
     depends_on:
       postgres:
         condition: service_healthy
@@ -363,11 +421,6 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    cap_add:
-      - CHOWN
-      - SETGID
-      - SETUID
-      - DAC_OVERRIDE
     read_only: true
     tmpfs:
       - /var/cache/nginx:noexec,nosuid
@@ -376,11 +429,12 @@ services:
     container_name: chronicle-frontend
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1/health || exit 1"]
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:8080/health || exit 1"]
       interval: 30s
       timeout: 3s
       start_period: 5s
       retries: 3
+    pids_limit: 200
     deploy:
       resources:
         limits:
@@ -395,7 +449,7 @@ services:
       - "traefik.http.routers.chronicle-frontend.rule=Host(`${DOMAIN}`) && PathPrefix(`/chronicle`)"
       - "traefik.http.routers.chronicle-frontend.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
       - "traefik.http.routers.chronicle-frontend.priority=1"
-      - "traefik.http.services.chronicle-frontend.loadbalancer.server.port=80"
+      - "traefik.http.services.chronicle-frontend.loadbalancer.server.port=8080"
       - "traefik.http.routers.chronicle-frontend.middlewares=chronicle-frontend-strip,chronicle-frontend-headers,chronicle-frontend-ratelimit"
 
       # Rate limiting for frontend (50 req/s average, burst of 100)
@@ -617,6 +671,7 @@ networks:
 volumes:
   traefik_access_logs:
   postgres_data:
+  postgres_replica_data:
   # Separate volume for TDE keyring to ensure key persistence
   # IMPORTANT: Back up this volume securely - loss of keys means loss of encrypted data
   postgres_tde_keyring:
