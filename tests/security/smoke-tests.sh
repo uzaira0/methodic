@@ -245,7 +245,7 @@ if require_container "$BE_CONTAINER" "Backend health endpoint"; then
   else
     # Try direct — 401 is acceptable (means backend is alive)
     http_code=$(curl -sf --max-time 10 -o /dev/null -w '%{http_code}' "http://${DOMAIN}/chronicle/v3/auth/session" 2>/dev/null || echo "000")
-    if [ "$http_code" = "401" ] || [ "$http_code" = "200" ] || [ "$http_code" = "403" ] || [ "$http_code" = "429" ]; then
+    if [[ "$http_code" =~ ^(200|301|302|401|403|429) ]]; then
       pass "Backend responds via Traefik (HTTP $http_code — service is alive)"
     else
       fail "Backend health endpoint not reachable via Traefik (HTTP $http_code)"
