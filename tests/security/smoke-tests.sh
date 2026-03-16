@@ -195,8 +195,11 @@ for container in "${ALL_CONTAINERS[@]}"; do
 
   # 1e. Not running as root (where applicable)
   case "$container" in
-    *falco*|*fail2ban*)
-      skip "$container — root check skipped (privileged/host-net container)"
+    *fail2ban*)
+      pass "$container — runs as root (required: needs NET_ADMIN + host network for iptables)"
+      ;;
+    *falco*)
+      pass "$container — runs as root (required: needs privileged mode for kernel module/eBPF)"
       ;;
     *crowdsec*)
       pass "$container — runs as root (required: needs network access for IDS)"

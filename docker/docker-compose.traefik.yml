@@ -104,7 +104,8 @@ services:
       -c ssl_min_protocol_version=TLSv1.2
       -c ssl_prefer_server_ciphers=on
       -c password_encryption=scram-sha-256
-      -c shared_preload_libraries=pg_tde,pgaudit,percona_pg_telemetry
+      -c shared_preload_libraries=pg_tde,pgaudit,pg_stat_statements,percona_pg_telemetry
+      -c pg_stat_statements.track=all
       -c pgaudit.log=ddl,role,write
       -c pgaudit.log_catalog=off
       -c pgaudit.log_client=on
