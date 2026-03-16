@@ -437,8 +437,9 @@ services:
       - ALL
     read_only: true
     tmpfs:
-      - /var/cache/nginx:noexec,nosuid,uid=101,gid=101
-      - /var/run:noexec,nosuid,uid=101,gid=101
+      - /var/lib/nginx/tmp:noexec,nosuid,uid=100,gid=101
+      - /var/lib/nginx/logs:noexec,nosuid,uid=100,gid=101
+      - /run/nginx:noexec,nosuid,uid=100,gid=101
       - /tmp:noexec,nosuid
     container_name: chronicle-frontend
     restart: unless-stopped
