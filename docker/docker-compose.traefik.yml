@@ -249,6 +249,8 @@ services:
       sed -i "/\"https:\\/\\/\"[[:space:]]*$/d" /server/config/cors.yaml &&
       chown -R chronicle:chronicle /var/log/chronicle &&
       exec java $$CHRONICLE_SERVER_XMS $$CHRONICLE_SERVER_XMX
+      -Xss512k -XX:MetaspaceSize=128m -XX:MaxMetaspaceSize=256m
+      -XX:+UseStringDeduplication -XX:MaxGCPauseMillis=200
       -cp "/server/config:/server/lib/*"
       com.openlattice.chronicle.ChronicleServer local postgres medialocal'
     healthcheck:
