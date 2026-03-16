@@ -3,6 +3,8 @@
 
 FROM oven/bun:1-alpine AS builder
 
+ARG GIT_SHA=unknown
+
 WORKDIR /app
 
 # Copy package files and vendored dependencies
@@ -17,6 +19,9 @@ COPY chronicle-web/ ./
 
 # Build production bundle with Bun native bundler
 RUN bun run modern:build
+
+# Generate version.json with git hash and build timestamp
+RUN echo "{\"version\":\"${GIT_SHA}\",\"buildTime\":\"$(date -Iseconds)\"}" > /app/dist/version.json
 
 # Production stage with nginx (non-root)
 FROM nginx:1.27.4-alpine

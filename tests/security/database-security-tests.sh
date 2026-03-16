@@ -40,7 +40,11 @@ info() { echo -e "  \033[0;36m[INFO]\033[0m $*"; }
 # SQL execution helper
 # ---------------------------------------------------------------------------
 run_sql() {
-  docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -t -A -c "$1" 2>/dev/null
+  local _pw=""
+  if [ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/docker/.env" ]; then
+    _pw=$(grep '^POSTGRES_PASSWORD=' "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/docker/.env" 2>/dev/null | sed 's/^POSTGRES_PASSWORD=//') || true
+  fi
+  docker exec -e PGPASSWORD="$_pw" "$CONTAINER" psql -h 127.0.0.1 -U "$DB_USER" -d "$DB_NAME" -t -A -c "$1" 2>/dev/null
 }
 
 # ---------------------------------------------------------------------------
@@ -154,7 +158,7 @@ PG_HBA=$(run_sql "SELECT type, database, user_name, address, auth_method FROM pg
 
 if [ -z "$PG_HBA" ]; then
   # Fallback: try reading file directly
-  PG_HBA=$(docker exec "$CONTAINER" cat /pgdata/pg_hba.conf 2>/dev/null || echo "")
+  PG_HBA=$(docker exec "$CONTAINER" cat /data/db/pg_hba.conf 2>/dev/null || docker exec "$CONTAINER" cat /pgdata/pg_hba.conf 2>/dev/null || echo "")
 fi
 
 # 3a. No trust entries for remote connections (127.0.0.1/::1/local are OK)
@@ -168,7 +172,7 @@ REMOTE_TRUST=$(run_sql "
 
 if [ "$REMOTE_TRUST" = "ERROR" ]; then
   # Fallback: parse the config file
-  REMOTE_TRUST_LINES=$(docker exec "$CONTAINER" sh -c "grep -E '^host' /pgdata/pg_hba.conf 2>/dev/null | grep -v '127.0.0.1' | grep -v '::1' | grep 'trust' | wc -l" 2>/dev/null || echo "0")
+  REMOTE_TRUST_LINES=$(docker exec "$CONTAINER" sh -c "cat /data/db/pg_hba.conf /pgdata/pg_hba.conf 2>/dev/null | grep -E '^host' | grep -v '127.0.0.1' | grep -v '::1' | grep 'trust' | wc -l" 2>/dev/null || echo "0")
   if [ "$REMOTE_TRUST_LINES" = "0" ]; then
     pass "No trust auth for remote connections (file-based check)"
   else
@@ -210,7 +214,7 @@ REPL_COUNT=$(run_sql "
 " 2>/dev/null || echo "ERROR")
 
 if [ "$REPL_COUNT" = "ERROR" ]; then
-  REPL_COUNT=$(docker exec "$CONTAINER" sh -c "grep -cE 'replication' /pgdata/pg_hba.conf 2>/dev/null" 2>/dev/null || echo "0")
+  REPL_COUNT=$(docker exec "$CONTAINER" sh -c "cat /data/db/pg_hba.conf /pgdata/pg_hba.conf 2>/dev/null | grep -cE 'replication'" 2>/dev/null || echo "0")
 fi
 
 if [ "$REPL_COUNT" -gt 0 ] 2>/dev/null; then

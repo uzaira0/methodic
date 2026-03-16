@@ -420,6 +420,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.frontend.prod
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
     image: chronicle-frontend:latest
     security_opt:
       - no-new-privileges:true

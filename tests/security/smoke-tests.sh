@@ -57,6 +57,15 @@ require_container() {
   return 0
 }
 
+# Helper: run psql with password via TCP (peer auth not available for 'chronicle' user)
+pg_psql() {
+  local _pw=""
+  if [ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/docker/.env" ]; then
+    _pw=$(grep '^POSTGRES_PASSWORD=' "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/docker/.env" 2>/dev/null | sed 's/^POSTGRES_PASSWORD=//') || true
+  fi
+  docker exec -e PGPASSWORD="$_pw" "$PG_CONTAINER" psql -h 127.0.0.1 -U chronicle -d chronicle -t -A -c "$1" 2>/dev/null
+}
+
 # ---------------------------------------------------------------------------
 # Discover all chronicle containers
 # ---------------------------------------------------------------------------
@@ -398,7 +407,7 @@ if require_container "$PG_CONTAINER" "PostgreSQL checks"; then
   fi
 
   # 4b. SSL enabled
-  ssl_status=$(docker exec "$PG_CONTAINER" psql -U chronicle -d chronicle -t -A -c "SHOW ssl;" 2>/dev/null || echo "")
+  ssl_status=$(pg_psql "SHOW ssl;" 2>/dev/null || echo "")
   if [ "$ssl_status" = "on" ]; then
     pass "PostgreSQL SSL enabled (ssl=on)"
   else
@@ -406,7 +415,7 @@ if require_container "$PG_CONTAINER" "PostgreSQL checks"; then
   fi
 
   # 4c. Password encryption = scram-sha-256
-  pw_enc=$(docker exec "$PG_CONTAINER" psql -U chronicle -d chronicle -t -A -c "SHOW password_encryption;" 2>/dev/null || echo "")
+  pw_enc=$(pg_psql "SHOW password_encryption;" 2>/dev/null || echo "")
   if [ "$pw_enc" = "scram-sha-256" ]; then
     pass "PostgreSQL password_encryption = scram-sha-256"
   else
@@ -414,7 +423,7 @@ if require_container "$PG_CONTAINER" "PostgreSQL checks"; then
   fi
 
   # 4d. TDE extension exists
-  pg_tde_exists=$(docker exec "$PG_CONTAINER" psql -U chronicle -d chronicle -t -A -c "SELECT count(*) FROM pg_extension WHERE extname='pg_tde';" 2>/dev/null || echo "0")
+  pg_tde_exists=$(pg_psql "SELECT count(*) FROM pg_extension WHERE extname='pg_tde';" 2>/dev/null || echo "0")
   if [ "$pg_tde_exists" = "1" ]; then
     pass "PostgreSQL pg_tde extension installed"
   else
@@ -422,7 +431,7 @@ if require_container "$PG_CONTAINER" "PostgreSQL checks"; then
   fi
 
   # 4e. pg_tde in shared_preload_libraries
-  spl=$(docker exec "$PG_CONTAINER" psql -U chronicle -d chronicle -t -A -c "SHOW shared_preload_libraries;" 2>/dev/null || echo "")
+  spl=$(pg_psql "SHOW shared_preload_libraries;" 2>/dev/null || echo "")
   if echo "$spl" | grep -q "pg_tde"; then
     pass "PostgreSQL shared_preload_libraries includes pg_tde"
   else
@@ -443,7 +452,7 @@ if require_container "$PG_CONTAINER" "PostgreSQL checks"; then
   fi
 
   # 4g. Count encrypted tables (expect >= 15)
-  encrypted_count=$(docker exec "$PG_CONTAINER" psql -U chronicle -d chronicle -t -A -c "
+  encrypted_count=$(pg_psql "
     SELECT count(*) FROM pg_catalog.pg_class c
     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'public' AND c.relkind = 'r'
@@ -459,7 +468,7 @@ if require_container "$PG_CONTAINER" "PostgreSQL checks"; then
   fi
 
   # 4h. Total table count
-  total_tables=$(docker exec "$PG_CONTAINER" psql -U chronicle -d chronicle -t -A -c "
+  total_tables=$(pg_psql "
     SELECT count(*) FROM pg_catalog.pg_class c
     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'public' AND c.relkind = 'r';
@@ -472,7 +481,7 @@ if require_container "$PG_CONTAINER" "PostgreSQL checks"; then
   fi
 
   # 4i. Audit immutability triggers present
-  audit_trigger=$(docker exec "$PG_CONTAINER" psql -U chronicle -d chronicle -t -A -c "
+  audit_trigger=$(pg_psql "
     SELECT count(*) FROM information_schema.triggers
     WHERE trigger_name LIKE '%immut%' OR trigger_name LIKE '%audit%prevent%'
     OR trigger_name LIKE '%no_delete%' OR trigger_name LIKE '%no_update%';
@@ -486,7 +495,7 @@ if require_container "$PG_CONTAINER" "PostgreSQL checks"; then
 
   # 4j. No trust auth for remote connections (check pg_hba)
   # Exclude localhost addresses (with and without CIDR mask) and local socket entries
-  trust_remote=$(docker exec "$PG_CONTAINER" psql -U chronicle -d chronicle -t -A -c "
+  trust_remote=$(pg_psql "
     SELECT count(*) FROM pg_hba_file_rules
     WHERE auth_method = 'trust'
       AND type IN ('host', 'hostssl', 'hostnossl')
@@ -498,7 +507,7 @@ if require_container "$PG_CONTAINER" "PostgreSQL checks"; then
     pass "PostgreSQL no trust auth for remote connections"
   elif [ "$trust_remote" = "check_failed" ]; then
     # Fallback: grep pg_hba.conf — only check host lines, exclude localhost
-    hba_trust=$(docker exec "$PG_CONTAINER" sh -c 'grep -E "^host" /pgdata/data/pg_hba.conf 2>/dev/null | grep -v "127.0.0.1" | grep -v "::1" | grep "trust"' 2>/dev/null || echo "")
+    hba_trust=$(docker exec "$PG_CONTAINER" sh -c 'grep -E "^host" /data/db/pg_hba.conf 2>/dev/null || grep -E "^host" /pgdata/pg_hba.conf 2>/dev/null | grep -v "127.0.0.1" | grep -v "::1" | grep "trust"' 2>/dev/null || echo "")
     if [ -z "$hba_trust" ]; then
       pass "PostgreSQL no trust auth for remote connections (pg_hba.conf check)"
     else
@@ -509,7 +518,7 @@ if require_container "$PG_CONTAINER" "PostgreSQL checks"; then
   fi
 
   # 4k. SSL minimum protocol version
-  ssl_min=$(docker exec "$PG_CONTAINER" psql -U chronicle -d chronicle -t -A -c "SHOW ssl_min_protocol_version;" 2>/dev/null || echo "")
+  ssl_min=$(pg_psql "SHOW ssl_min_protocol_version;" 2>/dev/null || echo "")
   if [ "$ssl_min" = "TLSv1.2" ] || [ "$ssl_min" = "TLSv1.3" ]; then
     pass "PostgreSQL SSL minimum protocol: $ssl_min"
   else
@@ -517,7 +526,7 @@ if require_container "$PG_CONTAINER" "PostgreSQL checks"; then
   fi
 
   # 4l. WAL archiving enabled
-  archive_mode=$(docker exec "$PG_CONTAINER" psql -U chronicle -d chronicle -t -A -c "SHOW archive_mode;" 2>/dev/null || echo "")
+  archive_mode=$(pg_psql "SHOW archive_mode;" 2>/dev/null || echo "")
   if [ "$archive_mode" = "on" ]; then
     pass "PostgreSQL WAL archive_mode = on"
   else
@@ -531,7 +540,7 @@ if require_container "$PG_CONTAINER" "PostgreSQL checks"; then
   fi
 
   # 4m. pgaudit log settings
-  pgaudit_log=$(docker exec "$PG_CONTAINER" psql -U chronicle -d chronicle -t -A -c "SHOW pgaudit.log;" 2>/dev/null || echo "")
+  pgaudit_log=$(pg_psql "SHOW pgaudit.log;" 2>/dev/null || echo "")
   if echo "$pgaudit_log" | grep -q "ddl"; then
     pass "PostgreSQL pgaudit.log includes ddl"
   else
@@ -546,7 +555,7 @@ if require_container "$PG_CONTAINER" "PostgreSQL checks"; then
 
   # 4n. Key TDE tables are encrypted
   for tde_table in candidates study_participants devices sensor_data audit; do
-    tde_check=$(docker exec "$PG_CONTAINER" psql -U chronicle -d chronicle -t -A -c "
+    tde_check=$(pg_psql "
       SELECT pg_tde_is_encrypted('${tde_table}'::regclass);
     " 2>/dev/null || echo "error")
     tde_check=$(echo "$tde_check" | tr -d ' ')

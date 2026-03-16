@@ -118,7 +118,7 @@ if should_run "dast"; then
       docker run --rm --network=chronicle_chronicle-internal \
         -v "$REPORT_DIR:/zap/wrk:z" \
         "$ZAP_IMAGE" zap-baseline.py \
-        -t http://chronicle-frontend:80/ \
+        -t http://chronicle-frontend:8080/ \
         -J zap-baseline.json \
         -I 2>&1 | tail -15 && pass "DAST baseline" || fail "DAST baseline"
     else
@@ -311,8 +311,17 @@ fi
 if should_run "database"; then
   log "Layer 9: Database Security — PostgreSQL hardening audit"
   if docker ps --format '{{.Names}}' 2>/dev/null | grep -q chronicle-postgres; then
+    # Load DB password from .env for scram-sha-256 auth over TCP
+    _DB_PW=""
+    if [ -f "$PROJECT_ROOT/docker/.env" ]; then
+      _DB_PW=$(grep '^POSTGRES_PASSWORD=' "$PROJECT_ROOT/docker/.env" 2>/dev/null | sed 's/^POSTGRES_PASSWORD=//') || true
+    fi
+    chronicle_psql() {
+      docker exec -e PGPASSWORD="$_DB_PW" chronicle-postgres psql -h 127.0.0.1 -U chronicle -d chronicle -t -A -c "$1"
+    }
+
     # Check SSL, encryption, password policy, logging
-    docker exec chronicle-postgres psql -U chronicle -d chronicle -t -A -c "
+    chronicle_psql "
       SELECT json_agg(json_build_object('name', name, 'setting', setting))
       FROM pg_settings
       WHERE name IN (
@@ -323,14 +332,15 @@ if should_run "database"; then
     " > "$REPORT_DIR/pg-settings.json" 2>&1 && pass "DB settings" || fail "DB settings"
 
     # Verify TDE encryption on all expected tables
-    docker exec chronicle-postgres psql -U chronicle -d chronicle -t -A -c "
+    chronicle_psql "
       SELECT json_agg(json_build_object('table', relname, 'encrypted', pg_tde_is_encrypted(oid::regclass)))
       FROM pg_class
       WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace;
     " > "$REPORT_DIR/pg-tde-status.json" 2>&1 && pass "DB TDE" || fail "DB TDE"
 
     # Check pg_hba.conf for unsafe trust entries on non-localhost
-    (docker exec chronicle-postgres cat /pgdata/pg_hba.conf 2>/dev/null | \
+    (docker exec chronicle-postgres cat /data/db/pg_hba.conf 2>/dev/null || \
+      docker exec chronicle-postgres cat /pgdata/pg_hba.conf 2>/dev/null | \
       grep -v '^#' | grep -v '^$' | grep 'trust' | grep -v '127.0.0.1' > "$REPORT_DIR/pg-hba-trust.txt" 2>&1) || true
     if [ -s "$REPORT_DIR/pg-hba-trust.txt" ]; then
       fail "DB pg_hba: non-localhost trust entries found!"
