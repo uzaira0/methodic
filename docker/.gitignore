@@ -1,9 +1,12 @@
-# Secrets and credentials - NEVER commit these
+# Rendered configs (contain secrets from .env — NEVER commit)
 .env
 rhizome-docker.yaml
+chronicle-auth.yaml
 auth0.yaml
 mail.yaml
 mobile-security.yaml
+vault.yaml
+cors.yaml
 chronicle-config.json
 
 # SSL/TLS private keys
