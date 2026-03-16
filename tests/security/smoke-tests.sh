@@ -90,7 +90,6 @@ _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "$_SCRIPT_DIR/lib-test-helpers.sh" ]; then
     source "$_SCRIPT_DIR/lib-test-helpers.sh"
     setup_crowdsec_whitelist
-    trap teardown_crowdsec_whitelist EXIT
 fi
 
 # =============================================================================

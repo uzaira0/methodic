@@ -50,7 +50,6 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 if [ -f "$SCRIPT_DIR/lib-test-helpers.sh" ]; then
     source "$SCRIPT_DIR/lib-test-helpers.sh"
     setup_crowdsec_whitelist
-    trap teardown_crowdsec_whitelist EXIT
 fi
 
 if [ -z "${AUTH_TOKEN:-}" ]; then
@@ -166,7 +165,6 @@ else
     assert_status "Test 1: Unauthenticated read of Study B participants requires auth" "$status" "401" "403" "429"
 fi
 
-sleep 1
 
 # ---------------------------------------------------------------------------
 # Test 2: Privilege Escalation
@@ -179,12 +177,10 @@ else
     status=$(auth_http_status GET "${BASE_URL}/chronicle/v3/admin/event-storage")
     assert_status "Test 2a: GET admin/event-storage with researcher token" "$status" "403" "404" "429"
 
-    sleep 1
     status=$(auth_http_status GET "${BASE_URL}/chronicle/v3/admin/reload/cache")
     assert_status "Test 2b: GET admin/reload/cache with researcher token" "$status" "403" "404" "429"
 fi
 
-sleep 1
 
 # ---------------------------------------------------------------------------
 # Test 3: Enrollment Isolation
@@ -197,7 +193,6 @@ else
     assert_status "Test 3: Access Study A participant via Study B" "$status" "403" "404" "429"
 fi
 
-sleep 1
 
 # ---------------------------------------------------------------------------
 # Test 4: Unauthorized Export
@@ -210,14 +205,12 @@ else
     status=$(http_status GET "${BASE_URL}/chronicle/v3/study/${STUDY_A}/export")
     assert_status "Test 4a: Export with no auth token" "$status" "401" "403" "429"
 
-    sleep 1
     # 4b: With invalid auth
     status=$(http_status GET "${BASE_URL}/chronicle/v3/study/${STUDY_A}/export" \
         -H "Authorization: Bearer invalid.token.value")
     assert_status "Test 4b: Export with invalid auth token" "$status" "401" "403" "429"
 fi
 
-sleep 1
 
 # ---------------------------------------------------------------------------
 # Test 5: Unauthorized Purge

@@ -77,7 +77,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "$SCRIPT_DIR/lib-test-helpers.sh" ]; then
     source "$SCRIPT_DIR/lib-test-helpers.sh"
     setup_crowdsec_whitelist
-    trap teardown_crowdsec_whitelist EXIT
 fi
 echo ""
 
@@ -107,7 +106,6 @@ fi
 # ---------------------------------------------------------------------------
 # Test 2: XSS probe
 # ---------------------------------------------------------------------------
-sleep 1
 info "Test 2: XSS probe"
 STATUS=$(http_status GET "${BASE_URL}/chronicle/v3/studies?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E")
 if [[ "$STATUS" == "403" || "$STATUS" == "401" || "$STATUS" == "429" ]]; then
@@ -119,7 +117,6 @@ fi
 # ---------------------------------------------------------------------------
 # Test 3: Command Injection
 # ---------------------------------------------------------------------------
-sleep 1
 info "Test 3: Command Injection"
 STATUS=$(http_status GET "${BASE_URL}/chronicle/v3/studies?cmd=%24(whoami)")
 if [[ "$STATUS" == "403" || "$STATUS" == "401" || "$STATUS" == "429" ]]; then
@@ -131,7 +128,6 @@ fi
 # ---------------------------------------------------------------------------
 # Test 4: Path Traversal
 # ---------------------------------------------------------------------------
-sleep 1
 info "Test 4: Path Traversal"
 STATUS=$(http_status GET "${BASE_URL}/chronicle/../../../../etc/passwd")
 if [[ "$STATUS" == "403" || "$STATUS" == "401" || "$STATUS" == "429" || "$STATUS" == "400" || "$STATUS" == "404" ]]; then
@@ -143,7 +139,6 @@ fi
 # ---------------------------------------------------------------------------
 # Test 5: Legitimate request (no false positive)
 # ---------------------------------------------------------------------------
-sleep 1
 info "Test 5: Legitimate request (no false positive)"
 CURL_ARGS=()
 if [[ -n "$AUTH_TOKEN" ]]; then
@@ -179,7 +174,6 @@ else
     pass "Double-encoded traversal: PL1 pass-through (${STATUS}) — increase paranoia level to block"
 fi
 
-sleep 1
 info "Test 6c: Null byte injection"
 STATUS=$(http_status GET "${BASE_URL}/chronicle/v3/studies%00.json")
 if [[ "$STATUS" == "403" || "$STATUS" == "401" || "$STATUS" == "429" || "$STATUS" == "400" ]]; then
@@ -191,7 +185,6 @@ fi
 # ---------------------------------------------------------------------------
 # Test 7: POST body SQL Injection
 # ---------------------------------------------------------------------------
-sleep 1
 info "Test 7: POST body SQL Injection"
 STATUS=$(http_status POST "${BASE_URL}/chronicle/v3/studies" \
     -H "Content-Type: application/json" \

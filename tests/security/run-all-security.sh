@@ -340,8 +340,7 @@ if should_run "sca"; then
 
   # Backend (Gradle/Trivy) — dependency vulnerability scanning
   if command -v trivy &>/dev/null && [ -d "$PROJECT_ROOT/chronicle-server" ]; then
-    TRIVY_CACHE="${TRIVY_CACHE_DIR:-$PROJECT_ROOT/tests/security/.trivy-cache}"
-    mkdir -p "$TRIVY_CACHE"
+    TRIVY_CACHE="$TRIVY_CACHE_DIR"
     # Fallback: use trivy to scan Gradle dependencies via lockfile/build files
     trivy fs --scanners vuln --severity HIGH,CRITICAL --format json \
       --cache-dir "$TRIVY_CACHE" \
@@ -366,8 +365,7 @@ fi
 if should_run "container"; then
   log "Layer 4: Container Security — Trivy image scanning"
   if command -v trivy &>/dev/null; then
-    TRIVY_CACHE="${TRIVY_CACHE_DIR:-$PROJECT_ROOT/tests/security/.trivy-cache}"
-    mkdir -p "$TRIVY_CACHE"
+    TRIVY_CACHE="$TRIVY_CACHE_DIR"
     # Run image scans + misconfig scan in parallel
     _trivy_tmpdir=$(mktemp -d)
     _trivy_pids=()
@@ -821,8 +819,7 @@ fi
 if should_run "license"; then
   log "Layer 17: License Compliance"
   if command -v trivy &>/dev/null; then
-    TRIVY_CACHE="${TRIVY_CACHE_DIR:-$PROJECT_ROOT/tests/security/.trivy-cache}"
-    mkdir -p "$TRIVY_CACHE"
+    TRIVY_CACHE="$TRIVY_CACHE_DIR"
     trivy fs --scanners license --format json \
       --cache-dir "$TRIVY_CACHE" \
       -o "$REPORT_DIR/trivy-licenses.json" "$PROJECT_ROOT/" 2>&1 | tail -3 && pass "License scan" || fail "License scan"

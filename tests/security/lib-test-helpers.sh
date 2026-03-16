@@ -8,15 +8,15 @@
 # Usage:
 #   source "$(dirname "${BASH_SOURCE[0]}")/lib-test-helpers.sh"
 #   setup_crowdsec_whitelist
-#   trap teardown_crowdsec_whitelist EXIT
 # =============================================================================
 
-# Whitelist the current host's IP in CrowdSec for the test duration.
-# CrowdSec rate-limits rapid sequential requests; whitelisting the test
-# runner prevents 429/401 responses that mask real test results.
+# Clear CrowdSec bans on the test runner's IP before tests.
+# CrowdSec rate-limits rapid sequential requests; clearing bans on the test
+# runner's IP prevents 429/401 responses that mask real test results.
 setup_crowdsec_whitelist() {
     # Only proceed if CrowdSec container is running
     if ! docker ps --filter name=chronicle-crowdsec --format '{{.Names}}' 2>/dev/null | grep -q chronicle-crowdsec; then
+        echo "[INFO] CrowdSec not running — skipping whitelist setup"
         return 0
     fi
 
@@ -35,25 +35,10 @@ setup_crowdsec_whitelist() {
         my_ip="172.30.0.1"
     fi
 
-    # Clear any existing bans on this IP first
-    docker exec chronicle-crowdsec cscli decisions delete --ip "$my_ip" 2>/dev/null || true
+    # Clear bans on test runner IP only (not --all, which would remove legitimate bans)
+    if ! docker exec chronicle-crowdsec cscli decisions delete --ip "$my_ip" 2>/dev/null; then
+        echo "[WARN] Failed to clear CrowdSec decisions for $my_ip — tests may get 429s" >&2
+    fi
 
-    # Add a whitelist decision (duration = 1h, more than enough for a test run)
-    # Note: CrowdSec "decisions add" with --type whitelist is not supported in all versions.
-    # Instead, we delete any existing ban and add a long-duration allow via the local API.
-    # The safest approach: just delete all decisions for this IP before each test.
-    # Also try adding to the whitelist via the bouncers' trusted IPs.
-
-    # Approach: clear all decisions (bans) so the test runner is not blocked
-    docker exec chronicle-crowdsec cscli decisions delete --all 2>/dev/null || true
-
-    echo "[INFO] Cleared CrowdSec decisions for test runner (IP: $my_ip)"
-
-    export _CROWDSEC_WHITELISTED_IP="$my_ip"
-}
-
-teardown_crowdsec_whitelist() {
-    # No-op: we don't need to re-add bans after tests.
-    # CrowdSec will re-detect any real attacks on its own.
-    :
+    echo "[INFO] Cleared CrowdSec decisions for test runner IP: $my_ip"
 }

@@ -101,8 +101,7 @@ ENV CHRONICLE_SERVER_ARGS="local postgres medialocal"
 
 EXPOSE 40320
 
-HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
-    CMD wget -qO- http://127.0.0.1:40320/prometheus/ > /dev/null || exit 1
+# HEALTHCHECK is defined in docker-compose.traefik.yml (compose always overrides Dockerfile HEALTHCHECK)
 
 LABEL org.opencontainers.image.source="https://github.com/methodic-labs/chronicle"
 LABEL org.opencontainers.image.vendor="Methodic Labs"

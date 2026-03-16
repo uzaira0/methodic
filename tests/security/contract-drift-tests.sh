@@ -84,7 +84,6 @@ fi
 if [ -f "$SCRIPT_DIR/lib-test-helpers.sh" ]; then
     source "$SCRIPT_DIR/lib-test-helpers.sh"
     setup_crowdsec_whitelist
-    trap teardown_crowdsec_whitelist EXIT
 fi
 
 # ---------------------------------------------------------------------------
@@ -641,7 +640,6 @@ else
         else
             pass "Live $method $path: responded HTTP $http_code"
         fi
-        sleep 1
     done
 
     # Content-Type checks for JSON endpoints

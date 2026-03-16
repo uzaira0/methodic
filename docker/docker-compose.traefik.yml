@@ -247,6 +247,10 @@ services:
       envsubst < /server/config/vault.yaml.template > /server/config/vault.yaml &&
       envsubst < /server/config/cors.yaml.template > /server/config/cors.yaml &&
       sed -i "/\"https:\\/\\/\"[[:space:]]*$/d" /server/config/cors.yaml &&
+      for f in rhizome.yaml chronicle-auth.yaml mail.yaml; do
+        [ -s "/server/config/$$f" ] || { echo "FATAL: /server/config/$$f is empty or missing after envsubst" >&2; exit 1; };
+      done &&
+      [ -d /var/log/chronicle ] || { echo "FATAL: /var/log/chronicle not mounted (audit logs required)" >&2; exit 1; } &&
       chown -R chronicle:chronicle /var/log/chronicle 2>/dev/null;
       chown chronicle:chronicle /server/config /server/config/*.yaml 2>/dev/null;
       exec su-exec chronicle java $$CHRONICLE_SERVER_XMS $$CHRONICLE_SERVER_XMX
