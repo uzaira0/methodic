@@ -113,7 +113,7 @@ if should_run "dast"; then
     if docker network ls --format '{{.Name}}' | grep -q chronicle_chronicle-internal; then
       # ZAP baseline scan: crawls the app and checks for common vulnerabilities
       # Targets frontend via internal Docker network (not publicly exposed)
-      chmod 777 "$REPORT_DIR" 2>/dev/null || true
+      chmod o+rwx "$REPORT_DIR" 2>/dev/null || true
       docker run --rm --network=chronicle_chronicle-internal \
         -v "$REPORT_DIR:/zap/wrk:z" \
         "$ZAP_IMAGE" zap-baseline.py \
@@ -245,19 +245,27 @@ if should_run "api"; then
       SCHEMA_TOKEN=$(python3 -c "import json; print(json.load(open('$PROJECT_ROOT/docker/chronicle-config.json')).get('token',''))" 2>/dev/null || true)
     fi
     if [ -f "$SCHEMA_FILE" ] && [ -n "$BACKEND_URL" ]; then
+      SCHEMATHESIS_EXIT=0
       schemathesis run "$SCHEMA_FILE" \
         --url "$BACKEND_URL" \
         --max-examples=50 \
         -H "Authorization: Bearer $SCHEMA_TOKEN" \
-        --report junit --report-dir "$REPORT_DIR/schemathesis" > "$REPORT_DIR/schemathesis-stdout.txt" 2>&1 || true
-      SCHEMA_ERRORS=$(grep -c 'server_error\|Internal Server Error\|status_code: 500' "$REPORT_DIR/schemathesis-stdout.txt" 2>/dev/null || echo "0")
-      tail -5 "$REPORT_DIR/schemathesis-stdout.txt"
-      if [ "$SCHEMA_ERRORS" -gt 5 ]; then
-        fail "API fuzzing — $SCHEMA_ERRORS server errors (500s) found"
-      elif [ "$SCHEMA_ERRORS" -gt 0 ]; then
-        pass "API fuzzing ($SCHEMA_ERRORS minor 500s from edge-case fuzzing — see report)"
+        --report junit --report-dir "$REPORT_DIR/schemathesis" > "$REPORT_DIR/schemathesis-stdout.txt" 2>&1 || SCHEMATHESIS_EXIT=$?
+      if [ ! -s "$REPORT_DIR/schemathesis-stdout.txt" ]; then
+        fail "API fuzzing — schemathesis produced no output (exit code $SCHEMATHESIS_EXIT)"
       else
-        pass "API fuzzing (see schemathesis report for conformance details)"
+        SCHEMA_ERRORS=0
+        if [ -f "$REPORT_DIR/schemathesis-stdout.txt" ]; then
+          SCHEMA_ERRORS=$(grep -c 'Internal Server Error\|status_code: 500' "$REPORT_DIR/schemathesis-stdout.txt" || true)
+        fi
+        tail -5 "$REPORT_DIR/schemathesis-stdout.txt"
+        if [ "$SCHEMA_ERRORS" -gt 5 ]; then
+          fail "API fuzzing — $SCHEMA_ERRORS server errors (500s) found"
+        elif [ "$SCHEMA_ERRORS" -gt 0 ]; then
+          pass "API fuzzing ($SCHEMA_ERRORS minor 500s from edge-case fuzzing — see report)"
+        else
+          pass "API fuzzing (see schemathesis report for conformance details)"
+        fi
       fi
     elif [ -f "$SCHEMA_FILE" ]; then
       skip "schemathesis (OpenAPI spec found but backend not reachable)"

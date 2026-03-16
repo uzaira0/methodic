@@ -19,4 +19,5 @@ certs/
 tls/*.crt
 tls/*.key
 tls/*.pem
-docker/traefik/dynamic/crowdsec-waf.yml
+# CrowdSec bouncer config (contains API key — generated at deploy time)
+traefik/dynamic/crowdsec-waf.yml
