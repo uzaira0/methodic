@@ -96,9 +96,12 @@ echo ""
 echo "  Waiting for all scripts to finish..."
 echo ""
 
-# Wait for all background jobs
+# Wait for all background jobs (capture exit codes)
+WAIT_FAILURES=0
 for pid in "${PIDS[@]}"; do
-  wait "$pid" 2>/dev/null || true
+  if ! wait "$pid" 2>/dev/null; then
+    WAIT_FAILURES=$((WAIT_FAILURES + 1))
+  fi
 done
 
 WALL_END=$(date +%s)

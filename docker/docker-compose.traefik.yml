@@ -58,6 +58,14 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -176,6 +184,13 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - CHOWN
+      - DAC_OVERRIDE
     tmpfs:
       - /tmp:noexec,nosuid,size=256M
     environment:
@@ -248,11 +263,11 @@ services:
       envsubst < /server/config/vault.yaml.template > /server/config/vault.yaml &&
       envsubst < /server/config/cors.yaml.template > /server/config/cors.yaml &&
       sed -i "/\"https:\\/\\/\"[[:space:]]*$/d" /server/config/cors.yaml &&
-      for f in rhizome.yaml chronicle-auth.yaml mail.yaml; do
+      for f in rhizome.yaml chronicle-auth.yaml mail.yaml mobile-security.yaml vault.yaml cors.yaml; do
         [ -s "/server/config/$$f" ] || { echo "FATAL: /server/config/$$f is empty or missing after envsubst" >&2; exit 1; };
       done &&
       [ -d /var/log/chronicle ] || { echo "FATAL: /var/log/chronicle not mounted (audit logs required)" >&2; exit 1; } &&
-      chown -R chronicle:chronicle /var/log/chronicle 2>/dev/null;
+      chown chronicle:chronicle /var/log/chronicle 2>/dev/null;
       chown chronicle:chronicle /server/config /server/config/*.yaml 2>/dev/null;
       exec su-exec chronicle java $$CHRONICLE_SERVER_XMS $$CHRONICLE_SERVER_XMX
       -Xss512k -XX:MetaspaceSize=128m -XX:MaxMetaspaceSize=256m

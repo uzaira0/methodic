@@ -168,9 +168,17 @@ for container in "${CONTAINERS[@]}"; do
           warn "$container — unexpected capabilities: ${cap_add}"
         fi
         ;;
+      *backend*)
+        # Backend needs SETUID/SETGID (su-exec privilege drop) + CHOWN/DAC_OVERRIDE (config ownership)
+        cap_drop=$(_cget capdrop "$container")
+        if echo "$cap_drop" | grep -q "ALL"; then
+          pass "$container — minimal caps with cap_drop: ALL (su-exec: ${cap_add})"
+        else
+          warn "$container — has capabilities without cap_drop: ALL: ${cap_add}"
+        fi
+        ;;
       *frontend*)
         # nginx needs minimal caps to bind port 80 and manage workers
-        # compose uses cap_drop: ALL + specific cap_add (minimal set)
         cap_drop=$(_cget capdrop "$container")
         if echo "$cap_drop" | grep -q "ALL"; then
           pass "$container — nginx caps with cap_drop: ALL (hardened: ${cap_add})"
