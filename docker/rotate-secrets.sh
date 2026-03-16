@@ -123,8 +123,12 @@ rotate_grafana() {
     new_password=$(generate_password)
     update_env "GRAFANA_ADMIN_PASSWORD" "$new_password"
 
-    # Update in running Grafana
-    docker exec chronicle-grafana grafana-cli admin reset-admin-password "$new_password" 2>/dev/null || true
+    # Update in running Grafana (if container is running)
+    if docker exec chronicle-grafana grafana-cli admin reset-admin-password "$new_password" 2>/dev/null; then
+        log_ok "Grafana live instance updated"
+    else
+        log_warn "Grafana container not running or update failed — .env updated, restart container to apply"
+    fi
 
     log_warn "Grafana password rotated. New password is in .env"
     log_ok "Grafana password rotation complete"

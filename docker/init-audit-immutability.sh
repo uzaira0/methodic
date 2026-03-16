@@ -23,6 +23,12 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-'
     $$ LANGUAGE plpgsql;
 EOSQL
 
+# Validate POSTGRES_USER contains only safe identifier characters (alphanumeric + underscore)
+if ! echo "$POSTGRES_USER" | grep -qE '^[a-zA-Z_][a-zA-Z0-9_]*$'; then
+    echo "ERROR: POSTGRES_USER contains unsafe characters: $POSTGRES_USER" >&2
+    exit 1
+fi
+
 # Apply triggers and revoke permissions (uses $POSTGRES_USER for the REVOKE target)
 # The app user name matches POSTGRES_USER in this deployment.
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<EOSQL
