@@ -118,7 +118,7 @@ services:
       resources:
         limits:
           memory: 1G
-          pids: 200
+          pids: 512
 
   postgres-replica:
     image: percona/percona-distribution-postgresql:17.5-3
@@ -258,7 +258,7 @@ services:
       resources:
         limits:
           memory: 3G
-          pids: 200
+          pids: 512
     depends_on:
       postgres:
         condition: service_healthy
@@ -424,8 +424,8 @@ services:
       - ALL
     read_only: true
     tmpfs:
-      - /var/cache/nginx:noexec,nosuid
-      - /var/run:noexec,nosuid
+      - /var/cache/nginx:noexec,nosuid,uid=101,gid=101
+      - /var/run:noexec,nosuid,uid=101,gid=101
       - /tmp:noexec,nosuid
     container_name: chronicle-frontend
     restart: unless-stopped
@@ -439,7 +439,7 @@ services:
       resources:
         limits:
           memory: 128M
-          pids: 200
+          pids: 512
     networks:
       - chronicle-internal
       - traefik
