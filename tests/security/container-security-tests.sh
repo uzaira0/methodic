@@ -120,12 +120,18 @@ for container in "${CONTAINERS[@]}"; do
   fi
   user=$(_cget user "$container")
   if [ -z "$user" ] || [ "$user" = "root" ] || [ "$user" = "0" ]; then
-    cap_drop=$(_cget capdrop "$container")
-    no_new_priv=$(_cget secopt "$container")
-    if echo "$cap_drop" | grep -q "ALL" && echo "$no_new_priv" | grep -q "no-new-privileges"; then
-      warn "$container — runs as root but has cap_drop:ALL + no-new-privileges (hardened)"
+    # Check PID 1's actual user (handles su-exec/gosu privilege drop patterns)
+    pid1_user=$(docker exec "$container" sh -c 'stat -c "%U" /proc/1/exe 2>/dev/null || ps -o user= -p 1 2>/dev/null | tr -d " "' 2>/dev/null || echo "")
+    if [ -n "$pid1_user" ] && [ "$pid1_user" != "root" ] && [ "$pid1_user" != "0" ]; then
+      pass "$container — PID 1 runs as '${pid1_user}' (su-exec privilege drop)"
     else
-      fail "$container — runs as root or no user specified (User='${user:-<empty>}')"
+      cap_drop=$(_cget capdrop "$container")
+      no_new_priv=$(_cget secopt "$container")
+      if echo "$cap_drop" | grep -q "ALL" && echo "$no_new_priv" | grep -q "no-new-privileges"; then
+        warn "$container — runs as root but has cap_drop:ALL + no-new-privileges (hardened)"
+      else
+        fail "$container — runs as root or no user specified (User='${user:-<empty>}')"
+      fi
     fi
   else
     pass "$container — runs as non-root user '${user}'"

@@ -247,8 +247,9 @@ services:
       envsubst < /server/config/vault.yaml.template > /server/config/vault.yaml &&
       envsubst < /server/config/cors.yaml.template > /server/config/cors.yaml &&
       sed -i "/\"https:\\/\\/\"[[:space:]]*$/d" /server/config/cors.yaml &&
-      chown -R chronicle:chronicle /var/log/chronicle &&
-      exec java $$CHRONICLE_SERVER_XMS $$CHRONICLE_SERVER_XMX
+      chown -R chronicle:chronicle /var/log/chronicle 2>/dev/null;
+      chown chronicle:chronicle /server/config /server/config/*.yaml 2>/dev/null;
+      exec su-exec chronicle java $$CHRONICLE_SERVER_XMS $$CHRONICLE_SERVER_XMX
       -Xss512k -XX:MetaspaceSize=128m -XX:MaxMetaspaceSize=256m
       -XX:+UseStringDeduplication -XX:MaxGCPauseMillis=200
       -cp "/server/config:/server/lib/*"
@@ -257,8 +258,8 @@ services:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:40320/prometheus/ > /dev/null"]
       interval: 15s
       timeout: 10s
-      start_period: 30s
-      retries: 3
+      start_period: 60s
+      retries: 5
     deploy:
       resources:
         limits:

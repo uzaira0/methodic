@@ -211,7 +211,8 @@ for container in "${ALL_CONTAINERS[@]}"; do
     *)
       user=$(_get user "$container")
       if [ -z "$user" ] || [ "$user" = "root" ] || [ "$user" = "0" ]; then
-        runtime_user=$(docker exec "$container" whoami 2>/dev/null || docker exec "$container" id -u 2>/dev/null || echo "unknown")
+        # Check PID 1's actual user (handles su-exec/gosu privilege drop patterns)
+        runtime_user=$(docker exec "$container" sh -c 'stat -c "%U" /proc/1/exe 2>/dev/null || ps -o user= -p 1 2>/dev/null | tr -d " "' 2>/dev/null || docker exec "$container" whoami 2>/dev/null || echo "unknown")
         if [ "$runtime_user" = "root" ] || [ "$runtime_user" = "0" ]; then
           cap_drop=$(_get capdrop "$container")
           sec_opts=$(_get secopt "$container")
@@ -249,15 +250,15 @@ if require_container "$BE_CONTAINER" "Backend health endpoint"; then
     fi
   fi
 
-  # 2b. Prometheus metrics exposed
-  if docker exec "$BE_CONTAINER" curl -sf --max-time 5 http://localhost:40320/prometheus/ -o /dev/null 2>/dev/null; then
+  # 2b. Prometheus metrics exposed (use wget since Alpine image has no curl)
+  if docker exec "$BE_CONTAINER" wget -qO /dev/null --timeout=5 http://127.0.0.1:40320/prometheus/ 2>/dev/null; then
     pass "Backend Prometheus metrics endpoint responding"
   else
     fail "Backend Prometheus metrics endpoint not responding"
   fi
 
   # 2c. Prometheus metrics contain HikariPool data
-  prom_output=$(docker exec "$BE_CONTAINER" curl -sf --max-time 5 http://localhost:40320/prometheus/ 2>/dev/null || echo "")
+  prom_output=$(docker exec "$BE_CONTAINER" wget -qO- --timeout=5 http://127.0.0.1:40320/prometheus/ 2>/dev/null || echo "")
   if echo "$prom_output" | grep -q "HikariPool"; then
     pass "Backend Prometheus metrics contain HikariPool data"
   else
