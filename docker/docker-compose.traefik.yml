@@ -85,7 +85,8 @@ services:
       - ./postgres-ssl/server/server.key:/var/lib/postgresql/ssl/server.key:ro,z
       - ./postgres-ssl/ca/ca.crt:/var/lib/postgresql/ssl/ca.crt:ro,z
       # H-9: Mount custom pg_hba.conf to enforce SSL for external connections
-      - ./postgres-ssl/pg_hba-ssl.conf:/pgdata/data/pg_hba.conf:ro,z
+      # Percona 17.5 uses PGDATA=/data/db by default (confirmed via SHOW hba_file)
+      - ./postgres-ssl/pg_hba-ssl.conf:/data/db/pg_hba.conf:ro,z
     networks:
       - chronicle-internal
     healthcheck:

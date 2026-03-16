@@ -10,7 +10,8 @@
 #
 # Layers: sast, dast, sca, container, secrets, iac, api, tls, database,
 #         hipaa, gdpr, compliance, network, auth, injection, crypto, license,
-#         ratelimit, waf, runtime, smoke, dbsecurity, apiheaders
+#         ratelimit, waf, runtime, smoke, dbsecurity, apiheaders,
+#         businesslogic, contractdrift
 #
 # All tools produce structured output (SARIF/JSON/JUnit XML) in the report dir.
 # =============================================================================
@@ -710,6 +711,47 @@ if should_run "apiheaders"; then
     fi
   else
     skip "API & Header security (backend not reachable)"
+  fi
+fi
+
+# =============================================================================
+# Layer 24: Business Logic Tests
+# Study isolation, privilege escalation, enrollment abuse
+# HIPAA: §164.312(a)(1) — Access controls
+# =============================================================================
+if should_run "businesslogic"; then
+  log "Layer 24: Business Logic Tests — study isolation, privilege boundaries"
+  if [ -n "$BACKEND_URL" ]; then
+    BL_EXIT=0
+    BL_OUTPUT=$(BASE_URL="$BACKEND_URL" bash "$PROJECT_ROOT/tests/security/business-logic-tests.sh" 2>&1) || BL_EXIT=$?
+    echo "$BL_OUTPUT"
+    BL_PASS=$(echo "$BL_OUTPUT" | grep -c '\[PASS\]' || true)
+    BL_FAIL=$(echo "$BL_OUTPUT" | grep -c '\[FAIL\]' || true)
+    if [ "$BL_FAIL" -eq 0 ]; then
+      pass "Business logic tests ($BL_PASS passed)"
+    else
+      fail "Business logic tests ($BL_FAIL failed, $BL_PASS passed)"
+    fi
+  else
+    skip "Business logic tests (backend not reachable)"
+  fi
+fi
+
+# =============================================================================
+# Layer 25: Contract Drift Detection
+# API spec vs controllers, frontend types vs spec
+# =============================================================================
+if should_run "contractdrift"; then
+  log "Layer 25: Contract Drift Detection — spec vs implementation"
+  CD_EXIT=0
+  CD_OUTPUT=$(BACKEND_URL="${BACKEND_URL:-}" bash "$PROJECT_ROOT/tests/security/contract-drift-tests.sh" 2>&1) || CD_EXIT=$?
+  echo "$CD_OUTPUT"
+  CD_PASS=$(echo "$CD_OUTPUT" | grep -c '\[PASS\]' || true)
+  CD_FAIL=$(echo "$CD_OUTPUT" | grep -c '\[FAIL\]' || true)
+  if [ "$CD_FAIL" -eq 0 ]; then
+    pass "Contract drift detection ($CD_PASS passed)"
+  else
+    fail "Contract drift detection ($CD_FAIL failed, $CD_PASS passed)"
   fi
 fi
 
