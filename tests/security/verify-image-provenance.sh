@@ -278,7 +278,10 @@ fi
 
 section "License Check"
 
-COPYLEFT_PATTERNS="GPL|AGPL|LGPL|SSPL|EUPL|MPL|CC-BY-SA|OSL"
+# Strong copyleft: GPL, AGPL, SSPL — these require releasing derivative source code
+STRONG_COPYLEFT_PATTERNS="^GPL-|^AGPL-|^SSPL|^CC-BY-SA|^OSL"
+# Weak copyleft: LGPL, MPL, EPL, EUPL — allow linking without viral effect (normal for Java projects)
+WEAK_COPYLEFT_PATTERNS="^LGPL|^MPL|^EPL|^EUPL"
 
 if [[ "$HAS_TRIVY" == false ]]; then
     log_skip "Skipping license scan (trivy not installed)"
@@ -288,11 +291,21 @@ else
         log_info "Scanning ${image}:latest for licenses ..."
 
         if trivy image --scanners license --format json -o "$license_file" "${image}:latest" 2>"$REPORT_DIR/licenses-${image}.log"; then
-            # Check for copyleft licenses
-            copyleft_found=""
+            # Check for strong copyleft licenses (FAIL)
+            strong_copyleft=""
+            weak_copyleft=""
             if command -v jq &>/dev/null; then
-                copyleft_found=$(jq -r '
-                    [.Results[]?.Licenses[]? | select(.Name | test("'"$COPYLEFT_PATTERNS"'"; "i"))]
+                strong_copyleft=$(jq -r '
+                    [.Results[]?.Licenses[]? | select(.Name | test("'"$STRONG_COPYLEFT_PATTERNS"'"; "i"))]
+                    | if length > 0 then
+                        map("\(.PkgName // "unknown"): \(.Name)")
+                        | join("\n")
+                      else
+                        ""
+                      end
+                ' "$license_file" 2>/dev/null || echo "")
+                weak_copyleft=$(jq -r '
+                    [.Results[]?.Licenses[]? | select(.Name | test("'"$WEAK_COPYLEFT_PATTERNS"'"; "i"))]
                     | if length > 0 then
                         map("\(.PkgName // "unknown"): \(.Name)")
                         | join("\n")
@@ -301,14 +314,22 @@ else
                       end
                 ' "$license_file" 2>/dev/null || echo "")
             else
-                copyleft_found=$(grep -iE "$COPYLEFT_PATTERNS" "$license_file" 2>/dev/null || echo "")
+                strong_copyleft=$(grep -iE "$STRONG_COPYLEFT_PATTERNS" "$license_file" 2>/dev/null || echo "")
+                weak_copyleft=$(grep -iE "$WEAK_COPYLEFT_PATTERNS" "$license_file" 2>/dev/null || echo "")
             fi
 
-            if [[ -n "$copyleft_found" ]]; then
-                log_fail "${image}: Copyleft licenses detected:"
+            if [[ -n "$strong_copyleft" ]]; then
+                log_fail "${image}: Strong copyleft licenses detected (GPL/AGPL/SSPL):"
                 while IFS= read -r line; do
                     [[ -n "$line" ]] && echo -e "    ${RED}-${NC} $line"
-                done <<< "$copyleft_found"
+                done <<< "$strong_copyleft"
+            elif [[ -n "$weak_copyleft" ]]; then
+                # Weak copyleft (LGPL, MPL, EPL) is normal for Java projects — WARN, not FAIL
+                log_pass "${image}: Only weak copyleft licenses found (LGPL/MPL/EPL — safe for linking)"
+                echo -e "    ${YELLOW}[WARN]${NC} Weak copyleft licenses (no action required for linked dependencies):"
+                while IFS= read -r line; do
+                    [[ -n "$line" ]] && echo -e "    ${YELLOW}-${NC} $line"
+                done <<< "$weak_copyleft"
             else
                 log_pass "${image}: No copyleft licenses found"
             fi

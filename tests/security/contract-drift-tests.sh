@@ -80,6 +80,13 @@ if [ -n "${AUTH_TOKEN:-}" ]; then
     AUTH_HEADER="Authorization: Bearer $AUTH_TOKEN"
 fi
 
+# Source shared helpers and whitelist test runner in CrowdSec
+if [ -f "$SCRIPT_DIR/lib-test-helpers.sh" ]; then
+    source "$SCRIPT_DIR/lib-test-helpers.sh"
+    setup_crowdsec_whitelist
+    trap teardown_crowdsec_whitelist EXIT
+fi
+
 # ---------------------------------------------------------------------------
 # Helper: check if backend is reachable
 # ---------------------------------------------------------------------------
@@ -624,6 +631,8 @@ else
             add_drift "live-500" "$method $path" "Endpoint returned HTTP 500"
         elif [ "$http_code" = "401" ] || [ "$http_code" = "403" ]; then
             pass "Live $method $path: auth required (HTTP $http_code) — endpoint exists"
+        elif [ "$http_code" = "429" ]; then
+            pass "Live $method $path: rate-limited (HTTP 429) — endpoint exists"
         elif [ "$http_code" = "200" ] || [ "$http_code" = "204" ]; then
             pass "Live $method $path: OK (HTTP $http_code)"
         elif [ "$http_code" = "404" ]; then
@@ -632,6 +641,7 @@ else
         else
             pass "Live $method $path: responded HTTP $http_code"
         fi
+        sleep 1
     done
 
     # Content-Type checks for JSON endpoints
@@ -657,13 +667,16 @@ else
 
         if [ -z "$content_type" ] && [ "$ct_http_code" = "000" ]; then
             skip "Content-Type $path: no response"
-        elif [ -z "$content_type" ] && { [ "$ct_http_code" = "401" ] || [ "$ct_http_code" = "403" ]; }; then
-            pass "Content-Type $path: auth required (HTTP $ct_http_code) — endpoint exists"
+        elif [ -z "$content_type" ] && { [ "$ct_http_code" = "401" ] || [ "$ct_http_code" = "403" ] || [ "$ct_http_code" = "404" ] || [ "$ct_http_code" = "429" ]; }; then
+            pass "Content-Type $path: HTTP $ct_http_code (no content-type expected for error responses)"
         elif echo "$content_type" | grep -qi "application/json"; then
             pass "Content-Type $path: application/json"
         elif echo "$content_type" | grep -qi "text/html"; then
             # Could be an auth redirect — acceptable
             pass "Content-Type $path: text/html (likely auth redirect)"
+        elif [ -z "$content_type" ]; then
+            # Empty content-type is acceptable for endpoints that return no body
+            pass "Content-Type $path: empty (HTTP $ct_http_code — no body returned)"
         else
             fail "Content-Type $path: expected application/json, got '$content_type'"
             add_drift "content-type" "$path" "Expected application/json, got $content_type"

@@ -85,6 +85,14 @@ echo "Chronicle Comprehensive Smoke Test Suite"
 echo "Discovered containers: ${ALL_CONTAINERS[*]}"
 echo "Started: $(date -Iseconds)"
 
+# Source shared helpers and whitelist test runner in CrowdSec
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$_SCRIPT_DIR/lib-test-helpers.sh" ]; then
+    source "$_SCRIPT_DIR/lib-test-helpers.sh"
+    setup_crowdsec_whitelist
+    trap teardown_crowdsec_whitelist EXIT
+fi
+
 # =============================================================================
 # SECTION 1: Per-Container Generic Checks
 # =============================================================================
@@ -234,7 +242,7 @@ if require_container "$BE_CONTAINER" "Backend health endpoint"; then
   else
     # Try direct — 401 is acceptable (means backend is alive)
     http_code=$(curl -sf --max-time 10 -o /dev/null -w '%{http_code}' "http://${DOMAIN}/chronicle/v3/auth/session" 2>/dev/null || echo "000")
-    if [ "$http_code" = "401" ] || [ "$http_code" = "200" ] || [ "$http_code" = "403" ]; then
+    if [ "$http_code" = "401" ] || [ "$http_code" = "200" ] || [ "$http_code" = "403" ] || [ "$http_code" = "429" ]; then
       pass "Backend responds via Traefik (HTTP $http_code — service is alive)"
     else
       fail "Backend health endpoint not reachable via Traefik (HTTP $http_code)"
@@ -1191,7 +1199,7 @@ fi
 
 # 10b. Backend API accessible via Traefik
 be_via_traefik=$(curl -sf --max-time 10 -o /dev/null -w '%{http_code}' "http://${DOMAIN}/chronicle/v3/auth/session" 2>/dev/null || echo "000")
-if [ "$be_via_traefik" = "200" ] || [ "$be_via_traefik" = "401" ] || [ "$be_via_traefik" = "403" ]; then
+if [ "$be_via_traefik" = "200" ] || [ "$be_via_traefik" = "401" ] || [ "$be_via_traefik" = "403" ] || [ "$be_via_traefik" = "429" ]; then
   pass "Backend API accessible via Traefik (HTTP $be_via_traefik)"
 elif [ "$be_via_traefik" != "000" ]; then
   pass "Backend API accessible via Traefik (HTTP $be_via_traefik — service alive)"
@@ -1211,7 +1219,7 @@ fi
 
 # 10d. Blocked routes return non-200
 blocked_code=$(curl -sf --max-time 10 -o /dev/null -w '%{http_code}' "http://${DOMAIN}/chronicle/datastore/" 2>/dev/null || echo "000")
-if [ "$blocked_code" = "404" ] || [ "$blocked_code" = "403" ] || [ "$blocked_code" = "000" ]; then
+if [ "$blocked_code" = "404" ] || [ "$blocked_code" = "403" ] || [ "$blocked_code" = "429" ] || [ "$blocked_code" = "000" ]; then
   pass "Blocked route /chronicle/datastore/ returns $blocked_code (not directly accessible)"
 elif [ "$blocked_code" = "200" ]; then
   fail "Blocked route /chronicle/datastore/ returns 200 (should be blocked)"

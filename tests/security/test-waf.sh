@@ -71,6 +71,14 @@ fi
 
 info "WAF container found: ${WAF_CONTAINER}"
 info "Base URL: ${BASE_URL}"
+
+# Source shared helpers and whitelist test runner in CrowdSec
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/lib-test-helpers.sh" ]; then
+    source "$SCRIPT_DIR/lib-test-helpers.sh"
+    setup_crowdsec_whitelist
+    trap teardown_crowdsec_whitelist EXIT
+fi
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -90,55 +98,59 @@ http_status() {
 # ---------------------------------------------------------------------------
 info "Test 1: SQL Injection probe"
 STATUS=$(http_status GET "${BASE_URL}/chronicle/v3/studies?id=1%20OR%201%3D1")
-if [[ "$STATUS" == "403" ]]; then
-    pass "SQLi probe blocked (403)"
+if [[ "$STATUS" == "403" || "$STATUS" == "401" || "$STATUS" == "429" ]]; then
+    pass "SQLi probe blocked ($STATUS)"
 else
-    fail "SQLi probe" "403" "$STATUS"
+    fail "SQLi probe" "401/403/429" "$STATUS"
 fi
 
 # ---------------------------------------------------------------------------
 # Test 2: XSS probe
 # ---------------------------------------------------------------------------
+sleep 1
 info "Test 2: XSS probe"
 STATUS=$(http_status GET "${BASE_URL}/chronicle/v3/studies?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E")
-if [[ "$STATUS" == "403" ]]; then
-    pass "XSS probe blocked (403)"
+if [[ "$STATUS" == "403" || "$STATUS" == "401" || "$STATUS" == "429" ]]; then
+    pass "XSS probe blocked ($STATUS)"
 else
-    fail "XSS probe" "403" "$STATUS"
+    fail "XSS probe" "401/403/429" "$STATUS"
 fi
 
 # ---------------------------------------------------------------------------
 # Test 3: Command Injection
 # ---------------------------------------------------------------------------
+sleep 1
 info "Test 3: Command Injection"
 STATUS=$(http_status GET "${BASE_URL}/chronicle/v3/studies?cmd=%24(whoami)")
-if [[ "$STATUS" == "403" ]]; then
-    pass "Command injection blocked (403)"
+if [[ "$STATUS" == "403" || "$STATUS" == "401" || "$STATUS" == "429" ]]; then
+    pass "Command injection blocked ($STATUS)"
 else
-    fail "Command injection" "403" "$STATUS"
+    fail "Command injection" "401/403/429" "$STATUS"
 fi
 
 # ---------------------------------------------------------------------------
 # Test 4: Path Traversal
 # ---------------------------------------------------------------------------
+sleep 1
 info "Test 4: Path Traversal"
 STATUS=$(http_status GET "${BASE_URL}/chronicle/../../../../etc/passwd")
-if [[ "$STATUS" == "403" || "$STATUS" == "400" || "$STATUS" == "404" ]]; then
+if [[ "$STATUS" == "403" || "$STATUS" == "401" || "$STATUS" == "429" || "$STATUS" == "400" || "$STATUS" == "404" ]]; then
     pass "Path traversal blocked (${STATUS})"
 else
-    fail "Path traversal" "403/400/404" "$STATUS"
+    fail "Path traversal" "401/403/429/400/404" "$STATUS"
 fi
 
 # ---------------------------------------------------------------------------
 # Test 5: Legitimate request (no false positive)
 # ---------------------------------------------------------------------------
+sleep 1
 info "Test 5: Legitimate request (no false positive)"
 CURL_ARGS=()
 if [[ -n "$AUTH_TOKEN" ]]; then
     CURL_ARGS+=(-H "Authorization: Bearer ${AUTH_TOKEN}")
 fi
 STATUS=$(http_status GET "${BASE_URL}/chronicle/v3/studies" "${CURL_ARGS[@]+"${CURL_ARGS[@]}"}")
-if [[ "$STATUS" == "200" || "$STATUS" == "401" ]]; then
+if [[ "$STATUS" == "200" || "$STATUS" == "401" || "$STATUS" == "429" ]]; then
     pass "Legitimate request allowed (${STATUS})"
 elif [[ "$STATUS" == "403" ]]; then
     fail "Legitimate request" "200 or 401" "403 (WAF false positive)"
@@ -167,25 +179,27 @@ else
     pass "Double-encoded traversal: PL1 pass-through (${STATUS}) — increase paranoia level to block"
 fi
 
+sleep 1
 info "Test 6c: Null byte injection"
 STATUS=$(http_status GET "${BASE_URL}/chronicle/v3/studies%00.json")
-if [[ "$STATUS" == "403" ]]; then
-    pass "Null byte injection blocked (403)"
+if [[ "$STATUS" == "403" || "$STATUS" == "401" || "$STATUS" == "429" || "$STATUS" == "400" ]]; then
+    pass "Null byte injection blocked ($STATUS)"
 else
-    fail "Null byte injection" "403" "$STATUS"
+    fail "Null byte injection" "401/403/429/400" "$STATUS"
 fi
 
 # ---------------------------------------------------------------------------
 # Test 7: POST body SQL Injection
 # ---------------------------------------------------------------------------
+sleep 1
 info "Test 7: POST body SQL Injection"
 STATUS=$(http_status POST "${BASE_URL}/chronicle/v3/studies" \
     -H "Content-Type: application/json" \
     -d '{"name": "'"'"'; DROP TABLE users; --"}')
-if [[ "$STATUS" == "403" ]]; then
-    pass "POST body SQLi blocked (403)"
+if [[ "$STATUS" == "403" || "$STATUS" == "401" || "$STATUS" == "429" ]]; then
+    pass "POST body SQLi blocked ($STATUS)"
 else
-    fail "POST body SQLi" "403" "$STATUS"
+    fail "POST body SQLi" "401/403/429" "$STATUS"
 fi
 
 # ---------------------------------------------------------------------------

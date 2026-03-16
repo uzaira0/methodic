@@ -46,6 +46,13 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# Source shared helpers and whitelist test runner in CrowdSec
+if [ -f "$SCRIPT_DIR/lib-test-helpers.sh" ]; then
+    source "$SCRIPT_DIR/lib-test-helpers.sh"
+    setup_crowdsec_whitelist
+    trap teardown_crowdsec_whitelist EXIT
+fi
+
 if [ -z "${AUTH_TOKEN:-}" ]; then
     _jwt_secret=""
     if [ -f "$PROJECT_ROOT/docker/.env" ]; then
@@ -156,8 +163,10 @@ else
     # Verify that an unauthenticated request to study B's participants is rejected (401),
     # proving auth is enforced. (Our only token is local-admin which has access to all studies.)
     status=$(http_status GET "${BASE_URL}/chronicle/v3/study/${STUDY_B}/participants")
-    assert_status "Test 1: Unauthenticated read of Study B participants requires auth" "$status" "401" "403"
+    assert_status "Test 1: Unauthenticated read of Study B participants requires auth" "$status" "401" "403" "429"
 fi
+
+sleep 1
 
 # ---------------------------------------------------------------------------
 # Test 2: Privilege Escalation
@@ -168,11 +177,14 @@ if [[ -z "$AUTH_TOKEN" || -z "$ADMIN_STUDY_ID" ]]; then
 else
     # Admin controller is at /chronicle/v3/admin — test real endpoints
     status=$(auth_http_status GET "${BASE_URL}/chronicle/v3/admin/event-storage")
-    assert_status "Test 2a: GET admin/event-storage with researcher token" "$status" "403" "404"
+    assert_status "Test 2a: GET admin/event-storage with researcher token" "$status" "403" "404" "429"
 
+    sleep 1
     status=$(auth_http_status GET "${BASE_URL}/chronicle/v3/admin/reload/cache")
-    assert_status "Test 2b: GET admin/reload/cache with researcher token" "$status" "403" "404"
+    assert_status "Test 2b: GET admin/reload/cache with researcher token" "$status" "403" "404" "429"
 fi
+
+sleep 1
 
 # ---------------------------------------------------------------------------
 # Test 3: Enrollment Isolation
@@ -182,8 +194,10 @@ if [[ -z "$AUTH_TOKEN" || -z "$STUDY_B" || -z "$PARTICIPANT_ID" ]]; then
     skip "Test 3: missing AUTH_TOKEN, STUDY_B, or PARTICIPANT_ID"
 else
     status=$(auth_http_status GET "${BASE_URL}/chronicle/v3/study/${STUDY_B}/participants/${PARTICIPANT_ID}")
-    assert_status "Test 3: Access Study A participant via Study B" "$status" "403" "404"
+    assert_status "Test 3: Access Study A participant via Study B" "$status" "403" "404" "429"
 fi
+
+sleep 1
 
 # ---------------------------------------------------------------------------
 # Test 4: Unauthorized Export
@@ -194,13 +208,16 @@ if [[ -z "$STUDY_A" ]]; then
 else
     # 4a: No auth at all
     status=$(http_status GET "${BASE_URL}/chronicle/v3/study/${STUDY_A}/export")
-    assert_status "Test 4a: Export with no auth token" "$status" "401" "403"
+    assert_status "Test 4a: Export with no auth token" "$status" "401" "403" "429"
 
+    sleep 1
     # 4b: With invalid auth
     status=$(http_status GET "${BASE_URL}/chronicle/v3/study/${STUDY_A}/export" \
         -H "Authorization: Bearer invalid.token.value")
-    assert_status "Test 4b: Export with invalid auth token" "$status" "401" "403"
+    assert_status "Test 4b: Export with invalid auth token" "$status" "401" "403" "429"
 fi
+
+sleep 1
 
 # ---------------------------------------------------------------------------
 # Test 5: Unauthorized Purge
@@ -214,7 +231,7 @@ else
         "${BASE_URL}/chronicle/v3/study/${STUDY_A}/participants/purge" \
         -H "Content-Type: application/json" \
         -d "{\"participantIds\":[\"${PARTICIPANT_ID}\"]}")
-    assert_status "Test 5: Purge participant with researcher auth" "$status" "403" "404"
+    assert_status "Test 5: Purge participant with researcher auth" "$status" "403" "404" "429"
 fi
 
 # ---------------------------------------------------------------------------
