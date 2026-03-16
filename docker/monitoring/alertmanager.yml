@@ -16,11 +16,11 @@ route:
 
 receivers:
   - name: default
-    # Alerts logged to Alertmanager stdout (docker logs chronicle-alertmanager).
-    # Loki/Promtail can scrape these for the audit dashboard.
-    # TODO: Enable email/webhook when SMTP is configured.
+    # Alerts are logged to Alertmanager stdout → scraped by Promtail → shipped to Loki.
+    # Visible in Grafana audit dashboard under "alertmanager" label.
+    # Alertmanager logs "Notify for alerts" with group/alert details on every firing.
     webhook_configs: []
-    # To enable email alerts, uncomment and configure:
+    # To enable email alerts, set SMTP_ENABLED=true in .env and configure:
     # email_configs:
     #   - to: 'admin@example.com'
     #     from: '${SMTP_FROM_EMAIL}'
