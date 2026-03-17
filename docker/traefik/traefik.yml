@@ -6,6 +6,7 @@ providers:
     exposedByDefault: false
     watch: true
     network: traefik-apps
+    endpoint: tcp://docker-socket-proxy:2375
   file:
     directory: /etc/traefik/dynamic
     watch: true

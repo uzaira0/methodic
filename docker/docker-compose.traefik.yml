@@ -21,6 +21,31 @@ services:
   # Replaces Dokploy-managed Traefik. Routes all HTTP/HTTPS traffic.
   # Other apps (flash-processing, sleep-scoring, ios-screen-time) connect
   # to the traefik-apps network and are auto-discovered via Docker labels.
+  # Docker Socket Proxy — limits Traefik's access to the Docker API
+  # Only allows read-only container and network queries; blocks write operations
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    container_name: chronicle-docker-proxy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      CONTAINERS: 1
+      NETWORKS: 1
+      SERVICES: 0
+      TASKS: 0
+      POST: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - traefik
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
   traefik:
     image: traefik:v3.6.10
     container_name: chronicle-traefik
@@ -29,12 +54,12 @@ services:
       - no-new-privileges:true
     environment:
       CROWDSEC_BOUNCER_API_KEY: ${CROWDSEC_BOUNCER_API_KEY}
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
     ports:
       - "80:80"
       - "443:443"
       - "443:443/udp"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro,z
       - ./traefik/dynamic/crowdsec-waf.yml.template:/etc/traefik/crowdsec-waf.yml.template:ro,z
       - ./traefik/dynamic:/etc/traefik/dynamic:z
@@ -45,6 +70,8 @@ services:
       - |
         sed "s|\$${CROWDSEC_BOUNCER_API_KEY}|$$CROWDSEC_BOUNCER_API_KEY|g" /etc/traefik/crowdsec-waf.yml.template > /etc/traefik/dynamic/crowdsec-waf.yml
         exec traefik
+    depends_on:
+      - docker-socket-proxy
     networks:
       - traefik
     deploy:
@@ -550,6 +577,7 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    read_only: true
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
       - ./monitoring/prometheus-rules.yml:/etc/prometheus/prometheus-rules.yml:ro,z
@@ -579,6 +607,9 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=16M
     volumes:
       - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro,z
     command:
@@ -604,6 +635,9 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64M
     volumes:
       - ./siem/loki-config.yml:/etc/loki/local-config.yaml:ro,z
       - loki_data:/loki
@@ -629,6 +663,10 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=16M
+      - /run:noexec,nosuid,size=1M
     volumes:
       - ./siem/promtail-config.yml:/etc/promtail/config.yml:ro,z
       - audit_logs:/var/log/chronicle:ro
@@ -657,6 +695,9 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64M
     environment:
       GF_SERVER_ROOT_URL: /grafana
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
