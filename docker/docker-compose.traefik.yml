@@ -41,6 +41,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - traefik
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 -O /dev/null http://localhost:2375/version || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
     deploy:
       resources:
         limits:
@@ -54,7 +60,6 @@ services:
       - no-new-privileges:true
     environment:
       CROWDSEC_BOUNCER_API_KEY: ${CROWDSEC_BOUNCER_API_KEY}
-      DOCKER_HOST: tcp://docker-socket-proxy:2375
     ports:
       - "80:80"
       - "443:443"
@@ -68,6 +73,7 @@ services:
       - sh
       - -c
       - |
+        if [ -z "$$CROWDSEC_BOUNCER_API_KEY" ]; then echo "FATAL: CROWDSEC_BOUNCER_API_KEY is empty — WAF would fail open" >&2; exit 1; fi
         sed "s|\$${CROWDSEC_BOUNCER_API_KEY}|$$CROWDSEC_BOUNCER_API_KEY|g" /etc/traefik/crowdsec-waf.yml.template > /etc/traefik/dynamic/crowdsec-waf.yml
         exec traefik
     depends_on:
@@ -578,6 +584,8 @@ services:
     cap_drop:
       - ALL
     read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64M
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
       - ./monitoring/prometheus-rules.yml:/etc/prometheus/prometheus-rules.yml:ro,z
@@ -670,6 +678,7 @@ services:
     volumes:
       - ./siem/promtail-config.yml:/etc/promtail/config.yml:ro,z
       - audit_logs:/var/log/chronicle:ro
+      - promtail_positions:/tmp/promtail
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     command: -config.file=/etc/promtail/config.yml
@@ -768,3 +777,4 @@ volumes:
   prometheus_data:
   grafana_data:
   loki_data:
+  promtail_positions:

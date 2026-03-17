@@ -107,7 +107,7 @@ check_security_headers() {
 
     # Skip header checks on error responses (Spring's error handler doesn't set security headers)
     if [ -n "$http_code" ] && [ "$http_code" -ge 400 ] 2>/dev/null && [ "$http_code" != "401" ]; then
-        pass "$label — endpoint returns $http_code (auth enforced, headers set by Traefik on successful responses)"
+        skip "$label — HTTP $http_code (error response, headers not checked)"
         return
     fi
 
