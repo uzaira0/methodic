@@ -10,6 +10,6 @@ http:
           CrowdsecLapiKey: "${CROWDSEC_BOUNCER_API_KEY}"
           CrowdsecAppsecEnabled: true
           CrowdsecAppsecHost: chronicle-crowdsec:7422
-          CrowdsecAppsecKey: "uwjDlud4AYG4x5IMVV89zCxyNdIhecx/qUwEJmKhMK8"
+          CrowdsecAppsecKey: "${CROWDSEC_BOUNCER_API_KEY}"
           CrowdsecAppsecFailureBlock: true
           CrowdsecAppsecUnreachableBlock: false
