@@ -62,6 +62,12 @@ jobs:
           ref: ${{ inputs.android_ref || 'develop' }}
           path: chronicle-android
 
+      - name: Checkout chronicle-api
+        uses: actions/checkout@v4
+        with:
+          repository: uzaira0/chronicle-api
+          path: chronicle-api
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:

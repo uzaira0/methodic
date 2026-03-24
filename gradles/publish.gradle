@@ -85,8 +85,16 @@ def runCommand(String... command) {
     return stdout.toString()
 }
 
+def gitDescribe = ""
+try {
+    gitDescribe = runCommand('git', 'describe', '--tags', '--long').trim()
+} catch (Exception e) {
+    println "git describe failed: ${e.message}. Using default version."
+    gitDescribe = "v0.0.0-0-g0000000"
+}
+
 def describeOutputTag = convertToTag(
-        runCommand('git', 'describe', '--tags', '--long').trim(),
+        gitDescribe,
         branch
 )
 ext.describeOutputTag = describeOutputTag
