@@ -26,13 +26,17 @@ if (project.hasProperty('projectName') && project.hasProperty('scmUrl')) {
 
 println "Basename for jars will be: " + jarname
 
-def stdout = new ByteArrayOutputStream()
-
-exec {
-    commandLine 'git', 'rev-parse', '--abbrev-ref', 'HEAD'
-    standardOutput = stdout
+def maybeBranch = ""
+try {
+    def stdout = new ByteArrayOutputStream()
+    project.exec {
+        commandLine 'git', 'rev-parse', '--abbrev-ref', 'HEAD'
+        standardOutput = stdout
+    }
+    maybeBranch = stdout.toString().trim()
+} catch (Exception e) {
+    println "git rev-parse failed: ${e.message}"
 }
-def maybeBranch = stdout.toString().trim()
 def ghBranch = System.getenv("GITHUB_REF")
 println "Branch from git: " + maybeBranch
 println "Github ref: " + ghBranch
@@ -78,7 +82,7 @@ static def convertToTag(tagString, branchString) {
 
 def runCommand(String... command) {
     def stdout = new ByteArrayOutputStream()
-    exec {
+    project.exec {
         commandLine command
         standardOutput = stdout
     }
