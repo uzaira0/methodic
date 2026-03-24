@@ -8,7 +8,7 @@ SECURITY_FILE="$ROOT_DIR/.github/workflows/security-scan.yml"
 require_pattern() {
   local file="$1"
   local pattern="$2"
-  if ! rg -Fq "$pattern" "$file"; then
+  if ! grep -Fq "$pattern" "$file"; then
     printf '[fail] %s missing pattern: %s\n' "$file" "$pattern" >&2
     exit 1
   fi
@@ -17,7 +17,7 @@ require_pattern() {
 reject_pattern() {
   local file="$1"
   local pattern="$2"
-  if rg -Fq "$pattern" "$file"; then
+  if grep -Fq "$pattern" "$file"; then
     printf '[fail] %s contains forbidden pattern: %s\n' "$file" "$pattern" >&2
     exit 1
   fi

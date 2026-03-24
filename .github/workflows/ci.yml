@@ -51,7 +51,7 @@ jobs:
         run: bun run check
 
       - name: Bun tests
-        run: bun test --coverage src/modern src/bun-legacy
+        run: bun run test
 
       - name: Legacy Jest compatibility
         run: bun run test:legacy -- --runInBand --watch=false
