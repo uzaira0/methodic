@@ -1,0 +1,71 @@
+# Production Dockerfile for chronicle-web frontend
+# Multi-stage build: Bun for building, nginx for serving
+
+FROM oven/bun:1-alpine AS builder
+
+ARG GIT_SHA=unknown
+
+WORKDIR /app
+
+# Copy package files and vendored dependencies
+COPY chronicle-web/package.json chronicle-web/bun.lock ./
+COPY chronicle-web/vendor ./vendor
+
+# Install dependencies
+RUN bun install --frozen-lockfile
+
+# Copy source files
+COPY chronicle-web/ ./
+
+# Build production bundle with Bun native bundler
+RUN bun run modern:build
+
+# Remove source maps (not needed in production) and generate version.json
+RUN find /app/dist -name '*.map' -delete 2>/dev/null; true
+RUN echo "{\"version\":\"${GIT_SHA}\",\"buildTime\":\"$(date -Iseconds)\"}" > /app/dist/version.json
+
+# Pre-compress static assets for gzip_static and brotli_static serving
+# Brotli -q 11 gives best compression (~15-20% smaller than gzip-9)
+# Keep originals alongside .gz/.br files so nginx can serve either
+RUN apk add --no-cache brotli && \
+    find /app/dist -type f \( -name '*.js' -o -name '*.css' -o -name '*.html' -o -name '*.svg' -o -name '*.json' \) | \
+    while read f; do \
+        gzip -9 -k "$f"; \
+        brotli -q 11 "$f"; \
+    done
+
+# Production stage with Alpine-native nginx + Brotli module
+# Using alpine:3.21 with nginx 1.26.3 because Docker Hub nginx images are not
+# binary-compatible with Alpine's nginx-mod-http-brotli package.
+FROM alpine:3.21
+
+# Install nginx with Brotli module, upgrade packages, configure for rootless operation
+RUN apk upgrade --no-cache && \
+    apk add --no-cache nginx nginx-mod-http-brotli && \
+    sed -i 's|^user nginx;|#user nginx;|' /etc/nginx/nginx.conf && \
+    mkdir -p /var/lib/nginx/tmp /run/nginx /usr/share/nginx/html && \
+    chown -R nginx:nginx /var/lib/nginx /run/nginx \
+                         /etc/nginx/http.d /usr/share/nginx/html \
+                         /var/log/nginx && \
+    chmod -R g+w /var/lib/nginx
+
+# Copy custom nginx config (must use port 8080)
+# Alpine nginx includes from /etc/nginx/http.d/ (not conf.d/)
+COPY docker/nginx.frontend.conf /etc/nginx/http.d/default.conf
+
+# Remove the Alpine default 404 vhost
+RUN rm -f /etc/nginx/http.d/default.conf.apk-new
+
+# Copy built files from builder
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Switch to non-root user
+USER nginx
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --quiet --tries=1 --spider http://127.0.0.1:8080/health || exit 1
+
+# Alpine nginx has no entrypoint/CMD — run nginx in foreground
+CMD ["nginx", "-g", "daemon off;"]

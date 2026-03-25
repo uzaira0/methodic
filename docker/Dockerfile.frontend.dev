@@ -1,0 +1,32 @@
+# Development Dockerfile for chronicle-web frontend
+# Runs webpack dev server with hot module replacement
+# Source code is mounted as a volume for instant hot reloading
+
+FROM oven/bun:1-alpine
+
+WORKDIR /app
+
+# Install dependencies for node-gyp (some native modules need this)
+RUN apk add --no-cache python3 make g++
+
+# Copy package files first for better caching
+COPY chronicle-web/package.json chronicle-web/bun.lock ./
+
+# Install dependencies
+RUN bun install --frozen-lockfile
+
+# Copy config files needed for webpack
+COPY chronicle-web/config ./config
+
+# Copy flow-typed
+COPY chronicle-web/flow-typed ./flow-typed
+
+# Copy source code (this will be overridden by volume mount in dev)
+COPY chronicle-web/src ./src
+
+# Expose webpack dev server port
+EXPOSE 9000
+
+# Run webpack dev server (the 'app' script runs webpack-dev-server)
+# Host 0.0.0.0 and allowedHosts are configured in webpack.config.dev.js
+CMD ["bun", "run", "app"]

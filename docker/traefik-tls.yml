@@ -1,0 +1,21 @@
+# Traefik Dynamic TLS Configuration
+# Loaded automatically by Traefik's file provider (watch: true)
+# Place in /etc/dokploy/traefik/dynamic/ or mount via docker-compose
+
+tls:
+  certificates:
+    - certFile: /etc/traefik/certs/chronicle-screentime-app.research.bcm.edu.crt
+      keyFile: /etc/traefik/certs/chronicle-screentime-app.research.bcm.edu.key
+
+  options:
+    default:
+      minVersion: VersionTLS12
+      # TLS 1.3 ciphers are always enabled (Go crypto/tls, non-configurable)
+      # TLS 1.2 ciphers: AEAD only, no CBC
+      cipherSuites:
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256

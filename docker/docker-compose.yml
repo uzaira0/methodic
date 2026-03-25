@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: chronicle-postgres
+    environment:
+      POSTGRES_USER: oltest
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: chronicle
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oltest -d chronicle"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: chronicle-backend
+    environment:
+      CHRONICLE_SERVER_XMS: "-Xms512m"
+      CHRONICLE_SERVER_XMX: "-Xmx2g"
+      CHRONICLE_SERVER_ARGS: "local postgres medialocal"
+      # Database connection (uses docker network hostname)
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: chronicle
+      POSTGRES_USER: oltest
+      POSTGRES_PASSWORD: test
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "40320"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:40320/chronicle/v3/study > /dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+      args:
+        AUTH_ENABLED: "false"
+        API_BASE_URL: ""
+    container_name: chronicle-frontend
+    volumes:
+      - frontend_build:/app/build
+
+  nginx:
+    image: nginx:alpine
+    container_name: chronicle-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - frontend_build:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+      - frontend
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+  frontend_build:

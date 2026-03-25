@@ -1,0 +1,15 @@
+# Traefik dynamic configuration for external domain TLS
+# Place certificate files at the paths below before enabling.
+#
+# Prerequisites:
+#   1. BCM IT provides cert+key for chronicle-screentime-app.research.bcm.edu
+#   2. Place files:
+#      - /etc/dokploy/traefik/dynamic/certificates/chronicle-ext.crt
+#      - /etc/dokploy/traefik/dynamic/certificates/chronicle-ext.key
+#   3. Copy this file to /etc/dokploy/traefik/dynamic/chronicle-ext-tls.yml
+#   4. Traefik auto-reloads dynamic config (no restart needed)
+
+tls:
+  certificates:
+    - certFile: /etc/dokploy/traefik/dynamic/certificates/chronicle-ext.crt
+      keyFile: /etc/dokploy/traefik/dynamic/certificates/chronicle-ext.key

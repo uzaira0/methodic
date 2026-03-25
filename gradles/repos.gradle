@@ -3,8 +3,8 @@ repositories {
   maven {
     url "https://maven.pkg.github.com/methodic-labs/methodic"
     credentials {
-      username = 'curator-bot'
-      password = '&#103;hp_AUBLGB0XgvNugmkkSgpWEKqI6FXaFU01gHKi'.replace("&#103;","g")
+      username = System.getenv("GITHUB_ACTOR") ?: findProperty("gpr.user") ?: "curator-bot"
+      password = System.getenv("GITHUB_TOKEN") ?: findProperty("gpr.key") ?: ""
     }
   }
 

@@ -1,0 +1,26 @@
+# Rendered configs (contain secrets from .env — NEVER commit)
+.env
+rhizome-docker.yaml
+chronicle-auth.yaml
+auth0.yaml
+mail.yaml
+mobile-security.yaml
+vault.yaml
+cors.yaml
+chronicle-config.json
+
+# SSL/TLS private keys
+postgres-ssl/ca/ca.key
+postgres-ssl/server/server.key
+postgres-ssl/client/client.key
+postgres-ssl/client/client.p12
+
+# Generated certificates directory
+certs/
+
+# TLS certificates from institutional IT
+tls/*.crt
+tls/*.key
+tls/*.pem
+# CrowdSec bouncer config (contains API key — generated at deploy time)
+traefik/dynamic/crowdsec-waf.yml

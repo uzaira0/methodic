@@ -1,0 +1,6 @@
+# CORS Configuration
+# Rendered by envsubst at container startup
+# Note: flat structure, kebab-case keys (Jackson + Rhizome ConfigurationLoader convention)
+allowed-origins:
+  - "https://${DOMAIN}"
+  - "https://${EXT_DOMAIN}"

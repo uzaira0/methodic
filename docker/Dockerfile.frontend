@@ -1,0 +1,47 @@
+# Frontend build stage
+FROM oven/bun:1-alpine AS builder
+
+WORKDIR /app
+
+# Copy Bun lockfile and package manifest
+COPY chronicle-web/package.json chronicle-web/bun.lock ./
+
+# Install dependencies with Bun lockfile
+RUN bun install --frozen-lockfile
+
+# Copy source files
+COPY chronicle-web/ ./
+
+# Build arguments for configuration
+ARG AUTH_ENABLED=false
+ARG BASE_PATH=/chronicle/
+
+# Patch for Docker builds:
+# 1. Disable authentication
+# 2. Modify getDefaultBaseUrl to return empty string for localhost
+# 3. Update setBaseUrl to allow empty baseUrl
+# 4. Fix getApiBaseUrl to handle null/empty baseUrl (use relative paths)
+RUN if [ "$AUTH_ENABLED" = "false" ]; then \
+      sed -i 's/const authEnabled = true;/const authEnabled = false;/' src/index.js; \
+    fi && \
+    # Change getDefaultBaseUrl to return empty string for localhost
+    sed -i 's/baseUrl = "localhost";/baseUrl = "";/' src/core/config/Configuration.js && \
+    # Allow empty string as valid baseUrl
+    sed -i 's/else if (baseUrl !== null \&\& baseUrl !== undefined)/else if (baseUrl !== null \&\& baseUrl !== undefined \&\& baseUrl !== "")/' src/core/config/Configuration.js && \
+    # Fix getApiBaseUrl to handle null/empty baseUrl - use relative paths
+    sed -i "s|return \\\`\\\${getConfig().get('baseUrl')}/\\\${API_TO_PATH_MAP.get(api)}\\\`;|const baseUrl = getConfig().get('baseUrl'); return baseUrl ? \\\`\\\${baseUrl}/\\\${API_TO_PATH_MAP.get(api)}\\\` : \\\`/\\\${API_TO_PATH_MAP.get(api)}\\\`;|" src/core/api/axios/getApiBaseUrl.js
+
+# Build the production bundle
+RUN bun run build:prod
+
+# Output stage - just the built files
+FROM alpine:3.21
+
+LABEL org.opencontainers.image.source="https://github.com/methodic-labs/chronicle"
+LABEL org.opencontainers.image.vendor="Methodic Labs"
+
+COPY --from=builder /app/build /app/build
+
+# This container just holds the built files
+# They will be copied to nginx via a shared volume
+CMD ["sh", "-c", "cp -r /app/build/* /output/ 2>/dev/null || true && echo 'Frontend build copied to /output' && tail -f /dev/null"]

@@ -1,0 +1,41 @@
+# Git
+.git
+.gitmodules
+**/.git
+
+# Environment and secrets
+.env
+docker/.env
+docker/chronicle-config.json
+docker/postgres-ssl/
+docker/tls/
+
+# Build artifacts
+**/node_modules
+**/build
+**/dist
+**/.gradle
+**/build/
+
+# IDE
+.idea
+.vscode
+*.iml
+
+# Backups
+backups/
+
+# Documentation
+*.md
+!README.md
+LICENSE
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# CI
+.github/
+
+# MCP config
+.mcp.json
