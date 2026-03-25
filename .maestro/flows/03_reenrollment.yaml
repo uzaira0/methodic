@@ -1,0 +1,87 @@
+# Flow: Unenroll and re-enroll test
+# Verifies a device can unenroll and re-enroll with new IDs.
+#
+# Prerequisites:
+#   - Device must already be enrolled (run 01_enrollment first)
+#   - TEST_STUDY_ID and TEST_PARTICIPANT_ID_2 env vars must be set
+#   - A participant "maestro-test-002" must be registered in the study
+
+appId: com.openlattice.chronicle
+tags:
+  - smoke
+  - reenrollment
+---
+
+# ============================================================
+# Part 1: Unenroll
+# ============================================================
+- launchApp:
+    clearState: false
+
+- extendedWaitUntil:
+    visible:
+      id: "com.openlattice.chronicle:id/studyId"
+    timeout: 15000
+
+# Open settings / overflow menu
+- tapOn:
+    id: "com.openlattice.chronicle:id/action_settings"
+
+- waitForAnimationToEnd:
+    timeout: 2000
+
+# Tap "Unenroll" option
+- tapOn:
+    text: "Unenroll"
+
+- waitForAnimationToEnd:
+    timeout: 2000
+
+# Confirm unenrollment if a dialog appears
+- tapOn:
+    text: "OK"
+    optional: true
+
+- waitForAnimationToEnd:
+    timeout: 3000
+
+# ============================================================
+# Part 2: Verify enrollment screen appears
+# ============================================================
+- extendedWaitUntil:
+    visible:
+      id: "com.openlattice.chronicle:id/studyIdText"
+    timeout: 15000
+
+# ============================================================
+# Part 3: Re-enroll with new IDs
+# ============================================================
+- tapOn:
+    id: "com.openlattice.chronicle:id/studyIdText"
+- inputText: "${TEST_STUDY_ID}"
+
+- tapOn:
+    id: "com.openlattice.chronicle:id/participantIdText"
+- inputText: "${TEST_PARTICIPANT_ID_2}"
+
+# Tap "Enroll Device"
+- tapOn:
+    id: "com.openlattice.chronicle:id/button"
+
+# Wait for enrollment to complete and main screen to appear
+- extendedWaitUntil:
+    visible:
+      id: "com.openlattice.chronicle:id/studyId"
+    timeout: 45000
+
+# ============================================================
+# Part 4: Verify main screen with new enrollment
+# ============================================================
+- assertVisible:
+    id: "com.openlattice.chronicle:id/studyIdHeader"
+
+- assertVisible:
+    id: "com.openlattice.chronicle:id/participantId"
+
+- assertVisible:
+    id: "com.openlattice.chronicle:id/lastUploadHeader"
