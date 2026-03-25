@@ -510,3 +510,42 @@ The Traefik setup has the same API route separation:
 - `/api/web/*` → backend (priority 20)
 - `/chronicle/*`, `/datastore/*` → blocked (priority 15)
 - `/*` → frontend (priority 1)
+
+---
+
+## Security Overlay Deployment
+
+Security configuration files are **not included in the git repository** for operational security. They exist on the server at deployment time.
+
+### Required files (not in git — copy from server backup or generate fresh):
+
+```
+docker/docker-compose.security.yml     # CrowdSec, Vault, Fail2ban, Falco
+docker/rotate-secrets.sh               # Secret rotation script
+docker/security/                       # CrowdSec, Fail2ban, Falco, Vault configs
+docker/traefik/dynamic/crowdsec-waf.yml.template  # WAF middleware template
+tests/security/                        # Semgrep rules, security test suite
+docs/SECURITY-*.md                     # Security documentation
+```
+
+### Deploy with security overlay:
+
+```bash
+# Base stack + security overlay
+docker compose -p chronicle \
+  -f docker-compose.traefik.yml \
+  -f docker-compose.security.yml \
+  up -d
+
+# Initialize CrowdSec bouncer
+docker exec chronicle-crowdsec cscli bouncers add traefik-bouncer
+# Add the output key to .env as CROWDSEC_BOUNCER_API_KEY
+# Restart Traefik to pick up the key
+
+# Initialize Vault (if using)
+docker exec chronicle-vault sh /vault/scripts/init-vault.sh
+```
+
+### Without security overlay:
+
+The base `docker-compose.traefik.yml` includes a no-op WAF fallback middleware so routes work even without CrowdSec deployed. However, requests will not be inspected by the WAF.

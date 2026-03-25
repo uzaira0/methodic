@@ -9,7 +9,7 @@
 services:
   # Loki - Log aggregation
   loki:
-    image: grafana/loki:2.9.0
+    image: grafana/loki:3.6.7
     container_name: chronicle-loki
     restart: unless-stopped
     ports:
@@ -28,7 +28,7 @@ services:
 
   # Promtail - Log shipper
   promtail:
-    image: grafana/promtail:2.9.0
+    image: grafana/promtail:3.6.7
     container_name: chronicle-promtail
     restart: unless-stopped
     volumes:
@@ -42,7 +42,7 @@ services:
 
   # Grafana - Visualization & Alerting
   grafana:
-    image: grafana/grafana:10.2.0
+    image: grafana/grafana:12.1.0
     container_name: chronicle-grafana
     restart: unless-stopped
     ports:

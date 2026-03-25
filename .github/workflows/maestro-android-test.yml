@@ -334,7 +334,11 @@ jobs:
 
       - name: Install Maestro
         if: steps.maestro-cache.outputs.cache-hit != 'true'
-        run: curl -Ls "https://get.maestro.mobile.dev" | bash
+        run: |
+          # Pin Maestro version for reproducibility
+          export MAESTRO_VERSION=1.39.13
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          maestro --version
 
       - name: Add Maestro to PATH
         run: echo "${HOME}/.maestro/bin" >> "${GITHUB_PATH}"
@@ -358,7 +362,7 @@ jobs:
 
       - name: Create AVD snapshot (cache miss only)
         if: steps.avd-cache.outputs.cache-hit != 'true'
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@v2  # TODO: pin to SHA
         with:
           api-level: ${{ matrix.api-level }}
           arch: x86_64
@@ -370,7 +374,7 @@ jobs:
 
       # -- Start emulator and run Maestro --
       - name: Run Maestro tests on API ${{ matrix.api-level }}
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@v2  # TODO: pin to SHA
         with:
           api-level: ${{ matrix.api-level }}
           arch: x86_64
@@ -385,13 +389,20 @@ jobs:
             echo "=== Installed packages ==="
             adb shell pm list packages | grep chronicle || echo "WARNING: Chronicle package not found"
             echo "=== Pre-granting permissions ==="
+            # Grant usage stats (all API levels)
             adb shell appops set com.openlattice.chronicle GET_USAGE_STATS allow
-            adb shell appops set com.openlattice.chronicle POST_NOTIFICATION allow 2>/dev/null || true
-            adb shell pm grant com.openlattice.chronicle android.permission.POST_NOTIFICATIONS 2>/dev/null || true
+
+            # API 33+: POST_NOTIFICATIONS requires special handling
+            API_LEVEL=${{ matrix.api-level }}
+            if [ "$API_LEVEL" -ge 33 ]; then
+              # Try pm grant first (works on some images)
+              adb shell pm grant com.openlattice.chronicle android.permission.POST_NOTIFICATIONS 2>/dev/null || true
+              # Fallback: set appops directly
+              adb shell appops set com.openlattice.chronicle POST_NOTIFICATIONS allow 2>/dev/null || true
+            fi
+
             echo "=== Verifying permissions ==="
             adb shell appops get com.openlattice.chronicle GET_USAGE_STATS
-            adb shell appops get com.openlattice.chronicle POST_NOTIFICATION 2>/dev/null || echo "(POST_NOTIFICATION not available on this API level)"
-            adb shell dumpsys notification | grep -A2 "com.openlattice.chronicle" || true
             echo "=== Running Maestro tests ==="
             maestro test --env TEST_STUDY_ID="${TEST_STUDY_ID}" --env TEST_PARTICIPANT_ID="${TEST_PARTICIPANT_ID}" --format junit --output maestro-results.xml --debug-output maestro-debug/ .maestro/flows/
 
@@ -409,7 +420,7 @@ jobs:
 
       - name: Publish test report
         if: always() && hashFiles('maestro-results.xml') != ''
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v1  # TODO: pin to SHA
         with:
           name: "Maestro API ${{ matrix.api-level }}"
           path: maestro-results.xml

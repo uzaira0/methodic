@@ -604,7 +604,7 @@ services:
   # MONITORING: Prometheus + Grafana
   # ===========================================
   prometheus:
-    image: prom/prometheus:v2.55.1
+    image: prom/prometheus:v3.10.0
     container_name: chronicle-prometheus
     restart: unless-stopped
     security_opt:
@@ -666,7 +666,7 @@ services:
 
   # Loki: log aggregation for audit dashboard
   loki:
-    image: grafana/loki:3.3.2
+    image: grafana/loki:3.6.7
     container_name: chronicle-loki
     restart: unless-stopped
     security_opt:
@@ -695,7 +695,7 @@ services:
 
   # Promtail: ships audit logs to Loki
   promtail:
-    image: grafana/promtail:3.3.2
+    image: grafana/promtail:3.6.7
     container_name: chronicle-promtail
     restart: unless-stopped
     security_opt:
@@ -729,7 +729,7 @@ services:
           pids: 128
 
   grafana:
-    image: grafana/grafana:11.6.0
+    image: grafana/grafana:12.1.0
     container_name: chronicle-grafana
     restart: unless-stopped
     security_opt:

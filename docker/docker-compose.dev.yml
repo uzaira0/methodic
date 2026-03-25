@@ -1,4 +1,3 @@
-version: "3.8"
 
 # Development mode with hot reload via volume mounts
 # Usage: docker-compose -f docker-compose.dev.yml up
