@@ -54,7 +54,14 @@ jobs:
         run: bun test --coverage src/modern
 
       - name: Bun tests (legacy compatibility)
-        run: bun test --coverage src/bun-legacy
+        run: |
+          # Run each legacy test file in its own process to avoid mock.module() leaking
+          failed=0
+          for f in src/bun-legacy/*.test.*; do
+            echo "--- $f ---"
+            bun test "$f" || failed=1
+          done
+          exit $failed
 
       - name: Legacy Jest compatibility
         run: bun run test:legacy -- --runInBand --watch=false
