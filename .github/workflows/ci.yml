@@ -50,8 +50,11 @@ jobs:
       - name: Web check
         run: bun run check
 
-      - name: Bun tests
-        run: bun test --coverage src/modern src/bun-legacy
+      - name: Bun tests (modern)
+        run: bun test --coverage src/modern
+
+      - name: Bun tests (legacy compatibility)
+        run: bun test --coverage src/bun-legacy
 
       - name: Legacy Jest compatibility
         run: bun run test:legacy -- --runInBand --watch=false
