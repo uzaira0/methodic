@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -79,6 +81,10 @@ jobs:
           POSTGRES_PASSWORD=test-password
           POSTGRES_DB=chronicle
           JWT_SECRET=k6-load-test-secret-key-minimum-32-characters
+          HAZELCAST_SERVER_PASSWORD=ci-test-hazelcast-server
+          HAZELCAST_CLIENT_PASSWORD=ci-test-hazelcast-client
+          DOMAIN=localhost
+          GRAFANA_ADMIN_PASSWORD=ci-test-grafana
           ENVEOF
           sed -i 's/^[[:space:]]*//' docker/.env
 

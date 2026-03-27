@@ -60,7 +60,12 @@ jobs:
             nvd-${{ runner.os }}-
 
       - name: Run OWASP Dependency-Check
-        run: ./gradlew dependencyCheckAll --no-daemon
+        run: |
+          ARGS="--no-daemon"
+          if [ -z "$NVD_API_KEY" ]; then
+            echo "::warning::NVD_API_KEY not set — dependency-check may be rate-limited"
+          fi
+          ./gradlew dependencyCheckAll $ARGS
         continue-on-error: true
         id: dependency-check
 
@@ -81,7 +86,7 @@ jobs:
       # Upload SARIF results to GitHub Security tab
       - name: Upload SARIF to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('chronicle-server/build/reports/dependency-check-report.sarif') != ''
         with:
           sarif_file: chronicle-server/build/reports/dependency-check-report.sarif
           category: gradle-dependency-check
@@ -107,6 +112,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

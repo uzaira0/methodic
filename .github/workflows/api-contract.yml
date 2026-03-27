@@ -42,6 +42,10 @@ jobs:
           POSTGRES_PASSWORD=test-password
           POSTGRES_DB=chronicle
           JWT_SECRET=schemathesis-test-secret-key-minimum-32-chars
+          HAZELCAST_SERVER_PASSWORD=ci-test-hazelcast-server
+          HAZELCAST_CLIENT_PASSWORD=ci-test-hazelcast-client
+          DOMAIN=localhost
+          GRAFANA_ADMIN_PASSWORD=ci-test-grafana
           ENVEOF
           sed -i 's/^[[:space:]]*//' docker/.env
 

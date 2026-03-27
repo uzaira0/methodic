@@ -47,8 +47,13 @@ jobs:
           GPG_SECRET: ${{ secrets.GPG_SECRET }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SIGNING_KEY_PASSPHRASE: ${{ secrets.SIGNING_KEY_PASSPHRASE }}
+      - name: Build (PR validation)
+        if: github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/main'
+        run: ./gradlew build -x :chronicle-server:spotbugsMain -x :chronicle-server:spotbugsTest -x :chronicle-server:test --no-daemon
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: Package
           path: ./*/build/libs/
           retention-days: 5
+          if-no-files-found: ignore
