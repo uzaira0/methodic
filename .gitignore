@@ -44,7 +44,7 @@ docs/SQL-SECURITY-GUIDELINES.md
 docs/MOBILE-API-SECURITY.md
 reports/
 scripts/audit-sql-injection.sh
-scripts/silent-failure-hunter.sh
+# scripts/silent-failure-hunter.sh — now tracked for CI
 scripts/check-sso-drift.sh
 scripts/check-legacy-runtime-stack.sh
 tests/security/reports/
