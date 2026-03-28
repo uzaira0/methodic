@@ -111,9 +111,11 @@ jobs:
 
       # -- Run the security layer -------------------------------------------
       - name: Run security layer
+        env:
+          LAYER: ${{ matrix.layer }}
         run: |
           chmod +x tests/security/run-all-security.sh
-          tests/security/run-all-security.sh "${{ matrix.layer }}" "$REPORT_DIR"
+          tests/security/run-all-security.sh "$LAYER" "$REPORT_DIR"
 
       # -- Upload reports ---------------------------------------------------
       - name: Upload security reports
