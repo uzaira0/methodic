@@ -35,15 +35,6 @@ jobs:
         with:
           node-version: lts/*
 
-      - name: Configure registry for FontAwesome
-        env:
-          FONTAWESOME_NPM_AUTH_TOKEN: ${{ secrets.FONTAWESOME_NPM_AUTH_TOKEN }}
-        run: |
-          if [ -n "$FONTAWESOME_NPM_AUTH_TOKEN" ]; then
-            printf "%s\n" "@fortawesome:registry=https://npm.fontawesome.com/" >> ~/.npmrc
-            printf "%s\n" "//npm.fontawesome.com/:_authToken=$FONTAWESOME_NPM_AUTH_TOKEN" >> ~/.npmrc
-          fi
-
       - name: Install web deps
         run: bun install --frozen-lockfile
 
@@ -142,15 +133,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
-
-      - name: Configure registry for FontAwesome
-        env:
-          FONTAWESOME_NPM_AUTH_TOKEN: ${{ secrets.FONTAWESOME_NPM_AUTH_TOKEN }}
-        run: |
-          if [ -n "$FONTAWESOME_NPM_AUTH_TOKEN" ]; then
-            printf "%s\n" "@fortawesome:registry=https://npm.fontawesome.com/" >> ~/.npmrc
-            printf "%s\n" "//npm.fontawesome.com/:_authToken=$FONTAWESOME_NPM_AUTH_TOKEN" >> ~/.npmrc
-          fi
 
       - name: Install web deps
         run: bun install --frozen-lockfile
