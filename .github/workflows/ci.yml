@@ -51,7 +51,16 @@ jobs:
         run: bun run check
 
       - name: Bun tests (modern)
-        run: bun test --coverage src/modern
+        run: |
+          # Run each modern subdirectory separately to avoid DOM global pollution between test files
+          failed=0
+          for dir in src/modern/lib src/modern/state src/modern/stores src/modern/features src/modern/components src/modern/routes; do
+            if [ -d "$dir" ]; then
+              echo "=== $dir ==="
+              bun test --coverage "$dir" || failed=1
+            fi
+          done
+          exit $failed
 
       - name: Bun tests (legacy compatibility)
         run: |
