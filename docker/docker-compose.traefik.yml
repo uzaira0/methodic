@@ -617,6 +617,7 @@ services:
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
       - ./monitoring/prometheus-rules.yml:/etc/prometheus/prometheus-rules.yml:ro,z
+      - ./monitoring/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro,z
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -780,6 +781,78 @@ services:
       - "traefik.http.routers.chronicle-grafana.middlewares=chronicle-internal-only@docker"
       # Define the internal-only middleware (allow private networks only)
       - "traefik.http.middlewares.chronicle-internal-only.ipallowlist.sourcerange=127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+
+  # ===========================================
+  # MONITORING: node_exporter (host metrics)
+  # ===========================================
+  # Exposes host-level CPU, memory, disk, and network metrics.
+  # Also reads .prom files from /var/log/chronicle via textfile collector
+  # (encryption-health-metrics.prom, secret-rotation-metrics.prom, etc.)
+  # TODO: Pin image by digest — run: crane digest prom/node-exporter:v1.8.2
+  chronicle-node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: chronicle-node-exporter
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+      - audit_logs:/var/log/chronicle:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--collector.textfile.directory=/var/log/chronicle'
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 -O /dev/null http://localhost:9100/metrics || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - chronicle-internal
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          pids: 128
+
+  # ===========================================
+  # MONITORING: postgres_exporter (database metrics)
+  # ===========================================
+  # Exposes PostgreSQL metrics: connections, replication lag, locks, etc.
+  # TODO: Pin image by digest — run: crane digest prometheuscommunity/postgres-exporter:v0.16.0
+  chronicle-postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: chronicle-postgres-exporter
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@chronicle-postgres:5432/${POSTGRES_DB}?sslmode=require"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 -O /dev/null http://localhost:9187/metrics || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - chronicle-internal
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          pids: 128
 
 networks:
   chronicle-internal:

@@ -44,7 +44,10 @@ log_step() { echo -e "\n${BOLD}=== Step $1: $2 ===${NC}"; }
 decrypt_file() {
     local src="$1"
     local dst="$2"
-    openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter 100000 \
+    # Try current iteration count first, fall back to legacy (100k) for old backups
+    openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter 600000 \
+        -in "$src" -out "$dst" -pass "file:${KEY_FILE}" 2>/dev/null \
+    || openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter 100000 \
         -in "$src" -out "$dst" -pass "file:${KEY_FILE}" 2>/dev/null
 }
 

@@ -259,12 +259,13 @@ EOF
         -name "chronicle-client" \
         -CAfile "${CA_DIR}/ca.crt" \
         -caname "Chronicle CA" \
-        -password pass:changeit
+        -password pass:$(cat "${CLIENT_DIR}/p12-password" 2>/dev/null || openssl rand -hex 24 | tee "${CLIENT_DIR}/p12-password")
 
     chmod 600 "${CLIENT_DIR}/client.p12"
 
     echo_info "Client certificate generated: ${CLIENT_DIR}/client.crt"
-    echo_info "PKCS12 keystore generated: ${CLIENT_DIR}/client.p12 (password: changeit)"
+    chmod 600 "${CLIENT_DIR}/p12-password"
+    echo_info "PKCS12 keystore generated: ${CLIENT_DIR}/client.p12 (password in ${CLIENT_DIR}/p12-password)"
 }
 
 # Generate PostgreSQL SSL configuration snippet

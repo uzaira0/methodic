@@ -73,14 +73,14 @@ check_prereqs() {
 encrypt_file() {
     local src="$1"
     local dst="$2"
-    openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
+    openssl enc -aes-256-cbc -salt -pbkdf2 -iter 600000 \
         -in "$src" -out "$dst" -pass "file:${KEY_FILE}"
 }
 
 decrypt_file() {
     local src="$1"
     local dst="$2"
-    openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter 100000 \
+    openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter 600000 \
         -in "$src" -out "$dst" -pass "file:${KEY_FILE}"
 }
 
@@ -278,6 +278,22 @@ do_verify() {
         ERRORS=$((ERRORS + 1))
     fi
     rm -f "$KEYRING_TMP"
+
+    # Write Prometheus-compatible metrics for monitoring
+    VERIFY_METRICS_FILE="/var/log/chronicle/backup-verify-metrics.prom"
+    mkdir -p "$(dirname "$VERIFY_METRICS_FILE")" 2>/dev/null || true
+    cat > "$VERIFY_METRICS_FILE" 2>/dev/null <<PROM || true
+# HELP chronicle_backup_verify_success Whether the last backup verification passed (1) or failed (0).
+# TYPE chronicle_backup_verify_success gauge
+chronicle_backup_verify_success $([ "$ERRORS" -eq 0 ] && echo 1 || echo 0)
+# HELP chronicle_backup_verify_timestamp_seconds Unix timestamp of last backup verification.
+# TYPE chronicle_backup_verify_timestamp_seconds gauge
+chronicle_backup_verify_timestamp_seconds $(date +%s)
+# HELP chronicle_backup_verify_errors Number of errors in last backup verification.
+# TYPE chronicle_backup_verify_errors gauge
+chronicle_backup_verify_errors ${ERRORS}
+PROM
+    chmod 644 "$VERIFY_METRICS_FILE" 2>/dev/null || true
 
     echo ""
     if [ "$ERRORS" -eq 0 ]; then

@@ -1,0 +1,338 @@
+# Chronicle Prometheus Alerting Rules
+# =============================================================================
+# Covers: availability, latency, errors, backup/restore, encryption, secrets,
+#         disk, connection pools, and WAF.
+#
+# Note: Chronicle uses Dropwizard Metrics bridged to Prometheus via
+# DropwizardExports. Metric names follow the Dropwizard convention
+# (dots replaced with underscores by the bridge).
+#
+# EncryptionHealthService and SecretRotationService expose HTTP health
+# endpoints (/internal/health/encryption, /internal/health/secrets) AND write
+# Prometheus metrics to .prom files in /var/log/chronicle/ for the
+# node_exporter textfile collector:
+#   - encryption-health-metrics.prom  (chronicle_tde_* gauges)
+#   - secret-rotation-metrics.prom    (chronicle_secret_rotation_* gauges)
+# The alerts below use these metrics directly.
+# =============================================================================
+
+groups:
+  # ==========================================================================
+  # Availability
+  # ==========================================================================
+  - name: chronicle-availability
+    rules:
+      # Chronicle server down — no metrics scraped for 5 minutes
+      - alert: ChronicleServerDown
+        expr: up{job="chronicle-backend"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: backend
+        annotations:
+          summary: "Chronicle backend is unreachable"
+          description: >-
+            Prometheus has been unable to scrape the Chronicle backend
+            ({{ $labels.instance }}) for 5+ minutes. The service may be
+            crashed, OOM-killed, or the container may have been removed.
+          runbook: "Check `docker ps` and `docker logs chronicle-backend`."
+
+  # ==========================================================================
+  # Error rate
+  # ==========================================================================
+  - name: chronicle-errors
+    rules:
+      # High 5xx error rate (>5% of requests over 5 min)
+      # Chronicle's Dropwizard metrics expose per-endpoint timers.
+      # If Traefik metrics are available (entrypoint_requests_total), use those
+      # instead for a more accurate HTTP-level view. The expression below
+      # works with the Traefik Prometheus metrics endpoint.
+      - alert: HighErrorRate
+        expr: >
+          (
+            sum(rate(traefik_service_requests_total{code=~"5.."}[5m]))
+            /
+            sum(rate(traefik_service_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          component: backend
+        annotations:
+          summary: "High 5xx error rate (>5%)"
+          description: >-
+            More than 5% of HTTP responses in the last 5 minutes returned
+            5xx status codes. Current rate: {{ $value | humanizePercentage }}.
+          runbook: "Check application logs in Loki for stack traces."
+
+  # ==========================================================================
+  # Upload latency
+  # ==========================================================================
+  - name: chronicle-latency
+    rules:
+      # Upload latency p95 > 2 seconds
+      # Dropwizard Timer metrics for upload endpoints are exported as
+      # <class>_<method>_{count,mean,p50,p75,p95,p98,p99,max}.
+      # Adjust the metric name if the upload controller class differs.
+      - alert: UploadLatencyHigh
+        expr: >
+          traefik_service_request_duration_seconds{quantile="0.95",service=~".*chronicle-backend.*"} > 2.0
+        for: 5m
+        labels:
+          severity: warning
+          component: upload
+        annotations:
+          summary: "Upload latency p95 exceeds 2 seconds"
+          description: >-
+            The 95th percentile upload request duration is {{ $value }}s
+            (threshold: 2s). This may indicate database contention, disk I/O
+            saturation, or large payloads.
+          runbook: "Check HikariCP pool metrics and disk I/O."
+
+  # ==========================================================================
+  # Backup and restore
+  # ==========================================================================
+  - name: chronicle-backup-restore
+    rules:
+      # Backup verification failed
+      # The backup scripts (backup-chronicle.sh) log verification status.
+      # If a Prometheus pushgateway or custom metric is used, match it here.
+      # Fallback: use a textfile collector exporting backup_verification_success.
+      - alert: BackupVerificationFailed
+        expr: chronicle_backup_verification_success == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: backup
+          compliance: hipaa
+        annotations:
+          summary: "Backup verification failed"
+          description: >-
+            The last backup verification check reported failure.
+            Data recovery capability may be compromised.
+          runbook: "Run `bash docker/backup-chronicle.sh --verify` manually and inspect logs."
+
+      # Restore drill failed
+      - alert: RestoreDrillFailed
+        expr: chronicle_restore_drill_success == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: backup
+          compliance: hipaa
+        annotations:
+          summary: "Quarterly restore drill failed"
+          description: >-
+            The most recent restore drill did not complete successfully.
+            Disaster recovery readiness is compromised.
+          runbook: "Review restore-drill.sh output and re-run manually."
+
+      # Backup age — no successful backup in 25 hours (daily schedule)
+      - alert: BackupStale
+        expr: (time() - chronicle_backup_last_success_timestamp_seconds) > 90000
+        for: 5m
+        labels:
+          severity: warning
+          component: backup
+          compliance: hipaa
+        annotations:
+          summary: "No successful backup in 25+ hours"
+          description: >-
+            The last successful backup was {{ $value | humanizeDuration }} ago.
+            Expected: daily. Check cron job and backup script logs.
+
+  # ==========================================================================
+  # Encryption (TDE)
+  # ==========================================================================
+  - name: chronicle-encryption
+    rules:
+      # TDE table unencrypted — probes the EncryptionHealthService endpoint.
+      # Requires a Prometheus blackbox_exporter job or a custom metric
+      # exported via textfile collector / pushgateway.
+      - alert: TDETableUnencrypted
+        expr: chronicle_tde_unencrypted_tables > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: encryption
+          compliance: hipaa
+        annotations:
+          summary: "TDE: {{ $value }} table(s) are not encrypted"
+          description: >-
+            EncryptionHealthService reports unencrypted tables.
+            This is a HIPAA encryption-at-rest violation.
+          runbook: "GET /internal/health/encryption for details. Run docker/migrate-tde.sh."
+
+      # EncryptionHealthService endpoint returning non-200
+      - alert: EncryptionHealthCheckFailing
+        expr: probe_success{job="chronicle-encryption-health"} == 0
+        for: 10m
+        labels:
+          severity: warning
+          component: encryption
+          compliance: hipaa
+        annotations:
+          summary: "Encryption health endpoint is failing"
+          description: >-
+            The /internal/health/encryption endpoint has been returning
+            non-200 responses for 10+ minutes. TDE status may be degraded.
+
+  # ==========================================================================
+  # Secret rotation
+  # ==========================================================================
+  - name: chronicle-secrets
+    rules:
+      # Secret rotation overdue (>90 days)
+      - alert: SecretRotationOverdue
+        expr: chronicle_secret_rotation_age_days > 90
+        for: 1h
+        labels:
+          severity: warning
+          component: secrets
+          compliance: hipaa
+        annotations:
+          summary: "Secret '{{ $labels.secret_name }}' not rotated in >90 days"
+          description: >-
+            Secret {{ $labels.secret_name }} was last rotated {{ $value }}
+            days ago. HIPAA requires periodic key rotation.
+          runbook: "Follow docs/KEY-MANAGEMENT-RUNBOOK.md for rotation procedure."
+
+      # SecretRotationService health endpoint failing
+      - alert: SecretRotationHealthFailing
+        expr: probe_success{job="chronicle-secret-rotation-health"} == 0
+        for: 10m
+        labels:
+          severity: warning
+          component: secrets
+        annotations:
+          summary: "Secret rotation health endpoint is failing"
+          description: >-
+            The /internal/health/secrets endpoint has been returning
+            non-200 for 10+ minutes. Cannot verify rotation compliance.
+
+  # ==========================================================================
+  # Infrastructure — disk
+  # ==========================================================================
+  - name: chronicle-disk
+    rules:
+      # Disk space low (<10% free)
+      - alert: DiskSpaceLow
+        expr: >
+          (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.10
+        for: 5m
+        labels:
+          severity: critical
+          component: infrastructure
+        annotations:
+          summary: "Disk space critically low (<10% free)"
+          description: >-
+            Mount {{ $labels.mountpoint }} on {{ $labels.instance }} has only
+            {{ $value | humanizePercentage }} free space remaining. Database
+            writes and backups will fail if disk fills completely.
+          runbook: "Clean old backups, docker images, or expand volume."
+
+      # Disk space warning (<20% free)
+      - alert: DiskSpaceWarning
+        expr: >
+          (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.20
+        for: 15m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "Disk space getting low (<20% free)"
+          description: >-
+            {{ $value | humanizePercentage }} free on {{ $labels.mountpoint }}.
+
+  # ==========================================================================
+  # Database connection pools (HikariCP)
+  # ==========================================================================
+  - name: chronicle-database
+    rules:
+      # Connection pool exhausted (>5 pending connections on any pool)
+      - alert: DatabaseConnectionPoolExhausted
+        expr: >
+          HikariPool_1_pool_PendingConnections > 5
+          or HikariPool_2_pool_PendingConnections > 5
+          or HikariPool_3_pool_PendingConnections > 5
+        for: 2m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "HikariCP pool has >5 pending connections for 2+ minutes"
+          description: >-
+            Pool {{ $labels.__name__ }} on {{ $labels.instance }} has
+            {{ $value }} pending connections. Requests are queuing for
+            database access.
+          runbook: "Check for long-running queries. Consider increasing pool size."
+
+      # All connections in use (saturated)
+      - alert: DatabaseConnectionPoolSaturated
+        expr: >
+          HikariPool_1_pool_ActiveConnections == HikariPool_1_pool_MaxConnections
+          or HikariPool_2_pool_ActiveConnections == HikariPool_2_pool_MaxConnections
+          or HikariPool_3_pool_ActiveConnections == HikariPool_3_pool_MaxConnections
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "HikariCP pool fully saturated for 5+ minutes"
+          description: "All connections in use. Queries are likely queuing."
+
+      # Connection timeouts
+      - alert: DatabaseConnectionTimeouts
+        expr: >
+          rate(HikariPool_1_pool_ConnectionTimeoutRate_total[5m]) > 0
+          or rate(HikariPool_2_pool_ConnectionTimeoutRate_total[5m]) > 0
+          or rate(HikariPool_3_pool_ConnectionTimeoutRate_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "HikariCP connection timeouts detected"
+          description: >-
+            Connection timeout rate is {{ $value }}/s. Clients are failing
+            to acquire database connections.
+
+  # ==========================================================================
+  # CrowdSec WAF — high block rate
+  # ==========================================================================
+  - name: chronicle-waf
+    rules:
+      # CrowdSec blocking a high percentage of traffic (>20% in 10 min)
+      # This may indicate either an attack (expected) or misconfigured
+      # rules blocking legitimate users.
+      - alert: CrowdSecHighBlockRate
+        expr: >
+          (
+            sum(rate(traefik_service_requests_total{code="403"}[10m]))
+            /
+            sum(rate(traefik_service_requests_total[10m]))
+          ) > 0.20
+        for: 10m
+        labels:
+          severity: warning
+          component: waf
+        annotations:
+          summary: "CrowdSec WAF blocking >20% of traffic"
+          description: >-
+            {{ $value | humanizePercentage }} of requests are being blocked
+            with 403 in the last 10 minutes. This may indicate an active
+            attack or overly aggressive WAF rules blocking legitimate traffic.
+          runbook: "Check `cscli decisions list` and Traefik access logs in Loki."
+
+      # CrowdSec bouncer down
+      - alert: CrowdSecBouncerDown
+        expr: up{job="crowdsec-bouncer"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: waf
+        annotations:
+          summary: "CrowdSec bouncer is unreachable"
+          description: >-
+            The CrowdSec Traefik bouncer has not reported metrics for 5+
+            minutes. WAF protection may be disabled.

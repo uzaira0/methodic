@@ -25,6 +25,7 @@ pluginManagement {
 
 rootProject.name="methodic"
 
+include("chronicle-models")
 include("chronicle-api")
 include("chronicle-server")
 //include("chronicle")

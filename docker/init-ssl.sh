@@ -32,7 +32,7 @@ mkdir -p "$WEBROOT_DIR"
 generate_self_signed() {
     echo "Generating self-signed certificate for $DOMAIN..."
 
-    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    openssl req -x509 -nodes -days 365 -newkey rsa:4096 \
         -keyout "$CERTS_DIR/privkey.pem" \
         -out "$CERTS_DIR/fullchain.pem" \
         -subj "/CN=$DOMAIN/O=Chronicle/C=US" \
