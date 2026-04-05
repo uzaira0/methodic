@@ -96,8 +96,8 @@ jobs:
       - name: chronicle-api tests
         run: ./gradlew :chronicle-api:test --build-cache --no-daemon
 
-      - name: chronicle-server controller tests
-        run: ./gradlew :chronicle-server:test --tests "com.openlattice.chronicle.controllers.*" --build-cache --no-daemon
+      - name: chronicle-server tests (Testcontainers)
+        run: ./gradlew :chronicle-server:test --build-cache --no-daemon
 
       - name: Generate JaCoCo coverage report
         if: always()
