@@ -193,7 +193,7 @@ jobs:
         run: docker build -f docker/Dockerfile.backend -t chronicle-backend:scan .
 
       - name: Trivy image scan (backend)
-        uses: aquasecurity/trivy-action@76071ef0d7ec797419534a183b498b4d6366cf37 # 0.31.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         id: trivy-backend
         with:
           image-ref: chronicle-backend:scan
@@ -215,7 +215,7 @@ jobs:
         run: docker build -f docker/Dockerfile.frontend.prod -t chronicle-frontend:scan .
 
       - name: Trivy image scan (frontend)
-        uses: aquasecurity/trivy-action@76071ef0d7ec797419534a183b498b4d6366cf37 # 0.31.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         id: trivy-frontend
         with:
           image-ref: chronicle-frontend:scan
