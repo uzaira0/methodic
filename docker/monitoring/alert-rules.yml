@@ -298,6 +298,60 @@ groups:
             to acquire database connections.
 
   # ==========================================================================
+  # Chronicle Custom API Metrics
+  # ==========================================================================
+  - name: chronicle-api-observability
+    rules:
+      # High API latency p95 > 2s on any endpoint (using custom Chronicle metrics)
+      - alert: ChronicleApiLatencyHigh
+        expr: >
+          histogram_quantile(0.95,
+            sum(rate(chronicle_api_request_duration_seconds_bucket[5m])) by (le, endpoint)
+          ) > 2.0
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "API latency p95 > 2s on {{ $labels.endpoint }}"
+          description: >-
+            Endpoint {{ $labels.endpoint }} has p95 latency of {{ $value }}s.
+            This impacts user experience and mobile app responsiveness.
+          runbook: "Check structured logs in Loki filtered by httpPath for slow queries."
+
+      # High error rate on Chronicle API (>5% 4xx/5xx in 5 minutes)
+      - alert: ChronicleApiErrorRateHigh
+        expr: >
+          (
+            sum(rate(chronicle_api_errors_total[5m]))
+            /
+            sum(rate(chronicle_api_request_duration_seconds_count[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "API error rate > 5%"
+          description: >-
+            {{ $value | humanizePercentage }} of API requests are returning
+            errors. Filter Loki logs by level=ERROR and traceId for details.
+
+      # Upload failures spike
+      - alert: ChronicleUploadFailuresHigh
+        expr: >
+          sum(rate(chronicle_upload_errors_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: upload
+        annotations:
+          summary: "Data upload failures detected"
+          description: >-
+            Upload error rate is {{ $value }}/s. This may indicate participant
+            data is being lost. Check studyId and data_type labels for details.
+
+  # ==========================================================================
   # CrowdSec WAF — high block rate
   # ==========================================================================
   - name: chronicle-waf

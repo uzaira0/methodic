@@ -20,23 +20,12 @@ jobs:
       run:
         working-directory: chronicle-web
     steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          submodules: true
+      - name: Setup web environment
+        uses: ./.github/actions/setup-web
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: latest
-
-      - name: Setup Node compatibility runtime
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: lts/*
-
-      - name: Install web deps
-        run: bun install --frozen-lockfile
+      - name: 'Dependency audit (npm audit via Node)'
+        continue-on-error: true # non-blocking until existing vulns are triaged
+        run: npm audit --audit-level=high --omit=dev
 
       - name: Web check
         run: bun run check
@@ -53,6 +42,12 @@ jobs:
           done
           exit $failed
 
+      - name: OpenAPI type generation check
+        run: bun run check:api-types
+
+      - name: Contract drift detection
+        run: bun test src/modern/state/contract-drift.test.ts
+
       - name: Bun tests (legacy compatibility)
         run: |
           # Run each legacy test file in its own process to avoid mock.module() leaking
@@ -63,8 +58,11 @@ jobs:
           done
           exit $failed
 
-      - name: Legacy Jest compatibility
-        run: bun run test:legacy -- --runInBand --watch=false
+      - name: Build modern bundle
+        run: bun run build
+
+      - name: Bundle size check
+        run: bun run size
 
   jvm-smoke:
     name: jvm smoke
@@ -93,6 +91,9 @@ jobs:
       - name: Gradle project listing
         run: ./gradlew projects --no-daemon
 
+      - name: Validate OpenAPI spec
+        run: ./gradlew :chronicle-api:validateOpenApiSpec --build-cache --no-daemon
+
       - name: chronicle-api tests
         run: ./gradlew :chronicle-api:test --build-cache --no-daemon
 
@@ -119,23 +120,8 @@ jobs:
       run:
         working-directory: chronicle-web
     steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          submodules: true
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: latest
-
-      - name: Setup Node compatibility runtime
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: lts/*
-
-      - name: Install web deps
-        run: bun install --frozen-lockfile
+      - name: Setup web environment
+        uses: ./.github/actions/setup-web
 
       - name: Run Stryker mutation testing
         run: bun run test:mutate
@@ -147,6 +133,24 @@ jobs:
           name: stryker-mutation-report
           path: chronicle-web/reports/mutation/
           retention-days: 14
+
+  dead-code:
+    name: dead code detection
+    runs-on: ubuntu-latest
+    continue-on-error: true # non-blocking until dead code is cleaned up
+    defaults:
+      run:
+        working-directory: chronicle-web
+    steps:
+      - name: Setup web environment
+        uses: ./.github/actions/setup-web
+
+      - name: 'Frontend: knip dead code analysis'
+        run: bun run dead-code
+
+      # Backend: no dead code tool configured in Gradle yet.
+      # Consider adding https://github.com/nickolay/deadcode-gradle-plugin
+      # or running detekt with its UnusedPrivateMember / UnusedImports rules.
 
   repo-automation:
     name: repo automation
@@ -165,3 +169,327 @@ jobs:
 
       - name: Silent failure hunter
         run: bash ./scripts/silent-failure-hunter.sh
+
+  dependency-scan:
+    name: dependency vulnerability scan (SBOM)
+    runs-on: ubuntu-latest
+    continue-on-error: true # non-blocking until existing vulns are triaged
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: true
+
+      # Trivy fs scans are in container-structure-tests job (covers entire repo).
+      # This job focuses on SBOM generation which needs Gradle.
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@d9c87d481d55275bb5441eef3fe0e46805f9ef70 # v3
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/develop' }}
+
+      - name: 'Backend: CycloneDX SBOM generation'
+        run: ./gradlew :chronicle-server:cyclonedxBom --no-daemon
+
+      - name: Upload SBOM
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-sbom
+          path: chronicle-server/build/reports/bom.json
+          retention-days: 30
+
+  dockerfile-lint:
+    name: Hadolint Dockerfile linting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Lint Dockerfile.backend
+        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
+        with:
+          dockerfile: docker/Dockerfile.backend
+
+      - name: Lint Dockerfile.frontend
+        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
+        with:
+          dockerfile: docker/Dockerfile.frontend
+
+      - name: Lint Dockerfile.frontend.prod
+        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
+        with:
+          dockerfile: docker/Dockerfile.frontend.prod
+
+      - name: Lint Dockerfile.frontend.dev
+        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
+        with:
+          dockerfile: docker/Dockerfile.frontend.dev
+
+  iac-scan:
+    name: Checkov IaC scanning
+    runs-on: ubuntu-latest
+    continue-on-error: true # non-blocking until existing findings are triaged
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: 'Checkov: scan Dockerfiles'
+        uses: bridgecrewio/checkov-action@99bb2cad24e6842f80e9b4e24b907e6e3945dcff # v12
+        with:
+          directory: docker
+          framework: dockerfile
+          quiet: true
+          output_format: cli
+          soft_fail: true
+
+      - name: 'Checkov: scan Docker Compose'
+        uses: bridgecrewio/checkov-action@99bb2cad24e6842f80e9b4e24b907e6e3945dcff # v12
+        with:
+          file: docker/docker-compose.traefik.yml
+          framework: docker_compose
+          quiet: true
+          output_format: cli
+          soft_fail: true
+
+  license-compliance:
+    name: license compliance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      # ── Backend: Gradle dependency-license-report ──────────────────────
+      - name: Setup JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@d9c87d481d55275bb5441eef3fe0e46805f9ef70 # v3
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/develop' }}
+
+      - name: 'Backend: license compliance check'
+        run: ./gradlew :chronicle-server:checkLicense --no-daemon
+
+      - name: Upload backend license report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-license-report
+          path: chronicle-server/build/reports/dependency-license/
+          retention-days: 14
+
+      # ── Frontend: license-checker via npx ──────────────────────────────
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node compatibility runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: lts/*
+
+      - name: Install web deps
+        working-directory: chronicle-web
+        run: bun install --frozen-lockfile
+
+      - name: 'Frontend: license compliance check'
+        run: bash scripts/check-frontend-licenses.sh
+
+  container-structure-tests:
+    name: container structure tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3
+
+      - name: Install container-structure-test
+        run: |
+          curl -LO https://github.com/GoogleContainerTools/container-structure-test/releases/latest/download/container-structure-test-linux-amd64
+          chmod +x container-structure-test-linux-amd64
+          sudo mv container-structure-test-linux-amd64 /usr/local/bin/container-structure-test
+
+      - name: Build backend image
+        run: |
+          docker build \
+            -f docker/Dockerfile.backend \
+            -t chronicle-backend:test \
+            .
+
+      - name: Test backend container structure
+        run: |
+          container-structure-test test \
+            --image chronicle-backend:test \
+            --config tests/container/backend.yaml
+
+      - name: Build frontend-prod image
+        run: |
+          docker build \
+            -f docker/Dockerfile.frontend.prod \
+            -t chronicle-frontend-prod:test \
+            .
+
+      - name: Test frontend-prod container structure
+        run: |
+          container-structure-test test \
+            --image chronicle-frontend-prod:test \
+            --config tests/container/frontend-prod.yaml
+
+      # ── Trivy container & dependency scanning ──────────────────────────
+      - name: Install Trivy
+        run: |
+          sudo apt-get install -y wget apt-transport-https gnupg
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
+
+      - name: Create security reports directory
+        run: mkdir -p tests/security/reports
+
+      - name: 'Trivy: scan backend image'
+        continue-on-error: true
+        run: |
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --format sarif \
+            --output tests/security/reports/trivy-chronicle-backend.sarif \
+            chronicle-backend:test
+
+      - name: 'Trivy: scan frontend-prod image'
+        continue-on-error: true
+        run: |
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --format sarif \
+            --output tests/security/reports/trivy-chronicle-frontend.sarif \
+            chronicle-frontend-prod:test
+
+      - name: 'Trivy: filesystem dependency scan'
+        continue-on-error: true
+        run: |
+          trivy fs \
+            --severity HIGH,CRITICAL \
+            --format sarif \
+            --output tests/security/reports/trivy-fs-deps.sarif \
+            .
+
+      - name: Upload Trivy SARIF reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: trivy-security-reports
+          path: tests/security/reports/trivy-*.sarif
+          retention-days: 14
+
+  http-smoke-tests:
+    name: HTTP smoke tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3
+
+      - name: Build images
+        run: |
+          docker build -f docker/Dockerfile.backend -t chronicle-backend:test .
+          docker build -f docker/Dockerfile.frontend.prod -t chronicle-frontend-prod:test .
+
+      - name: Create minimal .env for CI
+        working-directory: docker
+        run: |
+          cat > .env <<'ENVEOF'
+          DOMAIN=localhost
+          EXT_DOMAIN=localhost
+          TRAEFIK_NETWORK=traefik
+          TRAEFIK_ENTRYPOINT=web
+          POSTGRES_USER=chronicle
+          POSTGRES_PASSWORD=chronicle_ci_test
+          POSTGRES_DB=chronicle
+          JWT_SECRET=ci-smoke-test-jwt-secret-not-for-production
+          HAZELCAST_SERVER_PASSWORD=ci-hz-server
+          HAZELCAST_CLIENT_PASSWORD=ci-hz-client
+          MOBILE_SIGNING_SECRET=ci-mobile-signing
+          MOBILE_SIGNING_ENABLED=false
+          MOBILE_SIGNING_REQUIRED=false
+          CROWDSEC_BOUNCER_API_KEY=ci-crowdsec-key
+          SMTP_ENABLED=false
+          VAULT_ENABLED=false
+          GIT_SHA=${{ github.sha }}
+          ENVEOF
+
+      - name: Start backend and frontend
+        working-directory: docker
+        run: |
+          # Start only postgres, backend, and frontend — no traefik/crowdsec needed
+          docker compose -f docker-compose.traefik.yml up -d postgres chronicle-backend chronicle-frontend
+
+      - name: Wait for services to be healthy
+        run: |
+          echo "Waiting for backend (up to 90s)..."
+          for i in $(seq 1 18); do
+            if curl -sf http://localhost:40320/actuator/health > /dev/null 2>&1; then
+              echo "Backend healthy after ~$((i * 5))s"
+              break
+            fi
+            if [ "$i" -eq 18 ]; then
+              echo "Backend failed to become healthy"
+              docker compose -f docker/docker-compose.traefik.yml logs chronicle-backend --tail=50
+              exit 1
+            fi
+            sleep 5
+          done
+
+          echo "Waiting for frontend (up to 30s)..."
+          for i in $(seq 1 6); do
+            if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
+              echo "Frontend healthy after ~$((i * 5))s"
+              break
+            fi
+            if [ "$i" -eq 6 ]; then
+              echo "Frontend failed to become healthy"
+              docker compose -f docker/docker-compose.traefik.yml logs chronicle-frontend --tail=50
+              exit 1
+            fi
+            sleep 5
+          done
+
+      - name: Run HTTP smoke tests
+        run: ./scripts/smoke-test.sh http://localhost:40320 http://localhost:8080
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker/docker-compose.traefik.yml logs --tail=100 > /tmp/smoke-test-logs.txt 2>&1
+          echo "::group::Container logs"
+          cat /tmp/smoke-test-logs.txt
+          echo "::endgroup::"
+
+      - name: Stop containers
+        if: always()
+        working-directory: docker
+        run: docker compose -f docker-compose.traefik.yml down -v --remove-orphans

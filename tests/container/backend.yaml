@@ -1,0 +1,121 @@
+# Container structure tests for chronicle-server (Dockerfile.backend)
+# Run: container-structure-test test --image chronicle-backend --config tests/container/backend.yaml
+
+schemaVersion: "2.0.0"
+
+metadataTest:
+  exposedPorts: ["40320"]
+  cmd: ["su-exec", "chronicle", "./bin/chronicle-server", "local", "postgres", "medialocal"]
+  workdir: "/server"
+  labels:
+    - key: "org.opencontainers.image.source"
+      value: "https://github.com/methodic-labs/chronicle"
+    - key: "org.opencontainers.image.vendor"
+      value: "Methodic Labs"
+  envVars:
+    - key: "CHRONICLE_SERVER_XMS"
+      value: "-Xms512m"
+    - key: "CHRONICLE_SERVER_XMX"
+      value: "-Xmx2g"
+    - key: "CHRONICLE_SERVER_ARGS"
+      value: "local postgres medialocal"
+    - key: "JAVA_HOME"
+      value: "/opt/java/openjdk"
+
+fileExistenceTests:
+  - name: "chronicle-server launch script exists"
+    path: "/server/bin/chronicle-server"
+    shouldExist: true
+    permissions: "-rwxr-xr-x"
+    isExecutableBy: "owner"
+
+  - name: "server lib directory exists"
+    path: "/server/lib"
+    shouldExist: true
+
+  - name: "config directory exists"
+    path: "/server/config"
+    shouldExist: true
+    uid: 100    # chronicle user
+    gid: 101    # chronicle group
+
+  - name: "custom JRE java binary exists"
+    path: "/opt/java/openjdk/bin/java"
+    shouldExist: true
+    isExecutableBy: "owner"
+
+  - name: "log directory exists"
+    path: "/var/log/chronicle"
+    shouldExist: true
+    uid: 100    # chronicle user
+    gid: 101    # chronicle group
+
+  - name: "no test JARs in lib"
+    path: "/server/lib/test-fixtures.jar"
+    shouldExist: false
+
+fileContentTests:
+  - name: "launch script references chronicle-server main class"
+    path: "/server/bin/chronicle-server"
+    expectedContents: ["chronicle"]
+
+commandTests:
+  - name: "java is available on PATH"
+    command: "java"
+    args: ["-version"]
+    exitCode: 0
+
+  - name: "java version is 17"
+    command: "java"
+    args: ["-version"]
+    expectedError: ["17\\."]
+
+  - name: "chronicle user exists"
+    command: "id"
+    args: ["chronicle"]
+    exitCode: 0
+
+  - name: "chronicle user is not root"
+    command: "id"
+    args: ["-u", "chronicle"]
+    excludedOutput: ["^0$"]
+
+  - name: "chronicle group exists"
+    command: "getent"
+    args: ["group", "chronicle"]
+    exitCode: 0
+
+  - name: "su-exec is installed"
+    command: "which"
+    args: ["su-exec"]
+    exitCode: 0
+
+  - name: "envsubst is available (gettext)"
+    command: "which"
+    args: ["envsubst"]
+    exitCode: 0
+
+  - name: "wget is available (for healthchecks)"
+    command: "which"
+    args: ["wget"]
+    exitCode: 0
+
+  - name: "no test JARs in distribution"
+    command: "sh"
+    args: ["-c", "ls /server/lib/*-test*.jar 2>/dev/null | wc -l"]
+    expectedOutput: ["0"]
+
+  - name: "server lib contains application JARs"
+    command: "sh"
+    args: ["-c", "ls /server/lib/*.jar | wc -l"]
+    expectedOutput: ["[1-9]"]
+
+  - name: "shell is nologin for chronicle user"
+    command: "getent"
+    args: ["passwd", "chronicle"]
+    expectedOutput: ["/sbin/nologin"]
+
+  - name: "no package manager cache left behind"
+    command: "sh"
+    args: ["-c", "ls /var/cache/apk/ 2>/dev/null | wc -l"]
+    expectedOutput: ["0"]

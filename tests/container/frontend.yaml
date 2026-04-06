@@ -1,0 +1,31 @@
+# Container structure tests for chronicle-web (Dockerfile.frontend)
+# Run: container-structure-test test --image chronicle-frontend --config tests/container/frontend.yaml
+
+schemaVersion: "2.0.0"
+
+metadataTest:
+  labels:
+    - key: "org.opencontainers.image.source"
+      value: "https://github.com/methodic-labs/chronicle"
+    - key: "org.opencontainers.image.vendor"
+      value: "Methodic Labs"
+
+fileExistenceTests:
+  - name: "built frontend files exist"
+    path: "/app/build"
+    shouldExist: true
+
+  - name: "index.html exists in build output"
+    path: "/app/build/index.html"
+    shouldExist: true
+
+commandTests:
+  - name: "build directory is not empty"
+    command: "sh"
+    args: ["-c", "ls /app/build/ | wc -l"]
+    expectedOutput: ["[1-9]"]
+
+  - name: "build contains JS assets"
+    command: "sh"
+    args: ["-c", "find /app/build -name '*.js' | wc -l"]
+    expectedOutput: ["[1-9]"]

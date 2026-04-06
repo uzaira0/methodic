@@ -1,0 +1,12 @@
+# Chronicle development tool versions
+# Install mise: https://mise.jdx.dev/getting-started.html
+# Then run: mise install
+
+[tools]
+bun = "latest"
+node = "lts"
+java = "temurin-17"
+
+[env]
+# Gradle JVM args for development
+GRADLE_OPTS = "-Xmx2g -Dorg.gradle.daemon=true"

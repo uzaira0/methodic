@@ -1,0 +1,149 @@
+# Chronicle Production Docker Compose
+#
+# This compose file overrides docker-compose.traefik.yml for production deployments.
+# It replaces local builds with pre-built ghcr.io images and adds production tuning.
+#
+# Usage:
+#   docker compose -f docker-compose.traefik.yml -f docker-compose.production.yml up -d
+#
+# The deploy.sh script handles this automatically.
+
+services:
+
+  # Override backend to use pre-built ghcr.io image instead of local build
+  chronicle-backend:
+    build: !reset null
+    image: ${BACKEND_IMAGE:-ghcr.io/methodic-labs/chronicle/chronicle-backend}:${IMAGE_TAG:-latest}
+    # Production JVM tuning
+    environment:
+      CHRONICLE_SERVER_XMS: ${BACKEND_XMS:-"-Xms1g"}
+      CHRONICLE_SERVER_XMX: ${BACKEND_XMX:-"-Xmx3g"}
+      # Disable development mode
+      JAVA_OPTS: >-
+        -XX:+UseG1GC
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/var/log/chronicle/heapdump.hprof
+        -Djava.security.egd=file:/dev/./urandom
+        -Dfile.encoding=UTF-8
+    # Stricter health check for production
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:40320/prometheus/ > /dev/null"]
+      interval: 15s
+      timeout: 10s
+      start_period: 90s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          pids: 512
+        reservations:
+          memory: 2G
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+        window: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "10"
+        tag: "chronicle-backend"
+
+  # Override frontend to use pre-built ghcr.io image instead of local build
+  chronicle-frontend:
+    build: !reset null
+    image: ${FRONTEND_IMAGE:-ghcr.io/methodic-labs/chronicle/chronicle-frontend}:${IMAGE_TAG:-latest}
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          pids: 256
+        reservations:
+          memory: 64M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+        tag: "chronicle-frontend"
+
+  # Production PostgreSQL tuning
+  postgres:
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          pids: 512
+        reservations:
+          memory: 1G
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+        window: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "10"
+        tag: "chronicle-postgres"
+
+  # Production Traefik tuning
+  traefik:
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          pids: 512
+        reservations:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "10"
+        tag: "chronicle-traefik"
+
+  # Production monitoring tuning
+  prometheus:
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+        tag: "chronicle-prometheus"
+
+  grafana:
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+        tag: "chronicle-grafana"
+
+  loki:
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+        tag: "chronicle-loki"

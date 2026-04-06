@@ -3,6 +3,8 @@ name: Performance Testing
 on:
   push:
     branches: [develop]
+  pull_request:
+    branches: [develop, main]
   workflow_dispatch:
 
 permissions:
@@ -40,9 +42,83 @@ jobs:
       - name: Check bundle size
         run: bunx size-limit
 
+  k6-smoke-test:
+    name: k6 Smoke Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@d9c87d481d55275bb5441eef3fe0e46805f9ef70 # v3
+        with:
+          cache-read-only: true
+
+      - name: Build backend
+        run: ./gradlew :chronicle-server:installDist --build-cache --no-daemon
+
+      - name: Create .env for Docker stack
+        run: |
+          cat > docker/.env <<'ENVEOF'
+          POSTGRES_USER=chronicle
+          POSTGRES_PASSWORD=test-password
+          POSTGRES_DB=chronicle
+          JWT_SECRET=k6-load-test-secret-key-minimum-32-characters
+          HAZELCAST_SERVER_PASSWORD=ci-test-hazelcast-server
+          HAZELCAST_CLIENT_PASSWORD=ci-test-hazelcast-client
+          DOMAIN=localhost
+          GRAFANA_ADMIN_PASSWORD=ci-test-grafana
+          ENVEOF
+          sed -i 's/^[[:space:]]*//' docker/.env
+
+      - name: Generate JWT
+        id: jwt
+        run: |
+          cd docker
+          TOKEN=$(bash generate-jwt.sh 2>/dev/null)
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Start Docker stack
+        run: |
+          cd docker
+          docker compose -p chronicle -f docker-compose.traefik.yml up -d chronicle-backend chronicle-postgres
+          echo "Waiting for backend to be healthy..."
+          timeout 120 bash -c 'until curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:40320/actuator/health 2>/dev/null | grep -q "200"; do sleep 2; done'
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D68
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: Run k6 smoke test
+        env:
+          JWT_TOKEN: ${{ steps.jwt.outputs.token }}
+        run: |
+          k6 run \
+            --env JWT_TOKEN="$JWT_TOKEN" \
+            tests/performance/smoke.js
+
+      - name: Stop Docker stack
+        if: always()
+        run: cd docker && docker compose -p chronicle -f docker-compose.traefik.yml down -v
+
   k6-load-test:
     name: k6 Load Test
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     timeout-minutes: 30
     steps:
       - name: Checkout

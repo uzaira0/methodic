@@ -230,16 +230,167 @@ log "  Token written to ${OUTPUT_DIR}/pg-tde-service-token.txt"
 log "  TTL: 8760h (1 year) -- rotate before expiry"
 
 # ══════════════════════════════════════════════════════════════════════════════
-log_step 6 "Generate .env configuration"
+log_step 6 "Seed application secrets"
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Prompt for secrets interactively or use environment variables
+PROMPT_SECRETS="${PROMPT_SECRETS:-true}"
+
+read_secret() {
+    local name="$1"
+    local env_var="$2"
+    local default="$3"
+    local value="${!env_var:-}"
+
+    if [ -n "$value" ]; then
+        echo "$value"
+        return
+    fi
+
+    if [ "$PROMPT_SECRETS" = "true" ] && [ -t 0 ]; then
+        read -rsp "  Enter ${name} (or press Enter to generate): " value
+        echo >&2
+    fi
+
+    if [ -z "$value" ] && [ -n "$default" ]; then
+        value="$default"
+    elif [ -z "$value" ]; then
+        value=$(openssl rand -base64 32)
+    fi
+
+    echo "$value"
+}
+
+# Database credentials
+DB_USER=$(read_secret "database user" "POSTGRES_USER" "chronicle")
+DB_PASSWORD=$(read_secret "database password" "POSTGRES_PASSWORD" "")
+
+vault kv put "${VAULT_MOUNT_PATH}/chronicle/database" \
+    user="$DB_USER" \
+    password="$DB_PASSWORD"
+log_ok "Database credentials stored"
+
+# JWT signing secret
+JWT_SECRET=$(read_secret "JWT signing secret" "JWT_SECRET" "")
+
+vault kv put "${VAULT_MOUNT_PATH}/chronicle/jwt" \
+    secret="$JWT_SECRET"
+log_ok "JWT secret stored"
+
+# Hazelcast passwords
+HZ_SERVER=$(read_secret "Hazelcast server password" "HAZELCAST_SERVER_PASSWORD" "")
+HZ_CLIENT=$(read_secret "Hazelcast client password" "HAZELCAST_CLIENT_PASSWORD" "")
+
+vault kv put "${VAULT_MOUNT_PATH}/chronicle/hazelcast" \
+    server-password="$HZ_SERVER" \
+    client-password="$HZ_CLIENT"
+log_ok "Hazelcast passwords stored"
+
+# SMTP credentials (optional)
+if [ -n "${SMTP_HOST:-}" ] || [ "$PROMPT_SECRETS" = "true" ]; then
+    SMTP_H=$(read_secret "SMTP host" "SMTP_HOST" "smtp.example.com")
+    SMTP_P=$(read_secret "SMTP port" "SMTP_PORT" "587")
+    SMTP_U=$(read_secret "SMTP username" "SMTP_USERNAME" "noreply@example.com")
+    SMTP_PW=$(read_secret "SMTP password" "SMTP_PASSWORD" "")
+
+    vault kv put "${VAULT_MOUNT_PATH}/chronicle/smtp" \
+        host="$SMTP_H" \
+        port="$SMTP_P" \
+        user="$SMTP_U" \
+        password="$SMTP_PW"
+    log_ok "SMTP credentials stored"
+fi
+
+# Mobile signing secret (optional)
+if [ -n "${MOBILE_SIGNING_SECRET:-}" ]; then
+    vault kv put "${VAULT_MOUNT_PATH}/chronicle/mobile" \
+        signing-secret="${MOBILE_SIGNING_SECRET}" \
+        app-key="${MOBILE_APP_KEY:-}"
+    log_ok "Mobile secrets stored"
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+log_step 7 "Create chronicle-server policy and AppRole"
+# ══════════════════════════════════════════════════════════════════════════════
+
+APP_POLICY_NAME="chronicle-server"
+
+vault policy write "$APP_POLICY_NAME" - <<POLICY
+# Chronicle Server Application Policy
+# Read-only access to application secrets, deny TDE keys (separate policy)
+
+path "${VAULT_MOUNT_PATH}/data/chronicle/database" {
+    capabilities = ["read"]
+}
+path "${VAULT_MOUNT_PATH}/data/chronicle/jwt" {
+    capabilities = ["read"]
+}
+path "${VAULT_MOUNT_PATH}/data/chronicle/smtp" {
+    capabilities = ["read"]
+}
+path "${VAULT_MOUNT_PATH}/data/chronicle/hazelcast" {
+    capabilities = ["read"]
+}
+path "${VAULT_MOUNT_PATH}/data/chronicle/mobile" {
+    capabilities = ["read"]
+}
+path "${VAULT_MOUNT_PATH}/data/chronicle/twilio" {
+    capabilities = ["read"]
+}
+path "${VAULT_MOUNT_PATH}/metadata/chronicle/*" {
+    capabilities = ["read", "list"]
+}
+
+# Deny TDE keys — managed separately by PostgreSQL
+path "${VAULT_MOUNT_PATH}/data/chronicle/tde-principal-key" {
+    capabilities = ["deny"]
+}
+POLICY
+
+log_ok "Policy '${APP_POLICY_NAME}' created"
+
+# Enable AppRole auth method
+vault auth enable approle 2>/dev/null || log_warn "AppRole auth already enabled"
+
+vault write auth/approle/role/chronicle-server \
+    token_policies="${APP_POLICY_NAME}" \
+    token_ttl="1h" \
+    token_max_ttl="4h" \
+    secret_id_ttl="0" \
+    secret_id_num_uses="0"
+
+APPROLE_ROLE_ID=$(vault read -field=role_id auth/approle/role/chronicle-server/role-id)
+APPROLE_SECRET_ID=$(vault write -field=secret_id -f auth/approle/role/chronicle-server/secret-id)
+
+echo "$APPROLE_ROLE_ID" > "${OUTPUT_DIR}/approle-role-id.txt"
+echo "$APPROLE_SECRET_ID" > "${OUTPUT_DIR}/approle-secret-id.txt"
+chmod 600 "${OUTPUT_DIR}/approle-role-id.txt" "${OUTPUT_DIR}/approle-secret-id.txt"
+
+log_ok "AppRole 'chronicle-server' created"
+log "  Role ID written to ${OUTPUT_DIR}/approle-role-id.txt"
+log "  Secret ID written to ${OUTPUT_DIR}/approle-secret-id.txt"
+
+# ══════════════════════════════════════════════════════════════════════════════
+log_step 8 "Generate .env configuration"
 # ══════════════════════════════════════════════════════════════════════════════
 
 cat > "${OUTPUT_DIR}/vault-env-snippet.txt" <<ENVEOF
-# Add these to your .env file for Vault-backed TDE:
+# === Vault-backed TDE (PostgreSQL encryption at rest) ===
 PG_TDE_KEY_PROVIDER=vault
 PG_TDE_VAULT_URL=${VAULT_ADDR}
 PG_TDE_VAULT_TOKEN=${SERVICE_TOKEN}
 PG_TDE_VAULT_MOUNT_PATH=${VAULT_MOUNT_PATH}
 # PG_TDE_VAULT_CA_PATH=/path/to/vault-ca.pem  # Uncomment for TLS
+
+# === Vault-backed application secrets (chronicle-server) ===
+VAULT_ENABLED=true
+VAULT_ADDR=${VAULT_ADDR}
+VAULT_AUTH_METHOD=approle
+VAULT_APP_ROLE_ID=${APPROLE_ROLE_ID}
+VAULT_APP_ROLE_SECRET_ID=${APPROLE_SECRET_ID}
+# Or use token auth (simpler but less secure):
+# VAULT_AUTH_METHOD=token
+# VAULT_TOKEN=${SERVICE_TOKEN}
 ENVEOF
 
 log_ok "Environment snippet written to ${OUTPUT_DIR}/vault-env-snippet.txt"
@@ -254,8 +405,14 @@ echo "  Vault Address:      ${VAULT_ADDR}"
 echo "  Secrets Mount:      ${VAULT_MOUNT_PATH}/"
 echo "  TDE Key Path:       ${VAULT_MOUNT_PATH}/chronicle/tde-principal-key"
 echo "  TDE Fingerprint:    ${TDE_FINGERPRINT}"
-echo "  Policy:             ${POLICY_NAME}"
-echo "  Service Token TTL:  8760h (1 year)"
+echo ""
+echo "  Policies:"
+echo "    ${POLICY_NAME}       — PostgreSQL TDE read-only"
+echo "    ${APP_POLICY_NAME}   — chronicle-server app secrets"
+echo ""
+echo "  AppRole: chronicle-server"
+echo "    Role ID:   ${APPROLE_ROLE_ID}"
+echo "    Secret ID: (written to ${OUTPUT_DIR}/approle-secret-id.txt)"
 echo ""
 echo "  Output files:"
 if [ "$SKIP_INIT" != true ]; then
@@ -263,6 +420,8 @@ echo "    ${OUTPUT_DIR}/unseal-key-{1..${VAULT_INIT_SHARES}}.txt  (distribute to
 echo "    ${OUTPUT_DIR}/root-token.txt                (store securely, revoke after setup)"
 fi
 echo "    ${OUTPUT_DIR}/pg-tde-service-token.txt      (use as PG_TDE_VAULT_TOKEN)"
+echo "    ${OUTPUT_DIR}/approle-role-id.txt           (use as VAULT_APP_ROLE_ID)"
+echo "    ${OUTPUT_DIR}/approle-secret-id.txt         (use as VAULT_APP_ROLE_SECRET_ID)"
 echo "    ${OUTPUT_DIR}/vault-env-snippet.txt         (paste into .env)"
 echo ""
 echo -e "${YELLOW}IMPORTANT:${NC}"
@@ -270,5 +429,6 @@ echo "  1. Distribute unseal keys to different custodians (same as key ceremony)
 echo "  2. Revoke the root token after initial setup: vault token revoke <root-token>"
 echo "  3. Set up auto-unseal for production (see docs/KEY-MANAGEMENT-RUNBOOK.md)"
 echo "  4. Copy the .env snippet into your production .env file"
-echo "  5. Rotate the service token annually"
+echo "  5. Rotate the AppRole secret ID periodically"
+echo "  6. Rotate the TDE service token annually"
 echo ""

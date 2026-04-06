@@ -67,3 +67,21 @@ tests/security/reports/schemathesis/
 .hypothesis/
 tests/security/.trivy-cache/
 chronicle-models
+
+# Lefthook local overrides (personal config, not committed)
+lefthook-local.yml
+
+# k6 performance test result artifacts
+tests/performance/*-results.json
+tests/load/k6-summary.json
+load-test-results.json
+
+# CD pipeline runtime state (not source-controlled)
+.deploy-state/
+deploy-audit.log
+
+# Environment files with real secrets (templates are tracked)
+docker/.env
+!docker/.env.example
+!docker/.env.staging
+!docker/.env.production

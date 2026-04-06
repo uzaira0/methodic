@@ -286,6 +286,13 @@ services:
       VAULT_ADDR: ${VAULT_ADDR:-http://vault:8200}
       VAULT_TOKEN: ${VAULT_TOKEN:-}
       VAULT_ENABLED: ${VAULT_ENABLED:-false}
+      # AppRole auth (preferred for production — set VAULT_AUTH_METHOD=approle)
+      VAULT_AUTH_METHOD: ${VAULT_AUTH_METHOD:-token}
+      VAULT_APP_ROLE_ID: ${VAULT_APP_ROLE_ID:-}
+      VAULT_APP_ROLE_SECRET_ID: ${VAULT_APP_ROLE_SECRET_ID:-}
+      # Structured JSON logging for Loki/SIEM ingestion
+      # Set to "json" for structured output, omit or set to "text" for traditional PatternLayout
+      LOG_FORMAT: json
       # Audit log directory for HIPAA compliance
       # Logs are written in JSON format for SIEM integration
       AUDIT_LOG_DIR: /var/log/chronicle
@@ -508,6 +515,58 @@ services:
       - "traefik.http.routers.chronicle-ext-block.service=chronicle-backend"
       - "traefik.http.routers.chronicle-ext-block.middlewares=chronicle-block-response"
 
+
+  # ===========================================
+  # HashiCorp Vault — secret management
+  # ===========================================
+  # Dev mode: runs unsealed with a deterministic root token.
+  # Production: use an external Vault cluster with auto-unseal.
+  # Enable with: docker compose --profile vault up -d
+  vault:
+    image: hashicorp/vault:1.19
+    container_name: chronicle-vault
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN:-chronicle-dev-token}
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+      VAULT_ADDR: "http://127.0.0.1:8200"
+      VAULT_LOG_LEVEL: info
+    volumes:
+      - vault_data:/vault/file
+      - ./vault/init-dev-secrets.sh:/vault/scripts/init-dev-secrets.sh:ro,z
+      - ./vault/chronicle-server-policy.hcl:/vault/policies/chronicle-server-policy.hcl:ro,z
+    # After Vault starts in dev mode, run the init script to seed secrets
+    entrypoint:
+      - sh
+      - -c
+      - |
+        vault server -dev -dev-root-token-id="$$VAULT_DEV_ROOT_TOKEN_ID" &
+        VAULT_PID=$$!
+        # Wait for Vault to be ready
+        until vault status >/dev/null 2>&1; do sleep 0.5; done
+        # Seed development secrets and create AppRole
+        sh /vault/scripts/init-dev-secrets.sh
+        # Keep container running
+        wait $$VAULT_PID
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    networks:
+      - chronicle-internal
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          pids: 256
+    profiles:
+      - vault
 
   chronicle-frontend:
     build:
@@ -878,6 +937,7 @@ networks:
 
 volumes:
   traefik_access_logs:
+  vault_data:
   postgres_data:
   postgres_replica_data:
   # Separate volume for TDE keyring to ensure key persistence
