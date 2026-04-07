@@ -415,8 +415,8 @@ main() {
   validate_args
 
   # Set default image names if not provided
-  BACKEND_IMAGE="${BACKEND_IMAGE_ARG:-${BACKEND_IMAGE:-ghcr.io/methodic-labs/chronicle/chronicle-backend}}"
-  FRONTEND_IMAGE="${FRONTEND_IMAGE_ARG:-${FRONTEND_IMAGE:-ghcr.io/methodic-labs/chronicle/chronicle-frontend}}"
+  BACKEND_IMAGE="${BACKEND_IMAGE_ARG:-${BACKEND_IMAGE:-ghcr.io/uzaira0/chronicle/chronicle-backend}}"
+  FRONTEND_IMAGE="${FRONTEND_IMAGE_ARG:-${FRONTEND_IMAGE:-ghcr.io/uzaira0/chronicle/chronicle-frontend}}"
 
   if [[ "${VERIFY_ONLY}" == true ]]; then
     verify_deployment

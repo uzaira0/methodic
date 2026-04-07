@@ -13,7 +13,7 @@ services:
   # Override backend to use pre-built ghcr.io image instead of local build
   chronicle-backend:
     build: !reset null
-    image: ${BACKEND_IMAGE:-ghcr.io/methodic-labs/chronicle/chronicle-backend}:${IMAGE_TAG:-latest}
+    image: ${BACKEND_IMAGE:-ghcr.io/uzaira0/chronicle/chronicle-backend}:${IMAGE_TAG:-latest}
     # Production JVM tuning
     environment:
       CHRONICLE_SERVER_XMS: ${BACKEND_XMS:-"-Xms1g"}
@@ -54,7 +54,7 @@ services:
   # Override frontend to use pre-built ghcr.io image instead of local build
   chronicle-frontend:
     build: !reset null
-    image: ${FRONTEND_IMAGE:-ghcr.io/methodic-labs/chronicle/chronicle-frontend}:${IMAGE_TAG:-latest}
+    image: ${FRONTEND_IMAGE:-ghcr.io/uzaira0/chronicle/chronicle-frontend}:${IMAGE_TAG:-latest}
     deploy:
       resources:
         limits:

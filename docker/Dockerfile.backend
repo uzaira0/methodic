@@ -103,7 +103,7 @@ EXPOSE 40320
 
 # HEALTHCHECK is defined in docker-compose.traefik.yml (compose always overrides Dockerfile HEALTHCHECK)
 
-LABEL org.opencontainers.image.source="https://github.com/methodic-labs/chronicle"
+LABEL org.opencontainers.image.source="https://github.com/uzaira0/chronicle"
 LABEL org.opencontainers.image.vendor="Methodic Labs"
 
 # User switching happens in docker-compose command (su-exec after envsubst renders config as root)

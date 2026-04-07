@@ -6,7 +6,7 @@ schemaVersion: "2.0.0"
 metadataTest:
   labels:
     - key: "org.opencontainers.image.source"
-      value: "https://github.com/methodic-labs/chronicle"
+      value: "https://github.com/uzaira0/chronicle"
     - key: "org.opencontainers.image.vendor"
       value: "Methodic Labs"
 

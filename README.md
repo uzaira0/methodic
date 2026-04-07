@@ -29,7 +29,7 @@ This is a Gradle multi-project that uses git submodules:
 Clone with submodules:
 
 ```bash
-git clone --recurse-submodules git@github.com:methodic-labs/chronicle.git
+git clone --recurse-submodules git@github.com:uzaira0/chronicle.git
 ```
 
 ## Quick Start (Docker Compose)

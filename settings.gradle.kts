@@ -17,7 +17,7 @@ pluginManagement {
         id("signing")
     }
     repositories {
-        maven(url = "https://maven.pkg.github.com/methodic-labs/methodic")
+        maven(url = "https://maven.pkg.github.com/uzaira0/methodic")
         maven(url = "https://plugins.gradle.org/m2/")
         mavenCentral()
     }
