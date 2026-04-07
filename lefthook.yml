@@ -28,15 +28,35 @@ pre-commit:
         If this is a false positive, add an inline '# gitleaks:allow' comment
         or update tests/security/gitleaks.toml.
 
+    trivy-secrets:
+      run: trivy fs --scanners secret --exit-code 1 --severity CRITICAL --quiet --skip-dirs docker/certs,docker/postgres-ssl .
+      tags: optional
+
+    hadolint:
+      glob: "docker/Dockerfile*"
+      run: hadolint {staged_files}
+      tags: optional
+
     typecheck:
       root: "chronicle-web/"
       glob: "src/**/*.{ts,tsx}"
       run: bun run typecheck
       tags: optional
 
+    detekt:
+      glob: "**/*.kt"
+      run: detekt-cli --input {staged_files} --config detekt.yml --build-upon-default-config
+      tags: optional
+
 pre-push:
+  parallel: true
   commands:
     chronicle-web-check:
       root: "chronicle-web/"
       glob: "**/*.{ts,tsx,js,jsx}"
       run: bun run check
+
+    kotlin-compile:
+      glob: "**/*.kt"
+      run: ./gradlew :chronicle-server:compileKotlin --no-daemon -q
+      tags: optional

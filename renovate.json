@@ -148,6 +148,8 @@
 
   "vulnerabilityAlerts": {
     "enabled": true,
-    "labels": ["dependencies", "security"]
+    "labels": ["dependencies", "security"],
+    "schedule": ["at any time"],
+    "prPriority": 10
   }
 }

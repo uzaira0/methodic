@@ -513,6 +513,33 @@ The Traefik setup has the same API route separation:
 
 ---
 
+## Temporal Workflow Engine (Optional)
+
+Temporal provides durable workflow execution for long-running operations like notification delivery, upload processing, and scheduled study operations.
+
+### Deploy with Temporal:
+
+```bash
+docker compose -p chronicle \
+  -f docker-compose.traefik.yml \
+  -f docker-compose.temporal.yml \
+  up -d
+```
+
+Temporal creates two additional PostgreSQL databases (`temporal`, `temporal_visibility`) in the existing Postgres instance via the `auto-setup` image on first boot.
+
+### Access:
+
+- **Temporal UI**: `https://${DOMAIN}/temporal/` (IP-restricted to internal networks)
+- **Admin CLI**: `docker compose --profile tools exec temporal-admin temporal workflow list`
+- **gRPC endpoint** (for SDK workers): `temporal:7233` (internal network only)
+
+### Configuration:
+
+Dynamic config is at `docker/temporal/dynamic-config.yaml`. Changes take effect without restart. Key settings:
+- `system.retention`: How long closed workflow history is kept (default: 90 days)
+- `frontend.namespaceRPS`: Rate limit for SDK requests per namespace
+
 ## Security Overlay Deployment
 
 Security configuration files are **not included in the git repository** for operational security. They exist on the server at deployment time.

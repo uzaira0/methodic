@@ -1,6 +1,6 @@
 # Chronicle Deployment Matrix
 
-Updated: 2026-03-12
+Updated: 2026-04-06
 
 Use this matrix to choose the correct Docker Compose entrypoint. The compose files are not interchangeable.
 
@@ -11,6 +11,7 @@ Use this matrix to choose the correct Docker Compose entrypoint. The compose fil
 | Hardened Traefik overlay | `docker-compose.traefik.yml` + `docker-compose.security.yml` | When WAF, rate-limit overlays, or fail2ban/logging protections are required | See [security/README.md](/opt/chronicle/docker/security/README.md). |
 | Production-style standalone reverse proxy | `docker-compose.prod.yml` | Environments using the built-in production nginx path instead of external Traefik | See [DEPLOYMENT.md](/opt/chronicle/docker/DEPLOYMENT.md). |
 | Monitoring overlays | Base compose + `docker-compose.loki.yml` or `docker-compose.opensearch.yml` or `docker-compose.kafka.yml` | Add SIEM/monitoring components to an existing deployment | Do not treat these as standalone entrypoints. |
+| Temporal workflows | Base compose + `docker-compose.temporal.yml` | Add durable workflow engine for notifications, upload pipelines, scheduled ops | Requires base PostgreSQL. Admin tools via `--profile tools`. |
 
 ## Current Defaults
 
@@ -28,4 +29,5 @@ Use this matrix to choose the correct Docker Compose entrypoint. The compose fil
 docker compose -f docker/docker-compose.traefik.yml config -q
 docker compose -f docker/docker-compose.yml config -q
 docker compose -f docker/docker-compose.prod.yml config -q
+docker compose -f docker/docker-compose.traefik.yml -f docker/docker-compose.temporal.yml config -q
 ```
