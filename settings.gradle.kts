@@ -3,7 +3,7 @@ pluginManagement {
         kotlin("jvm")                               version "2.3.10" apply false
 
         id("org.jetbrains.dokka")                       version "2.0.0" apply false
-        id("com.github.spotbugs")                       version "6.1.10" apply false
+        id("com.github.spotbugs")                       version "6.5.1" apply false
         id("org.owasp.dependencycheck")                 version "6.0.1" apply false
         id("org.hidetake.swagger.generator")            version "2.18.2" apply false
         id("com.github.johnrengelman.shadow")           version "2.0.0" apply false
