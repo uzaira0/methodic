@@ -73,7 +73,7 @@ RUN jlink --no-header-files --no-man-pages --compress=2 --strip-debug \
     --output /opt/jre-minimal
 
 # Runtime stage — custom JRE on Alpine for minimal footprint
-FROM alpine:3.21@sha256:22e0ec13c0db6b3e1ba3280e831fc50ba7bffe58e81f31670a64b1afede247bc
+FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
 
 WORKDIR /server
 
