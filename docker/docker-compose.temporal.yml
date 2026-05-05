@@ -1,0 +1,155 @@
+# Chronicle + Temporal Workflow Engine
+#
+# Self-hosted durable workflow execution for long-running operations:
+#   - Notification delivery with retry/backoff
+#   - Data upload processing pipelines
+#   - Scheduled study operations
+#   - Participant enrollment workflows
+#
+# Usage:
+#   docker compose -f docker-compose.traefik.yml -f docker-compose.temporal.yml up -d
+#
+# Temporal Web UI accessible at https://${DOMAIN}/temporal/ (IP-restricted)
+#
+# Prerequisites:
+#   - PostgreSQL must be running (from base compose)
+#   - Set TEMPORAL_* variables in .env
+
+services:
+
+  # =========================================
+  # Temporal Server
+  # =========================================
+  # Core workflow orchestration engine. Uses the existing PostgreSQL
+  # instance for persistence (separate databases for default + visibility).
+  temporal:
+    image: temporalio/auto-setup:1.25.2
+    container_name: chronicle-temporal
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      # Use existing PostgreSQL for persistence
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD}
+      POSTGRES_SEEDS: postgres
+      # Temporal databases (auto-created by auto-setup)
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+      # Search attributes for workflow visibility
+      ENABLE_ES: "false"
+      # Cluster configuration
+      TEMPORAL_ADDRESS: temporal:7233
+      # Namespace auto-setup
+      DEFAULT_NAMESPACE: chronicle
+      # Dynamic config overrides
+      DYNAMIC_CONFIG_FILE_PATH: /etc/temporal/dynamic-config.yaml
+      # History and matching service config
+      HISTORY_SHARDS: 4
+      # Frontend service for SDK connections
+      FRONTEND_PORT: 7233
+      # Logging
+      LOG_LEVEL: info
+    volumes:
+      - ./temporal/dynamic-config.yaml:/etc/temporal/dynamic-config.yaml:ro,z
+    ports:
+      # gRPC port for SDK workers (internal only — not exposed via Traefik)
+      - "7233:7233"
+    networks:
+      - chronicle-internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          pids: 256
+
+  # =========================================
+  # Temporal Web UI
+  # =========================================
+  # Dashboard for monitoring workflows, viewing history, and manual operations.
+  # IP-restricted via Traefik to internal networks only.
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    container_name: chronicle-temporal-ui
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: https://${DOMAIN}
+      TEMPORAL_UI_PORT: 8233
+      TEMPORAL_CODEC_ENDPOINT: ""
+    networks:
+      - chronicle-internal
+      - traefik
+    depends_on:
+      temporal:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 -O /dev/null http://localhost:8233 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          pids: 128
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik}"
+      - "traefik.http.routers.chronicle-temporal-ui.rule=Host(`${DOMAIN}`) && PathPrefix(`/temporal`)"
+      - "traefik.http.routers.chronicle-temporal-ui.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.chronicle-temporal-ui.priority=10"
+      - "traefik.http.services.chronicle-temporal-ui.loadbalancer.server.port=8233"
+      # IP-restrict Temporal UI (same as Grafana — admin-only)
+      - "traefik.http.routers.chronicle-temporal-ui.middlewares=chronicle-internal-only@docker"
+
+  # =========================================
+  # Temporal Admin Tools (optional — for CLI ops)
+  # =========================================
+  # One-shot container for running tctl/temporal CLI commands.
+  # Usage: docker compose exec temporal-admin temporal workflow list
+  temporal-admin:
+    image: temporalio/admin-tools:1.25.2
+    container_name: chronicle-temporal-admin
+    restart: "no"
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CLI_ADDRESS: temporal:7233
+    networks:
+      - chronicle-internal
+    depends_on:
+      temporal:
+        condition: service_healthy
+    stdin_open: true
+    tty: true
+    profiles:
+      - tools
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          pids: 128
+
+networks:
+  chronicle-internal:
+    external: true
+  traefik:
+    external: true
+    name: traefik-apps

@@ -1,0 +1,49 @@
+global:
+  sendAnonymousUsage: false
+
+providers:
+  docker:
+    exposedByDefault: false
+    watch: true
+    network: traefik-apps
+    endpoint: tcp://docker-socket-proxy:2375
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+entryPoints:
+  web:
+    address: :80
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+  websecure:
+    address: :443
+    http3:
+      advertisedPort: 443
+
+# TLS hardening — enforce TLS 1.2+ and prefer server cipher suites
+tls:
+  options:
+    default:
+      minVersion: VersionTLS12
+      sniStrict: true
+
+api:
+  dashboard: false
+
+ping: {}
+
+# Access logging for CrowdSec + Fail2ban
+accessLog:
+  filePath: /var/log/traefik/access.log
+  bufferingSize: 100
+
+# CrowdSec bouncer plugin for WAF + IP reputation
+experimental:
+  plugins:
+    crowdsec-bouncer:
+      moduleName: github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin
+      version: v1.5.1

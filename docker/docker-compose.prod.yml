@@ -1,0 +1,147 @@
+
+# Production deployment with HTTPS and security hardening
+#
+# Usage:
+#   1. Copy .env.example to .env and configure
+#   2. Run: ./init-ssl.sh (for Let's Encrypt) OR place your own certs in ./certs/
+#   3. Run: docker-compose -f docker-compose.prod.yml up -d
+
+services:
+  # PostgreSQL Database with Transparent Data Encryption (TDE) and SSL/TLS
+  # Uses Percona Distribution for PostgreSQL with pg_tde extension for HIPAA/GDPR compliance
+  # SSL/TLS encryption in transit protects data between application and database
+  postgres:
+    image: percona/percona-distribution-postgresql:17.5-3
+    container_name: chronicle-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # Enable pg_tde extension for Transparent Data Encryption
+      ENABLE_PG_TDE: "1"
+      # TDE Key Provider Configuration
+      # Options: "file" (development), "vault" (production), "none" (disabled)
+      PG_TDE_KEY_PROVIDER: ${PG_TDE_KEY_PROVIDER:-file}
+      # HashiCorp Vault settings (required when PG_TDE_KEY_PROVIDER=vault)
+      PG_TDE_VAULT_URL: ${PG_TDE_VAULT_URL:-}
+      PG_TDE_VAULT_TOKEN: ${PG_TDE_VAULT_TOKEN:-}
+      PG_TDE_VAULT_MOUNT_PATH: ${PG_TDE_VAULT_MOUNT_PATH:-secret}
+      PG_TDE_VAULT_CA_PATH: ${PG_TDE_VAULT_CA_PATH:-}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # TDE keyring storage (for file-based provider - development only)
+      - postgres_tde_keyring:/var/lib/postgresql/tde-keyring
+      # Initialization script for TDE setup
+      - ./init-db-encryption.sh:/docker-entrypoint-initdb.d/20-init-db-encryption.sh:ro
+      # SSL/TLS certificates for encryption in transit
+      # Generate with: ./init-postgres-ssl.sh
+      - ./postgres-ssl/server/server.crt:/var/lib/postgresql/ssl/server.crt:ro
+      - ./postgres-ssl/server/server.key:/var/lib/postgresql/ssl/server.key:ro
+      - ./postgres-ssl/ca/ca.crt:/var/lib/postgresql/ssl/ca.crt:ro
+    networks:
+      - chronicle-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Security: Run as non-root user
+    user: "999:999"
+    # PostgreSQL SSL configuration via command line arguments
+    command: >
+      -c ssl=on
+      -c ssl_cert_file=/var/lib/postgresql/ssl/server.crt
+      -c ssl_key_file=/var/lib/postgresql/ssl/server.key
+      -c ssl_ca_file=/var/lib/postgresql/ssl/ca.crt
+      -c ssl_min_protocol_version=TLSv1.2
+      -c ssl_prefer_server_ciphers=on
+
+  # Chronicle Backend API
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: chronicle-backend
+    restart: unless-stopped
+    environment:
+      CHRONICLE_SERVER_XMS: ${BACKEND_XMS:-"-Xms512m"}
+      CHRONICLE_SERVER_XMX: ${BACKEND_XMX:-"-Xmx2g"}
+      CHRONICLE_SERVER_ARGS: "local postgres medialocal"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # PostgreSQL SSL/TLS Configuration for HIPAA-compliant encryption in transit
+      # Options: disable, allow, prefer, require, verify-ca, verify-full
+      # Production recommendation: verify-full (validates server certificate and hostname)
+      POSTGRES_SSL_MODE: ${POSTGRES_SSL_MODE:-require}
+      # Path to CA certificate for server certificate verification
+      POSTGRES_SSL_ROOT_CERT: /app/ssl/ca.crt
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS:-"https://${DOMAIN}"}
+      # Audit log directory for HIPAA compliance
+      # Logs are written in JSON format for SIEM integration
+      AUDIT_LOG_DIR: /var/log/chronicle
+    volumes:
+      # Persistent volume for HIPAA-compliant audit logs
+      # These logs are critical for compliance - rotated daily, kept 365 days
+      # Format: JSON (NDJSON) compatible with Splunk, ELK, DataDog, etc.
+      - audit_logs:/var/log/chronicle
+      # SSL/TLS CA certificate for PostgreSQL connection verification
+      - ./postgres-ssl/ca/ca.crt:/app/ssl/ca.crt:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - chronicle-internal
+
+  # Chronicle Frontend (production build)
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend.prod
+      args:
+        - API_BASE_URL=https://${DOMAIN}
+    container_name: chronicle-frontend
+    restart: unless-stopped
+    networks:
+      - chronicle-internal
+
+  # Nginx Reverse Proxy with SSL
+  nginx:
+    image: nginx:alpine
+    container_name: chronicle-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ./certbot-webroot:/var/www/certbot:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - chronicle-internal
+      - chronicle-external
+
+networks:
+  chronicle-internal:
+    driver: bridge
+    internal: true
+  chronicle-external:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  # Separate volume for TDE keyring to ensure key persistence
+  # IMPORTANT: Back up this volume securely - loss of keys means loss of encrypted data
+  postgres_tde_keyring:
+  # HIPAA-compliant audit logs volume
+  # Contains JSON-formatted audit entries for compliance and SIEM integration
+  # Retention: 365 days (configure cleanup policy for production)
+  # IMPORTANT: Include in backup strategy for compliance requirements
+  audit_logs:

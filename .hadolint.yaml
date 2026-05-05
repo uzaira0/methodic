@@ -1,0 +1,16 @@
+# Hadolint configuration for Chronicle Dockerfiles
+# https://github.com/hadolint/hadolint#configure
+
+# Fail on warning and above
+failure-threshold: warning
+
+ignored:
+  # DL3008: Pin versions in apt-get — we use --no-install-recommends and clear cache; pinning
+  # distro packages in build stages adds maintenance burden without security benefit (images use
+  # digest-pinned base images).
+  - DL3008
+  # DL3018: Pin versions in apk add — same rationale as DL3008 for Alpine packages.
+  - DL3018
+
+trustedRegistries:
+  - docker.io

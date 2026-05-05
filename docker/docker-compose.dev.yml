@@ -1,0 +1,75 @@
+
+# Development mode with hot reload via volume mounts
+# Usage: docker-compose -f docker-compose.dev.yml up
+#
+# Frontend source code is mounted as a volume, so changes are reflected immediately
+# with webpack dev server hot module replacement (HMR)
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: chronicle-postgres
+    environment:
+      POSTGRES_USER: oltest
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: chronicle
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oltest -d chronicle"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: chronicle-backend
+    environment:
+      CHRONICLE_SERVER_XMS: "-Xms512m"
+      CHRONICLE_SERVER_XMX: "-Xmx2g"
+      CHRONICLE_SERVER_ARGS: "local postgres medialocal"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: chronicle
+      POSTGRES_USER: oltest
+      POSTGRES_PASSWORD: test
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "40320:40320"
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend.dev
+    container_name: chronicle-frontend
+    volumes:
+      # Mount source code for hot reloading
+      - ../chronicle-web/src:/app/src:ro
+      - ../chronicle-web/config:/app/config:ro
+      - ../chronicle-web/public:/app/public:ro
+    environment:
+      - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+    ports:
+      - "9000:9000"
+
+  nginx:
+    image: nginx:alpine
+    container_name: chronicle-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.dev.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  postgres_data:

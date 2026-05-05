@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <!--
+        OWASP Dependency-Check suppression file for Chronicle.
+        Add false positives or accepted risks here with justification.
+
+        Example:
+        <suppress>
+            <notes>False positive - not using the vulnerable feature</notes>
+            <cve>CVE-YYYY-NNNNN</cve>
+        </suppress>
+    -->
+</suppressions>

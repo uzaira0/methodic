@@ -1,0 +1,466 @@
+name: Maestro Android UI Tests
+
+# Runs the Chronicle Android app against the server on multiple API levels.
+# Triggers on PRs and manual dispatch.
+on:
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Nightly at 3 AM UTC — runs the full API 26-35 matrix
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      android_ref:
+        description: "Git ref for chronicle-android repo (branch/tag/sha)"
+        required: false
+        default: "develop"
+        type: string
+      api_levels:
+        description: "JSON array of API levels (default: all)"
+        required: false
+        default: "[26,27,28,29,30,31,32,33,34,35]"
+        type: string
+
+permissions:
+  contents: read
+  checks: write
+
+env:
+  APP_PACKAGE: com.openlattice.chronicle
+  # JWT_SECRET used by CI to generate short-lived tokens at workflow runtime
+  JWT_SECRET: "ci-test-secret-not-for-production"
+
+jobs:
+  # ------------------------------------------------------------------
+  # 0. Pick API levels based on trigger (tiered testing)
+  #    PRs       → key breakpoints only (fast feedback)
+  #    Nightly   → full matrix (comprehensive)
+  #    Manual    → user-specified or full matrix
+  # ------------------------------------------------------------------
+  configure:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          API_LEVELS: ${{ inputs.api_levels }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "matrix={\"api-level\":${API_LEVELS}}" >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT_NAME" = "schedule" ]; then
+            echo 'matrix={"api-level":[26,27,28,29,30,31,32,33,34,35]}' >> "$GITHUB_OUTPUT"
+          else
+            # PRs: min-supported (26), notification permission breakpoint (33), latest (35)
+            echo 'matrix={"api-level":[26,33,35]}' >> "$GITHUB_OUTPUT"
+          fi
+
+  # ------------------------------------------------------------------
+  # 1. Build the Android APK with server URL patched to localhost
+  # ------------------------------------------------------------------
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Android app
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: uzaira0/chronicle
+          ref: ${{ inputs.android_ref || 'develop' }}
+          path: chronicle-android
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: gradle
+          cache-dependency-path: chronicle-android/**/build.gradle
+
+      - name: Patch server URL for local testing
+        working-directory: chronicle-android
+        run: |
+          # Replace the production URL with the emulator host loopback.
+          # 10.0.2.2 is how the Android emulator reaches the host machine.
+          # The backend runs directly on port 40320 in CI (no Traefik).
+          sed -i 's|https://api.getmethodic.com|http://10.0.2.2:40320|g' \
+            app/src/main/java/com/openlattice/chronicle/services/upload/UploadWorker.kt
+
+          sed -i 's|https://api.getmethodic.com|http://10.0.2.2:40320|g' \
+            app/src/main/java/com/openlattice/chronicle/Enrollment.kt || true
+
+          # Allow cleartext HTTP traffic
+          if ! grep -q 'usesCleartextTraffic' app/src/main/AndroidManifest.xml; then
+            sed -i 's|<application|<application android:usesCleartextTraffic="true"|' \
+              app/src/main/AndroidManifest.xml
+          fi
+
+          echo "Patched server URL to http://10.0.2.2:40320"
+
+      - name: Patch signing config for CI
+        working-directory: chronicle-android
+        run: |
+          cat > app/signing.properties <<'PROPS'
+          keyAlias=androiddebugkey
+          keyPassword=android
+          storeFile=/home/runner/.android/debug.keystore
+          storePassword=android
+          PROPS
+          sed -i '/signingConfig signingConfigs/d' app/build.gradle
+
+          # Remove debug applicationIdSuffix so APK installs as com.openlattice.chronicle
+          # (matching the appId in Maestro flows)
+          sed -i '/applicationIdSuffix/d' app/build.gradle
+
+      - name: Create dummy google-services.json
+        working-directory: chronicle-android
+        run: |
+          if [ ! -f app/google-services.json ]; then
+            cat > app/google-services.json <<'GSVC'
+          {
+            "project_info": {"project_number": "000000000000", "project_id": "dummy", "storage_bucket": "dummy.appspot.com"},
+            "client": [{"client_info": {"mobilesdk_app_id": "1:000000000000:android:0000000000000000", "android_client_info": {"package_name": "com.openlattice.chronicle"}}, "api_key": [{"current_key": "dummy"}]}],
+            "configuration_version": "1"
+          }
+          GSVC
+          fi
+
+      - name: Build debug APK
+        working-directory: chronicle-android
+        run: ./gradlew assembleDebug --no-daemon --build-cache -x lint
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chronicle-debug-apk
+          path: chronicle-android/app/build/outputs/apk/debug/*.apk
+          retention-days: 1
+
+  # ------------------------------------------------------------------
+  # 2. Build the Chronicle backend JAR
+  # ------------------------------------------------------------------
+  build-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout server repo
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: gradle
+
+      - name: Create git tag for publish.gradle
+        run: |
+          git tag v0.0.0 2>/dev/null || true
+
+      - name: Build backend
+        run: ./gradlew :chronicle-server:installDist --no-daemon --build-cache -PdevelopmentMode=true -x test -x spotbugsMain -x spotbugsTest
+
+      - name: Upload backend artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chronicle-backend
+          path: chronicle-server/build/install/chronicle-server/
+          retention-days: 1
+
+  # ------------------------------------------------------------------
+  # 3. Run Maestro flows on each API level in parallel
+  # ------------------------------------------------------------------
+  maestro-test:
+    needs: [configure, build-apk, build-backend]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.configure.outputs.matrix) }}
+    name: "Maestro (API ${{ matrix.api-level }})"
+    timeout-minutes: 35
+
+    # Postgres service container — no SSL, no Docker-in-Docker needed
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: chronicle
+          POSTGRES_USER: chronicle
+          POSTGRES_PASSWORD: testpassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U chronicle -d chronicle"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Checkout (for Maestro flows and configs)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Download APK
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: chronicle-debug-apk
+          path: apk/
+
+      - name: Download backend
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: chronicle-backend
+          path: chronicle-backend/
+
+      - name: Find APK path
+        run: |
+          APK_PATH=$(find apk/ -name '*.apk' | head -1)
+          echo "APK_PATH=${APK_PATH}" >> "${GITHUB_ENV}"
+          echo "Found APK: ${APK_PATH}"
+
+      # -- Start Chronicle backend directly (no Docker) --
+      - name: Start Chronicle backend
+        run: |
+          # Create CI-specific rhizome config (plain postgres, no SSL)
+          mkdir -p ci-config
+          cat > ci-config/rhizome.yaml <<'RHIZOME'
+          enable-persistence: false
+          session-clustering-enabled: false
+          hazelcast:
+            server: true
+            group: "local"
+            password: "trellis"
+            cp-member-count: 0
+            seed-nodes:
+              - "localhost"
+            port: 5710
+          hazelcast-clients:
+            IDS:
+              server: false
+              group: "local"
+              password: "test"
+              cp-member-count: 0
+              seed-nodes:
+                - "127.0.0.1:5710"
+          postgres:
+            citus: false
+            hikari:
+              jdbcUrl: "jdbc:postgresql://localhost:5432/chronicle"
+              username: "chronicle"
+              password: "testpassword"
+              maximumPoolSize: 10
+          datasources:
+            chronicle:
+              citus: false
+              initialize-tables: true
+              hikari:
+                jdbcUrl: "jdbc:postgresql://localhost:5432/chronicle"
+                username: "chronicle"
+                password: "testpassword"
+                maximumPoolSize: 10
+          RHIZOME
+
+          cat > ci-config/chronicle-auth.yaml <<CHRONICLE_AUTH
+          domain: "localhost"
+          clientId: "dummy-client-id"
+          clientSecret: "${JWT_SECRET}"
+          configurations:
+            - issuer: "https://localhost/"
+              audience: "dummy-client-id"
+              secret: "${JWT_SECRET}"
+              base64EncodedSecret: false
+              signingAlgorithm: "HS256"
+          managementApiUrl: "localhost"
+          CHRONICLE_AUTH
+
+          # Generate a short-lived JWT for CI tests
+          b64url() { openssl base64 -e -A | tr '+/' '-_' | tr -d '='; }
+          NOW=$(date +%s)
+          EXP=$((NOW + 3600))
+          H=$(printf '{"alg":"HS256","typ":"JWT"}' | b64url)
+          P=$(printf '{"iss":"https://localhost/","aud":"dummy-client-id","sub":"local-admin","iat":%d,"exp":%d}' "$NOW" "$EXP" | b64url)
+          SIG=$(printf '%s.%s' "$H" "$P" | openssl dgst -sha256 -hmac "${JWT_SECRET}" -binary | b64url)
+          echo "AUTH_TOKEN=${H}.${P}.${SIG}" >> "${GITHUB_ENV}"
+
+          # Make backend scripts executable
+          chmod +x chronicle-backend/bin/chronicle-server
+
+          # Create audit log directory (Log4j needs it)
+          sudo mkdir -p /var/log/chronicle
+          sudo chmod 777 /var/log/chronicle
+
+          # Start backend with CI config on classpath
+          java -Xms512m -Xmx1g \
+            -cp "ci-config:chronicle-backend/lib/*" \
+            com.openlattice.chronicle.ChronicleServer local postgres medialocal &
+
+          # Wait for backend (admin servlet exposes healthcheck)
+          echo "Waiting for Chronicle backend on port 40320..."
+          for i in $(seq 1 90); do
+            if curl -sf http://localhost:40320/admin/healthcheck > /dev/null 2>&1; then
+              echo "Backend ready after ~$((i*2))s"
+              break
+            fi
+            if [ "$i" -eq 90 ]; then
+              echo "ERROR: Backend did not start within 3 minutes"
+              exit 1
+            fi
+            sleep 2
+          done
+
+      # -- Seed test data --
+      - name: Seed test study and participant
+        run: |
+          export SERVER_URL=http://localhost:40320
+          export AUTH_TOKEN="${AUTH_TOKEN}"
+          source .maestro/setup-test-data.sh
+
+      # -- Install Maestro --
+      - name: Maestro CLI cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: maestro-cache
+        with:
+          path: ~/.maestro
+          key: maestro-cli-v2
+
+      - name: Install Maestro
+        if: steps.maestro-cache.outputs.cache-hit != 'true'
+        run: |
+          # Pin Maestro version for reproducibility
+          export MAESTRO_VERSION=1.39.13
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          maestro --version
+
+      - name: Add Maestro to PATH
+        run: echo "${HOME}/.maestro/bin" >> "${GITHUB_PATH}"
+
+      # -- Cache Android system image (avoids ~500 MB download per API level) --
+      - name: Cache Android system image
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: /usr/local/lib/android/sdk/system-images/android-${{ matrix.api-level }}
+          key: system-image-api${{ matrix.api-level }}-google_apis-x86_64-v1
+
+      # -- Cache AVD snapshot (avoids cold boot) --
+      - name: AVD cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-api${{ matrix.api-level }}-x86_64-google_apis-v2
+
+      - name: Create AVD snapshot (cache miss only)
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@e89f39f1abbbd05b1113a29cf4db69e7540cae5a # v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          disable-animations: true
+          force-avd-creation: false
+          script: echo "AVD snapshot created for caching"
+
+      # -- Start emulator and run Maestro --
+      - name: Run Maestro tests on API ${{ matrix.api-level }}
+        uses: reactivecircus/android-emulator-runner@e89f39f1abbbd05b1113a29cf4db69e7540cae5a # v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          emulator-boot-timeout: 300
+          disable-animations: true
+          force-avd-creation: false
+          script: |
+            echo "=== Installing APK ==="
+            adb install "${APK_PATH}"
+            echo "=== Installed packages ==="
+            adb shell pm list packages | grep chronicle || echo "WARNING: Chronicle package not found"
+            echo "=== Pre-granting permissions ==="
+            # Grant usage stats (all API levels)
+            adb shell appops set com.openlattice.chronicle GET_USAGE_STATS allow
+
+            # API 33+: POST_NOTIFICATIONS requires special handling
+            API_LEVEL=${{ matrix.api-level }}
+            if [ "$API_LEVEL" -ge 33 ]; then
+              # Try pm grant first (works on some images)
+              adb shell pm grant com.openlattice.chronicle android.permission.POST_NOTIFICATIONS 2>/dev/null || true
+              # Fallback: set appops directly
+              adb shell appops set com.openlattice.chronicle POST_NOTIFICATIONS allow 2>/dev/null || true
+            fi
+
+            echo "=== Verifying permissions ==="
+            adb shell appops get com.openlattice.chronicle GET_USAGE_STATS
+            echo "=== Running Maestro tests ==="
+            maestro test --env TEST_STUDY_ID="${TEST_STUDY_ID}" --env TEST_PARTICIPANT_ID="${TEST_PARTICIPANT_ID}" --format junit --output maestro-results.xml --debug-output maestro-debug/ .maestro/flows/
+
+      # -- Results --
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: maestro-results-api${{ matrix.api-level }}
+          path: |
+            maestro-results.xml
+            maestro-debug/
+            ~/.maestro/tests/**/*
+          retention-days: 14
+
+      - name: Publish test report
+        if: always() && hashFiles('maestro-results.xml') != ''
+        uses: dorny/test-reporter@3eeb9fc888e82e8be2fb356bbeec2750231672bc # v1
+        with:
+          name: "Maestro API ${{ matrix.api-level }}"
+          path: maestro-results.xml
+          reporter: java-junit
+          fail-on-error: true
+
+      - name: Capture failure evidence
+        if: failure()
+        timeout-minutes: 2
+        run: |
+          mkdir -p failure-screenshots
+          timeout 30 adb exec-out screencap -p > "failure-screenshots/screen-api${{ matrix.api-level }}.png" 2>/dev/null || true
+          timeout 30 adb logcat -d > "failure-screenshots/logcat-api${{ matrix.api-level }}.txt" 2>/dev/null || true
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: failure-api${{ matrix.api-level }}
+          path: failure-screenshots/
+          retention-days: 14
+
+  # ------------------------------------------------------------------
+  # 4. Gate — all API levels must pass
+  # ------------------------------------------------------------------
+  test-gate:
+    needs: maestro-test
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check all API levels passed
+        env:
+          RESULT: ${{ needs.maestro-test.result }}
+        run: |
+          if [ "${RESULT}" != "success" ]; then
+            echo "Maestro tests failed on one or more API levels"
+            exit 1
+          fi
+          echo "All Maestro tests passed"

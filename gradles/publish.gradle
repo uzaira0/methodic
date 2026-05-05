@@ -2,7 +2,7 @@
 
 //ext.snapshotUrl = "https://artifactory.openlattice.com/artifactory/libs-snapshot-local"
 //ext.releaseUrl = "https://artifactory.openlattice.com/artifactory/libs-release-local"
-ext.githubPackageUrl = "https://maven.pkg.github.com/methodic-labs/methodic"
+ext.githubPackageUrl = "https://maven.pkg.github.com/uzaira0/methodic"
 ext.sonatypeMasterUrl = "https://oss.sonatype.org/service/local/staging/deploy/maven2"
 ext.sonatypeSnapshotUrl = "https://oss.sonatype.org/content/repositories/snapshots"
 
@@ -19,9 +19,9 @@ if (project.hasProperty('projectName') && project.hasProperty('scmUrl')) {
     jarname = ext.projectName
 } else {
     jarname = project.name
-    scmUrl = "scm:git:https://github.com/methodic-labs/${project.name}.git"
-    connectionUrl = "scm:git:https://github.com/methodic-labs/${project.name}.git"
-    developerConnectionUrl = "scm:git:https://github.com/methodic-labs/${project.name}.git"
+    scmUrl = "scm:git:https://github.com/uzaira0/${project.name}.git"
+    connectionUrl = "scm:git:https://github.com/uzaira0/${project.name}.git"
+    developerConnectionUrl = "scm:git:https://github.com/uzaira0/${project.name}.git"
 }
 
 println "Basename for jars will be: " + jarname

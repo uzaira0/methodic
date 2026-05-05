@@ -1,0 +1,114 @@
+# Detekt configuration for Chronicle Kotlin codebase
+# Docs: https://detekt.dev/docs/rules/overview
+
+build:
+  maxIssues: 0
+  excludeCorrectable: false
+
+complexity:
+  ComplexCondition:
+    active: true
+    threshold: 4
+  ComplexMethod:
+    active: true
+    threshold: 15
+  LargeClass:
+    active: true
+    threshold: 600
+  LongMethod:
+    active: true
+    threshold: 60
+  LongParameterList:
+    active: true
+    functionThreshold: 8
+    constructorThreshold: 10
+  NestedBlockDepth:
+    active: true
+    threshold: 4
+  TooManyFunctions:
+    active: true
+    thresholdInFiles: 30
+    thresholdInClasses: 25
+
+coroutines:
+  GlobalCoroutineUsage:
+    active: true
+  SuspendFunWithCoroutineScopeReceiver:
+    active: true
+
+empty-blocks:
+  EmptyCatchBlock:
+    active: true
+    allowedExceptionNameRegex: '_|ignore|expected'
+  EmptyFunctionBlock:
+    active: true
+    ignoreOverridden: true
+
+exceptions:
+  SwallowedException:
+    active: true
+  TooGenericExceptionCaught:
+    active: true
+    exceptionNames:
+      - Exception
+      - RuntimeException
+      - Throwable
+  TooGenericExceptionThrown:
+    active: true
+
+naming:
+  FunctionNaming:
+    active: true
+    functionPattern: '[a-z][a-zA-Z0-9]*'
+  VariableNaming:
+    active: true
+
+performance:
+  SpreadOperator:
+    active: true
+  UnnecessaryTemporaryInstantiation:
+    active: true
+
+potential-bugs:
+  CastToNullableType:
+    active: true
+  DoubleMutabilityForCollection:
+    active: true
+  EqualsAlwaysReturnsTrueOrFalse:
+    active: true
+  ExitOutsideMain:
+    active: true
+  ImplicitDefaultLocale:
+    active: true
+  NullableToStringCall:
+    active: true
+  UnconditionalJumpStatementInLoop:
+    active: true
+  UnnecessaryNotNullOperator:
+    active: true
+  UnnecessarySafeCall:
+    active: true
+  UselessPostfixExpression:
+    active: true
+
+style:
+  MagicNumber:
+    active: false  # Too noisy for a project with SQL and config constants
+  MaxLineLength:
+    active: true
+    maxLineLength: 150
+  ReturnCount:
+    active: true
+    max: 4
+  ThrowsCount:
+    active: true
+    max: 3
+  UnusedImports:
+    active: true
+  UnusedPrivateMember:
+    active: true
+  WildcardImport:
+    active: true
+    excludeImports:
+      - 'java.util.*'
+      - 'kotlinx.coroutines.*'

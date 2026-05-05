@@ -1,0 +1,147 @@
+name: Build Android APK
+
+# Builds a Chronicle Android APK pointed at a custom server URL.
+# Also builds the chronicle-api jar from the main repo to include
+# the latest API types (sensor data, etc.).
+# Download the APK artifact from the workflow run to install on a device.
+on:
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: "Chronicle server base URL (e.g. http://cnrc-deni-p001.cnrc.bcm.edu)"
+        required: true
+        type: string
+      android_ref:
+        description: "Git ref for chronicle-android repo"
+        required: false
+        default: "develop"
+        type: string
+      build_type:
+        description: "Build type"
+        required: false
+        default: "debug"
+        type: choice
+        options:
+          - debug
+          - release
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      SERVER_URL: ${{ inputs.server_url }}
+      BUILD_TYPE: ${{ inputs.build_type }}
+    steps:
+      - name: Checkout main chronicle repo (for chronicle-api source)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+          path: chronicle
+
+      - name: Checkout Android app
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: uzaira0/chronicle
+          ref: ${{ inputs.android_ref }}
+          path: app
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: gradle
+          cache-dependency-path: |
+            chronicle/**/build.gradle
+            app/**/build.gradle
+
+      - name: Build chronicle-api jar
+        working-directory: chronicle/chronicle-api
+        run: |
+          # publish.gradle runs `git describe --tags` during configuration.
+          # Shallow clones have no tags, so create one to prevent failure.
+          git tag v0.0.0-ci 2>/dev/null || true
+          ./gradlew jar --no-daemon
+
+      - name: Inject chronicle-api jar into Android app
+        run: |
+          mkdir -p app/app/libs
+          rm -f app/app/libs/chronicle-api-*.jar
+          cp chronicle/chronicle-api/build/libs/chronicle-api-*.jar app/app/libs/
+          echo "Copied chronicle-api jar:"
+          ls -la app/app/libs/
+
+          # Replace Maven dependency with local jar (loaded via fileTree)
+          sed -i "s|implementation('com.methodic:chronicle-api:.*|// chronicle-api provided via libs/ (loaded by fileTree)|" \
+            app/app/build.gradle
+
+          # Remove composite build (settings.gradle includeBuild) since CI uses jar injection
+          sed -i '/includeBuild/,/^}/d' app/settings.gradle
+          echo "Updated build.gradle and settings.gradle for CI jar injection"
+
+      - name: Patch server URL
+        working-directory: app
+        run: |
+          # Ensure URL ends with trailing slash (Retrofit requires it)
+          URL="${SERVER_URL%/}/"
+
+          # Replace production URL with the custom server URL in all source files
+          find app/src -name '*.kt' -exec grep -l 'api.getmethodic.com' {} \; | while read f; do
+            sed -i "s|https://api.getmethodic.com|${URL}|g" "$f"
+            echo "Patched: $f"
+          done
+
+          # Enable cleartext HTTP if the URL is not HTTPS
+          if [[ "${SERVER_URL}" == http://* ]]; then
+            if ! grep -q 'usesCleartextTraffic' app/src/main/AndroidManifest.xml; then
+              sed -i 's|<application|<application android:usesCleartextTraffic="true"|' \
+                app/src/main/AndroidManifest.xml
+              echo "Enabled cleartext HTTP traffic"
+            fi
+          fi
+
+          echo "Server URL set to: ${SERVER_URL}"
+
+      - name: Patch signing config for CI
+        working-directory: app
+        run: |
+          cat > app/signing.properties <<'PROPS'
+          keyAlias=androiddebugkey
+          keyPassword=android
+          storeFile=/home/runner/.android/debug.keystore
+          storePassword=android
+          PROPS
+          sed -i '/signingConfig signingConfigs/d' app/build.gradle
+          sed -i '/applicationIdSuffix/d' app/build.gradle
+
+      - name: Create dummy google-services.json
+        working-directory: app
+        run: |
+          if [ ! -f app/google-services.json ]; then
+            cat > app/google-services.json <<'GSVC'
+          {
+            "project_info": {"project_number": "000000000000", "project_id": "dummy", "storage_bucket": "dummy.appspot.com"},
+            "client": [{"client_info": {"mobilesdk_app_id": "1:000000000000:android:0000000000000000", "android_client_info": {"package_name": "com.openlattice.chronicle"}}, "api_key": [{"current_key": "dummy"}]}],
+            "configuration_version": "1"
+          }
+          GSVC
+          fi
+
+      - name: Build APK
+        working-directory: app
+        run: |
+          if [ "${BUILD_TYPE}" = "release" ]; then
+            ./gradlew assembleRelease --no-daemon --build-cache -x lint
+          else
+            ./gradlew assembleDebug --no-daemon --build-cache -x lint
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chronicle-${{ inputs.build_type }}-apk
+          path: app/app/build/outputs/apk/**/*.apk
+          retention-days: 30

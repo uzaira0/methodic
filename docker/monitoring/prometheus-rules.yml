@@ -1,0 +1,102 @@
+groups:
+  - name: chronicle-security
+    rules:
+      # Connection pool exhaustion — any of the 3 HikariCP pools
+      - alert: DatabaseConnectionPoolExhausted
+        expr: >
+          HikariPool_1_pool_PendingConnections > 5
+          or HikariPool_2_pool_PendingConnections > 5
+          or HikariPool_3_pool_PendingConnections > 5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HikariCP pool has >5 pending connections for 2+ minutes"
+          description: "Pool {{ $labels.__name__ }} on {{ $labels.instance }} has {{ $value }} pending connections."
+
+      # All connections in use (active == max)
+      - alert: DatabaseConnectionPoolSaturated
+        expr: >
+          HikariPool_1_pool_ActiveConnections == HikariPool_1_pool_MaxConnections
+          or HikariPool_2_pool_ActiveConnections == HikariPool_2_pool_MaxConnections
+          or HikariPool_3_pool_ActiveConnections == HikariPool_3_pool_MaxConnections
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HikariCP pool fully saturated for 5+ minutes"
+          description: "All connections in use — queries may be waiting."
+
+      # Connection timeouts increasing
+      - alert: DatabaseConnectionTimeouts
+        expr: >
+          rate(HikariPool_1_pool_ConnectionTimeoutRate_total[5m]) > 0
+          or rate(HikariPool_2_pool_ConnectionTimeoutRate_total[5m]) > 0
+          or rate(HikariPool_3_pool_ConnectionTimeoutRate_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HikariCP connection timeouts detected"
+          description: "Connection timeout rate is {{ $value }}/s — clients are failing to get DB connections."
+
+  - name: security_alerts
+    rules:
+      # Backend uses Dropwizard metrics (not standard http_requests_total).
+      # These alerts use the available HikariCP and up{} metrics.
+      # HTTP-level alerts (429, 401 spikes) require Traefik metrics or Loki log queries.
+
+      - alert: DatabaseConnectionExhaustion
+        expr: HikariPool_1_pool_PendingConnections > 5
+        for: 2m
+        labels:
+          severity: critical
+          compliance: hipaa
+        annotations:
+          summary: "Database connection pool exhaustion"
+          description: "{{ $value }} pending DB connections — possible DoS or resource exhaustion attack."
+
+      - alert: AllPoolsNearCapacity
+        expr: (HikariPool_1_pool_ActiveConnections / HikariPool_1_pool_MaxConnections) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          compliance: hipaa
+        annotations:
+          summary: "HikariCP pool nearing capacity"
+          description: "Pool 1 is at {{ $value | humanizePercentage }} capacity. May indicate unusual load or attack."
+
+      - alert: ConnectionTimeoutSpike
+        expr: rate(HikariPool_1_pool_ConnectionTimeoutRate_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          compliance: hipaa
+        annotations:
+          summary: "Database connection timeout spike"
+          description: "Connection timeout rate is {{ $value }}/s — possible resource exhaustion attack."
+
+  - name: chronicle-reliability
+    rules:
+      # Backend health endpoint down
+      - alert: BackendDown
+        expr: up{job="chronicle-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Chronicle backend is down"
+          description: "Prometheus cannot reach the backend metrics endpoint for 1+ minute."
+
+      # Slow median connection wait time (>500ms at p50)
+      - alert: SlowDatabaseQueries
+        expr: >
+          HikariPool_1_pool_Wait{quantile="0.5"} > 500
+          or HikariPool_2_pool_Wait{quantile="0.5"} > 500
+          or HikariPool_3_pool_Wait{quantile="0.5"} > 500
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Median DB connection wait time >500ms"
+          description: "Pool wait time at p50 is {{ $value }}ms — possible performance degradation."

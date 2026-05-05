@@ -1,0 +1,302 @@
+name: Security Vulnerability Scan
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+  pull_request:
+    branches:
+      - develop
+      - main
+  # Run weekly on Sundays at 2 AM UTC
+  schedule:
+    - cron: '0 2 * * 0'
+  # Allow manual trigger
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+env:
+  # NVD API key for faster dependency-check updates (optional but recommended)
+  # Get a free key at: https://nvd.nist.gov/developers/request-an-api-key
+  NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+
+jobs:
+  # ============================================================================
+  # Gradle Dependency Vulnerability Scan (OWASP Dependency-Check)
+  # ============================================================================
+  gradle-security-scan:
+    name: Gradle Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/main' }}
+
+      # Cache NVD data to speed up subsequent runs
+      - name: Cache NVD data
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .dependency-check-data
+          key: nvd-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            nvd-${{ runner.os }}-
+
+      - name: Run OWASP Dependency-Check
+        run: |
+          ARGS="--no-daemon"
+          if [ -z "$NVD_API_KEY" ]; then
+            echo "::warning::NVD_API_KEY not set — dependency-check may be rate-limited"
+          fi
+          ./gradlew dependencyCheckAll $ARGS
+        continue-on-error: true
+        id: dependency-check
+
+      - name: Collect Security Reports
+        run: ./gradlew aggregateSecurityReports --no-daemon
+        if: always()
+
+      - name: Upload Dependency-Check Reports
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: gradle-dependency-check-reports
+          path: |
+            **/build/reports/dependency-check-report.*
+            build/reports/security/
+          retention-days: 30
+
+      # Upload SARIF results to GitHub Security tab
+      - name: Upload SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
+        if: always() && hashFiles('chronicle-server/build/reports/dependency-check-report.sarif') != ''
+        with:
+          sarif_file: chronicle-server/build/reports/dependency-check-report.sarif
+          category: gradle-dependency-check
+
+      - name: Check for Critical Vulnerabilities
+        if: steps.dependency-check.conclusion == 'failure'
+        run: |
+          echo "::error::OWASP Dependency-Check found vulnerabilities with CVSS >= 7.0"
+          echo "Review the uploaded reports for details and either:"
+          echo "1. Update the vulnerable dependencies"
+          echo "2. Add a documented suppression to config/dependency-check-suppression.xml"
+          exit 1
+
+  # ============================================================================
+  # Bun Audit for chronicle-web
+  # ============================================================================
+  bun-security-scan:
+    name: Bun Security Audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: chronicle-web
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node compatibility runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run Bun audit
+        run: bun audit --json > bun-audit-report.json || true
+
+      - name: Check for High/Critical Vulnerabilities
+        id: bun-audit
+        run: |
+          # Run audit and capture exit code (redirect instead of pipe to preserve exit code)
+          bun audit --audit-level=high > bun-audit-output.txt 2>&1 || AUDIT_EXIT=$?
+          cat bun-audit-output.txt
+
+          if [ "${AUDIT_EXIT:-0}" -ne 0 ]; then
+            echo "has_vulnerabilities=true" >> $GITHUB_OUTPUT
+            echo "::warning::Bun audit found high or critical vulnerabilities"
+          else
+            echo "has_vulnerabilities=false" >> $GITHUB_OUTPUT
+          fi
+        continue-on-error: true
+
+      - name: Upload Bun Audit Reports
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: bun-audit-reports
+          path: |
+            chronicle-web/bun-audit-report.json
+            chronicle-web/bun-audit-output.txt
+          retention-days: 30
+
+      - name: Fail on High/Critical Vulnerabilities
+        if: steps.bun-audit.outputs.has_vulnerabilities == 'true'
+        run: |
+          echo "::error::Bun audit found high or critical vulnerabilities in chronicle-web"
+          echo "Run 'bun audit' locally to see details"
+          exit 1
+
+  # ============================================================================
+  # Container Image Vulnerability Scan (Trivy)
+  # ============================================================================
+  container-image-scan:
+    name: Container Image Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: true
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
+        with:
+          cache-read-only: true
+
+      - name: Build backend JAR
+        run: ./gradlew :chronicle-server:installDist --no-daemon
+
+      - name: Build backend image
+        run: docker build -f docker/Dockerfile.backend -t chronicle-backend:scan .
+
+      - name: Trivy image scan (backend)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        id: trivy-backend
+        with:
+          image-ref: chronicle-backend:scan
+          format: sarif
+          output: trivy-backend.sarif
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+        continue-on-error: true
+
+      - name: Upload backend Trivy results
+        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
+        if: always()
+        with:
+          sarif_file: trivy-backend.sarif
+          category: trivy-backend
+        continue-on-error: true
+
+      - name: Build frontend image
+        run: docker build -f docker/Dockerfile.frontend.prod -t chronicle-frontend:scan .
+
+      - name: Trivy image scan (frontend)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        id: trivy-frontend
+        with:
+          image-ref: chronicle-frontend:scan
+          format: sarif
+          output: trivy-frontend.sarif
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+        continue-on-error: true
+
+      - name: Upload frontend Trivy results
+        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
+        if: always()
+        with:
+          sarif_file: trivy-frontend.sarif
+          category: trivy-frontend
+        continue-on-error: true
+
+      - name: Upload Trivy reports as artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: trivy-image-scan-reports
+          path: |
+            trivy-backend.sarif
+            trivy-frontend.sarif
+          retention-days: 30
+
+      - name: Check for container image vulnerabilities
+        if: steps.trivy-backend.conclusion == 'failure' || steps.trivy-frontend.conclusion == 'failure'
+        run: |
+          echo "::error::Trivy found HIGH or CRITICAL vulnerabilities in container images"
+          echo "Review the uploaded SARIF reports for details"
+          exit 1
+
+  # ============================================================================
+  # Security Summary Report
+  # ============================================================================
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [gradle-security-scan, bun-security-scan, container-image-scan]
+    if: always()
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: security-reports
+
+      - name: Generate Summary
+        run: |
+          echo "## Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.gradle-security-scan.result }}" == "success" ]; then
+            echo "| Gradle Dependencies | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Gradle Dependencies | :x: Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.bun-security-scan.result }}" == "success" ]; then
+            echo "| Bun Dependencies | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Bun Dependencies | :x: Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.container-image-scan.result }}" == "success" ]; then
+            echo "| Container Images (Trivy) | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Container Images (Trivy) | :x: Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "- Download the artifacts for detailed reports" >> $GITHUB_STEP_SUMMARY
+          echo "- Review the GitHub Security tab for SARIF-imported findings" >> $GITHUB_STEP_SUMMARY
+          echo "- Update vulnerable dependencies or add documented suppressions" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check Overall Status
+        if: needs.gradle-security-scan.result == 'failure' || needs.bun-security-scan.result == 'failure' || needs.container-image-scan.result == 'failure'
+        run: |
+          echo "::error::Security scan found vulnerabilities. Review the reports and fix or suppress with documentation."
+          exit 1

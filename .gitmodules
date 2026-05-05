@@ -1,15 +1,18 @@
 [submodule "chronicle-api"]
 	path = chronicle-api
-	url = git@github.com:methodic-labs/chronicle-api.git
+	url = https://github.com/uzaira0/chronicle-api.git
 [submodule "chronicle-server"]
 	path = chronicle-server
-	url = git@github.com:methodic-labs/chronicle-server.git
+	url = https://github.com/uzaira0/chronicle-server.git
 [submodule "rhizome"]
 	path = rhizome
-	url = git@github.com:geekbeast/rhizome.git
+	url = https://github.com/uzaira0/rhizome.git
 [submodule "rhizome-client"]
 	path = rhizome-client
-	url = git@github.com:geekbeast/rhizome-client.git
+	url = https://github.com/uzaira0/rhizome-client.git
 [submodule "chronicle"]
 	path = chronicle
-	url = git@github.com:methodic-labs/chronicle.git
+	url = https://github.com/uzaira0/chronicle.git
+[submodule "chronicle-web"]
+	path = chronicle-web
+	url = https://github.com/uzaira0/chronicle-web.git

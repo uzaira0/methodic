@@ -1,0 +1,376 @@
+name: Comprehensive Analysis
+
+# Catches bugs, quality issues, performance problems, correctness errors,
+# type drift, dead code, complexity — everything beyond security scanning.
+# Security-focused scanning lives in security-scan.yml and security-suite.yml.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  # ============================================================================
+  # Detekt — Kotlin static analysis (complexity, style, bugs, performance)
+  # ============================================================================
+  detekt:
+    name: Detekt (Kotlin analysis)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: true
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Run Detekt
+        uses: detekt/detekt-action@76e292759c806cd28cadc1e3d2fc6e48c24a9fac # v2
+        with:
+          detekt-version: '1.23.7'
+          args: >-
+            --input chronicle-server/src,chronicle-api/src,rhizome/src
+            --config detekt.yml
+            --report sarif:detekt-results.sarif
+            --report html:detekt-results.html
+            --build-upon-default-config
+        continue-on-error: true
+
+      - name: Upload Detekt SARIF
+        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
+        if: always()
+        with:
+          sarif_file: detekt-results.sarif
+          category: detekt
+        continue-on-error: true
+
+      - name: Upload Detekt HTML report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: detekt-report
+          path: detekt-results.html
+          retention-days: 14
+
+  # ============================================================================
+  # PMD — Java/Kotlin bug and performance pattern detection
+  # ============================================================================
+  pmd:
+    name: PMD (bug patterns)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: true
+
+      - name: Run PMD
+        uses: pmd/pmd-github-action@d47e16fdf3a6cedee9b3adbb77ee73ca4f0e42e2 # v2
+        with:
+          version: '7.9.0'
+          sourcePath: 'chronicle-server/src/main/kotlin,chronicle-api/src/main/kotlin'
+          rulesets: 'rulesets/java/quickstart.xml'
+          analyzeModifiedFilesOnly: false
+          createGitHubAnnotations: true
+        continue-on-error: true
+
+  # ============================================================================
+  # Bearer — sensitive data flow analysis (HIPAA-critical)
+  # Finds PII/PHI leaking through logs, API responses, error messages
+  # ============================================================================
+  bearer:
+    name: Bearer (data flow SAST)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: true
+
+      - name: Run Bearer
+        uses: bearer/bearer-action@5023ef27347e50c2066e3974b1e8b2e2b9594a86 # v2
+        with:
+          scanner: sast
+          format: sarif
+          output: bearer-results.sarif
+        continue-on-error: true
+
+      - name: Upload Bearer SARIF
+        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
+        if: always()
+        with:
+          sarif_file: bearer-results.sarif
+          category: bearer
+        continue-on-error: true
+
+  # ============================================================================
+  # OSV-Scanner — Google's vulnerability database (broader than NVD alone)
+  # ============================================================================
+  osv-scanner:
+    name: OSV-Scanner (Google vuln DB)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: true
+
+      - name: Run OSV-Scanner
+        uses: google/osv-scanner-action/osv-scanner-action@19ec0cd1dfd248cff32f8ef260f1be9433409c1c # v2
+        with:
+          scan-args: |-
+            --recursive
+            --format=sarif
+            --output=osv-results.sarif
+            .
+        continue-on-error: true
+
+      - name: Upload OSV SARIF
+        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
+        if: always()
+        with:
+          sarif_file: osv-results.sarif
+          category: osv-scanner
+        continue-on-error: true
+
+  # ============================================================================
+  # Trivy filesystem — config misconfigurations + secrets + vuln scan
+  # ============================================================================
+  trivy-fs:
+    name: Trivy filesystem scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: true
+
+      - name: Trivy config scan
+        uses: aquasecurity/trivy-action@76071ef0d7ec797419534a183b498b4d6366cf37 # 0.31.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: sarif
+          output: trivy-config.sarif
+          severity: HIGH,CRITICAL
+        continue-on-error: true
+
+      - name: Trivy secret scan
+        uses: aquasecurity/trivy-action@76071ef0d7ec797419534a183b498b4d6366cf37 # 0.31.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret
+          format: sarif
+          output: trivy-secrets.sarif
+        continue-on-error: true
+
+      - name: Upload Trivy config SARIF
+        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
+        if: always()
+        with:
+          sarif_file: trivy-config.sarif
+          category: trivy-config
+        continue-on-error: true
+
+  # ============================================================================
+  # Grype — Anchore's vulnerability scanner (different DB than Trivy)
+  # Running both maximizes CVE detection coverage
+  # ============================================================================
+  grype:
+    name: Grype (Anchore vuln scan)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: true
+
+      - name: Run Grype
+        uses: anchore/scan-action@abae793926ec39a78ab18002bc7fc45e22e7e165 # v6
+        with:
+          path: .
+          fail-build: false
+          output-format: sarif
+        id: grype-scan
+
+      - name: Upload Grype SARIF
+        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
+        if: always()
+        with:
+          sarif_file: ${{ steps.grype-scan.outputs.sarif }}
+          category: grype
+        continue-on-error: true
+
+  # ============================================================================
+  # Syft SBOM — generates Software Bill of Materials for supply chain visibility
+  # ============================================================================
+  sbom:
+    name: Syft SBOM generation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: true
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@fc46e51fd3cb168ffb36c6d1915723c47db58571 # v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: sbom-spdx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom-spdx
+          path: sbom-spdx.json
+          retention-days: 90
+
+  # ============================================================================
+  # OpenAPI diff — catches breaking API changes on PRs
+  # ============================================================================
+  api-diff:
+    name: OpenAPI breaking change detection
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: true
+
+      - name: Checkout base branch spec
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.base_ref }}
+          path: base
+          submodules: true
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
+        with:
+          cache-read-only: true
+
+      - name: Generate current OpenAPI spec
+        run: ./gradlew :chronicle-api:generateOpenApiSpec --no-daemon
+        continue-on-error: true
+
+      - name: Generate base OpenAPI spec
+        working-directory: base
+        run: ./gradlew :chronicle-api:generateOpenApiSpec --no-daemon
+        continue-on-error: true
+
+      - name: Install oasdiff
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/Tufin/oasdiff/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Check for breaking changes
+        run: |
+          BASE_SPEC=$(find base -name "openapi*.json" -o -name "openapi*.yaml" 2>/dev/null | head -1)
+          HEAD_SPEC=$(find . -not -path "./base/*" \( -name "openapi*.json" -o -name "openapi*.yaml" \) 2>/dev/null | head -1)
+          if [ -n "$BASE_SPEC" ] && [ -n "$HEAD_SPEC" ]; then
+            echo "Comparing $BASE_SPEC vs $HEAD_SPEC"
+            oasdiff breaking "$BASE_SPEC" "$HEAD_SPEC" --format text || true
+            echo "## API Changelog" >> "$GITHUB_STEP_SUMMARY"
+            oasdiff changelog "$BASE_SPEC" "$HEAD_SPEC" --format text >> "$GITHUB_STEP_SUMMARY" || true
+          else
+            echo "::warning::Could not find OpenAPI specs to compare"
+          fi
+        continue-on-error: true
+
+  # ============================================================================
+  # Dependency Review — GitHub-native license + vuln check for new deps in PRs
+  # ============================================================================
+  dependency-review:
+    name: Dependency review (PR only)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: true
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@da24556b548a50705dd671f47852072ea4c105d9 # v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: always
+
+  # ============================================================================
+  # OpenSSF Scorecard — supply chain security posture score
+  # ============================================================================
+  scorecard:
+    name: OpenSSF Scorecard
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      security-events: write
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Run Scorecard
+        uses: ossf/scorecard-action@62b2cac7ed8198b15735ed49ab1e5cf35480ba46 # v2
+        with:
+          results_file: scorecard-results.sarif
+          results_format: sarif
+
+      - name: Upload Scorecard SARIF
+        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
+        with:
+          sarif_file: scorecard-results.sarif
+          category: scorecard
+
+  # ============================================================================
+  # Summary gate
+  # ============================================================================
+  analysis-summary:
+    name: Analysis Summary
+    runs-on: ubuntu-latest
+    needs: [detekt, pmd, bearer, osv-scanner, trivy-fs, grype, sbom]
+    if: always()
+    steps:
+      - name: Generate summary
+        env:
+          DETEKT: ${{ needs.detekt.result }}
+          PMD: ${{ needs.pmd.result }}
+          BEARER: ${{ needs.bearer.result }}
+          OSV: ${{ needs.osv-scanner.result }}
+          TRIVY: ${{ needs.trivy-fs.result }}
+          GRYPE: ${{ needs.grype.result }}
+          SBOM: ${{ needs.sbom.result }}
+        run: |
+          echo "## Comprehensive Analysis Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Analyzer | Type | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Detekt | Kotlin SAST | $DETEKT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| PMD | Bug patterns | $PMD |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Bearer | Data flow | $BEARER |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| OSV-Scanner | Google vuln DB | $OSV |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Trivy FS | Config + secrets | $TRIVY |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Grype | Anchore vuln DB | $GRYPE |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Syft | SBOM generation | $SBOM |" >> "$GITHUB_STEP_SUMMARY"

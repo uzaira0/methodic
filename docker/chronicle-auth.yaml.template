@@ -1,0 +1,18 @@
+domain: "localhost"
+clientId: "dummy-client-id"
+clientSecret: "${JWT_SECRET}"
+configurations:
+  - issuer: "https://localhost/"
+    audience: "dummy-client-id"
+    secret: "${JWT_SECRET}"
+    base64EncodedSecret: false
+    signingAlgorithm: "HS256"
+managementApiUrl: "localhost"
+users:
+  - user_id: "local-admin"
+    email: "admin@chronicle.local"
+    email_verified: true
+    app_metadata:
+      roles:
+        - AuthenticatedUser
+        - admin

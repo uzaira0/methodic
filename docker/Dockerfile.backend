@@ -1,0 +1,110 @@
+# Backend build stage
+FROM eclipse-temurin:25-jdk@sha256:bee2e23ab444ed60daf8123e36478bc4a286ba7835bec6f9daf9eba1d50a86a2 AS builder
+
+WORKDIR /app
+
+# Install necessary tools (including dos2unix for line ending conversion, git for build scripts)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    unzip \
+    dos2unix \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Layer 1: Dependency resolution (cached when deps unchanged) ---
+# Copy only build config files first so dependencies are cached independently
+COPY gradlew gradlew
+COPY gradle/ gradle/
+COPY settings.gradle.kts settings.gradle.kts
+COPY build.gradle.kts build.gradle.kts
+COPY gradle.properties gradle.properties
+COPY gradles/ gradles/
+COPY chronicle-api/build.gradle chronicle-api/build.gradle
+COPY chronicle-server/build.gradle chronicle-server/build.gradle
+COPY rhizome/build.gradle rhizome/build.gradle
+COPY rhizome-client/build.gradle rhizome-client/build.gradle
+
+# Convert line endings for gradlew
+RUN dos2unix gradlew
+
+# Ensure git repo exists with a tag so publish.gradle's `git describe` works.
+# Docker COPY strips .git, so we init a fresh repo with a version tag.
+RUN git config --global user.email "build@docker" && git config --global user.name "Docker Build" && \
+    git init && git add -A && git commit -m "docker build" --allow-empty && git tag v0.0.0
+
+# Pre-fetch dependencies (this layer is cached when only source code changes)
+ENV GRADLE_OPTS="-Xmx1g -Xms256m -Dorg.gradle.jvmargs='-Xmx1g -Xms256m'"
+RUN --mount=type=cache,target=/root/.gradle/caches \
+    --mount=type=cache,target=/root/.gradle/wrapper \
+    ./gradlew dependencies --no-daemon -PdevelopmentMode=true || true
+
+# --- Layer 2: Full source + build (only this layer rebuilds on code changes) ---
+COPY . /app
+
+# Convert Windows line endings to Unix for all shell scripts
+RUN find . -name "gradlew" -exec dos2unix {} \; && \
+    find . -name "*.sh" -exec dos2unix {} \;
+
+# Refresh git state after full COPY overwrites the .git init
+RUN git config --global user.email "build@docker" && git config --global user.name "Docker Build" && \
+    git init && git add -A && git commit -m "docker build" --allow-empty && git tag -f v0.0.0
+
+# Build the application with build cache (BuildKit cache mount speeds up rebuilds)
+RUN --mount=type=cache,target=/root/.gradle/caches \
+    --mount=type=cache,target=/root/.gradle/wrapper \
+    ./gradlew :chronicle-server:installDist --build-cache --no-daemon -PdevelopmentMode=true -Dorg.gradle.jvmargs="-Xmx1g -Xms256m"
+
+# Remove test JARs from the distribution (not needed at runtime)
+RUN find /app/chronicle-server/build/install/chronicle-server/lib -name '*-test*.jar' -delete 2>/dev/null; true
+
+# --- JLink stage: build a minimal custom JRE with only required modules ---
+# This cuts ~81MB compared to the full Alpine JRE (135MB -> 54MB)
+FROM eclipse-temurin:25-jdk-alpine@sha256:da683f4f02f9427597d8fa162b73b8222fe08596dcebaf23e4399576ff8b037e AS jlinker
+
+# Create custom JRE with modules needed by Spring/Jetty/Hazelcast/JDBC stack
+# java.base: core classes; java.desktop: AWT (Hazelcast partition); java.logging: JUL
+# java.management: JMX (HikariCP, metrics); java.naming: JNDI (DataSource lookup)
+# java.net.http: HTTP client; java.security.jgss: Kerberos; java.sql: JDBC
+# java.xml: XML parsing; jdk.crypto.ec: TLS with ECDHE; jdk.unsupported: Unsafe (Hazelcast)
+# jdk.httpserver: lightweight HTTP (Prometheus); java.instrument: JVM agent (Spring)
+# java.compiler: annotation processing (runtime); jdk.management: MXBeans
+RUN jlink --no-header-files --no-man-pages --compress=2 --strip-debug \
+    --add-modules java.base,java.compiler,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.httpserver,jdk.management,jdk.net,jdk.unsupported,jdk.zipfs \
+    --output /opt/jre-minimal
+
+# Runtime stage — custom JRE on Alpine for minimal footprint
+FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
+
+WORKDIR /server
+
+# Copy custom JRE from jlink stage
+COPY --from=jlinker /opt/jre-minimal /opt/java/openjdk
+ENV JAVA_HOME=/opt/java/openjdk
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
+# Install gettext (envsubst) + su-exec (lightweight user switching); use wget (busybox) for healthchecks
+RUN apk add --no-cache gettext su-exec && \
+    addgroup -S chronicle && adduser -S -G chronicle -h /server -s /sbin/nologin chronicle && \
+    mkdir -p /var/log/chronicle && \
+    chown -R chronicle:chronicle /var/log/chronicle
+
+# Copy built application from builder stage (--chown avoids a duplicate layer from chown -R)
+COPY --from=builder --chown=chronicle:chronicle /app/chronicle-server/build/install/chronicle-server /server
+
+# Create config dir AFTER copy so it gets correct ownership
+RUN mkdir -p /server/config && chown chronicle:chronicle /server/config
+
+# Environment variables
+ENV CHRONICLE_SERVER_XMS="-Xms512m"
+ENV CHRONICLE_SERVER_XMX="-Xmx2g"
+ENV CHRONICLE_SERVER_ARGS="local postgres medialocal"
+
+EXPOSE 40320
+
+# HEALTHCHECK is defined in docker-compose.traefik.yml (compose always overrides Dockerfile HEALTHCHECK)
+
+LABEL org.opencontainers.image.source="https://github.com/uzaira0/chronicle"
+LABEL org.opencontainers.image.vendor="Methodic Labs"
+
+# User switching happens in docker-compose command (su-exec after envsubst renders config as root)
+CMD ["su-exec", "chronicle", "./bin/chronicle-server", "local", "postgres", "medialocal"]

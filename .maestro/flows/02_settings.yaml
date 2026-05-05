@@ -1,0 +1,45 @@
+# Flow: Settings screen navigation test
+# Verifies the settings screen loads and is navigable.
+#
+# Prerequisites:
+#   - Device must already be enrolled (run 01_enrollment first)
+#   - The Chronicle app must be installed
+
+appId: com.openlattice.chronicle
+tags:
+  - smoke
+  - settings
+---
+
+# Launch the app (already enrolled, goes to main screen)
+- launchApp:
+    clearState: false
+
+- extendedWaitUntil:
+    visible:
+      id: "com.openlattice.chronicle:id/studyId"
+    timeout: 15000
+
+# Open the overflow menu / settings
+- tapOn:
+    id: "com.openlattice.chronicle:id/action_settings"
+
+- waitForAnimationToEnd:
+    timeout: 2000
+
+# Verify settings screen loaded
+- extendedWaitUntil:
+    visible:
+      text: "Settings"
+    timeout: 10000
+
+# Navigate back to main screen
+- pressKey: back
+
+- extendedWaitUntil:
+    visible:
+      id: "com.openlattice.chronicle:id/studyId"
+    timeout: 10000
+
+- assertVisible:
+    id: "com.openlattice.chronicle:id/participantId"

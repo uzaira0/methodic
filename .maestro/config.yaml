@@ -1,0 +1,21 @@
+# Maestro configuration
+# https://maestro.mobile.dev/reference/configuration
+#
+# Set the Chronicle Android app package name.
+# Update this if your app uses a different package name.
+appId: com.openlattice.chronicle
+
+# Tags for organizing flows
+tags:
+  smoke: Smoke tests for basic enrollment and upload
+  enrollment: Device enrollment flow
+  upload: Data upload verification
+
+# Environment variables available to all flows.
+# Override in CI via: maestro test --env SERVER_URL=http://10.0.2.2
+env:
+  # 10.0.2.2 is the host machine from inside the Android emulator
+  SERVER_URL: "http://10.0.2.2"
+  # Default test study/participant IDs — override in CI with real values
+  TEST_STUDY_ID: "${TEST_STUDY_ID}"
+  TEST_PARTICIPANT_ID: "${TEST_PARTICIPANT_ID}"

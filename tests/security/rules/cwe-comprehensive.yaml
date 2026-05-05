@@ -1,0 +1,826 @@
+rules:
+  # ===========================================================================
+  # CWE-532: Insertion of Sensitive Information into Log File
+  # ===========================================================================
+  - id: chronicle-log-raw-request-body
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $LOGGER.error(... + IOUtils.toString($BODY))
+          - pattern: |
+              $LOGGER.warn(... + IOUtils.toString($BODY))
+          - pattern: |
+              $LOGGER.info(... + IOUtils.toString($BODY))
+          - pattern: |
+              $LOGGER.error(..., IOUtils.toString($BODY))
+          - pattern: |
+              $LOGGER.warn(..., IOUtils.toString($BODY))
+          - pattern: |
+              $LOGGER.info(..., IOUtils.toString($BODY))
+    message: >
+      Raw request body logged via IOUtils.toString() without sanitization.
+      Use LogSanitizer.sanitize() and ErrorSanitizationConfig.sanitizeMessage()
+      before logging user-controlled content.
+    languages: [java, kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-532
+      owasp: "A09:2021"
+      category: security
+      confidence: HIGH
+
+  - id: chronicle-log-raw-header
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $LOGGER.$METHOD(..., $REQ.getHeader(...), ...)
+          - pattern: |
+              $LOGGER.$METHOD(... + $REQ.getHeader(...))
+    message: >
+      HTTP header logged without sanitization. Headers may contain
+      Authorization tokens, cookies, or other sensitive data.
+      Sanitize with LogSanitizer.sanitize() before logging.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-532
+      owasp: "A09:2021"
+      category: security
+      confidence: MEDIUM
+
+  - id: chronicle-log-request-parameter
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $LOGGER.$METHOD(... + $REQ.getParameter(...))
+          - pattern: |
+              $LOGGER.$METHOD(..., $REQ.getParameter(...), ...)
+    message: >
+      Request parameter logged without sanitization. Parameters may
+      contain passwords, tokens, or PII. Use LogSanitizer.sanitize().
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-532
+      owasp: "A09:2021"
+      category: security
+      confidence: MEDIUM
+
+  # ===========================================================================
+  # CWE-502: Deserialization of Untrusted Data
+  # ===========================================================================
+  - id: chronicle-unsafe-deserialization
+    patterns:
+      - pattern-either:
+          - pattern: |
+              (ObjectInputStream $OIS).readObject()
+          - pattern: |
+              ObjectInputStream(...)
+          - pattern: |
+              (java.io.ObjectInputStream $OIS).readObject()
+    message: >
+      Java native deserialization detected. This is vulnerable to remote
+      code execution via crafted serialized objects. Use safe alternatives
+      like JSON deserialization with explicit type allowlists.
+    languages: [java, kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-502
+      owasp: "A08:2021"
+      category: security
+      confidence: HIGH
+
+  - id: chronicle-jackson-polymorphic-unsafe
+    patterns:
+      - pattern-either:
+          - pattern: |
+              @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, ...)
+          - pattern: |
+              @JsonTypeInfo(use = JsonTypeInfo.Id.MINIMAL_CLASS, ...)
+          - pattern: |
+              $MAPPER.enableDefaultTyping(...)
+          - pattern: |
+              $MAPPER.activateDefaultTyping(...)
+    message: >
+      Unsafe Jackson polymorphic deserialization. Using Id.CLASS or
+      Id.MINIMAL_CLASS allows arbitrary class instantiation. Use
+      Id.NAME with @JsonSubTypes or a custom TypeResolverBuilder.
+    languages: [java, kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-502
+      owasp: "A08:2021"
+      category: security
+      confidence: HIGH
+
+  # ===========================================================================
+  # CWE-611: Improper Restriction of XML External Entity Reference (XXE)
+  # ===========================================================================
+  - id: chronicle-xxe-document-builder
+    pattern: |
+      DocumentBuilderFactory.newInstance()
+    message: >
+      DocumentBuilderFactory.newInstance() detected. Ensure XXE protection
+      is enabled via setFeature(disallow-doctype-decl, true) or use
+      Chronicle SecureXmlFactory instead.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-611
+      owasp: "A05:2021"
+      category: security
+      confidence: MEDIUM
+
+  - id: chronicle-xxe-sax-parser
+    pattern: |
+      SAXParserFactory.newInstance()
+    message: >
+      SAXParserFactory.newInstance() detected. Ensure XXE protection
+      is enabled or use Chronicle SecureXmlFactory instead.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-611
+      owasp: "A05:2021"
+      category: security
+      confidence: MEDIUM
+
+  - id: chronicle-xxe-xml-input-factory
+    pattern: |
+      XMLInputFactory.newInstance()
+    message: >
+      XMLInputFactory.newInstance() detected. Disable DTD support with
+      setProperty(SUPPORT_DTD, false) and
+      setProperty(IS_SUPPORTING_EXTERNAL_ENTITIES, false).
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-611
+      owasp: "A05:2021"
+      category: security
+      confidence: MEDIUM
+
+  # ===========================================================================
+  # CWE-327: Use of a Broken or Risky Cryptographic Algorithm
+  # ===========================================================================
+  - id: chronicle-weak-hash
+    patterns:
+      - pattern-either:
+          - pattern: |
+              MessageDigest.getInstance("MD5")
+          - pattern: |
+              MessageDigest.getInstance("SHA1")
+          - pattern: |
+              MessageDigest.getInstance("SHA-1")
+    message: >
+      Weak hash algorithm detected. MD5 and SHA-1 are cryptographically
+      broken. Use SHA-256 or SHA-3 for integrity, bcrypt/scrypt/argon2
+      for passwords.
+    languages: [java, kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-327
+      owasp: "A02:2021"
+      category: security
+      confidence: HIGH
+
+  - id: chronicle-weak-cipher
+    patterns:
+      - pattern-either:
+          - pattern: |
+              Cipher.getInstance("DES")
+          - pattern: |
+              Cipher.getInstance("DES/...")
+          - pattern: |
+              Cipher.getInstance("DESede/...")
+          - pattern: |
+              Cipher.getInstance("RC4")
+          - pattern: |
+              Cipher.getInstance("RC2/...")
+          - pattern: |
+              Cipher.getInstance("Blowfish/...")
+    message: >
+      Weak encryption algorithm. DES, 3DES, RC4, RC2, and Blowfish are
+      considered insecure. Use AES-256-GCM or ChaCha20-Poly1305.
+    languages: [java, kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-327
+      owasp: "A02:2021"
+      category: security
+      confidence: HIGH
+
+  - id: chronicle-ecb-mode
+    patterns:
+      - pattern-either:
+          - pattern: |
+              Cipher.getInstance("AES/ECB/...")
+          - pattern: |
+              Cipher.getInstance("$ALG/ECB/$PAD")
+    message: >
+      ECB mode detected. ECB does not provide semantic security - identical
+      plaintext blocks produce identical ciphertext. Use GCM or CBC with HMAC.
+    languages: [java, kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-327
+      owasp: "A02:2021"
+      category: security
+      confidence: HIGH
+
+  - id: chronicle-insecure-random
+    patterns:
+      - pattern-either:
+          - pattern: |
+              java.util.Random()
+          - pattern: |
+              Math.random()
+          - pattern: |
+              kotlin.random.Random(...)
+    message: >
+      Non-cryptographic random number generator used. For security-sensitive
+      operations (tokens, IDs, nonces), use java.security.SecureRandom.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-338
+      owasp: "A02:2021"
+      category: security
+      confidence: MEDIUM
+
+  # ===========================================================================
+  # CWE-798: Use of Hard-coded Credentials
+  # ===========================================================================
+  - id: chronicle-hardcoded-password-java
+    patterns:
+      - pattern: |
+          $X = "..."
+      - metavariable-regex:
+          metavariable: $X
+          regex: "(?i).*(password|passwd|secret|api_key|apikey|api_secret|private_key|access_key).*"
+      - pattern-not: |
+          $X = ""
+    message: >
+      Possible hard-coded credential. Passwords, API keys, and secrets
+      should be loaded from environment variables, Vault, or encrypted
+      configuration files.
+    languages: [java]
+    severity: ERROR
+    metadata:
+      cwe: CWE-798
+      owasp: "A07:2021"
+      category: security
+      confidence: MEDIUM
+
+  - id: chronicle-hardcoded-password-kotlin
+    pattern-regex: "(?i)(?:val|var)\\s+\\w*(?:password|passwd|secret|api_key|apikey|api_secret|private_key|access_key)\\w*\\s*=\\s*\"[^\"]+\""
+    message: >
+      Possible hard-coded credential in Kotlin. Passwords, API keys, and
+      secrets should be loaded from environment variables, Vault, or
+      encrypted configuration files.
+    languages: [kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-798
+      owasp: "A07:2021"
+      category: security
+      confidence: MEDIUM
+
+  # ===========================================================================
+  # CWE-295: Improper Certificate Validation
+  # ===========================================================================
+  - id: chronicle-trust-all-certs
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $X.setHostnameVerifier(...)
+          - pattern: |
+              HostnameVerifier { $ARGS -> true }
+          - pattern: |
+              TrustAllCertificates
+          - pattern: |
+              NullTrustManager
+          - pattern: |
+              $X509TM.checkServerTrusted($CHAIN, $AUTH) { }
+    message: >
+      TLS certificate validation disabled or bypassed. This allows
+      man-in-the-middle attacks. Use the system trust store or pin
+      specific certificates.
+    languages: [java, kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-295
+      owasp: "A07:2021"
+      category: security
+      confidence: HIGH
+
+  # ===========================================================================
+  # CWE-94/CWE-95: Code Injection / Expression Injection
+  # ===========================================================================
+  - id: chronicle-script-injection
+    patterns:
+      - pattern-either:
+          - pattern: |
+              (ScriptEngine $E).eval($INPUT)
+          - pattern: |
+              ScriptEngineManager().getEngineByName(...).eval($INPUT)
+    message: >
+      Script engine evaluation with potentially untrusted input. This
+      allows arbitrary code execution. Avoid eval() or use a sandboxed
+      expression language.
+    languages: [java, kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-94
+      owasp: "A03:2021"
+      category: security
+      confidence: HIGH
+
+  - id: chronicle-runtime-exec
+    patterns:
+      - pattern-either:
+          - pattern: |
+              Runtime.getRuntime().exec($CMD)
+          - pattern: |
+              ProcessBuilder($CMD, ...)
+    message: >
+      OS command execution detected. If any part of the command comes from
+      user input, this is vulnerable to command injection. Use allowlisted
+      commands with parameterized arguments.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-78
+      owasp: "A03:2021"
+      category: security
+      confidence: MEDIUM
+
+  - id: chronicle-spel-injection
+    patterns:
+      - pattern-either:
+          - pattern: |
+              (SpelExpressionParser $P).parseExpression($INPUT)
+          - pattern: |
+              SpelExpressionParser().parseExpression($INPUT)
+    message: >
+      Spring Expression Language (SpEL) evaluation with dynamic input.
+      If the expression comes from user input, this allows arbitrary
+      code execution. Use SimpleEvaluationContext to restrict capabilities.
+    languages: [java, kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-917
+      owasp: "A03:2021"
+      category: security
+      confidence: HIGH
+
+  # ===========================================================================
+  # CWE-918: Server-Side Request Forgery (SSRF)
+  # ===========================================================================
+  - id: chronicle-ssrf-url-open
+    pattern-either:
+      - pattern: |
+          new URL($INPUT).openConnection()
+      - pattern: |
+          new URL($INPUT).openStream()
+    message: >
+      URL opened from variable without SSRF validation. Use
+      SsrfValidator.validate() or SafeHttpClientFactory before
+      connecting to user-controlled URLs.
+    languages: [java, kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-918
+      owasp: "A10:2021"
+      category: security
+      confidence: HIGH
+
+  - id: chronicle-ssrf-resttemplate
+    pattern-either:
+      - pattern: |
+          (RestTemplate $RT).getForObject($URL, ...)
+      - pattern: |
+          (RestTemplate $RT).postForObject($URL, ...)
+      - pattern: |
+          (RestTemplate $RT).exchange($URL, ...)
+    message: >
+      RestTemplate call with variable URL. Ensure the URL is validated
+      against an allowlist using SsrfValidator before making the request.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-918
+      owasp: "A10:2021"
+      category: security
+      confidence: MEDIUM
+
+  # ===========================================================================
+  # CWE-601: URL Redirection to Untrusted Site (Open Redirect)
+  # ===========================================================================
+  - id: chronicle-open-redirect
+    pattern-either:
+      - pattern: |
+          $RESPONSE.sendRedirect($URL)
+      - pattern: |
+          "redirect:" + $URL
+    message: >
+      Redirect with variable URL. Ensure RedirectValidator.validate()
+      is called to prevent open redirect attacks.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-601
+      owasp: "A01:2021"
+      category: security
+      confidence: MEDIUM
+
+  # ===========================================================================
+  # CWE-346: Origin Validation Errors (CORS)
+  # ===========================================================================
+  - id: chronicle-cors-wildcard
+    patterns:
+      - pattern-either:
+          - pattern: |
+              @CrossOrigin(origins = "*")
+          - pattern: |
+              $X.allowedOrigins("*")
+          - pattern: |
+              $CORS.addMapping("/**").allowedOrigins("*")
+    message: >
+      Wildcard CORS origin allows any website to make authenticated
+      cross-origin requests. Specify explicit allowed origins.
+    languages: [java, kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-346
+      owasp: "A01:2021"
+      category: security
+      confidence: HIGH
+
+  # ===========================================================================
+  # CWE-400: Uncontrolled Resource Consumption
+  # ===========================================================================
+  - id: chronicle-unbounded-query
+    pattern-either:
+      - pattern: |
+          $REPO.findAll()
+      - pattern: |
+          $EM.createQuery($Q).getResultList()
+    message: >
+      Potentially unbounded query. This can cause OOM on large
+      datasets. Ensure Pageable, LIMIT, or setMaxResults() is used.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-400
+      owasp: "A05:2021"
+      category: security
+      confidence: MEDIUM
+
+  # ===========================================================================
+  # CWE-1004: Sensitive Cookie Without HttpOnly Flag
+  # ===========================================================================
+  - id: chronicle-cookie-missing-flags
+    pattern: |
+      new Cookie($NAME, $VALUE)
+    message: >
+      Cookie created. Verify HttpOnly, Secure, and SameSite attributes
+      are set to prevent XSS theft and CSRF attacks.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-1004
+      owasp: "A05:2021"
+      category: security
+      confidence: MEDIUM
+
+  # ===========================================================================
+  # CWE-200: Exposure of Sensitive Information (Stack Traces)
+  # ===========================================================================
+  - id: chronicle-stacktrace-in-response
+    pattern-either:
+      - pattern: |
+          $E.printStackTrace($WRITER)
+      - pattern: |
+          $E.getStackTrace()
+    message: >
+      Stack trace potentially exposed in HTTP response. Stack traces reveal
+      internal code structure and library versions. Use error IDs for
+      correlation instead.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-200
+      owasp: "A01:2021"
+      category: security
+      confidence: MEDIUM
+
+  # ===========================================================================
+  # CWE-312: Cleartext Storage of Sensitive Information
+  # ===========================================================================
+  - id: chronicle-cleartext-password-storage
+    pattern-either:
+      - pattern: |
+          $X.setPassword($PASS)
+      - pattern: |
+          $X.password = $PASS
+    message: >
+      Password assignment detected. Ensure password is hashed with
+      BCryptPasswordEncoder, SCryptPasswordEncoder, or Argon2PasswordEncoder
+      before storage.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-312
+      owasp: "A04:2021"
+      category: security
+      confidence: LOW
+
+  # ===========================================================================
+  # CWE-22: Path Traversal
+  # ===========================================================================
+  - id: chronicle-path-traversal
+    pattern-either:
+      - pattern: |
+          new File($BASE + $INPUT)
+      - pattern: |
+          new File($BASE, $INPUT)
+      - pattern: |
+          Paths.get($BASE, $INPUT)
+    message: >
+      File path constructed with variable input. If any part comes from
+      user input, this is vulnerable to path traversal. Validate and
+      canonicalize paths, and check they stay within the expected directory.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-22
+      owasp: "A01:2021"
+      category: security
+      confidence: MEDIUM
+
+  # ===========================================================================
+  # CWE-079: Cross-site Scripting (XSS)
+  # ===========================================================================
+  - id: chronicle-reflected-xss
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $RESPONSE.getWriter().write($REQ.getParameter(...))
+          - pattern: |
+              $RESPONSE.getOutputStream().write($REQ.getParameter(...).getBytes())
+    message: >
+      User input reflected directly in HTTP response without encoding.
+      This is a reflected XSS vulnerability. Use HtmlUtils.htmlEscape()
+      before including user input in responses.
+    languages: [java, kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-79
+      owasp: "A03:2021"
+      category: security
+      confidence: HIGH
+
+  # ===========================================================================
+  # CWE-362: Race Condition (TOCTOU)
+  # ===========================================================================
+  - id: chronicle-toctou-file
+    patterns:
+      - pattern-either:
+          - pattern: |
+              if ($F.exists()) {
+                  ...
+                  $F.delete()
+              }
+          - pattern: |
+              if ($F.exists()) {
+                  ...
+                  new FileInputStream($F)
+              }
+    message: >
+      Time-of-check-time-of-use race condition on file. Between checking
+      existence and using the file, another process could modify it.
+      Use atomic file operations or file locking.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-367
+      owasp: "A04:2021"
+      category: security
+      confidence: MEDIUM
+
+  # ===========================================================================
+  # CWE-377: Insecure Temporary File
+  # ===========================================================================
+  - id: chronicle-insecure-tempfile
+    patterns:
+      - pattern-either:
+          - pattern: |
+              File.createTempFile(...)
+    message: >
+      File.createTempFile() creates files in a shared temp directory.
+      Use Files.createTempFile() with restrictive PosixFilePermissions
+      or create files in an application-specific directory.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-377
+      owasp: "A01:2021"
+      category: security
+      confidence: MEDIUM
+
+  # ===========================================================================
+  # CWE-863: Incorrect Authorization
+  # ===========================================================================
+  - id: chronicle-missing-auth-annotation
+    patterns:
+      - pattern: |
+          @RequestMapping(...)
+          public $RET $METHOD(...) { ... }
+      - pattern-not: |
+          @PreAuthorize(...)
+          public $RET $METHOD(...) { ... }
+      - pattern-not: |
+          @Secured(...)
+          public $RET $METHOD(...) { ... }
+    message: >
+      REST endpoint without authorization annotation. Ensure this endpoint
+      has @PreAuthorize, @Secured, or is explicitly listed in the security
+      configuration permitAll().
+    languages: [java]
+    severity: WARNING
+    metadata:
+      cwe: CWE-863
+      owasp: "A01:2021"
+      category: security
+      confidence: LOW
+
+  # ===========================================================================
+  # CWE-117: Improper Output Neutralization for Logs (Log Injection)
+  # ===========================================================================
+  - id: chronicle-log-injection
+    patterns:
+      - pattern: |
+          $LOGGER.$METHOD("..." + $INPUT)
+      - metavariable-regex:
+          metavariable: $INPUT
+          regex: ".*(?:request|param|header|body|input|user|query|path|uri|url|cookie).*"
+    message: >
+      User-controlled input concatenated into log message without
+      sanitization. Use LogSanitizer.sanitize() to prevent log injection
+      attacks (CWE-117).
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-117
+      owasp: "A09:2021"
+      category: security
+      confidence: MEDIUM
+
+  # ===========================================================================
+  # CWE-434: Unrestricted Upload of File with Dangerous Type
+  # ===========================================================================
+  - id: chronicle-unrestricted-upload
+    pattern: |
+      @PostMapping(...)
+      $RET $METHOD(..., @RequestParam MultipartFile $FILE, ...) { ... }
+    message: >
+      File upload endpoint detected. Ensure content-type validation,
+      magic byte checking, size limits, and storage outside the web root.
+    languages: [java]
+    severity: WARNING
+    metadata:
+      cwe: CWE-434
+      owasp: "A04:2021"
+      category: security
+      confidence: MEDIUM
+
+  # ===========================================================================
+  # CWE-090: LDAP Injection
+  # ===========================================================================
+  - id: chronicle-ldap-injection
+    patterns:
+      - pattern-either:
+          - pattern: |
+              "(&(" + $ATTR + "=" + $INPUT + "))"
+          - pattern: |
+              "(|(" + $ATTR + "=" + $INPUT + "))"
+          - pattern: |
+              $CTX.search($BASE, "..." + $INPUT + "...", ...)
+    message: >
+      String concatenation in LDAP query construction. This is vulnerable
+      to LDAP injection. Use parameterized LDAP queries or escape special
+      characters with LdapEncoder.
+    languages: [java, kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-90
+      owasp: "A03:2021"
+      category: security
+      confidence: HIGH
+
+  # ===========================================================================
+  # CWE-776: XML Entity Expansion (Billion Laughs)
+  # ===========================================================================
+  - id: chronicle-xml-entity-expansion
+    pattern: |
+      $DBF = DocumentBuilderFactory.newInstance()
+    message: >
+      XML parser created. Ensure FEATURE_SECURE_PROCESSING is enabled
+      to prevent billion laughs / XML bomb attacks. Or use Chronicle
+      SecureXmlFactory.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-776
+      owasp: "A05:2021"
+      category: security
+      confidence: MEDIUM
+
+  # ===========================================================================
+  # CWE-943: Improper Neutralization in Data Query Logic (NoSQL Injection)
+  # ===========================================================================
+  - id: chronicle-nosql-injection
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $COLLECTION.find(BasicDBObject.parse($INPUT))
+          - pattern: |
+              $COLLECTION.aggregate(BasicDBObject.parse($INPUT))
+    message: >
+      NoSQL query constructed from user input. This is vulnerable to
+      NoSQL injection. Use typed query builders instead of parsing
+      raw strings.
+    languages: [java, kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-943
+      owasp: "A03:2021"
+      category: security
+      confidence: HIGH
+
+  # ===========================================================================
+  # CWE-352: Cross-Site Request Forgery
+  # ===========================================================================
+  - id: chronicle-csrf-disabled
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $HTTP.csrf().disable()
+          - pattern: |
+              csrf(AbstractHttpConfigurer::disable)
+    message: >
+      CSRF protection disabled. Ensure this is intentional and that the
+      endpoint is protected by other means (non-cookie auth, CORS,
+      custom headers). Document the justification.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-352
+      owasp: "A01:2021"
+      category: security
+      confidence: MEDIUM
+
+  # ===========================================================================
+  # CWE-330: Use of Insufficiently Random Values
+  # ===========================================================================
+  - id: chronicle-uuid-from-string
+    patterns:
+      - pattern: |
+          UUID.nameUUIDFromBytes(...)
+    message: >
+      UUID.nameUUIDFromBytes() generates deterministic UUIDs (v3/MD5).
+      For security-sensitive identifiers, use UUID.randomUUID() which
+      uses SecureRandom internally.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-330
+      owasp: "A02:2021"
+      category: security
+      confidence: MEDIUM
+
+  # ===========================================================================
+  # CWE-209: Error Message Containing Sensitive Information
+  # ===========================================================================
+  - id: chronicle-exception-message-in-response
+    patterns:
+      - pattern-either:
+          - pattern: |
+              ResponseEntity($E.getMessage(), ...)
+          - pattern: |
+              ResponseEntity.badRequest().body($E.getMessage())
+          - pattern: |
+              ResponseEntity.status(...).body($E.getMessage())
+    message: >
+      Raw exception message returned in HTTP response. Exception messages
+      may contain SQL queries, file paths, or internal class names.
+      Use ErrorSanitizationConfig.sanitizeMessage() first.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-209
+      owasp: "A01:2021"
+      category: security
+      confidence: MEDIUM
+

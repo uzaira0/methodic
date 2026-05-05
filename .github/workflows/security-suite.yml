@@ -1,0 +1,189 @@
+name: Security Suite (25-Layer Scanner)
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  REPORT_DIR: ${{ github.workspace }}/tests/security/reports
+
+jobs:
+  # ============================================================================
+  # CI-safe security layers (no running stack required)
+  # Layers: SAST(1), SCA(3), Container(4), Secrets(5), IaC(6),
+  #         Auth/JWT(14), Input validation(15), Crypto(16),
+  #         License(17), Compliance(12)
+  # ============================================================================
+  security-layers:
+    name: "Layer: ${{ matrix.layer }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        layer:
+          - sast
+          - sca
+          - container
+          - secrets
+          - iac
+          - auth
+          - injection
+          - crypto
+          - license
+          - compliance
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      # -- Python tools: semgrep, checkov -----------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Install semgrep
+        if: matrix.layer == 'sast'
+        run: pip install semgrep
+
+      - name: Install checkov
+        if: matrix.layer == 'iac'
+        run: pip install checkov
+
+      # -- Trivy (container, sca, license) ----------------------------------
+      - name: Install Trivy
+        if: contains(fromJSON('["container","sca","license"]'), matrix.layer)
+        run: |
+          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update && sudo apt-get install -y trivy
+
+      # -- Gitleaks (secrets) -----------------------------------------------
+      - name: Install Gitleaks
+        if: matrix.layer == 'secrets'
+        run: |
+          GITLEAKS_VERSION="8.21.2"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | sudo tar xz -C /usr/local/bin gitleaks
+
+      # -- Hadolint (iac) ---------------------------------------------------
+      - name: Install Hadolint
+        if: matrix.layer == 'iac'
+        run: |
+          HADOLINT_VERSION="2.12.0"
+          curl -sSfL -o /usr/local/bin/hadolint "https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-Linux-x86_64"
+          chmod +x /usr/local/bin/hadolint
+
+      # -- Conftest (compliance) --------------------------------------------
+      - name: Install Conftest
+        if: matrix.layer == 'compliance'
+        run: |
+          CONFTEST_VERSION="0.56.0"
+          curl -sSfL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | sudo tar xz -C /usr/local/bin conftest
+
+      # -- Bun (sca frontend) ----------------------------------------------
+      - name: Setup Bun
+        if: matrix.layer == 'sca'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node
+        if: matrix.layer == 'sca'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: lts/*
+
+      # -- Create report directory ------------------------------------------
+      - name: Create report directory
+        run: mkdir -p "$REPORT_DIR"
+
+      # -- Run the security layer -------------------------------------------
+      - name: Run security layer
+        env:
+          LAYER: ${{ matrix.layer }}
+        run: |
+          chmod +x tests/security/run-all-security.sh
+          tests/security/run-all-security.sh "$LAYER" "$REPORT_DIR"
+
+      # -- Upload reports ---------------------------------------------------
+      - name: Upload security reports
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: security-reports-${{ matrix.layer }}
+          path: ${{ env.REPORT_DIR }}/
+          retention-days: 30
+          if-no-files-found: ignore
+
+      # -- Upload SARIF to GitHub Security tab (if any produced) ------------
+      - name: Upload SARIF files to GitHub Security
+        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
+        if: always() && hashFiles(format('{0}/*.sarif', env.REPORT_DIR)) != ''
+        with:
+          sarif_file: ${{ env.REPORT_DIR }}
+          category: security-${{ matrix.layer }}
+        continue-on-error: true
+
+  # ============================================================================
+  # Summary gate — fails the PR if any layer failed
+  # ============================================================================
+  security-gate:
+    name: Security Gate
+    runs-on: ubuntu-latest
+    needs: [security-layers]
+    if: always()
+    steps:
+      - name: Download all reports
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: security-reports-*
+          path: all-reports
+          merge-multiple: true
+
+      - name: Upload merged reports
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: security-reports-all
+          path: all-reports/
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Generate summary
+        run: |
+          echo "## Security Suite Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### CI Layers (static analysis, no running stack)" >> $GITHUB_STEP_SUMMARY
+          echo "| # | Layer | Description |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|-------|-------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 1 | sast | Semgrep static analysis |" >> $GITHUB_STEP_SUMMARY
+          echo "| 3 | sca | Dependency vulnerability scanning |" >> $GITHUB_STEP_SUMMARY
+          echo "| 4 | container | Trivy image/misconfig scanning |" >> $GITHUB_STEP_SUMMARY
+          echo "| 5 | secrets | Gitleaks secret detection |" >> $GITHUB_STEP_SUMMARY
+          echo "| 6 | iac | Checkov + Hadolint IaC checks |" >> $GITHUB_STEP_SUMMARY
+          echo "| 12 | compliance | OPA/Conftest policy-as-code |" >> $GITHUB_STEP_SUMMARY
+          echo "| 14 | auth | JWT structure analysis |" >> $GITHUB_STEP_SUMMARY
+          echo "| 15 | injection | SQL injection pattern scan |" >> $GITHUB_STEP_SUMMARY
+          echo "| 16 | crypto | Weak algorithm detection |" >> $GITHUB_STEP_SUMMARY
+          echo "| 17 | license | Trivy license compliance |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Skipped Layers (require running stack)" >> $GITHUB_STEP_SUMMARY
+          echo "DAST (2), API fuzz (7), TLS (8), Database (9), HIPAA (10), GDPR (11), Network (13), Rate limit (18), WAF (19), Runtime (20), Smoke (21), DB security (22), API headers (23), Business logic (24), Contract drift (25)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check overall status
+        if: needs.security-layers.result == 'failure'
+        run: |
+          echo "::error::One or more security layers failed. Review the job logs and uploaded reports."
+          exit 1

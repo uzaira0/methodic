@@ -1,0 +1,15 @@
+http:
+  middlewares:
+    redirect-to-https:
+      redirectScheme:
+        scheme: https
+        permanent: true
+
+    # No-op WAF fallback: ensures crowdsec-waf@file always resolves even
+    # when docker-compose.security.yml (CrowdSec overlay) is not deployed.
+    # The CrowdSec template overwrites this with the real WAF middleware.
+    # Without this, Traefik silently drops the ENTIRE middleware chain for
+    # any router referencing a missing middleware — a fail-open scenario.
+    crowdsec-waf:
+      chain:
+        middlewares: []
