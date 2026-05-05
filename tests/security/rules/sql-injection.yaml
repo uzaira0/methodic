@@ -1,0 +1,94 @@
+rules:
+  - id: chronicle-sql-concat
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $X + "SELECT " + $Y
+          - pattern: |
+              $X + "INSERT " + $Y
+          - pattern: |
+              $X + "UPDATE " + $Y
+          - pattern: |
+              $X + "DELETE " + $Y
+          - pattern: |
+              $X + "WHERE " + $Y
+          - pattern: |
+              $X + "FROM " + $Y
+          - pattern: |
+              "SELECT " + $Y
+          - pattern: |
+              "INSERT " + $Y
+          - pattern: |
+              "UPDATE " + $Y
+          - pattern: |
+              "DELETE " + $Y
+          - pattern: |
+              "WHERE " + $Y
+          - pattern: |
+              "FROM " + $Y
+    message: >
+      String concatenation detected in SQL query construction. This is
+      vulnerable to SQL injection. Use parameterized queries or
+      PreparedStatement with bind parameters instead.
+    languages: [java, kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-89
+      owasp: "A03:2021"
+      category: security
+      confidence: HIGH
+
+  - id: chronicle-sql-format
+    patterns:
+      - pattern: |
+          String.format($FMT, ...)
+      - metavariable-regex:
+          metavariable: $FMT
+          regex: ".*(SELECT|INSERT|UPDATE|DELETE|WHERE|FROM)\\s.*"
+    message: >
+      String.format() used to construct SQL query. This is vulnerable to SQL
+      injection if any format arguments come from user input. Use
+      parameterized queries or PreparedStatement with bind parameters instead.
+    languages: [java, kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-89
+      owasp: "A03:2021"
+      category: security
+      confidence: HIGH
+
+  - id: chronicle-raw-statement
+    patterns:
+      - pattern: |
+          $CONN.createStatement(...)
+    message: >
+      Use of createStatement() detected. Prefer PreparedStatement with
+      parameterized queries to prevent SQL injection vulnerabilities.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-89
+      owasp: "A03:2021"
+      category: security
+      confidence: MEDIUM
+
+  - id: chronicle-statement-execute
+    patterns:
+      - pattern-either:
+          - pattern: |
+              (java.sql.Statement $S).execute($ARG)
+          - pattern: |
+              (java.sql.Statement $S).executeQuery($ARG)
+          - pattern: |
+              (java.sql.Statement $S).executeUpdate($ARG)
+    message: >
+      Direct Statement.execute() with a string variable detected. This may be
+      vulnerable to SQL injection if the argument includes user-controlled
+      input. Use PreparedStatement with bind parameters instead.
+    languages: [java, kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-89
+      owasp: "A03:2021"
+      category: security
+      confidence: MEDIUM

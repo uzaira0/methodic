@@ -1,0 +1,17 @@
+title = "Chronicle gitleaks config"
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+  '''bun\.lock''',
+  '''package-lock\.json''',
+  '''\.snap$''',
+  '''\.golden\.json$''',
+]
+
+# Allow test JWTs and mock tokens
+regexes = [
+  '''test-token''',
+  '''testing-token''',
+  '''HS256''',
+]
