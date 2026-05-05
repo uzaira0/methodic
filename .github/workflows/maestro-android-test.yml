@@ -130,7 +130,7 @@ jobs:
         run: ./gradlew assembleDebug --no-daemon --build-cache -x lint
 
       - name: Upload APK artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: chronicle-debug-apk
           path: chronicle-android/app/build/outputs/apk/debug/*.apk
@@ -163,7 +163,7 @@ jobs:
         run: ./gradlew :chronicle-server:installDist --no-daemon --build-cache -PdevelopmentMode=true -x test -x spotbugsMain -x spotbugsTest
 
       - name: Upload backend artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: chronicle-backend
           path: chronicle-server/build/install/chronicle-server/
@@ -413,7 +413,7 @@ jobs:
       # -- Results --
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: maestro-results-api${{ matrix.api-level }}
           path: |
@@ -441,7 +441,7 @@ jobs:
 
       - name: Upload failure artifacts
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: failure-api${{ matrix.api-level }}
           path: failure-screenshots/
