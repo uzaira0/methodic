@@ -4,7 +4,7 @@
  */
 
 plugins {
-    id("org.owasp.dependencycheck") version "9.0.9" apply false
+    id("org.owasp.dependencycheck") version "12.2.2" apply false
 }
 
 // Apply OWASP dependency check to all subprojects
