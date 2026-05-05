@@ -1,0 +1,62 @@
+name: jules-supersede
+
+# When a Jules persona PR opens, auto-close prior open PRs from the same persona
+# that touch overlapping files. Stops the 12-PRs-doing-the-same-thing pile-up.
+#
+# Persona detection: PR title prefix (Jules emits these consistently).
+#   🛡️ Sentinel:  → security/sanitization persona
+#   ⚡ Bolt:       → performance persona
+#   🎨 Palette:    → UX/accessibility persona
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  supersede:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Detect persona and supersede prior PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          persona=""
+          case "$PR_TITLE" in
+            "🛡️ Sentinel:"*|"🛡 Sentinel:"*|"Sentinel:"*) persona="Sentinel" ;;
+            "⚡ Bolt:"*|"Bolt:"*) persona="Bolt" ;;
+            "🎨 Palette:"*|"Palette:"*) persona="Palette" ;;
+            *)
+              echo "PR title has no recognized Jules persona prefix — skipping."
+              echo "  title: $PR_TITLE"
+              exit 0
+              ;;
+          esac
+          echo "Detected persona: $persona"
+
+          this_files=$(gh pr view "$PR_NUM" --repo "$REPO" --json files --jq '[.files[].path] | sort | unique | join("\n")')
+          if [ -z "$this_files" ]; then
+            echo "No changed files reported — skipping."
+            exit 0
+          fi
+
+          prior_prs=$(gh pr list --repo "$REPO" --state open --limit 100 \
+            --search "in:title $persona -is:draft" \
+            --json number,title \
+            --jq ".[] | select(.number != $PR_NUM) | .number")
+
+          for prior in $prior_prs; do
+            prior_files=$(gh pr view "$prior" --repo "$REPO" --json files --jq '[.files[].path] | sort | unique | join("\n")')
+            overlap=$(comm -12 <(echo "$this_files") <(echo "$prior_files"))
+            if [ -n "$overlap" ]; then
+              echo "Closing #$prior (superseded by #$PR_NUM, persona=$persona, overlap on $(echo "$overlap" | wc -l) files)"
+              gh pr close "$prior" --repo "$REPO" --delete-branch \
+                --comment "Auto-superseded by #$PR_NUM (same '$persona' persona, overlapping changed files). Reopen if this was wrong."
+            fi
+          done
