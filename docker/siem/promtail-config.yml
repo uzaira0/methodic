@@ -73,30 +73,6 @@ scrape_configs:
         regex: '.*chronicle-backend.*'
         action: keep
     pipeline_stages:
-      - json:
-          expressions:
-            level: level
-            logger: logger
-            requestId: requestId
-            traceId: traceId
-            spanId: spanId
-            studyId: studyId
-            participantId: participantId
-            httpMethod: httpMethod
-            httpPath: httpPath
-            timestamp: "@timestamp"
-      - labels:
-          level:
-          logger:
-          requestId:
-          traceId:
-          studyId:
-          httpMethod:
-      - timestamp:
-          source: timestamp
-          format: "2006-01-02T15:04:05.000-0700"
-          fallback_formats:
-            - RFC3339Nano
       - static_labels:
           job: chronicle-backend
           environment: production

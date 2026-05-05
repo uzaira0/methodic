@@ -4,7 +4,3 @@ secretBasePath: "chronicle"
 enabled: ${VAULT_ENABLED}
 connectionTimeoutMs: 5000
 readTimeoutMs: 5000
-# AppRole auth (preferred for production — set authMethod: "approle")
-authMethod: "${VAULT_AUTH_METHOD}"
-appRoleId: "${VAULT_APP_ROLE_ID}"
-appRoleSecretId: "${VAULT_APP_ROLE_SECRET_ID}"

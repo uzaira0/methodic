@@ -134,11 +134,12 @@ services:
       # Initialization script for TDE setup
       - ./init-db-encryption.sh:/docker-entrypoint-initdb.d/20-init-db-encryption.sh:ro
       - ./init-audit-immutability.sh:/docker-entrypoint-initdb.d/30-init-audit-immutability.sh:ro
-      # SSL/TLS certificates for encryption in transit
-      # Generate with: ./init-postgres-ssl.sh
-      - ./postgres-ssl/server/server.crt:/var/lib/postgresql/ssl/server.crt:ro,z
-      - ./postgres-ssl/server/server.key:/var/lib/postgresql/ssl/server.key:ro,z
-      - ./postgres-ssl/ca/ca.crt:/var/lib/postgresql/ssl/ca.crt:ro,z
+      # SSL/TLS certificates — mounted read-only from host. The entrypoint below
+      # copies them to /var/lib/postgresql/ssl-run/ and chowns to UID 26 so
+      # PostgreSQL can read the key (which requires owner == database user).
+      - ./postgres-ssl/server/server.crt:/etc/postgres-ssl-src/server.crt:ro,z
+      - ./postgres-ssl/server/server.key:/etc/postgres-ssl-src/server.key:ro,z
+      - ./postgres-ssl/ca/ca.crt:/etc/postgres-ssl-src/ca.crt:ro,z
       # H-9: Mount custom pg_hba.conf to enforce SSL for external connections
       # Percona 17.5 uses PGDATA=/data/db by default (confirmed via SHOW hba_file)
       - ./postgres-ssl/pg_hba-ssl.conf:/data/db/pg_hba.conf:ro,z
@@ -149,13 +150,29 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    # Percona image runs as postgres (UID 26) by default — no user: override needed
-    # PostgreSQL SSL configuration via command line arguments
+    # Copy SSL certs to a postgres-owned directory before starting.
+    # The bind-mount source may be owned by a host UID that differs from
+    # the container's postgres UID (26); PostgreSQL rejects a server.key
+    # it does not own. The container has CAP_CHOWN so this is safe.
+    entrypoint:
+      - sh
+      - -eu
+      - -c
+      - |
+        mkdir -p /var/lib/postgresql/ssl-run
+        cp /etc/postgres-ssl-src/server.crt /var/lib/postgresql/ssl-run/
+        cp /etc/postgres-ssl-src/server.key /var/lib/postgresql/ssl-run/
+        cp /etc/postgres-ssl-src/ca.crt     /var/lib/postgresql/ssl-run/
+        chown -R 26:26 /var/lib/postgresql/ssl-run
+        chmod 600 /var/lib/postgresql/ssl-run/server.key
+        chmod 644 /var/lib/postgresql/ssl-run/server.crt /var/lib/postgresql/ssl-run/ca.crt
+        exec docker-entrypoint.sh "$@"
+      - --
     command: >
       -c ssl=on
-      -c ssl_cert_file=/var/lib/postgresql/ssl/server.crt
-      -c ssl_key_file=/var/lib/postgresql/ssl/server.key
-      -c ssl_ca_file=/var/lib/postgresql/ssl/ca.crt
+      -c ssl_cert_file=/var/lib/postgresql/ssl-run/server.crt
+      -c ssl_key_file=/var/lib/postgresql/ssl-run/server.key
+      -c ssl_ca_file=/var/lib/postgresql/ssl-run/ca.crt
       -c ssl_min_protocol_version=TLSv1.2
       -c ssl_prefer_server_ciphers=on
       -c password_encryption=scram-sha-256
