@@ -27,7 +27,10 @@ jobs:
           added=$(git diff --name-only --diff-filter=A "origin/${{ github.base_ref }}"...HEAD)
           violations=""
           for f in $added; do
-            if git check-ignore -q "$f" 2>/dev/null; then
+            # --no-index forces ignore-rule check even for tracked files; without it,
+            # `check-ignore` returns "not ignored" for committed files even when the
+            # path matches .gitignore (which is exactly the case we want to catch).
+            if git check-ignore --no-index -q "$f" 2>/dev/null; then
               violations="${violations}${f}\n"
             fi
           done
