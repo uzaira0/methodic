@@ -45,7 +45,7 @@ tasks.register("dependencyCheckAll") {
 tasks.register<Copy>("aggregateSecurityReports") {
     group = "verification"
     description = "Collects all security reports into a single directory"
-    from(subprojects.map { "${it.buildDir}/reports" })
-    into("${rootProject.buildDir}/reports/security")
+    from(subprojects.map { it.layout.buildDirectory.dir("reports") })
+    into(rootProject.layout.buildDirectory.dir("reports/security"))
     include("**/dependency-check-report.*")
 }
