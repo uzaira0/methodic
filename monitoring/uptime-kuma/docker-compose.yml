@@ -1,0 +1,30 @@
+# Uptime Kuma — self-hosted external monitoring service for Chronicle.
+# Deploy alongside the Traefik stack on the production host.
+#
+# Persistent storage: ./data/ holds monitor configurations + uptime history.
+# Use `monitors.json` (sibling file) as the source-of-truth import; the Kuma
+# admin UI exports/imports from this format.
+
+version: '3.8'
+
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: chronicle-uptime-kuma
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    ports:
+      - '127.0.0.1:3001:3001'
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.http.routers.uptime-kuma.rule=Host(`uptime.getmethodic.com`)'
+      - 'traefik.http.routers.uptime-kuma.entrypoints=websecure'
+      - 'traefik.http.routers.uptime-kuma.tls=true'
+      - 'traefik.http.routers.uptime-kuma.tls.certresolver=letsencrypt'
+      - 'traefik.http.services.uptime-kuma.loadbalancer.server.port=3001'
+
+networks:
+  default:
+    external: true
+    name: chronicle_default

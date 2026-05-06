@@ -18,8 +18,16 @@ permissions:
 
 jobs:
   chronicle-web:
-    name: chronicle-web quality
-    runs-on: ubuntu-latest
+    name: chronicle-web quality (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Cross-OS matrix: catches OS-specific issues (path separators, line
+        # endings, file watcher behavior) that ubuntu-only CI misses. Windows
+        # and macOS only run on PRs targeting main and on schedule, to limit
+        # cost (macOS minutes are 10x ubuntu).
+        os: ${{ fromJSON(github.event_name == 'pull_request' && github.base_ref == 'main' && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: chronicle-web
