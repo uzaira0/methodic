@@ -1,0 +1,39 @@
+name: freshness-jvm
+
+# Weekly audit of all JVM dependency versions across submodules.
+# Uses gradle-versions-plugin (com.github.ben-manes.versions) to enumerate
+# dependencies that have newer releases. Opens or updates a single
+# 'freshness:jvm' issue with the report.
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'   # Monday 08:00 UTC
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Run dependencyUpdates across all subprojects
+        run: ./gradlew dependencyUpdates -Drevision=release
+
+      - name: Open or update freshness issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: ./scripts/freshness-jvm.sh build/dependencyUpdates/report.txt

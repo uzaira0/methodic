@@ -1,0 +1,38 @@
+name: freshness-plugin-drift
+
+# Detects drift in Gradle plugin versions across submodules.
+# settings.gradle.kts holds the canonical versions; each submodule's
+# build.gradle should match. Drift here is what dependabot can't fix
+# (it doesn't understand cross-file pin coordination).
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'
+  pull_request:
+    paths:
+      - '**/build.gradle'
+      - '**/build.gradle.kts'
+      - 'settings.gradle.kts'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  detect-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Run plugin drift detector
+        id: detect
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: ./scripts/plugin-drift-detect.sh

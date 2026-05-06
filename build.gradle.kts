@@ -5,11 +5,13 @@
 
 plugins {
     id("org.owasp.dependencycheck") version "12.2.2" apply false
+    id("com.github.ben-manes.versions") version "0.52.0" apply false
 }
 
-// Apply OWASP dependency check to all subprojects
+// Apply OWASP dependency check + ben-manes/versions audit to all subprojects
 subprojects {
     apply(plugin = "org.owasp.dependencycheck")
+    apply(plugin = "com.github.ben-manes.versions")
 
     configure<org.owasp.dependencycheck.gradle.extension.DependencyCheckExtension> {
         failBuildOnCVSS = 7.0f
