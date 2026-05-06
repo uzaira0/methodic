@@ -28,6 +28,7 @@ jobs:
         # cost (macOS minutes are 10x ubuntu).
         os: ${{ fromJSON(github.event_name == 'pull_request' && github.base_ref == 'main' && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: chronicle-web
@@ -84,6 +85,7 @@ jobs:
       matrix:
         os: ${{ fromJSON(github.event_name == 'pull_request' && github.base_ref == 'main' && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -132,6 +134,7 @@ jobs:
   mutation-testing:
     name: Stryker mutation testing
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/develop'
     defaults:
       run:
@@ -154,6 +157,7 @@ jobs:
   dead-code:
     name: dead code detection
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     continue-on-error: true # non-blocking until dead code is cleaned up
     defaults:
       run:
@@ -172,6 +176,7 @@ jobs:
   repo-automation:
     name: repo automation
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -190,6 +195,7 @@ jobs:
   dependency-scan:
     name: dependency vulnerability scan (SBOM)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     continue-on-error: true # non-blocking until existing vulns are triaged
     steps:
       - name: Checkout
@@ -224,6 +230,7 @@ jobs:
   dockerfile-lint:
     name: Hadolint Dockerfile linting
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -251,6 +258,7 @@ jobs:
   iac-scan:
     name: Checkov IaC scanning
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     continue-on-error: true # non-blocking until existing findings are triaged
     steps:
       - name: Checkout
@@ -277,6 +285,7 @@ jobs:
   license-compliance:
     name: license compliance
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -328,6 +337,7 @@ jobs:
   container-structure-tests:
     name: container structure tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -373,6 +383,7 @@ jobs:
   http-smoke-tests:
     name: HTTP smoke tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4

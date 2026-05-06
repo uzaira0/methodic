@@ -26,6 +26,7 @@ jobs:
   security-layers:
     name: "Layer: ${{ matrix.layer }}"
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -131,6 +132,7 @@ jobs:
   security-gate:
     name: Security Gate
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [security-layers]
     if: always()
     steps:

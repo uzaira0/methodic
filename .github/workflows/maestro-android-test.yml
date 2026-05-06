@@ -39,6 +39,7 @@ jobs:
   # ------------------------------------------------------------------
   configure:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -61,6 +62,7 @@ jobs:
   # ------------------------------------------------------------------
   build-apk:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout Android app
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -141,6 +143,7 @@ jobs:
   # ------------------------------------------------------------------
   build-backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout server repo
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -453,6 +456,7 @@ jobs:
   test-gate:
     needs: maestro-test
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: always()
     steps:
       - name: Check all API levels passed

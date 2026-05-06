@@ -60,7 +60,7 @@ Reviewed: 2026-04-05
 |-----|---------|--------|
 | `gradle-security-scan` | OWASP Dependency-Check | JVM dependencies (CVE database) |
 | `bun-security-scan` | `bun audit` | Frontend npm dependencies |
-| `container-image-scan` | Trivy | Backend + frontend Docker images |
+| `container-image-scan` | Grype | Backend + frontend Docker images |
 | `security-summary` | (aggregation) | Generates summary and fails if any scan failed |
 
 All results uploaded as SARIF to GitHub Security tab.
@@ -76,14 +76,14 @@ All results uploaded as SARIF to GitHub Security tab.
 | Layer | Tool(s) |
 |-------|---------|
 | sast | Semgrep |
-| sca | Trivy + bun audit |
-| container | Trivy image/misconfig |
+| sca | Grype + bun audit |
+| container | Grype image / Checkov misconfig |
 | secrets | Gitleaks |
 | iac | Checkov + Hadolint |
 | auth | JWT structure analysis |
 | injection | SQL injection pattern scan |
 | crypto | Weak algorithm detection |
-| license | Trivy license compliance |
+| license | OSV license compliance |
 | compliance | OPA/Conftest policy-as-code |
 
 15 additional layers (DAST, API fuzz, TLS, database, HIPAA, GDPR, etc.) are skipped in CI because they require a running stack.

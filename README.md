@@ -98,7 +98,7 @@ Notes:
 | Workflow | File | Purpose |
 |----------|------|---------|
 | Build | `.github/workflows/build.yaml` | Gradle build + publish on push to develop/main |
-| Security Scan | `.github/workflows/security-scan.yml` | OWASP dependency check, npm audit, Trivy container scan |
+| Security Scan | `.github/workflows/security-scan.yml` | OWASP dependency check, npm audit, Grype container scan |
 
 ## License
 

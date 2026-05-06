@@ -22,6 +22,7 @@ jobs:
   detekt:
     name: Detekt (Kotlin analysis)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -44,7 +45,6 @@ jobs:
             --report sarif:detekt-results.sarif
             --report html:detekt-results.html
             --build-upon-default-config
-        continue-on-error: true
 
       - name: Upload Detekt SARIF
         uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
@@ -68,6 +68,7 @@ jobs:
   pmd:
     name: PMD (bug patterns)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -91,6 +92,7 @@ jobs:
   bearer:
     name: Bearer (data flow SAST)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -103,7 +105,6 @@ jobs:
           scanner: sast
           format: sarif
           output: bearer-results.sarif
-        continue-on-error: true
 
       - name: Upload Bearer SARIF
         uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
@@ -119,6 +120,7 @@ jobs:
   osv-scanner:
     name: OSV-Scanner (Google vuln DB)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -133,7 +135,6 @@ jobs:
             --format=sarif
             --output=osv-results.sarif
             .
-        continue-on-error: true
 
       - name: Upload OSV SARIF
         uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
@@ -149,6 +150,7 @@ jobs:
   grype:
     name: Grype (Anchore vuln scan)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -177,6 +179,7 @@ jobs:
   sbom:
     name: Syft SBOM generation
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -203,6 +206,7 @@ jobs:
   api-diff:
     name: OpenAPI breaking change detection
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.event_name == 'pull_request'
     steps:
       - name: Checkout PR
@@ -261,6 +265,7 @@ jobs:
   dependency-review:
     name: Dependency review (PR only)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.event_name == 'pull_request'
     steps:
       - name: Checkout
@@ -280,6 +285,7 @@ jobs:
   scorecard:
     name: OpenSSF Scorecard
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       security-events: write
@@ -309,6 +315,7 @@ jobs:
   analysis-summary:
     name: Analysis Summary
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [detekt, pmd, bearer, osv-scanner, grype, sbom]
     if: always()
     steps:

@@ -92,3 +92,6 @@ docker/.env
 !docker/.env.example
 !docker/.env.staging
 !docker/.env.production
+
+# SSL private keys (certs are tracked; keys must never be)
+docker/postgres-ssl/**/*.key

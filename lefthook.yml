@@ -28,10 +28,6 @@ pre-commit:
         If this is a false positive, add an inline '# gitleaks:allow' comment
         or update tests/security/gitleaks.toml.
 
-    trivy-secrets:
-      run: trivy fs --scanners secret --exit-code 1 --severity CRITICAL --quiet --skip-dirs docker/certs,docker/postgres-ssl .
-      tags: optional
-
     hadolint:
       glob: "docker/Dockerfile*"
       run: hadolint {staged_files}

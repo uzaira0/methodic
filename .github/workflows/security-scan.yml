@@ -32,6 +32,7 @@ jobs:
   gradle-security-scan:
     name: Gradle Dependency Check
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -106,6 +107,7 @@ jobs:
   bun-security-scan:
     name: Bun Security Audit
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: chronicle-web
@@ -169,6 +171,7 @@ jobs:
   security-summary:
     name: Security Summary
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [gradle-security-scan, bun-security-scan]
     if: always()
     steps:

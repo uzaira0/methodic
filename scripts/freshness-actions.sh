@@ -16,7 +16,7 @@ while IFS= read -r pin; do
     action="${pin%@*}"
     ref="${pin#*@}"
 
-    # Skip our own _trivy-scan reusable
+    # Skip local reusable workflows
     case "$action" in
         ./.github/*) continue ;;
     esac

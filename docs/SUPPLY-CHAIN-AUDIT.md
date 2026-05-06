@@ -14,7 +14,7 @@ Chronicle's dependency posture is **generally well-maintained** with recent libr
 - **4 HIGH frontend vulnerabilities** (lodash, node-fetch, path-to-regexp, validator)
 - **SnakeYAML pinned to 2.2** but Gradle resolves it to 2.5 via transitive override (acceptable)
 - **commons-collections 3.2.2** present transitively (deserialization gadget chain risk)
-- **Docker images run as root** in both Dockerfiles (trivy DS-0002)
+- **Docker images run as root** in both Dockerfiles (Hadolint DL3002)
 - **Private key committed** in `docker/postgres-ssl/server/server.key`
 - **No critical CVEs** in backend JVM dependencies
 
@@ -74,7 +74,7 @@ The JVM argument `-Dlog4j2.formatMsgNoLookups=true` is set in `chronicle-server/
 
 ## 2. Frontend Dependencies (Bun)
 
-### 2.1 Trivy Scan Results (HIGH severity)
+### 2.1 Grype Scan Results (HIGH severity)
 
 | Library | Installed | Fixed | CVE | Description |
 |---------|-----------|-------|-----|-------------|
@@ -100,7 +100,7 @@ The JVM argument `-Dlog4j2.formatMsgNoLookups=true` is set in `chronicle-server/
 
 ## 3. Docker Image Security
 
-### 3.1 Trivy Config Scan
+### 3.1 Checkov / Hadolint Config Scan
 
 | Dockerfile | Finding | Severity | Details |
 |------------|---------|----------|---------|
@@ -117,7 +117,7 @@ The JVM argument `-Dlog4j2.formatMsgNoLookups=true` is set in `chronicle-server/
 
 ### 3.3 Secret in Docker Directory
 
-**CRITICAL**: Trivy detected a private key at `docker/postgres-ssl/server/server.key`. If this is a production key, it must be removed from the repository immediately and rotated. If it is a development-only key, it should be documented as such and excluded from production builds.
+**CRITICAL**: Gitleaks detected a private key at `docker/postgres-ssl/server/server.key`. If this is a production key, it must be removed from the repository immediately and rotated. If it is a development-only key, it should be documented as such and excluded from production builds.
 
 ### 3.4 Base Image Assessment
 
@@ -174,7 +174,7 @@ The project has `com.github.jk1.dependency-license-report` plugin v1.16 configur
 
 10. **Add Gradle dependency-updates plugin** (ben-manes) to track outdated dependencies.
 11. **Pin Dockerfile base image digests** (e.g., `alpine:3.21@sha256:...`) to prevent supply chain attacks via tag mutation.
-12. **Add SBOM generation** to CI pipeline (e.g., `trivy sbom` or Gradle CycloneDX plugin).
+12. **Add SBOM generation** to CI pipeline (e.g., `syft` or Gradle CycloneDX plugin).
 13. **Evaluate Kryo upgrade** from 4.x to 5.x.
 14. **Upgrade spring-vault-core** to align with Spring 6.2.x.
 
