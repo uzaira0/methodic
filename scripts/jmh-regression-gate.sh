@@ -28,7 +28,7 @@ regressions=$(jq -r --slurpfile base "$baselines" --argjson thresh "$threshold" 
 ' "$results" 2>/dev/null || echo "")
 
 if [ -n "$regressions" ]; then
-    echo "JMH regression detected (>${threshold} threshold):"
+    echo "JMH regression detected (ratio dropped below ${threshold}):"
     echo "$regressions"
     exit 1
 fi
