@@ -5,8 +5,6 @@
 # Use `monitors.json` (sibling file) as the source-of-truth import; the Kuma
 # admin UI exports/imports from this format.
 
-version: '3.8'
-
 services:
   uptime-kuma:
     image: louislam/uptime-kuma:1
@@ -16,6 +14,17 @@ services:
       - ./data:/app/data
     ports:
       - '127.0.0.1:3001:3001'
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/api/status-page/heartbeat || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
     labels:
       - 'traefik.enable=true'
       - 'traefik.http.routers.uptime-kuma.rule=Host(`uptime.getmethodic.com`)'
@@ -26,5 +35,5 @@ services:
 
 networks:
   default:
+    name: ${CHRONICLE_NETWORK:-traefik}
     external: true
-    name: chronicle_default

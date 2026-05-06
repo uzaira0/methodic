@@ -20,19 +20,21 @@ jobs:
 
       - name: Install lefthook
         run: |
-          curl -sSL https://github.com/evilmartians/lefthook/releases/latest/download/lefthook_linux_x86_64 \
+          LEFTHOOK_VERSION=1.12.5
+          curl -sSL "https://github.com/evilmartians/lefthook/releases/download/v${LEFTHOOK_VERSION}/lefthook_${LEFTHOOK_VERSION}_linux_amd64" \
             -o /tmp/lefthook
           sudo install -m 0755 /tmp/lefthook /usr/local/bin/lefthook
 
       - name: Install gitleaks
         run: |
-          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz \
+          GITLEAKS_VERSION=8.21.2
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
             -o /tmp/gitleaks.tar.gz
           sudo tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
 
       - name: Install trivy
         run: |
-          sudo apt-get install -y wget gnupg lsb-release
+          sudo apt-get update && sudo apt-get install -y wget gnupg lsb-release
           wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | \
             sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
           echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | \
@@ -52,7 +54,7 @@ jobs:
         run: |
           base="${{ github.event.pull_request.base.sha }}"
           head="${{ github.event.pull_request.head.sha }}"
-          files=$(git diff --name-only "$base..$head" | tr '\n' ' ')
+          files=$(git diff --name-only "$base...$head" | tr '\n' ' ')
           if [ -n "$files" ]; then
             lefthook run pre-commit --files "$files"
           else

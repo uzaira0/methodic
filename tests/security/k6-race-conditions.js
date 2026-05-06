@@ -243,9 +243,9 @@ export function parallelDeletes() {
 // Scenario 4: Settings Race
 // ---------------------------------------------------------------------------
 // Two groups of VUs update study settings with different values simultaneously.
-// VUs 1-2 write "value_A", VUs 3-5 write "value_B". After the burst, the
-// final state should be consistent (one of the two values, not a corrupted
-// merge). No 500-level errors should occur.
+// Even-numbered VUs write "value_A", odd-numbered VUs write "value_B" (split
+// via __VU % 2). After the burst, the final state should be consistent (one of
+// the two values, not a corrupted merge). No 500-level errors should occur.
 // ---------------------------------------------------------------------------
 
 export function settingsRace() {

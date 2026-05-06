@@ -19,8 +19,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - uses: actions/checkout@v5
-
       - name: Probe production endpoints
         id: probe
         run: |
@@ -59,7 +57,16 @@ jobs:
           # Idempotent: don't open new issue if one is already open
           existing=$(gh issue list --repo "$REPO" --label canary --state open --json number --jq '.[0].number // empty')
           title="canary: production probe failed at $(date -u +%FT%TZ)"
-          body="Auto-detected by \`.github/workflows/canary-synthetic.yml\`.\n\n**Failed probes:**\n\n$REPORT\n\n[See workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          body=$(cat <<BODY_EOF
+          Auto-detected by \`.github/workflows/canary-synthetic.yml\`.
+
+          **Failed probes:**
+
+          $REPORT
+
+          [See workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          BODY_EOF
+          )
           if [ -z "$existing" ]; then
             gh label create canary --repo "$REPO" --color D93F0B --description "Production canary failure" 2>/dev/null || true
             gh issue create --repo "$REPO" --title "$title" --body "$body" --label canary

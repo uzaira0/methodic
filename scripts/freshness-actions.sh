@@ -21,9 +21,9 @@ while IFS= read -r pin; do
         ./.github/*) continue ;;
     esac
 
-    # Resolve latest release of <action>'s repo
+    # Resolve latest release of <action>'s repo (releases API is date-ordered)
     latest=$(gh api "repos/$action/releases/latest" --jq '.tag_name' 2>/dev/null \
-        || gh api "repos/$action/tags" --jq '.[0].name' 2>/dev/null \
+        || gh api "repos/$action/releases?per_page=1" --jq '.[0].tag_name' 2>/dev/null \
         || echo "unknown")
 
     if [ "$latest" = "unknown" ]; then
@@ -34,21 +34,32 @@ while IFS= read -r pin; do
     ref_strip="${ref#v}"
     latest_strip="${latest#v}"
 
-    # If pinned by SHA (40 chars), check if it's the latest tag's commit SHA
+    # If pinned by SHA (40 chars), dereference annotated tags to compare commit SHAs
     if [ ${#ref} -eq 40 ]; then
-        latest_sha=$(gh api "repos/$action/git/refs/tags/$latest" \
-            --jq '.object.sha' 2>/dev/null || echo "")
+        tag_obj=$(gh api "repos/$action/git/refs/tags/$latest" --jq '.object' 2>/dev/null || echo "")
+        latest_sha=$(echo "$tag_obj" | jq -r '.sha // empty' 2>/dev/null)
+        tag_type=$(echo "$tag_obj" | jq -r '.type // empty' 2>/dev/null)
+        # Dereference annotated tags to get the underlying commit SHA
+        if [ "$tag_type" = "tag" ] && [ -n "$latest_sha" ]; then
+            commit_sha=$(gh api "repos/$action/git/tags/$latest_sha" --jq '.object.sha' 2>/dev/null || echo "")
+            [ -n "$commit_sha" ] && latest_sha="$commit_sha"
+        fi
         if [ -n "$latest_sha" ] && [ "$latest_sha" != "$ref" ]; then
             stale+="- \`$action\`: pinned $ref (≠ latest $latest @ $latest_sha)"$'\n'
         fi
     else
         # Tag-pinned. Compare directly.
         if [ "$ref_strip" != "$latest_strip" ]; then
-            # Major-version pins (v4) match the latest minor (v4.2.1) — accept
-            major_ref=$(echo "$ref_strip" | cut -d. -f1)
-            major_latest=$(echo "$latest_strip" | cut -d. -f1)
-            if [ "$major_ref" != "$major_latest" ]; then
+            # Only accept major-version-only pins (no dots, e.g. "v4" matching "v4.2.1")
+            if echo "$ref_strip" | grep -q '\.'; then
+                # Fully qualified pin like v4.2.0 — any difference is drift
                 stale+="- \`$action\`: pinned $ref (≠ latest $latest)"$'\n'
+            else
+                # Major-only pin like v4 — accept if major matches
+                major_latest=$(echo "$latest_strip" | cut -d. -f1)
+                if [ "$ref_strip" != "$major_latest" ]; then
+                    stale+="- \`$action\`: pinned $ref (≠ latest $latest)"$'\n'
+                fi
             fi
         fi
     fi

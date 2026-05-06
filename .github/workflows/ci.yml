@@ -31,6 +31,7 @@ jobs:
     defaults:
       run:
         working-directory: chronicle-web
+        shell: bash
     steps:
       - name: Setup web environment
         uses: ./.github/actions/setup-web
@@ -86,10 +87,10 @@ jobs:
           fetch-depth: 0
           submodules: true
 
-      - name: Setup JDK 17
+      - name: Setup JDK 21
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
       - name: Validate Gradle wrapper
@@ -195,10 +196,10 @@ jobs:
       # Trivy fs scans are in container-structure-tests job (covers entire repo).
       # This job focuses on SBOM generation which needs Gradle.
 
-      - name: Setup JDK 17
+      - name: Setup JDK 21
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
       - name: Setup Gradle
@@ -281,10 +282,10 @@ jobs:
           submodules: true
 
       # ── Backend: Gradle dependency-license-report ──────────────────────
-      - name: Setup JDK 17
+      - name: Setup JDK 21
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
       - name: Setup Gradle
@@ -512,17 +513,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
           distribution: 'temurin'
-          java-version: '17'
-      - uses: gradle/actions/setup-gradle@v6
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
       - name: Run PIT against chronicle-server
         run: ./gradlew :chronicle-server:pitest -PpitMutationThreshold=50
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: pit-mutation-report
@@ -535,17 +536,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
           distribution: 'temurin'
-          java-version: '17'
-      - uses: gradle/actions/setup-gradle@v6
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
       - name: Run Jazzer fuzz tests
         run: ./gradlew :chronicle-server:test --tests "*FuzzTest" -Djazzer.maxRunsPerTarget=10000
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
           name: fuzz-test-corpus
@@ -557,14 +558,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
           distribution: 'temurin'
-          java-version: '17'
-      - uses: oven-sh/setup-bun@v2
+          java-version: '21'
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.10
       - name: Kotlin parity tests

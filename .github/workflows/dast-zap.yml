@@ -12,7 +12,7 @@ on:
       target:
         description: 'Target URL (default: locally booted backend)'
         required: false
-        default: 'http://localhost:8080'
+        default: 'http://localhost:40320'
 
 permissions:
   contents: read
@@ -30,7 +30,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - uses: gradle/actions/setup-gradle@v6
 
@@ -38,28 +38,29 @@ jobs:
         run: ./gradlew :chronicle-server:bootJar -x test
 
       - name: Boot Docker stack (postgres + backend)
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
-          # Reuse the api-contract.yml docker-up script if it exists; otherwise inline boot
-          docker compose --env-file docker/.env.example -f docker/docker-compose.traefik.yml up -d postgres backend
-          # Wait for backend healthz
+          docker compose --env-file docker/.env.example -f docker/docker-compose.traefik.yml up -d postgres chronicle-backend
+          healthy=false
           for i in {1..60}; do
-            if curl -sf http://localhost:8080/chronicle/v3/healthz >/dev/null 2>&1; then
+            if curl -sf http://localhost:40320/actuator/health >/dev/null 2>&1; then
               echo "Backend healthy"
+              healthy=true
               break
             fi
             echo "Waiting for backend... ($i/60)"
             sleep 5
           done
+          if [ "$healthy" != "true" ]; then
+            echo "::error::Backend never became healthy after 5 minutes"
+            exit 1
+          fi
 
       - name: Run ZAP baseline scan
         uses: zaproxy/action-baseline@v0.14.0
         with:
-          target: ${{ inputs.target || 'http://localhost:8080' }}
-          fail_action: false   # Report findings, don't fail build
+          target: ${{ inputs.target || 'http://localhost:40320' }}
+          fail_action: false
           allow_issue_writing: false
-          rules_file_name: '.zap/rules.tsv'
 
       - name: Upload ZAP report
         uses: actions/upload-artifact@v7

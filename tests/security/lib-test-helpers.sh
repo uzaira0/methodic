@@ -43,7 +43,7 @@ print_summary() {
 detect_base_url() {
     if [ -n "${BASE_URL:-}" ]; then echo "$BASE_URL"; return 0; fi
     local domain
-    domain=$(grep '^DOMAIN=' "$_PROJECT_ROOT/docker/.env" 2>/dev/null | cut -d= -f2)
+    domain=$(grep '^DOMAIN=' "$_PROJECT_ROOT/docker/.env" 2>/dev/null | cut -d= -f2-)
     if curl -sf --max-time 3 "http://localhost:40320/prometheus/" &>/dev/null; then
         echo "http://${domain:-localhost}"
     elif [ -n "$domain" ] && curl -sf --max-time 3 "http://${domain}/chronicle/v3/edm/entity/type" &>/dev/null; then
@@ -57,7 +57,7 @@ detect_base_url() {
 detect_auth_token() {
     if [ -n "${AUTH_TOKEN:-}" ]; then echo "$AUTH_TOKEN"; return 0; fi
     local jwt_secret
-    jwt_secret=$(grep '^JWT_SECRET=' "$_PROJECT_ROOT/docker/.env" 2>/dev/null | cut -d= -f2)
+    jwt_secret=$(grep '^JWT_SECRET=' "$_PROJECT_ROOT/docker/.env" 2>/dev/null | cut -d= -f2-)
     if [ -n "$jwt_secret" ] && [ -f "$_PROJECT_ROOT/docker/generate-jwt.sh" ]; then
         JWT_SECRET="$jwt_secret" bash "$_PROJECT_ROOT/docker/generate-jwt.sh" 2>/dev/null
     fi
@@ -65,7 +65,7 @@ detect_auth_token() {
 
 # Auto-detect POSTGRES_PASSWORD from .env
 detect_pg_password() {
-    grep '^POSTGRES_PASSWORD=' "$_PROJECT_ROOT/docker/.env" 2>/dev/null | cut -d= -f2
+    grep '^POSTGRES_PASSWORD=' "$_PROJECT_ROOT/docker/.env" 2>/dev/null | cut -d= -f2-
 }
 
 # Run SQL against chronicle database

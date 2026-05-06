@@ -25,15 +25,23 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - uses: gradle/actions/setup-gradle@v6
 
       - name: Run dependencyUpdates across all subprojects
         run: ./gradlew dependencyUpdates -Drevision=release
 
+      - name: Aggregate per-subproject reports
+        run: |
+          find . -path '*/build/dependencyUpdates/report.txt' -exec cat {} + \
+            > /tmp/freshness-jvm-report.txt || true
+          if [ ! -s /tmp/freshness-jvm-report.txt ]; then
+            echo "No dependency update reports found" > /tmp/freshness-jvm-report.txt
+          fi
+
       - name: Open or update freshness issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-        run: ./scripts/freshness-jvm.sh build/dependencyUpdates/report.txt
+        run: ./scripts/freshness-jvm.sh /tmp/freshness-jvm-report.txt

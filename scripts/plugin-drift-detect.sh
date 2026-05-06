@@ -20,8 +20,10 @@ done < <(grep -oE 'id\("[^"]+"\)\s+version\s+"[^"]+"' settings.gradle.kts \
 drift_lines=""
 while IFS= read -r build_file; do
     while IFS= read -r line; do
-        # Match: id 'X' version 'Y' or id "X" version "Y"
-        if [[ "$line" =~ id[[:space:]]*[\"\']([^\"\']+)[\"\'][[:space:]]+version[[:space:]]+[\"\']([^\"\']+)[\"\'] ]]; then
+        # Match Groovy: id 'X' version 'Y' / id "X" version "Y"
+        # Match Kotlin: id("X") version "Y"
+        if [[ "$line" =~ id[[:space:]]*\([\"\']([^\"\']+)[\"\']\)[[:space:]]+version[[:space:]]+[\"\']([^\"\']+)[\"\'] ]] ||
+           [[ "$line" =~ id[[:space:]]*[\"\']([^\"\']+)[\"\'][[:space:]]+version[[:space:]]+[\"\']([^\"\']+)[\"\'] ]]; then
             plugin="${BASH_REMATCH[1]}"
             actual="${BASH_REMATCH[2]}"
             expected="${canonical[$plugin]:-}"
@@ -30,7 +32,8 @@ while IFS= read -r build_file; do
             fi
         fi
     done < "$build_file"
-done < <(find . -name build.gradle -not -path "./.gradle/*" -not -path "./build/*" \
+done < <(find . \( -name build.gradle -o -name build.gradle.kts \) \
+        -not -path "./.gradle/*" -not -path "./build/*" \
         -not -path "./node_modules/*" -not -path "./chronicle-web/*" -not -path "./chronicle/*")
 
 if [ -z "$drift_lines" ]; then
