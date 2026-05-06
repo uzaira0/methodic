@@ -9,6 +9,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' }}
+
 permissions:
   contents: read
 
@@ -493,3 +497,69 @@ jobs:
         if: always()
         working-directory: docker
         run: docker compose -f docker-compose.traefik.yml down -v --remove-orphans
+
+  pit-mutation:
+    name: PIT mutation (Kotlin)
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/develop' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Run PIT against chronicle-server
+        run: ./gradlew :chronicle-server:pitest -PpitMutationThreshold=50
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: pit-mutation-report
+          path: chronicle-server/build/reports/pitest/
+          retention-days: 14
+
+  fuzz-tests:
+    name: Fuzz tests (Jazzer)
+    if: github.ref == 'refs/heads/develop' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Run Jazzer fuzz tests
+        run: ./gradlew :chronicle-server:test --tests "*FuzzTest" -Djazzer.maxRunsPerTarget=10000
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: fuzz-test-corpus
+          path: chronicle-server/.cifuzz-corpus/
+          retention-days: 30
+
+  parity-tests:
+    name: Cross-implementation parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+      - name: Kotlin parity tests
+        run: ./gradlew :chronicle-server:test --tests "*ParityTest"
+      - name: TypeScript parity tests
+        run: cd chronicle-web && bun install --frozen-lockfile && bun test src/modern/test/parity.test.ts

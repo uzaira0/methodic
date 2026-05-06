@@ -3,6 +3,11 @@ name: API Contract Testing
 on:
   push:
     branches: [develop]
+  pull_request:
+    paths:
+      - 'chronicle-api/chronicle.yaml'
+      - 'chronicle-server/**'
+      - 'tests/api-contract/**'
   workflow_dispatch:
 
 permissions:

@@ -1,0 +1,36 @@
+name: actionlint
+
+# Lints workflow YAML for syntax errors, invalid action versions, and shellcheck-able
+# bugs in `run:` blocks. The pr-hygiene `--no-index` bug from session 2026-05-05
+# would have been caught here at PR time instead of post-merge.
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - '.github/actionlint.yaml'
+  push:
+    branches: [develop, main]
+    paths:
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install actionlint
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          sudo install -m 0755 ./actionlint /usr/local/bin/actionlint
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Run actionlint with shellcheck integration
+        run: actionlint -color

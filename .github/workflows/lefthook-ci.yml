@@ -1,0 +1,60 @@
+name: lefthook-ci
+
+# Mirrors the local lefthook pre-commit checks (gitleaks, biome, trivy-secrets) in CI
+# so that developers running with HUSKY=0 / --no-verify cannot bypass the gates.
+# Runs the same `lefthook run pre-commit` command against the PR diff range.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lefthook:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install lefthook
+        run: |
+          curl -sSL https://github.com/evilmartians/lefthook/releases/latest/download/lefthook_linux_x86_64 \
+            -o /tmp/lefthook
+          sudo install -m 0755 /tmp/lefthook /usr/local/bin/lefthook
+
+      - name: Install gitleaks
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz \
+            -o /tmp/gitleaks.tar.gz
+          sudo tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
+
+      - name: Install trivy
+        run: |
+          sudo apt-get install -y wget gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | \
+            sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | \
+            sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update && sudo apt-get install -y trivy
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
+      - name: Install chronicle-web deps for biome
+        run: cd chronicle-web && bun install --frozen-lockfile
+
+      - name: Run lefthook pre-commit on PR diff
+        env:
+          LEFTHOOK_QUIET: meta,success
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          files=$(git diff --name-only "$base..$head" | tr '\n' ' ')
+          if [ -n "$files" ]; then
+            lefthook run pre-commit --files "$files"
+          else
+            echo "No files changed in PR diff."
+          fi
