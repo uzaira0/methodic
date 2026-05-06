@@ -1,0 +1,75 @@
+name: canary-synthetic
+
+# 5-minute synthetic probe of production endpoints. Opens a 'canary' issue
+# on failure (auto-deduped — won't open multiple per outage). Pair with
+# external monitoring (Uptime Kuma config in monitoring/uptime-kuma/) for
+# the full picture; this workflow is the GitHub-native fallback.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # every 5 minutes
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Probe production endpoints
+        id: probe
+        run: |
+          set +e
+          fail=0
+          report=""
+          for url in \
+            'https://app.getmethodic.com/healthz' \
+            'https://api.getmethodic.com/chronicle/v3/healthz' \
+            'https://app.getmethodic.com/chronicle/'
+          do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$url" 2>/dev/null || echo "000")
+            if [ "$code" != "200" ] && [ "$code" != "204" ] && [ "$code" != "401" ]; then
+              report+="- \`$url\` returned HTTP \`$code\`"$'\n'
+              fail=1
+            fi
+          done
+          if [ "$fail" = "1" ]; then
+            echo "ALERT: probe failed"
+            {
+              echo "report<<REPORT_EOF"
+              echo "$report"
+              echo "REPORT_EOF"
+            } >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "All probes OK."
+
+      - name: Open canary issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          REPORT: ${{ steps.probe.outputs.report }}
+        run: |
+          # Idempotent: don't open new issue if one is already open
+          existing=$(gh issue list --repo "$REPO" --label canary --state open --json number --jq '.[0].number // empty')
+          title="canary: production probe failed at $(date -u +%FT%TZ)"
+          body=$(cat <<BODY_EOF
+          Auto-detected by \`.github/workflows/canary-synthetic.yml\`.
+
+          **Failed probes:**
+
+          $REPORT
+
+          [See workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          BODY_EOF
+          )
+          if [ -z "$existing" ]; then
+            gh label create canary --repo "$REPO" --color D93F0B --description "Production canary failure" 2>/dev/null || true
+            gh issue create --repo "$REPO" --title "$title" --body "$body" --label canary
+          else
+            gh issue comment "$existing" --repo "$REPO" --body "Repeated failure at $(date -u +%FT%TZ): $REPORT"
+          fi

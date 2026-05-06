@@ -1,0 +1,73 @@
+name: _trivy-scan
+
+# Reusable Trivy scan workflow. Replaces 3 inline Trivy invocations across
+# ci.yml, security-scan.yml, and analysis.yml — saves ~6 minutes per PR by
+# scanning each target once with consistent severity thresholds and SARIF
+# upload categories.
+
+on:
+  workflow_call:
+    inputs:
+      scan-type:
+        type: string
+        required: true
+        description: "Trivy scan type: 'fs', 'image', or 'config'"
+      target:
+        type: string
+        required: true
+        description: "Path or image ref to scan"
+      severity:
+        type: string
+        default: 'CRITICAL,HIGH'
+      category:
+        type: string
+        required: true
+        description: "SARIF category, e.g. 'trivy-image-backend' or 'trivy-fs-root'"
+      ignore-unfixed:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Trivy image scan
+        if: inputs.scan-type == 'image'
+        uses: aquasecurity/trivy-action@76071ef0d7ec797419534a183b498b4d6366cf37 # 0.31.0
+        with:
+          scan-type: image
+          image-ref: ${{ inputs.target }}
+          severity: ${{ inputs.severity }}
+          ignore-unfixed: ${{ inputs.ignore-unfixed }}
+          format: sarif
+          output: trivy-${{ inputs.category }}.sarif
+
+      - name: Trivy ${{ inputs.scan-type }} scan
+        if: inputs.scan-type != 'image'
+        uses: aquasecurity/trivy-action@76071ef0d7ec797419534a183b498b4d6366cf37 # 0.31.0
+        with:
+          scan-type: ${{ inputs.scan-type }}
+          scan-ref: ${{ inputs.target }}
+          severity: ${{ inputs.severity }}
+          ignore-unfixed: ${{ inputs.ignore-unfixed }}
+          format: sarif
+          output: trivy-${{ inputs.category }}.sarif
+
+      - uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
+        if: always()
+        with:
+          sarif_file: trivy-${{ inputs.category }}.sarif
+          category: ${{ inputs.category }}
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: trivy-${{ inputs.category }}
+          path: trivy-${{ inputs.category }}.sarif
+          retention-days: 30

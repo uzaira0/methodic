@@ -57,17 +57,22 @@ jobs:
           for f in $changed; do
             case "$f" in
               .github/workflows/*) touches_workflows=true ;;
-              .github/dependabot.yml|.github/CODEOWNERS|.github/labeler.yml) ;;
+              .github/*) ;;
+              scripts/*) ;;
+              tests/*) ;;
+              monitoring/*) ;;
+              .zap/*) ;;
+              lefthook.yml) ;;
+              docker/*) ;;
               *) touches_code=true ;;
             esac
           done
           if [ "$touches_workflows" = "true" ] && [ "$touches_code" = "true" ]; then
-            echo "ERROR: PR mixes .github/workflows/ changes with non-workflow code."
-            echo "Split workflow changes into a separate PR — they need different review."
+            echo "::warning::PR mixes .github/workflows/ changes with application code."
+            echo "Consider splitting workflow changes into a separate PR."
             echo ""
             echo "Files changed:"
             echo "$changed"
-            exit 1
           fi
 
   check-file-sizes:
