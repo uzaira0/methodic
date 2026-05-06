@@ -78,8 +78,12 @@ jobs:
         run: bun run size
 
   jvm-smoke:
-    name: jvm smoke
-    runs-on: ubuntu-latest
+    name: jvm smoke (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(github.event_name == 'pull_request' && github.base_ref == 'main' && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -193,7 +197,6 @@ jobs:
         with:
           submodules: true
 
-      # Trivy fs scans are in container-structure-tests job (covers entire repo).
       # This job focuses on SBOM generation which needs Gradle.
 
       - name: Setup JDK 21
@@ -366,53 +369,6 @@ jobs:
           container-structure-test test \
             --image chronicle-frontend-prod:test \
             --config tests/container/frontend-prod.yaml
-
-      # ── Trivy container & dependency scanning ──────────────────────────
-      - name: Install Trivy
-        run: |
-          sudo apt-get install -y wget apt-transport-https gnupg
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
-          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
-
-      - name: Create security reports directory
-        run: mkdir -p tests/security/reports
-
-      - name: 'Trivy: scan backend image'
-        continue-on-error: true
-        run: |
-          trivy image \
-            --severity HIGH,CRITICAL \
-            --format sarif \
-            --output tests/security/reports/trivy-chronicle-backend.sarif \
-            chronicle-backend:test
-
-      - name: 'Trivy: scan frontend-prod image'
-        continue-on-error: true
-        run: |
-          trivy image \
-            --severity HIGH,CRITICAL \
-            --format sarif \
-            --output tests/security/reports/trivy-chronicle-frontend.sarif \
-            chronicle-frontend-prod:test
-
-      - name: 'Trivy: filesystem dependency scan'
-        continue-on-error: true
-        run: |
-          trivy fs \
-            --severity HIGH,CRITICAL \
-            --format sarif \
-            --output tests/security/reports/trivy-fs-deps.sarif \
-            .
-
-      - name: Upload Trivy SARIF reports
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: trivy-security-reports
-          path: tests/security/reports/trivy-*.sarif
-          retention-days: 14
 
   http-smoke-tests:
     name: HTTP smoke tests

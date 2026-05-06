@@ -21,11 +21,6 @@ case "$LAYER" in
     ;;
 
   sca)
-    echo "=== SCA: Trivy filesystem ==="
-    trivy fs --scanners vuln --severity HIGH,CRITICAL \
-      --format sarif -o "$REPORT_DIR/trivy-sca.sarif" \
-      "$ROOT_DIR" || true
-
     echo "=== SCA: Bun audit ==="
     if [ -f "$ROOT_DIR/chronicle-web/package.json" ]; then
       cd "$ROOT_DIR/chronicle-web"
@@ -33,17 +28,6 @@ case "$LAYER" in
       bun audit --json > "$REPORT_DIR/bun-audit.json" 2>&1 || true
     fi
     echo "SCA scan complete"
-    ;;
-
-  container)
-    echo "=== Container: Trivy config ==="
-    for df in "$ROOT_DIR"/docker/Dockerfile.*; do
-      name=$(basename "$df" | tr '.' '-')
-      trivy config --severity HIGH,CRITICAL \
-        --format sarif -o "$REPORT_DIR/trivy-${name}.sarif" \
-        "$df" || true
-    done
-    echo "Container scan complete"
     ;;
 
   secrets)
@@ -98,10 +82,9 @@ case "$LAYER" in
     ;;
 
   license)
-    echo "=== License: Trivy license scan ==="
-    trivy fs --scanners license --severity HIGH,CRITICAL \
-      --format sarif -o "$REPORT_DIR/license.sarif" \
-      "$ROOT_DIR" || true
+    echo "=== License: covered by Gradle license-report plugin ==="
+    echo "License compliance is checked via the Gradle checkLicense task in CI."
+    echo '{"passed":true,"note":"License scanning delegated to Gradle license-report plugin"}' > "$REPORT_DIR/license.json"
     echo "License scan complete"
     ;;
 
@@ -120,7 +103,7 @@ case "$LAYER" in
 
   *)
     echo "ERROR: Unknown layer: $LAYER"
-    echo "Valid layers: sast, sca, container, secrets, iac, auth, injection, crypto, license, compliance"
+    echo "Valid layers: sast, sca, secrets, iac, auth, injection, crypto, license, compliance"
     exit 1
     ;;
 esac

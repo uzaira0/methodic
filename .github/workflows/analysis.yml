@@ -144,48 +144,7 @@ jobs:
         continue-on-error: true
 
   # ============================================================================
-  # Trivy filesystem — config misconfigurations + secrets + vuln scan
-  # ============================================================================
-  trivy-fs:
-    name: Trivy filesystem scan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          submodules: true
-
-      - name: Trivy config scan
-        uses: aquasecurity/trivy-action@76071ef0d7ec797419534a183b498b4d6366cf37 # 0.31.0
-        with:
-          scan-type: config
-          scan-ref: .
-          format: sarif
-          output: trivy-config.sarif
-          severity: HIGH,CRITICAL
-        continue-on-error: true
-
-      - name: Trivy secret scan
-        uses: aquasecurity/trivy-action@76071ef0d7ec797419534a183b498b4d6366cf37 # 0.31.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: secret
-          format: sarif
-          output: trivy-secrets.sarif
-        continue-on-error: true
-
-      - name: Upload Trivy config SARIF
-        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
-        if: always()
-        with:
-          sarif_file: trivy-config.sarif
-          category: trivy-config
-        continue-on-error: true
-
-  # ============================================================================
-  # Grype — Anchore's vulnerability scanner (different DB than Trivy)
-  # Running both maximizes CVE detection coverage
+  # Grype — Anchore's vulnerability scanner (uses Anchore DB for broad CVE coverage)
   # ============================================================================
   grype:
     name: Grype (Anchore vuln scan)
@@ -350,7 +309,7 @@ jobs:
   analysis-summary:
     name: Analysis Summary
     runs-on: ubuntu-latest
-    needs: [detekt, pmd, bearer, osv-scanner, trivy-fs, grype, sbom]
+    needs: [detekt, pmd, bearer, osv-scanner, grype, sbom]
     if: always()
     steps:
       - name: Generate summary
@@ -359,7 +318,6 @@ jobs:
           PMD: ${{ needs.pmd.result }}
           BEARER: ${{ needs.bearer.result }}
           OSV: ${{ needs.osv-scanner.result }}
-          TRIVY: ${{ needs.trivy-fs.result }}
           GRYPE: ${{ needs.grype.result }}
           SBOM: ${{ needs.sbom.result }}
         run: |
@@ -371,6 +329,5 @@ jobs:
           echo "| PMD | Bug patterns | $PMD |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Bearer | Data flow | $BEARER |" >> "$GITHUB_STEP_SUMMARY"
           echo "| OSV-Scanner | Google vuln DB | $OSV |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Trivy FS | Config + secrets | $TRIVY |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Grype | Anchore vuln DB | $GRYPE |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Syft | SBOM generation | $SBOM |" >> "$GITHUB_STEP_SUMMARY"

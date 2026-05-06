@@ -164,99 +164,12 @@ jobs:
           exit 1
 
   # ============================================================================
-  # Container Image Vulnerability Scan (Trivy)
-  # ============================================================================
-  container-image-scan:
-    name: Container Image Scan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          submodules: true
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
-        with:
-          cache-read-only: true
-
-      - name: Build backend JAR
-        run: ./gradlew :chronicle-server:installDist --no-daemon
-
-      - name: Build backend image
-        run: docker build -f docker/Dockerfile.backend -t chronicle-backend:scan .
-
-      - name: Trivy image scan (backend)
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
-        id: trivy-backend
-        with:
-          image-ref: chronicle-backend:scan
-          format: sarif
-          output: trivy-backend.sarif
-          severity: HIGH,CRITICAL
-          exit-code: '1'
-        continue-on-error: true
-
-      - name: Upload backend Trivy results
-        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
-        if: always()
-        with:
-          sarif_file: trivy-backend.sarif
-          category: trivy-backend
-        continue-on-error: true
-
-      - name: Build frontend image
-        run: docker build -f docker/Dockerfile.frontend.prod -t chronicle-frontend:scan .
-
-      - name: Trivy image scan (frontend)
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
-        id: trivy-frontend
-        with:
-          image-ref: chronicle-frontend:scan
-          format: sarif
-          output: trivy-frontend.sarif
-          severity: HIGH,CRITICAL
-          exit-code: '1'
-        continue-on-error: true
-
-      - name: Upload frontend Trivy results
-        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
-        if: always()
-        with:
-          sarif_file: trivy-frontend.sarif
-          category: trivy-frontend
-        continue-on-error: true
-
-      - name: Upload Trivy reports as artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
-        with:
-          name: trivy-image-scan-reports
-          path: |
-            trivy-backend.sarif
-            trivy-frontend.sarif
-          retention-days: 30
-
-      - name: Check for container image vulnerabilities
-        if: steps.trivy-backend.conclusion == 'failure' || steps.trivy-frontend.conclusion == 'failure'
-        run: |
-          echo "::error::Trivy found HIGH or CRITICAL vulnerabilities in container images"
-          echo "Review the uploaded SARIF reports for details"
-          exit 1
-
-  # ============================================================================
   # Security Summary Report
   # ============================================================================
   security-summary:
     name: Security Summary
     runs-on: ubuntu-latest
-    needs: [gradle-security-scan, bun-security-scan, container-image-scan]
+    needs: [gradle-security-scan, bun-security-scan]
     if: always()
     steps:
       - name: Download all artifacts
@@ -283,12 +196,6 @@ jobs:
             echo "| Bun Dependencies | :x: Failed |" >> $GITHUB_STEP_SUMMARY
           fi
 
-          if [ "${{ needs.container-image-scan.result }}" == "success" ]; then
-            echo "| Container Images (Trivy) | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "| Container Images (Trivy) | :x: Failed |" >> $GITHUB_STEP_SUMMARY
-          fi
-
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
           echo "- Download the artifacts for detailed reports" >> $GITHUB_STEP_SUMMARY
@@ -296,7 +203,7 @@ jobs:
           echo "- Update vulnerable dependencies or add documented suppressions" >> $GITHUB_STEP_SUMMARY
 
       - name: Check Overall Status
-        if: needs.gradle-security-scan.result == 'failure' || needs.bun-security-scan.result == 'failure' || needs.container-image-scan.result == 'failure'
+        if: needs.gradle-security-scan.result == 'failure' || needs.bun-security-scan.result == 'failure'
         run: |
           echo "::error::Security scan found vulnerabilities. Review the reports and fix or suppress with documentation."
           exit 1

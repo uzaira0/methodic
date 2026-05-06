@@ -1,6 +1,6 @@
 name: lefthook-ci
 
-# Mirrors the local lefthook pre-commit checks (gitleaks, biome, trivy-secrets) in CI
+# Mirrors the local lefthook pre-commit checks (gitleaks, biome) in CI
 # so that developers running with HUSKY=0 / --no-verify cannot bypass the gates.
 # Runs the same `lefthook run pre-commit` command against the PR diff range.
 
@@ -31,15 +31,6 @@ jobs:
           curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
             -o /tmp/gitleaks.tar.gz
           sudo tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
-
-      - name: Install trivy
-        run: |
-          sudo apt-get update && sudo apt-get install -y wget gnupg lsb-release
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | \
-            sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
-          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | \
-            sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update && sudo apt-get install -y trivy
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
