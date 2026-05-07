@@ -18,10 +18,18 @@ fi
 
 threshold="${JMH_REGRESSION_THRESHOLD:-0.90}"
 
+has_real_baselines=$(jq '[.[].primaryMetric.score | select(. > 0)] | length > 0' "$baselines")
+if [ "$has_real_baselines" != "true" ]; then
+    echo "Baselines contain only placeholder zeros — skipping regression check."
+    echo "Run ./gradlew :chronicle-server:jmh and commit real results to $baselines"
+    exit 0
+fi
+
 regressions=$(jq -r --slurpfile base "$baselines" --argjson thresh "$threshold" '
     [.[] as $cur |
      ($base[0][] | select(.benchmark == $cur.benchmark)) as $old |
      select($old != null) |
+     select($old.primaryMetric.score > 0) |
      select(($cur.primaryMetric.score / $old.primaryMetric.score) < $thresh) |
      "\($cur.benchmark): \($old.primaryMetric.score | round) → \($cur.primaryMetric.score | round) ops/s (\((($cur.primaryMetric.score / $old.primaryMetric.score - 1) * 100) | round)%)"
     ] | .[]
