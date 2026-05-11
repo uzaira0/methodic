@@ -5,7 +5,7 @@
     {
       "name": "Chronicle Web (frontend)",
       "type": "http",
-      "url": "https://app.getmethodic.com/chronicle/",
+      "url": "https://chronicle-screentime-app.research.bcm.edu/chronicle/",
       "interval": 60,
       "retryInterval": 60,
       "maxretries": 3,
@@ -18,7 +18,7 @@
     {
       "name": "Chronicle API healthz",
       "type": "http",
-      "url": "https://api.getmethodic.com/chronicle/v3/healthz",
+      "url": "https://chronicle-screentime-app.research.bcm.edu/chronicle/v3/healthz",
       "interval": 60,
       "retryInterval": 60,
       "maxretries": 3,
@@ -29,7 +29,7 @@
     {
       "name": "Chronicle API /studies (auth-required keyword)",
       "type": "keyword",
-      "url": "https://api.getmethodic.com/chronicle/v3/studies",
+      "url": "https://chronicle-screentime-app.research.bcm.edu/chronicle/v3/studies",
       "keyword": "401",
       "interval": 300,
       "method": "GET",

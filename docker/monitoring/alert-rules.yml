@@ -390,3 +390,67 @@ groups:
           description: >-
             The CrowdSec Traefik bouncer has not reported metrics for 5+
             minutes. WAF protection may be disabled.
+
+  # ==========================================================================
+  # API Key Security Monitoring
+  # ==========================================================================
+  - name: chronicle-apikey-security
+    rules:
+      # API key usage spike — 10x the hourly baseline in the last 5 minutes
+      - alert: ApiKeyUsageSpike
+        expr: rate(chronicle_api_key_usage_total[5m]) > 10 * rate(chronicle_api_key_usage_total[1h] offset 1h)
+        for: 5m
+        labels:
+          severity: warning
+          component: security
+          compliance: hipaa
+        annotations:
+          summary: "API key usage spike detected"
+          description: >-
+            API key {{ $labels.key_prefix }} usage rate is 10x higher than
+            its hourly baseline. This may indicate credential compromise or
+            automated abuse.
+
+      # Honey token triggered — any use indicates unauthorized access
+      - alert: HoneyTokenTriggered
+        expr: chronicle_honey_token_triggered_total > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: security
+          compliance: hipaa
+        annotations:
+          summary: "HONEY TOKEN USED — potential unauthorized access"
+          description: >-
+            A canary API key was used. This indicates credential theft or
+            unauthorized API exploration. Investigate immediately.
+          runbook: "Check audit_logs for the source IP. Rotate all API keys for affected studies."
+
+      # CrowdSec AppSec unreachable
+      - alert: CrowdSecAppsecUnreachable
+        expr: up{job="crowdsec-appsec"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: waf
+        annotations:
+          summary: "CrowdSec AppSec is unreachable"
+          description: >-
+            WAF body inspection is down. Requests are passing without
+            inspection. This may leave the application vulnerable to
+            injection attacks.
+
+      # API key used from multiple new IPs in 24 hours
+      - alert: ApiKeyUsedFromNewIP
+        expr: changes(chronicle_api_key_source_ip_hash[24h]) > 3
+        for: 0m
+        labels:
+          severity: warning
+          component: security
+          compliance: hipaa
+        annotations:
+          summary: "API key used from multiple new IPs"
+          description: >-
+            API key {{ $labels.key_prefix }} has been used from 3+ new
+            source IPs in 24h. This may indicate credential sharing or
+            compromise.

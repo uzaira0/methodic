@@ -26,9 +26,9 @@ jobs:
           fail=0
           report=""
           for url in \
-            'https://app.getmethodic.com/healthz' \
-            'https://api.getmethodic.com/chronicle/v3/healthz' \
-            'https://app.getmethodic.com/chronicle/'
+            'https://chronicle-screentime-app.research.bcm.edu/healthz' \
+            'https://chronicle-screentime-app.research.bcm.edu/chronicle/v3/healthz' \
+            'https://chronicle-screentime-app.research.bcm.edu/chronicle/'
           do
             code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$url" 2>/dev/null || echo "000")
             if [ "$code" != "200" ] && [ "$code" != "204" ] && [ "$code" != "401" ]; then

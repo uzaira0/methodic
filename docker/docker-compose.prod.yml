@@ -80,6 +80,16 @@ services:
       # Path to CA certificate for server certificate verification
       POSTGRES_SSL_ROOT_CERT: /app/ssl/ca.crt
       JWT_SECRET: ${JWT_SECRET}
+      # JWT algorithm and key configuration (RS256 opt-in, HS256 default)
+      CHRONICLE_SECURITY_JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      CHRONICLE_SECURITY_JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH:-}
+      CHRONICLE_SECURITY_JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH:-}
+      CHRONICLE_SECURITY_JWT_KEY_ID: ${JWT_KEY_ID:-}
+      # MFA enforcement via amr claim (default: disabled)
+      CHRONICLE_SECURITY_REQUIRE_MFA: ${REQUIRE_MFA:-false}
+      # Token expiry configuration
+      CHRONICLE_SECURITY_JWT_ACCESS_TOKEN_EXPIRY_MINUTES: ${ACCESS_TOKEN_EXPIRY_MINUTES:-15}
+      CHRONICLE_SECURITY_JWT_REFRESH_TOKEN_EXPIRY_DAYS: ${REFRESH_TOKEN_EXPIRY_DAYS:-7}
       CORS_ORIGINS: ${CORS_ORIGINS:-"https://${DOMAIN}"}
       # Audit log directory for HIPAA compliance
       # Logs are written in JSON format for SIEM integration

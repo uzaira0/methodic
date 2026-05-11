@@ -1,0 +1,162 @@
+http:
+  middlewares:
+    local-only:
+      ipAllowList:
+        sourceRange:
+          - 127.0.0.1/32
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+
+    wasm-ss-strip:
+      stripPrefix:
+        prefixes: ["/wasm-ss"]
+    sleepscoring-api-strip:
+      stripPrefix:
+        prefixes: ["/sleep-scoring"]
+    sleepscoring-fe-strip:
+      stripPrefix:
+        prefixes: ["/sleep-scoring"]
+    flash-fe-strip:
+      stripPrefix:
+        prefixes: ["/flash"]
+    flash-api-strip:
+      stripPrefix:
+        prefixes: ["/flash"]
+    flash-ws-strip:
+      stripPrefix:
+        prefixes: ["/flash"]
+    temporal-strip:
+      stripPrefix:
+        prefixes: ["/temporal"]
+    minio-strip:
+      stripPrefix:
+        prefixes: ["/minio"]
+    chronicle-fe-strip:
+      stripPrefix:
+        prefixes: ["/chronicle"]
+    chronicle-root-redirect:
+      redirectRegex:
+        regex: "^https?://[^/]+/?$"
+        replacement: "/chronicle"
+        permanent: false
+
+  routers:
+    wasm-ss-local:
+      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/wasm-ss`)"
+      entryPoints: [web]
+      middlewares: [local-only, wasm-ss-strip]
+      service: wasm-ss-svc
+      priority: 100
+
+    sleepscoring-api-local:
+      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/sleep-scoring/api`)"
+      entryPoints: [web]
+      middlewares: [local-only, sleepscoring-api-strip]
+      service: sleepscoring-api-svc
+      priority: 100
+
+    sleepscoring-fe-local:
+      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/sleep-scoring`)"
+      entryPoints: [web]
+      middlewares: [local-only, sleepscoring-fe-strip]
+      service: sleepscoring-fe-svc
+      priority: 99
+
+    flash-ws-local:
+      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/flash/ws`)"
+      entryPoints: [web]
+      middlewares: [local-only, flash-ws-strip]
+      service: flash-ws-svc
+      priority: 102
+
+    flash-api-local:
+      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/flash/api`)"
+      entryPoints: [web]
+      middlewares: [local-only, flash-api-strip]
+      service: flash-api-svc
+      priority: 101
+
+    flash-fe-local:
+      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/flash`)"
+      entryPoints: [web]
+      middlewares: [local-only, flash-fe-strip]
+      service: flash-fe-svc
+      priority: 99
+
+    temporal-local:
+      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/temporal`)"
+      entryPoints: [web]
+      middlewares: [local-only, temporal-strip]
+      service: temporal-svc
+      priority: 100
+
+    minio-local:
+      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/minio`)"
+      entryPoints: [web]
+      middlewares: [local-only, minio-strip]
+      service: minio-svc
+      priority: 100
+
+    grafana-local:
+      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/grafana`)"
+      entryPoints: [web]
+      middlewares: [local-only]
+      service: grafana-svc
+      priority: 100
+
+    chronicle-frontend-local:
+      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/chronicle`)"
+      entryPoints: [web]
+      middlewares: [local-only, chronicle-fe-strip]
+      service: chronicle-fe-svc
+      priority: 1
+
+    chronicle-root-local:
+      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && Path(`/`)"
+      entryPoints: [web]
+      middlewares: [local-only, chronicle-root-redirect]
+      service: chronicle-fe-svc
+      priority: 5
+
+  services:
+    chronicle-fe-svc:
+      loadBalancer:
+        servers:
+          - url: "http://chronicle-frontend:8080"
+    grafana-svc:
+      loadBalancer:
+        servers:
+          - url: "http://chronicle-grafana:3000"
+    wasm-ss-svc:
+      loadBalancer:
+        servers:
+          - url: "http://sleep-scoring-frontend-wasm:8080"
+    sleepscoring-api-svc:
+      loadBalancer:
+        servers:
+          - url: "http://sleep-scoring-backend:8000"
+    sleepscoring-fe-svc:
+      loadBalancer:
+        servers:
+          - url: "http://sleep-scoring-frontend:8080"
+    flash-fe-svc:
+      loadBalancer:
+        servers:
+          - url: "http://flash-processing-frontend:80"
+    flash-api-svc:
+      loadBalancer:
+        servers:
+          - url: "http://flash-processing-backend:8001"
+    flash-ws-svc:
+      loadBalancer:
+        servers:
+          - url: "http://flash-processing-backend:8001"
+    temporal-svc:
+      loadBalancer:
+        servers:
+          - url: "http://sleep-scoring-temporal-ui:8080"
+    minio-svc:
+      loadBalancer:
+        servers:
+          - url: "http://sleep-scoring-minio:9001"

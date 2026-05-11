@@ -7,6 +7,7 @@ providers:
     watch: true
     network: traefik-apps
     endpoint: tcp://docker-socket-proxy:2375
+    constraints: "Label(`com.docker.compose.project`, `chronicle`)"
   file:
     directory: /etc/traefik/dynamic
     watch: true
@@ -14,22 +15,21 @@ providers:
 entryPoints:
   web:
     address: :80
-    http:
-      redirections:
-        entryPoint:
-          to: websecure
-          scheme: https
-  websecure:
-    address: :443
-    http3:
-      advertisedPort: 443
-
-# TLS hardening — enforce TLS 1.2+ and prefer server cipher suites
-tls:
-  options:
-    default:
-      minVersion: VersionTLS12
-      sniStrict: true
+    transport:
+      respondingTimeouts:
+        readTimeout: 60s
+        writeTimeout: 60s
+        idleTimeout: 360s
+    # F5 VIP (chronicle-screentime-app.research.bcm.edu) terminates client
+    # TLS and re-encrypts (server SSL profile) to this entrypoint.
+    # Traefik accepts TLS on :80 to match the F5 backend configuration.
+    # Trust X-Forwarded-* from RFC1918 sources so rate-limiting keys on
+    # the real client IP and Spring trusts X-Forwarded-Proto.
+    forwardedHeaders:
+      trustedIPs:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
 
 api:
   dashboard: false
@@ -39,6 +39,7 @@ ping: {}
 # Access logging for CrowdSec + Fail2ban
 accessLog:
   filePath: /var/log/traefik/access.log
+  format: json
   bufferingSize: 100
 
 # CrowdSec bouncer plugin for WAF + IP reputation

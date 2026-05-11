@@ -404,7 +404,6 @@ jobs:
         run: |
           cat > .env <<'ENVEOF'
           DOMAIN=localhost
-          EXT_DOMAIN=localhost
           TRAEFIK_NETWORK=traefik
           TRAEFIK_ENTRYPOINT=web
           POSTGRES_USER=chronicle

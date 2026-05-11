@@ -30,8 +30,7 @@ pre-commit:
 
     hadolint:
       glob: "docker/Dockerfile*"
-      run: hadolint {staged_files}
-      tags: optional
+      run: hadolint --failure-threshold error {staged_files}
 
     typecheck:
       root: "chronicle-web/"
@@ -42,7 +41,6 @@ pre-commit:
     detekt:
       glob: "**/*.kt"
       run: detekt-cli --input {staged_files} --config detekt.yml --build-upon-default-config
-      tags: optional
 
 pre-push:
   parallel: true
