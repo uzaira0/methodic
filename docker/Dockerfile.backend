@@ -1,5 +1,5 @@
 # Backend build stage
-FROM eclipse-temurin:25-jdk@sha256:bee2e23ab444ed60daf8123e36478bc4a286ba7835bec6f9daf9eba1d50a86a2 AS builder
+FROM eclipse-temurin:25-jdk@sha256:e23592541431eaeef5c13c84c21db71f97cdca0e70181ea6222ec9bccac24f6c AS builder
 
 WORKDIR /app
 
@@ -59,7 +59,7 @@ RUN find /app/chronicle-server/build/install/chronicle-server/lib -name '*-test*
 
 # --- JLink stage: build a minimal custom JRE with only required modules ---
 # This cuts ~81MB compared to the full Alpine JRE (135MB -> 54MB)
-FROM eclipse-temurin:25-jdk-alpine@sha256:da683f4f02f9427597d8fa162b73b8222fe08596dcebaf23e4399576ff8b037e AS jlinker
+FROM eclipse-temurin:25-jdk-alpine@sha256:30d9f87d702c2c1c601ed0d31e0c88ea1ea474ee7676cda7b7a59e759181c4dd AS jlinker
 
 # Create custom JRE with modules needed by Spring/Jetty/Hazelcast/JDBC stack
 # java.base: core classes; java.desktop: AWT (Hazelcast partition); java.logging: JUL
