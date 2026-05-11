@@ -56,7 +56,7 @@ jobs:
           fi
 
       - name: Run ZAP baseline scan
-        uses: zaproxy/action-baseline@2b5fc7f98d837319798ab7f128ea50b7d40563b6 # v0.14.0
+        uses: zaproxy/action-baseline@7c4deb10e6261301961c86d65d54a516394f9aed # v0.14.0
         with:
           target: ${{ inputs.target || 'http://localhost:40320' }}
           fail_action: false
