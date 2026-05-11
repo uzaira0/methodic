@@ -5,7 +5,8 @@ providers:
   docker:
     exposedByDefault: false
     watch: true
-    network: traefik-apps
+    # No default network — each container picks via traefik.docker.network label
+    # (backend uses chronicle-backend-bridge, frontend uses traefik-apps)
     endpoint: tcp://docker-socket-proxy:2375
     constraints: "Label(`com.docker.compose.project`, `chronicle`)"
   file:

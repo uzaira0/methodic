@@ -1,8 +1,10 @@
-type: postoverflows
-name: chronicle/geo-restrict
-description: Flag connections from outside allowed regions
-filter: "evt.Meta.source_ip != ''"
-blackhole: 5m
-scope:
-  type: Country
-  expression: "evt.Enriched.IsoCode"
+# Minimal no-op postoverflow whitelist.
+# Local dev doesn't need geo-blocking; production should reinstate a proper
+# postoverflow scenario. This stub matches no events so CrowdSec can boot.
+name: chronicle/geo-restrict-noop
+description: No-op placeholder so CrowdSec can boot in local dev
+filter: "false"
+whitelist:
+  reason: noop local dev placeholder
+  expression:
+    - "false"

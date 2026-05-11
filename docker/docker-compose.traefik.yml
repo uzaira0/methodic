@@ -123,7 +123,7 @@ services:
     cap_drop:
       - ALL
     environment:
-      COLLECTIONS: "crowdsecurity/traefik crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules crowdsecurity/geoip-enrich"
+      COLLECTIONS: "crowdsecurity/traefik crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules"
       BOUNCER_KEY_traefik: ${CROWDSEC_BOUNCER_API_KEY}
       DISABLE_ONLINE_API: "true"
     volumes:
