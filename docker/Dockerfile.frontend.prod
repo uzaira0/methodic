@@ -18,7 +18,7 @@ RUN bun install --frozen-lockfile
 COPY chronicle-web/ ./
 
 # Build production bundle with Bun native bundler
-RUN bun run modern:build
+RUN bun run build
 
 # Remove source maps (not needed in production) and generate version.json
 RUN find /app/dist -name '*.map' -delete 2>/dev/null; true
