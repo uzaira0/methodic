@@ -284,7 +284,7 @@ services:
           memory: 512M
           pids: 512
     # Start as standby using pg_basebackup from primary
-    command: >
+    command: |
       bash -c '
       set -e
       if [ ! -f /pgdata/data/PG_VERSION ]; then
@@ -719,11 +719,10 @@ services:
       - ./siem/loki-config.yml:/etc/loki/local-config.yaml:ro,z
       - loki_data:/loki
     command: -config.file=/etc/loki/local-config.yaml
+    # loki image is distroless (no shell, no wget) so CMD-SHELL/CMD-wget can't run.
+    # Disable until we add a sidecar or use a non-distroless image variant.
     healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 -O /dev/null http://localhost:3100/ready || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+      disable: true
     networks:
       - chronicle-internal
     deploy:
