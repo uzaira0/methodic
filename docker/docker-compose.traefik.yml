@@ -698,6 +698,16 @@ services:
       - "traefik.http.routers.chronicle-mobile.service=chronicle-backend"
       - "traefik.http.routers.chronicle-mobile.middlewares=crowdsec-waf@file,chronicle-mobile-ratelimit,chronicle-mobile-headers,chronicle-mobile-cors,chronicle-body-limit"
 
+      # F5 TLS termination may forward to Traefik without preserving the public
+      # Host header. Keep mobile API paths routed to the backend even when Host
+      # is rewritten to the pool member/IP; otherwise these requests fall through
+      # to the local frontend router and enrollment/upload fail at the edge.
+      - "traefik.http.routers.chronicle-mobile-f5-fallback.rule=PathPrefix(`/chronicle/v4/`) || PathPrefix(`/chronicle/v3/`) || PathPrefix(`/chronicle/v2/`) || PathPrefix(`/chronicle/study/`) || PathPrefix(`/chronicle/limits/`)"
+      - "traefik.http.routers.chronicle-mobile-f5-fallback.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
+      - "traefik.http.routers.chronicle-mobile-f5-fallback.priority=19"
+      - "traefik.http.routers.chronicle-mobile-f5-fallback.service=chronicle-backend"
+      - "traefik.http.routers.chronicle-mobile-f5-fallback.middlewares=crowdsec-waf@file,chronicle-mobile-ratelimit,chronicle-mobile-headers,chronicle-mobile-cors,chronicle-body-limit"
+
       # Strict rate limiting for mobile (5 req/s average, burst of 10)
       - "traefik.http.middlewares.chronicle-mobile-ratelimit.ratelimit.average=5"
       - "traefik.http.middlewares.chronicle-mobile-ratelimit.ratelimit.burst=10"
