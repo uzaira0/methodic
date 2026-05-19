@@ -74,10 +74,18 @@ static def convertToTag(tagString, branchString) {
 }
 
 def runCommand(String... command) {
-    return providers.exec {
-        workingDir rootProject.projectDir
-        commandLine command
-    }.standardOutput.asText.get()
+    try {
+        return providers.exec {
+            workingDir rootProject.projectDir
+            commandLine command
+        }.standardOutput.asText.get()
+    } catch (Exception e) {
+        if (command.length >= 3 && command[0] == 'git' && command[1] == 'describe') {
+            logger.warn("Falling back to local version because git describe failed in ${rootProject.projectDir}: ${e.message}")
+            return "v0.0.0-0-g0000000"
+        }
+        throw e
+    }
 }
 
 def describeOutputTag = convertToTag(

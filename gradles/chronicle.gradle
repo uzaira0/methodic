@@ -1,9 +1,16 @@
-if( file("../gradles/publish.gradle").exists() && file("../gradles/repos.gradle").exists() ) {
-    apply from: "../gradles/publish.gradle"
-    apply from: "../gradles/repos.gradle"
+def localPublishGradle = file("../gradles/publish.gradle")
+def localReposGradle = file("../gradles/repos.gradle")
+if (!localPublishGradle.exists() || !localReposGradle.exists()) {
+    def scriptDir = buildscript.sourceFile.parentFile
+    localPublishGradle = new File(scriptDir, "publish.gradle")
+    localReposGradle = new File(scriptDir, "repos.gradle")
+}
+if( localPublishGradle.exists() && localReposGradle.exists() ) {
+    apply from: localPublishGradle
+    apply from: localReposGradle
 } else if( project.hasProperty('developmentMode') && project.developmentMode ) {
-    apply from: "../gradles/publish.gradle"
-    apply from: "../gradles/repos.gradle"
+    apply from: localPublishGradle
+    apply from: localReposGradle
 } else {
     throw new GradleException("Missing local Chronicle Gradle scripts: gradles/publish.gradle and gradles/repos.gradle")
 }
