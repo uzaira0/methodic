@@ -10,7 +10,7 @@ plugins {
     id("org.jetbrains.dokka") apply false
     id("com.github.jk1.dependency-license-report") apply false
     id("org.owasp.dependencycheck") version "12.2.2" apply false
-    id("com.github.ben-manes.versions") version "0.52.0" apply false
+    id("com.github.ben-manes.versions") version "0.54.0" apply false
 }
 
 // Apply OWASP dependency check + ben-manes/versions audit to all subprojects
