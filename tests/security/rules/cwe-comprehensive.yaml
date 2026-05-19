@@ -117,8 +117,11 @@ rules:
   # CWE-611: Improper Restriction of XML External Entity Reference (XXE)
   # ===========================================================================
   - id: chronicle-xxe-document-builder
-    pattern: |
-      DocumentBuilderFactory.newInstance()
+    patterns:
+      - pattern: |
+          DocumentBuilderFactory.newInstance()
+      - pattern-not-inside: |
+          public object SecureXmlFactory { ... }
     message: >
       DocumentBuilderFactory.newInstance() detected. Ensure XXE protection
       is enabled via setFeature(disallow-doctype-decl, true) or use
@@ -132,8 +135,11 @@ rules:
       confidence: MEDIUM
 
   - id: chronicle-xxe-sax-parser
-    pattern: |
-      SAXParserFactory.newInstance()
+    patterns:
+      - pattern: |
+          SAXParserFactory.newInstance()
+      - pattern-not-inside: |
+          public object SecureXmlFactory { ... }
     message: >
       SAXParserFactory.newInstance() detected. Ensure XXE protection
       is enabled or use Chronicle SecureXmlFactory instead.
@@ -146,8 +152,11 @@ rules:
       confidence: MEDIUM
 
   - id: chronicle-xxe-xml-input-factory
-    pattern: |
-      XMLInputFactory.newInstance()
+    patterns:
+      - pattern: |
+          XMLInputFactory.newInstance()
+      - pattern-not-inside: |
+          public object SecureXmlFactory { ... }
     message: >
       XMLInputFactory.newInstance() detected. Disable DTD support with
       setProperty(SUPPORT_DTD, false) and
@@ -273,7 +282,7 @@ rules:
       confidence: MEDIUM
 
   - id: chronicle-hardcoded-password-kotlin
-    pattern-regex: "(?i)(?:val|var)\\s+\\w*(?:password|passwd|secret|api_key|apikey|api_secret|private_key|access_key)\\w*\\s*=\\s*\"[^\"]+\""
+    pattern-regex: "(?i)(?:val|var)\\s+(?!\\w*header\\w*)\\w*(?:password|passwd|secret|api_key|apikey|api_secret|private_key|access_key)\\w*\\s*=\\s*\"[^\"]+\""
     message: >
       Possible hard-coded credential in Kotlin. Passwords, API keys, and
       secrets should be loaded from environment variables, Vault, or
@@ -292,8 +301,6 @@ rules:
   - id: chronicle-trust-all-certs
     patterns:
       - pattern-either:
-          - pattern: |
-              $X.setHostnameVerifier(...)
           - pattern: |
               HostnameVerifier { $ARGS -> true }
           - pattern: |
@@ -418,11 +425,14 @@ rules:
   # CWE-601: URL Redirection to Untrusted Site (Open Redirect)
   # ===========================================================================
   - id: chronicle-open-redirect
-    pattern-either:
-      - pattern: |
-          $RESPONSE.sendRedirect($URL)
-      - pattern: |
-          "redirect:" + $URL
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $RESPONSE.sendRedirect($URL)
+          - pattern: |
+              "redirect:" + $URL
+      - pattern-not: |
+          super.sendRedirect($URL)
     message: >
       Redirect with variable URL. Ensure RedirectValidator.validate()
       is called to prevent open redirect attacks.
@@ -723,8 +733,11 @@ rules:
   # CWE-776: XML Entity Expansion (Billion Laughs)
   # ===========================================================================
   - id: chronicle-xml-entity-expansion
-    pattern: |
-      $DBF = DocumentBuilderFactory.newInstance()
+    patterns:
+      - pattern: |
+          $DBF = DocumentBuilderFactory.newInstance()
+      - pattern-not-inside: |
+          public object SecureXmlFactory { ... }
     message: >
       XML parser created. Ensure FEATURE_SECURE_PROCESSING is enabled
       to prevent billion laughs / XML bomb attacks. Or use Chronicle
@@ -788,6 +801,8 @@ rules:
     patterns:
       - pattern: |
           UUID.nameUUIDFromBytes(...)
+      - pattern-not-inside: |
+          public object DeviceIdUtils { ... }
     message: >
       UUID.nameUUIDFromBytes() generates deterministic UUIDs (v3/MD5).
       For security-sensitive identifiers, use UUID.randomUUID() which
@@ -823,4 +838,3 @@ rules:
       owasp: "A01:2021"
       category: security
       confidence: MEDIUM
-

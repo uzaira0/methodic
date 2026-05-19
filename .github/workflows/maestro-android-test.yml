@@ -85,10 +85,10 @@ jobs:
           # Replace the production URL with the emulator host loopback.
           # 10.0.2.2 is how the Android emulator reaches the host machine.
           # The backend runs directly on port 40320 in CI (no Traefik).
-          sed -i 's|https://api.getmethodic.com|http://10.0.2.2:40320|g' \
+          sed -i 's|https://chronicle-screentime-app.research.bcm.edu|http://10.0.2.2:40320|g' \
             app/src/main/java/com/openlattice/chronicle/services/upload/UploadWorker.kt
 
-          sed -i 's|https://api.getmethodic.com|http://10.0.2.2:40320|g' \
+          sed -i 's|https://chronicle-screentime-app.research.bcm.edu|http://10.0.2.2:40320|g' \
             app/src/main/java/com/openlattice/chronicle/Enrollment.kt || true
 
           # Allow cleartext HTTP traffic

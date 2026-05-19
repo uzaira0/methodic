@@ -13,7 +13,7 @@ export PATH="/tmp/gh_2.65.0_linux_amd64/bin:$PATH"
 TOKEN=$(head -1 ~/.git-credentials | sed 's|https://x-access-token:\([^@]*\)@.*|\1|')
 export GH_TOKEN="$TOKEN"
 
-REPO="uzaira0/methodic"
+REPO="uzaira0/chronicle"
 WORKFLOW="build-android-apk.yml"
 SERVER_URL="${1:-http://cnrc-deni-p001.cnrc.bcm.edu}"
 BUILD_TYPE="${2:-debug}"

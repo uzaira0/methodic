@@ -59,11 +59,20 @@ rules:
 
   - id: chronicle-raw-statement
     patterns:
-      - pattern: |
-          $CONN.createStatement(...)
+      - pattern-either:
+          - pattern: |
+              $CONN.createStatement().execute($SQL)
+          - pattern: |
+              $CONN.createStatement().executeQuery($SQL)
+          - pattern: |
+              $CONN.createStatement().executeUpdate($SQL)
+      - metavariable-regex:
+          metavariable: $SQL
+          regex: "^[a-zA-Z_].*"
     message: >
-      Use of createStatement() detected. Prefer PreparedStatement with
-      parameterized queries to prevent SQL injection vulnerabilities.
+      Raw Statement execution with a dynamic SQL variable detected. Prefer
+      PreparedStatement with parameterized queries unless the SQL is a vetted
+      constant with no user-controlled input.
     languages: [java, kotlin]
     severity: WARNING
     metadata:

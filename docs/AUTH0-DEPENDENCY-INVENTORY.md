@@ -35,7 +35,7 @@ now that the active Chronicle server runtime has already been cut over away from
 ### Security and Configuration Coupling
 
 - `chronicle-server/src/main/kotlin/com/openlattice/chronicle/configuration/OpenRedirectFilter.kt`
-  - Previously defaulted redirect allowlists to `methodic.us.auth0.com`
+  - Previously defaulted redirect allowlists to `chronicle-screentime-app.research.bcm.edu`
 - `chronicle-server/src/main/kotlin/com/openlattice/chronicle/configuration/SsrfConfig.kt`
   - Previously defaulted outbound allowlists to Auth0 hosts
 - `chronicle-server/src/main/resources/ssrf.yaml`

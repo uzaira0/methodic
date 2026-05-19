@@ -1,0 +1,21 @@
+rules:
+  - id: chronicle-direct-forwarded-client-ip
+    languages:
+      - kotlin
+    severity: ERROR
+    message: >
+      Do not parse X-Forwarded-For or X-Real-IP directly. Use ClientIpResolver so proxy
+      headers are trusted only when the direct peer is a configured trusted proxy.
+    patterns:
+      - pattern-either:
+          - pattern: $REQ.getHeader("X-Forwarded-For")
+          - pattern: $REQ.getHeader("X-Real-IP")
+      - pattern-not-inside: |
+          public object ClientIpResolver {
+            ...
+          }
+    paths:
+      include:
+        - chronicle-server/src/main/kotlin/**/*.kt
+      exclude:
+        - chronicle-server/src/test/**

@@ -11,7 +11,7 @@ metadataTest:
     - key: "org.opencontainers.image.source"
       value: "https://github.com/uzaira0/chronicle"
     - key: "org.opencontainers.image.vendor"
-      value: "Methodic Labs"
+      value: "Chronicle BCM"
   envVars:
     - key: "CHRONICLE_SERVER_XMS"
       value: "-Xms512m"

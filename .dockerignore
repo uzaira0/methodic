@@ -16,6 +16,9 @@ docker/tls/
 **/dist
 **/.gradle
 **/build/
+**/logging/
+*.log
+*.log.gz
 
 # IDE
 .idea

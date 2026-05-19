@@ -1,7 +1,7 @@
 repositories {
   //Hit our repos first.
   maven {
-    url "https://maven.pkg.github.com/uzaira0/methodic"
+    url "https://maven.pkg.github.com/uzaira0/chronicle"
     credentials {
       username = System.getenv("GITHUB_ACTOR") ?: findProperty("gpr.user") ?: "curator-bot"
       password = System.getenv("GITHUB_TOKEN") ?: findProperty("gpr.key") ?: ""

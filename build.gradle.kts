@@ -1,9 +1,14 @@
 /*
- * Root build configuration for Methodic monorepo
+ * Root build configuration for Chronicle monorepo
  * Applies OWASP Dependency-Check plugin for security vulnerability scanning
  */
 
 plugins {
+    id("org.jetbrains.kotlin.jvm") apply false
+    id("org.jetbrains.kotlin.plugin.spring") apply false
+    id("com.github.spotbugs") apply false
+    id("org.jetbrains.dokka") apply false
+    id("com.github.jk1.dependency-license-report") apply false
     id("org.owasp.dependencycheck") version "12.2.2" apply false
     id("com.github.ben-manes.versions") version "0.52.0" apply false
 }

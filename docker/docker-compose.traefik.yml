@@ -58,7 +58,7 @@ services:
           memory: 64M
 
   traefik:
-    image: traefik:v3.6.10
+    image: traefik:v3.6.14@sha256:4cda3393930dceff030e144b46260e96e1337c9cfaa4fed81c90cb8f4d498f57
     container_name: chronicle-traefik
     restart: unless-stopped
     security_opt:
@@ -67,6 +67,8 @@ services:
       - ALL
     cap_add:
       - NET_BIND_SERVICE
+      # Needed to read the 0600 host-mounted TLS key without weakening file mode.
+      - DAC_OVERRIDE
     environment:
       CROWDSEC_BOUNCER_API_KEY: ${CROWDSEC_BOUNCER_API_KEY}
     ports:
@@ -96,6 +98,7 @@ services:
     networks:
       - traefik
       - chronicle-backend-bridge
+      - chronicle-sso-edge
     deploy:
       resources:
         limits:
@@ -115,7 +118,7 @@ services:
   # decisions. The Traefik bouncer plugin queries LAPI (:8080) for IP decisions
   # and AppSec (:7422) for request-body inspection.
   chronicle-crowdsec:
-    image: crowdsecurity/crowdsec:v1.6.8
+    image: crowdsecurity/crowdsec:v1.7.8
     container_name: chronicle-crowdsec
     restart: unless-stopped
     security_opt:
@@ -248,6 +251,7 @@ services:
   postgres-replica:
     image: percona/percona-distribution-postgresql:17.5-3
     container_name: chronicle-postgres-replica
+    user: "0:0"
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -266,12 +270,22 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_PRIMARY_HOST: postgres
       POSTGRES_PRIMARY_PORT: 5432
+      ENABLE_PG_TDE: "1"
+      PG_TDE_KEY_PROVIDER: ${PG_TDE_KEY_PROVIDER:-file}
+      PG_TDE_VAULT_URL: ${PG_TDE_VAULT_URL:-}
+      PG_TDE_VAULT_TOKEN: ${PG_TDE_VAULT_TOKEN:-}
+      PG_TDE_VAULT_MOUNT_PATH: ${PG_TDE_VAULT_MOUNT_PATH:-secret}
+      PG_TDE_VAULT_CA_PATH: ${PG_TDE_VAULT_CA_PATH:-}
     volumes:
       - postgres_replica_data:/pgdata
+      - postgres_tde_keyring:/var/lib/postgresql/tde-keyring
+      - ./postgres-ssl/server/server.crt:/etc/postgres-ssl-src/server.crt:ro,z
+      - ./postgres-ssl/server/server.key:/etc/postgres-ssl-src/server.key:ro,z
+      - ./postgres-ssl/ca/ca.crt:/etc/postgres-ssl-src/ca.crt:ro,z
     networks:
       - chronicle-internal
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -287,21 +301,219 @@ services:
     command: |
       bash -c '
       set -e
+      mkdir -p /var/lib/postgresql/ssl-run
+      cp /etc/postgres-ssl-src/server.crt /var/lib/postgresql/ssl-run/
+      cp /etc/postgres-ssl-src/server.key /var/lib/postgresql/ssl-run/
+      cp /etc/postgres-ssl-src/ca.crt     /var/lib/postgresql/ssl-run/
+      chown -R 26:26 /var/lib/postgresql/ssl-run
+      chmod 600 /var/lib/postgresql/ssl-run/server.key
+      chmod 644 /var/lib/postgresql/ssl-run/server.crt /var/lib/postgresql/ssl-run/ca.crt
+      mkdir -p /pgdata/data
+      chown -R postgres:postgres /pgdata
+      chmod 700 /pgdata/data
       if [ ! -f /pgdata/data/PG_VERSION ]; then
         echo "Initializing replica from primary..."
         rm -rf /pgdata/data/*
         until pg_isready -h postgres -p 5432 -U "${POSTGRES_USER}"; do sleep 2; done
         echo "Ensuring primary has REPLICATION privilege and slot..."
-        psql -h postgres -p 5432 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -c "ALTER ROLE ${POSTGRES_USER} WITH REPLICATION;"
-        psql -h postgres -p 5432 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -c "SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = '"'"'chronicle_replica_1'"'"') THEN pg_create_physical_replication_slot('"'"'chronicle_replica_1'"'"') ELSE NULL END;"
-        if ! pg_basebackup -h postgres -p 5432 -U "${POSTGRES_USER}" -D /pgdata/data -Fp -Xs -P -R --slot=chronicle_replica_1; then
+        gosu postgres psql -h postgres -p 5432 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -c "ALTER ROLE ${POSTGRES_USER} WITH REPLICATION;"
+        gosu postgres psql -h postgres -p 5432 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -c "SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = '"'"'chronicle_replica_1'"'"') THEN pg_create_physical_replication_slot('"'"'chronicle_replica_1'"'"') ELSE NULL END;"
+        if ! gosu postgres pg_basebackup -h postgres -p 5432 -U "${POSTGRES_USER}" -D /pgdata/data -Fp -Xs -P -R --slot=chronicle_replica_1; then
           echo "pg_basebackup failed — cleaning up partial data directory"
           rm -rf /pgdata/data/*
           exit 1
         fi
+        chown -R postgres:postgres /pgdata/data
+        chmod 700 /pgdata/data
       fi
-      exec postgres -c hot_standby=on
+      exec gosu postgres postgres -D /pgdata/data \
+        -c hot_standby=on \
+        -c ssl=on \
+        -c ssl_cert_file=/var/lib/postgresql/ssl-run/server.crt \
+        -c ssl_key_file=/var/lib/postgresql/ssl-run/server.key \
+        -c ssl_ca_file=/var/lib/postgresql/ssl-run/ca.crt \
+        -c ssl_min_protocol_version=TLSv1.2 \
+        -c ssl_prefer_server_ciphers=on \
+        -c password_encryption=scram-sha-256 \
+        -c shared_preload_libraries=pg_tde,pgaudit,pg_stat_statements,percona_pg_telemetry \
+        -c pg_stat_statements.track=all \
+        -c pgaudit.log=ddl,role,write \
+        -c pgaudit.log_catalog=off \
+        -c pgaudit.log_client=on \
+        -c pgaudit.log_level=log \
+        -c pgaudit.log_statement_once=on
       '
+
+  keycloak-postgres:
+    build:
+      context: .
+      dockerfile: Dockerfile.keycloak-postgres
+    image: chronicle-keycloak-postgres:17.6-local
+    container_name: chronicle-keycloak-postgres
+    profiles: ["sso"]
+    restart: unless-stopped
+    user: "70:70"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      POSTGRES_USER: ${KEYCLOAK_DB_USER:-keycloak}
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-change-me-keycloak-db-password}
+      POSTGRES_DB: ${KEYCLOAK_DB:-chronicle_keycloak}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - keycloak_postgres_data:/var/lib/postgresql/data
+    networks:
+      - chronicle-sso-db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 6
+    command:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        if [ "$$POSTGRES_PASSWORD" = "change-me-keycloak-db-password" ]; then
+          echo "FATAL: set KEYCLOAK_DB_PASSWORD before enabling the sso profile" >&2
+          exit 1
+        fi
+        case "$$POSTGRES_DB" in (*[!A-Za-z0-9_]*|'') echo "FATAL: KEYCLOAK_DB must contain only letters, numbers, and underscores" >&2; exit 1 ;; esac
+        case "$$POSTGRES_USER" in (*[!A-Za-z0-9_]*|'') echo "FATAL: KEYCLOAK_DB_USER must contain only letters, numbers, and underscores" >&2; exit 1 ;; esac
+        exec docker-entrypoint.sh postgres \
+          -c listen_addresses='*' \
+          -c password_encryption=scram-sha-256 \
+          -c log_connections=on \
+          -c log_disconnections=on \
+          -c log_statement=ddl
+
+  keycloak:
+    build:
+      context: .
+      dockerfile: Dockerfile.keycloak
+    image: chronicle-keycloak:26.6.1-local
+    container_name: chronicle-keycloak
+    profiles: ["sso"]
+    restart: unless-stopped
+    user: "1000:0"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-postgres:5432/${KEYCLOAK_DB:-chronicle_keycloak}
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USER:-keycloak}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-change-me-keycloak-db-password}
+      KC_HTTP_RELATIVE_PATH: /keycloak
+      KC_PROXY_HEADERS: xforwarded
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-change-me-keycloak-admin-password}
+      KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL:-https://${DOMAIN}/keycloak}
+      KEYCLOAK_REALM: ${OIDC_REALM:-chronicle}
+      KEYCLOAK_CHRONICLE_CLIENT_ID: ${OIDC_CLIENT_ID:-chronicle-web}
+      KEYCLOAK_CHRONICLE_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-change-me-local-oidc-secret}
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+      - ./keycloak/realm-chronicle.json.template:/opt/keycloak/import-template/realm-chronicle.json.template:ro,z
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    networks:
+      - chronicle-sso-edge
+      - chronicle-sso-broker
+      - chronicle-sso-db
+    depends_on:
+      keycloak-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000; printf \"GET /keycloak/health/ready HTTP/1.1\\r\\nHost: 127.0.0.1\\r\\nConnection: close\\r\\n\\r\\n\" >&3; head -n 1 <&3 | grep -q \" 200 \"'"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        for value in "$$KC_DB_PASSWORD" "$$KC_BOOTSTRAP_ADMIN_PASSWORD" "$$KEYCLOAK_CHRONICLE_CLIENT_SECRET"; do
+          case "$$value" in change-me-*) echo "FATAL: replace default Keycloak secrets before enabling the sso profile" >&2; exit 1 ;; esac
+        done
+        mkdir -p /opt/keycloak/data/import
+        sed \
+          -e "s|__REALM__|$$KEYCLOAK_REALM|g" \
+          -e "s|__CLIENT_ID__|$$KEYCLOAK_CHRONICLE_CLIENT_ID|g" \
+          -e "s|__CLIENT_SECRET__|$$KEYCLOAK_CHRONICLE_CLIENT_SECRET|g" \
+          -e "s|__DOMAIN__|$$DOMAIN|g" \
+          /opt/keycloak/import-template/realm-chronicle.json.template > /opt/keycloak/data/import/realm-chronicle.json
+        /opt/keycloak/bin/kc.sh start --optimized --import-realm --http-enabled=true --hostname="$$KEYCLOAK_PUBLIC_URL" --proxy-headers=xforwarded &
+        kc_pid="$$!"
+        trap 'kill -TERM "$$kc_pid" 2>/dev/null || true; wait "$$kc_pid"' TERM INT
+        for _ in $$(seq 1 60); do
+          if timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000; printf "GET /keycloak/health/ready HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" >&3; head -n 1 <&3 | grep -q " 200 "'; then
+            break
+          fi
+          sleep 2
+        done
+        /opt/keycloak/bin/kcadm.sh config credentials --config /tmp/kcadm.config --server http://127.0.0.1:8080/keycloak --realm master --user "$$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$$KC_BOOTSTRAP_ADMIN_PASSWORD" >/dev/null
+        executions="$$(/opt/keycloak/bin/kcadm.sh get authentication/flows/browser/executions -r "$$KEYCLOAK_REALM" --config /tmp/kcadm.config --fields id,providerId,authenticationConfig | tr -d '\n')"
+        redirector_id="$$(printf '%s' "$$executions" | sed -n 's/.*{[^}]*"id" : "\([^"]*\)"[^}]*"providerId" : "identity-provider-redirector"[^}]*}.*/\1/p')"
+        redirector_config_id="$$(printf '%s' "$$executions" | sed -n 's/.*{[^}]*"providerId" : "identity-provider-redirector"[^}]*"authenticationConfig" : "\([^"]*\)"[^}]*}.*/\1/p')"
+        if [ -z "$$redirector_id" ]; then
+          echo "FATAL: Keycloak browser flow is missing identity-provider-redirector" >&2
+          kill -TERM "$$kc_pid" 2>/dev/null || true
+          wait "$$kc_pid"
+          exit 1
+        fi
+        if [ -n "$$redirector_config_id" ]; then
+          /opt/keycloak/bin/kcadm.sh update "authentication/config/$$redirector_config_id" -r "$$KEYCLOAK_REALM" --config /tmp/kcadm.config \
+            -s alias=chronicle-bcm-idp-redirector \
+            -s config.defaultProvider=bcm \
+            -s config.hideOnLoginPage=true
+        else
+          /opt/keycloak/bin/kcadm.sh create "authentication/executions/$$redirector_id/config" -r "$$KEYCLOAK_REALM" --config /tmp/kcadm.config \
+            -s alias=chronicle-bcm-idp-redirector \
+            -s config.defaultProvider=bcm \
+            -s config.hideOnLoginPage=true >/dev/null
+        fi
+        wait "$$kc_pid"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=chronicle-sso-edge"
+      - "traefik.http.services.chronicle-keycloak.loadbalancer.server.port=8080"
+      - "traefik.http.routers.chronicle-keycloak.rule=Host(`${DOMAIN}`) && PathPrefix(`/keycloak`)"
+      - "traefik.http.routers.chronicle-keycloak.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
+      - "traefik.http.routers.chronicle-keycloak.priority=30"
+      - "traefik.http.routers.chronicle-keycloak.service=chronicle-keycloak"
+      - "traefik.http.routers.chronicle-keycloak.middlewares=crowdsec-waf@file,chronicle-keycloak-forwarded-https,chronicle-keycloak-ratelimit,chronicle-keycloak-headers"
+      - "traefik.http.routers.chronicle-keycloak-semicolon-block.rule=Host(`${DOMAIN}`) && PathPrefix(`/keycloak`) && PathRegexp(`.*;.*`)"
+      - "traefik.http.routers.chronicle-keycloak-semicolon-block.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
+      - "traefik.http.routers.chronicle-keycloak-semicolon-block.priority=100"
+      - "traefik.http.routers.chronicle-keycloak-semicolon-block.service=chronicle-keycloak"
+      - "traefik.http.routers.chronicle-keycloak-semicolon-block.middlewares=crowdsec-waf@file,chronicle-keycloak-ratelimit,chronicle-keycloak-block-response,chronicle-keycloak-headers"
+      - "traefik.http.middlewares.chronicle-keycloak-block-response.replacepathregex.regex=.*"
+      - "traefik.http.middlewares.chronicle-keycloak-block-response.replacepathregex.replacement=/keycloak/blocked-route-not-found"
+      - "traefik.http.middlewares.chronicle-keycloak-forwarded-https.headers.customrequestheaders.X-Forwarded-Proto=https"
+      - "traefik.http.middlewares.chronicle-keycloak-forwarded-https.headers.customrequestheaders.X-Forwarded-Port=443"
+      - "traefik.http.middlewares.chronicle-keycloak-forwarded-https.headers.customrequestheaders.X-Forwarded-Host=${DOMAIN}"
+      - "traefik.http.middlewares.chronicle-keycloak-ratelimit.ratelimit.average=10"
+      - "traefik.http.middlewares.chronicle-keycloak-ratelimit.ratelimit.burst=20"
+      - "traefik.http.middlewares.chronicle-keycloak-ratelimit.ratelimit.sourcecriterion.ipstrategy.depth=1"
+      - "traefik.http.middlewares.chronicle-keycloak-headers.headers.frameDeny=true"
+      - "traefik.http.middlewares.chronicle-keycloak-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.chronicle-keycloak-headers.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.chronicle-keycloak-headers.headers.referrerPolicy=strict-origin-when-cross-origin"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          pids: 512
 
   chronicle-backend:
     build:
@@ -310,6 +522,7 @@ services:
     image: chronicle-backend:latest
     container_name: chronicle-backend
     restart: unless-stopped
+    user: "0:0"
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -319,6 +532,7 @@ services:
       - SETGID
       - CHOWN
       - DAC_OVERRIDE
+    read_only: true
     tmpfs:
       - /tmp:noexec,nosuid,size=256M
     environment:
@@ -344,6 +558,19 @@ services:
       CHRONICLE_SECURITY_JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH:-}
       CHRONICLE_SECURITY_JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH:-}
       CHRONICLE_SECURITY_JWT_KEY_ID: ${JWT_KEY_ID:-}
+      # OIDC broker integration. Keycloak is the local broker; BCM SAML/InCommon/OpenAthens attach there.
+      OIDC_ENABLED: ${OIDC_ENABLED:-false}
+      OIDC_PROVIDER_LABEL: ${OIDC_PROVIDER_LABEL:-BCM SSO}
+      OIDC_PUBLIC_BASE_URL: ${OIDC_PUBLIC_BASE_URL:-https://${DOMAIN}}
+      OIDC_REALM: ${OIDC_REALM:-chronicle}
+      OIDC_ISSUER: ${OIDC_ISSUER:-https://${DOMAIN}/keycloak/realms/${OIDC_REALM:-chronicle}}
+      OIDC_AUTHORIZATION_URI: ${OIDC_AUTHORIZATION_URI:-https://${DOMAIN}/keycloak/realms/${OIDC_REALM:-chronicle}/protocol/openid-connect/auth}
+      OIDC_TOKEN_URI: ${OIDC_TOKEN_URI:-http://keycloak:8080/keycloak/realms/${OIDC_REALM:-chronicle}/protocol/openid-connect/token}
+      OIDC_JWKS_URI: ${OIDC_JWKS_URI:-http://keycloak:8080/keycloak/realms/${OIDC_REALM:-chronicle}/protocol/openid-connect/certs}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-chronicle-web}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-change-me-local-oidc-secret}
+      OIDC_IDP_HINT: ${OIDC_IDP_HINT:-bcm}
+      OIDC_COOKIE_TOKEN_CLAIM: ${OIDC_COOKIE_TOKEN_CLAIM:-id_token}
       # MFA enforcement via amr claim (default: disabled)
       CHRONICLE_SECURITY_REQUIRE_MFA: ${REQUIRE_MFA:-false}
       # Token expiry configuration
@@ -377,6 +604,7 @@ services:
       # Audit log directory for HIPAA compliance
       # Logs are written in JSON format for SIEM integration
       AUDIT_LOG_DIR: /var/log/chronicle
+      LOG_DIR: /var/log/chronicle
     volumes:
       # Persistent volume for HIPAA-compliant audit logs
       # These logs are critical for compliance - rotated daily, kept 2190 days (6 years per HIPAA)
@@ -413,22 +641,27 @@ services:
         if [ "$$MOBILE_SIGNING_ENABLED" = "true" ] && [ -z "$$MOBILE_SIGNING_SECRET" ]; then
           echo "FATAL: MOBILE_SIGNING_ENABLED=true but MOBILE_SIGNING_SECRET is not set" >&2; exit 1
         fi
-        envsubst < /server/config/rhizome.yaml.template > /server/config/rhizome.yaml
-        envsubst < /server/config/chronicle-auth.yaml.template > /server/config/chronicle-auth.yaml
-        envsubst < /server/config/mail.yaml.template > /server/config/mail.yaml
-        envsubst < /server/config/mobile-security.yaml.template > /server/config/mobile-security.yaml
-        envsubst < /server/config/vault.yaml.template > /server/config/vault.yaml
-        envsubst < /server/config/cors.yaml.template > /server/config/cors.yaml
+        if [ "$$MOBILE_SIGNING_REQUIRED" = "true" ] && [ "$$MOBILE_SIGNING_ENABLED" != "true" ]; then
+          echo "FATAL: MOBILE_SIGNING_REQUIRED=true but MOBILE_SIGNING_ENABLED is not true" >&2; exit 1
+        fi
+        mkdir -p /tmp/chronicle-config
+        envsubst < /server/config/rhizome.yaml.template > /tmp/chronicle-config/rhizome.yaml
+        envsubst < /server/config/chronicle-auth.yaml.template > /tmp/chronicle-config/chronicle-auth.yaml
+        envsubst < /server/config/mail.yaml.template > /tmp/chronicle-config/mail.yaml
+        envsubst < /server/config/mobile-security.yaml.template > /tmp/chronicle-config/mobile-security.yaml
+        envsubst < /server/config/vault.yaml.template > /tmp/chronicle-config/vault.yaml
+        envsubst < /server/config/cors.yaml.template > /tmp/chronicle-config/cors.yaml
         for f in rhizome.yaml chronicle-auth.yaml mail.yaml mobile-security.yaml vault.yaml cors.yaml; do
-          [ -s "/server/config/$$f" ] || { echo "FATAL: /server/config/$$f is empty or missing after envsubst" >&2; exit 1; }
+          [ -s "/tmp/chronicle-config/$$f" ] || { echo "FATAL: /tmp/chronicle-config/$$f is empty or missing after envsubst" >&2; exit 1; }
+          ! grep -qF "$$(printf '%b' '\044\173')" "/tmp/chronicle-config/$$f" || { echo "FATAL: /tmp/chronicle-config/$$f contains unresolved template variables" >&2; exit 1; }
         done
         [ -d /var/log/chronicle ] || { echo "FATAL: /var/log/chronicle not mounted (audit logs required)" >&2; exit 1; }
         chown chronicle:chronicle /var/log/chronicle 2>/dev/null || true
-        chown chronicle:chronicle /server/config /server/config/*.yaml 2>/dev/null || true
+        chown -R chronicle:chronicle /tmp/chronicle-config 2>/dev/null || true
         exec su-exec chronicle java $$CHRONICLE_SERVER_XMS $$CHRONICLE_SERVER_XMX \
           -Xss512k -XX:MetaspaceSize=128m -XX:MaxMetaspaceSize=256m \
           -XX:+UseStringDeduplication -XX:MaxGCPauseMillis=200 \
-          -cp "/server/config:/server/lib/*" \
+          -cp "/tmp/chronicle-config:/server/lib/*" \
           com.openlattice.chronicle.ChronicleServer local postgres medialocal
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:40320/prometheus/ > /dev/null"]
@@ -446,6 +679,7 @@ services:
         condition: service_healthy
     networks:
       - chronicle-internal
+      - chronicle-sso-broker
       - chronicle-backend-bridge
     labels:
       - "traefik.enable=true"
@@ -458,9 +692,8 @@ services:
       # shared StudyApi interface (e.g., /chronicle/v3/study/{id}/...),
       # so no strip-prefix is needed — the backend expects these paths.
       # ===========================================
-      - "traefik.http.routers.chronicle-mobile.rule=Host(`${DOMAIN}`) && (PathPrefix(`/chronicle/v3/`) || PathPrefix(`/chronicle/v2/`) || PathPrefix(`/chronicle/study/`) || PathPrefix(`/chronicle/limits/`))"
+      - "traefik.http.routers.chronicle-mobile.rule=Host(`${DOMAIN}`) && (PathPrefix(`/chronicle/v4/`) || PathPrefix(`/chronicle/v3/`) || PathPrefix(`/chronicle/v2/`) || PathPrefix(`/chronicle/study/`) || PathPrefix(`/chronicle/limits/`))"
       - "traefik.http.routers.chronicle-mobile.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
-      - "traefik.http.routers.chronicle-mobile.tls=true"
       - "traefik.http.routers.chronicle-mobile.priority=20"
       - "traefik.http.routers.chronicle-mobile.service=chronicle-backend"
       - "traefik.http.routers.chronicle-mobile.middlewares=crowdsec-waf@file,chronicle-mobile-ratelimit,chronicle-mobile-headers,chronicle-mobile-cors,chronicle-body-limit"
@@ -493,7 +726,6 @@ services:
       # ===========================================
       - "traefik.http.routers.chronicle-web.rule=Host(`${DOMAIN}`) && PathPrefix(`/chronicle/api/web/`)"
       - "traefik.http.routers.chronicle-web.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
-      - "traefik.http.routers.chronicle-web.tls=true"
       - "traefik.http.routers.chronicle-web.priority=20"
       - "traefik.http.routers.chronicle-web.service=chronicle-backend"
       - "traefik.http.routers.chronicle-web.middlewares=crowdsec-waf@file,chronicle-web-strip,chronicle-web-ratelimit,chronicle-web-headers,chronicle-web-cors,chronicle-body-limit"
@@ -532,7 +764,6 @@ services:
       # ===========================================
       - "traefik.http.routers.chronicle-block.rule=Host(`${DOMAIN}`) && (PathPrefix(`/chronicle/datastore/`) || PathPrefix(`/chronicle/principal/`) || PathPrefix(`/chronicle/compliance/`) || PathPrefix(`/chronicle/import/`) || PathPrefix(`/prometheus/`))"
       - "traefik.http.routers.chronicle-block.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
-      - "traefik.http.routers.chronicle-block.tls=true"
       - "traefik.http.routers.chronicle-block.priority=15"
       - "traefik.http.routers.chronicle-block.service=chronicle-backend"
       - "traefik.http.routers.chronicle-block.middlewares=crowdsec-waf@file,chronicle-web-headers,chronicle-block-response"
@@ -639,11 +870,11 @@ services:
       - "traefik.http.services.chronicle-frontend.loadbalancer.server.port=8080"
 
   # ===========================================
-  # MONITORING: Prometheus + Grafana
+  # MONITORING: VictoriaMetrics + VictoriaLogs
   # ===========================================
-  prometheus:
-    image: prom/prometheus:v3.10.0
-    container_name: chronicle-prometheus
+  victoria-metrics:
+    image: victoriametrics/victoria-metrics:v1.138.0-scratch@sha256:f154ce0d4c75da39f13a5a56734c91222d6dc65a1f11a1579fb2986250f25352
+    container_name: chronicle-victoria-metrics
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -653,74 +884,13 @@ services:
     tmpfs:
       - /tmp:noexec,nosuid,size=64M
     volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
-      - ./monitoring/prometheus-rules.yml:/etc/prometheus/prometheus-rules.yml:ro,z
-      - ./monitoring/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro,z
-      - prometheus_data:/prometheus
+      - ./monitoring/victoriametrics-scrape.yml:/etc/victoriametrics/scrape.yml:ro,z
+      - victoria_metrics_data:/victoria-metrics-data
     command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.retention.time=30d'
-    healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 -O /dev/null http://localhost:9090/-/healthy || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    depends_on:
-      - alertmanager
-    networks:
-      - chronicle-internal
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          pids: 256
-
-  alertmanager:
-    image: prom/alertmanager:v0.28.1
-    container_name: chronicle-alertmanager
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    read_only: true
-    tmpfs:
-      - /tmp:noexec,nosuid,size=16M
-    volumes:
-      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro,z
-    command:
-      - '--config.file=/etc/alertmanager/alertmanager.yml'
-    healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 -O /dev/null http://localhost:9093/-/healthy || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    networks:
-      - chronicle-internal
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          pids: 128
-
-  # Loki: log aggregation for audit dashboard
-  loki:
-    image: grafana/loki:3.6.7
-    container_name: chronicle-loki
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    read_only: true
-    tmpfs:
-      - /tmp:noexec,nosuid,size=64M
-    volumes:
-      - ./siem/loki-config.yml:/etc/loki/local-config.yaml:ro,z
-      - loki_data:/loki
-    command: -config.file=/etc/loki/local-config.yaml
-    # loki image is distroless (no shell, no wget) so CMD-SHELL/CMD-wget can't run.
-    # Disable until we add a sidecar or use a non-distroless image variant.
+      - '-storageDataPath=/victoria-metrics-data'
+      - '-retentionPeriod=30d'
+      - '-promscrape.config=/etc/victoriametrics/scrape.yml'
+      - '-httpListenAddr=:8428'
     healthcheck:
       disable: true
     networks:
@@ -731,10 +901,37 @@ services:
           memory: 512M
           pids: 256
 
-  # Promtail: ships audit logs to Loki
-  promtail:
-    image: grafana/promtail:3.6.7
-    container_name: chronicle-promtail
+  victoria-logs:
+    image: victoriametrics/victoria-logs:v1.50.0@sha256:ae9bea8d8a3b0fc47c7f0058bcca410e79c84b4a0acd12d4dac71b9302526590
+    container_name: chronicle-victoria-logs
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64M
+    volumes:
+      - victoria_logs_data:/victoria-logs-data
+    command:
+      - '-storageDataPath=/victoria-logs-data'
+      - '-retentionPeriod=30d'
+      - '-httpListenAddr=:9428'
+    healthcheck:
+      disable: true
+    networks:
+      - chronicle-internal
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          pids: 256
+
+  # Fluent Bit ships local audit and access logs to VictoriaLogs.
+  fluent-bit:
+    image: fluent/fluent-bit:4.2.1
+    container_name: chronicle-fluent-bit
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -745,19 +942,18 @@ services:
       - /tmp:noexec,nosuid,size=16M
       - /run:noexec,nosuid,size=1M
     volumes:
-      - ./siem/promtail-config.yml:/etc/promtail/config.yml:ro,z
+      - ./siem/victorialogs-fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro,z
+      - ./siem/parsers.conf:/fluent-bit/etc/parsers.conf:ro,z
       - audit_logs:/var/log/chronicle:ro
-      - promtail_positions:/tmp/promtail
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    command: -config.file=/etc/promtail/config.yml
+      - traefik_access_logs:/var/log/traefik:ro
+      - fluentbit_state:/fluent-bit/state
     healthcheck:
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/9080' || exit 1"]
+      test: ["CMD", "/fluent-bit/bin/fluent-bit", "--version"]
       interval: 30s
       timeout: 5s
       retries: 3
     depends_on:
-      - loki
+      - victoria-logs
     networks:
       - chronicle-internal
     deploy:
@@ -767,7 +963,7 @@ services:
           pids: 128
 
   grafana:
-    image: grafana/grafana:12.1.0
+    image: grafana/grafana:12.3.0@sha256:70d9599b186ce287be0d2c5ba9a78acb2e86c1a68c9c41449454d0fc3eeb84e8
     container_name: chronicle-grafana
     restart: unless-stopped
     security_opt:
@@ -776,7 +972,7 @@ services:
       - ALL
     read_only: true
     tmpfs:
-      - /tmp:noexec,nosuid,size=64M
+      - /tmp:noexec,nosuid,size=512M
     environment:
       GF_SERVER_ROOT_URL: /grafana
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
@@ -786,6 +982,7 @@ services:
       GF_SECURITY_DISABLE_GRAVATAR: "true"
       GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_SYNC: victoriametrics-logs-datasource
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro,z
@@ -797,8 +994,8 @@ services:
       timeout: 5s
       retries: 3
     depends_on:
-      - prometheus
-      - loki
+      - victoria-metrics
+      - victoria-logs
     networks:
       - chronicle-internal
       - traefik
@@ -814,78 +1011,6 @@ services:
       # to enforce internal-only access without XFF spoofing risk.
       - "traefik.http.services.chronicle-grafana.loadbalancer.server.port=3000"
 
-  # ===========================================
-  # MONITORING: node_exporter (host metrics)
-  # ===========================================
-  # Exposes host-level CPU, memory, disk, and network metrics.
-  # Also reads .prom files from /var/log/chronicle via textfile collector
-  # (encryption-health-metrics.prom, secret-rotation-metrics.prom, etc.)
-  # TODO: Pin image by digest — run: crane digest prom/node-exporter:v1.8.2
-  chronicle-node-exporter:
-    image: prom/node-exporter:v1.8.2
-    container_name: chronicle-node-exporter
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    read_only: true
-    volumes:
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /:/rootfs:ro
-      - audit_logs:/var/log/chronicle:ro
-    command:
-      - '--path.procfs=/host/proc'
-      - '--path.sysfs=/host/sys'
-      - '--path.rootfs=/rootfs'
-      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
-      - '--collector.textfile.directory=/var/log/chronicle'
-    healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 -O /dev/null http://localhost:9100/metrics || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    networks:
-      - chronicle-internal
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          pids: 128
-
-  # ===========================================
-  # MONITORING: postgres_exporter (database metrics)
-  # ===========================================
-  # Exposes PostgreSQL metrics: connections, replication lag, locks, etc.
-  # TODO: Pin image by digest — run: crane digest prometheuscommunity/postgres-exporter:v0.16.0
-  chronicle-postgres-exporter:
-    image: prometheuscommunity/postgres-exporter:v0.16.0
-    container_name: chronicle-postgres-exporter
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    read_only: true
-    environment:
-      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@chronicle-postgres:5432/${POSTGRES_DB}?sslmode=require"
-    healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 -O /dev/null http://localhost:9187/metrics || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - chronicle-internal
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          pids: 128
-
 networks:
   chronicle-internal:
     driver: bridge
@@ -900,6 +1025,22 @@ networks:
     # Isolates the backend from the shared traefik-apps network so sibling
     # containers (flash-processing, sleep-scoring, etc.) cannot bypass
     # CrowdSec WAF and rate-limiting by hitting chronicle-backend:40320 directly.
+    name: chronicle-backend-bridge
+    driver: bridge
+    internal: true
+  chronicle-sso-edge:
+    # Narrow edge path: Traefik can reach only the Keycloak broker on this network.
+    name: chronicle-sso-edge
+    driver: bridge
+    internal: true
+  chronicle-sso-broker:
+    # Narrow service path: Chronicle backend can reach only Keycloak OIDC/JWKS.
+    name: chronicle-sso-broker
+    driver: bridge
+    internal: true
+  chronicle-sso-db:
+    # Narrow persistence path: Keycloak can reach only its dedicated Postgres.
+    name: chronicle-sso-db
     driver: bridge
     internal: true
   traefik:
@@ -926,22 +1067,23 @@ volumes:
   crowdsec_config:
   crowdsec_data:
   # Monitoring data
-  prometheus_data:
+  victoria_metrics_data:
   grafana_data:
-  loki_data:
-  promtail_positions:
+  victoria_logs_data:
+  fluentbit_state:
+  keycloak_data:
+  keycloak_postgres_data:
 
-# Docker secrets — production deployments should use external secrets (Vault, etc.)
-# For dev/staging, secrets are created from .env values via the environment: directive.
-# Usage: create files in docker/secrets/ or use `echo "value" | docker secret create name -`
+# Docker secrets — source from local secret files so read-only services can mount them.
+# Populate docker/secrets/* from a secret manager or a local .env bootstrap; never commit them.
 secrets:
   postgres_password:
-    environment: POSTGRES_PASSWORD
+    file: ./secrets/postgres_password
   jwt_secret:
-    environment: JWT_SECRET
+    file: ./secrets/jwt_secret
   hazelcast_server_password:
-    environment: HAZELCAST_SERVER_PASSWORD
+    file: ./secrets/hazelcast_server_password
   hazelcast_client_password:
-    environment: HAZELCAST_CLIENT_PASSWORD
+    file: ./secrets/hazelcast_client_password
   mobile_signing_secret:
-    environment: MOBILE_SIGNING_SECRET
+    file: ./secrets/mobile_signing_secret

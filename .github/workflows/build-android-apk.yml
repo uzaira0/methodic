@@ -76,7 +76,7 @@ jobs:
           ls -la app/app/libs/
 
           # Replace Maven dependency with local jar (loaded via fileTree)
-          sed -i "s|implementation('com.methodic:chronicle-api:.*|// chronicle-api provided via libs/ (loaded by fileTree)|" \
+          sed -i "s|implementation('com.openlattice:chronicle-api:.*|// chronicle-api provided via libs/ (loaded by fileTree)|" \
             app/app/build.gradle
 
           # Remove composite build (settings.gradle includeBuild) since CI uses jar injection
@@ -90,8 +90,8 @@ jobs:
           URL="${SERVER_URL%/}/"
 
           # Replace production URL with the custom server URL in all source files
-          find app/src -name '*.kt' -exec grep -l 'api.getmethodic.com' {} \; | while read f; do
-            sed -i "s|https://api.getmethodic.com|${URL}|g" "$f"
+          find app/src -name '*.kt' -exec grep -l 'chronicle-screentime-app.research.bcm.edu' {} \; | while read f; do
+            sed -i "s|https://chronicle-screentime-app.research.bcm.edu|${URL}|g" "$f"
             echo "Patched: $f"
           done
 

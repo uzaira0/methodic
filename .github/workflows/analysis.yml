@@ -52,7 +52,6 @@ jobs:
         with:
           sarif_file: detekt-results.sarif
           category: detekt
-        continue-on-error: true
 
       - name: Upload Detekt HTML report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -83,7 +82,6 @@ jobs:
           rulesets: 'rulesets/java/quickstart.xml'
           analyzeModifiedFilesOnly: false
           createGitHubAnnotations: true
-        continue-on-error: true
 
   # ============================================================================
   # Bearer — sensitive data flow analysis (HIPAA-critical)
@@ -112,7 +110,6 @@ jobs:
         with:
           sarif_file: bearer-results.sarif
           category: bearer
-        continue-on-error: true
 
   # ============================================================================
   # OSV-Scanner — Google's vulnerability database (broader than NVD alone)
@@ -142,7 +139,6 @@ jobs:
         with:
           sarif_file: osv-results.sarif
           category: osv-scanner
-        continue-on-error: true
 
   # ============================================================================
   # Grype — Anchore's vulnerability scanner (uses Anchore DB for broad CVE coverage)
@@ -161,7 +157,7 @@ jobs:
         uses: anchore/scan-action@abae793926ec39a78ab18002bc7fc45e22e7e165 # v6
         with:
           path: .
-          fail-build: false
+          fail-build: true
           output-format: sarif
         id: grype-scan
 
@@ -171,7 +167,6 @@ jobs:
         with:
           sarif_file: ${{ steps.grype-scan.outputs.sarif }}
           category: grype
-        continue-on-error: true
 
   # ============================================================================
   # Syft SBOM — generates Software Bill of Materials for supply chain visibility
@@ -234,12 +229,10 @@ jobs:
 
       - name: Generate current OpenAPI spec
         run: ./gradlew :chronicle-api:generateOpenApiSpec --no-daemon
-        continue-on-error: true
 
       - name: Generate base OpenAPI spec
         working-directory: base
         run: ./gradlew :chronicle-api:generateOpenApiSpec --no-daemon
-        continue-on-error: true
 
       - name: Install oasdiff
         run: |
@@ -251,13 +244,13 @@ jobs:
           HEAD_SPEC=$(find . -not -path "./base/*" \( -name "openapi*.json" -o -name "openapi*.yaml" \) 2>/dev/null | head -1)
           if [ -n "$BASE_SPEC" ] && [ -n "$HEAD_SPEC" ]; then
             echo "Comparing $BASE_SPEC vs $HEAD_SPEC"
-            oasdiff breaking "$BASE_SPEC" "$HEAD_SPEC" --format text || true
+            oasdiff breaking "$BASE_SPEC" "$HEAD_SPEC" --format text
             echo "## API Changelog" >> "$GITHUB_STEP_SUMMARY"
-            oasdiff changelog "$BASE_SPEC" "$HEAD_SPEC" --format text >> "$GITHUB_STEP_SUMMARY" || true
+            oasdiff changelog "$BASE_SPEC" "$HEAD_SPEC" --format text >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning::Could not find OpenAPI specs to compare"
+            echo "::error::Could not find OpenAPI specs to compare"
+            exit 1
           fi
-        continue-on-error: true
 
   # ============================================================================
   # Dependency Review — GitHub-native license + vuln check for new deps in PRs

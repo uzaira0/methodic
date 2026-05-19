@@ -174,7 +174,7 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
-            org.opencontainers.image.vendor=Methodic Labs
+            org.opencontainers.image.vendor=Chronicle BCM
             org.opencontainers.image.title=chronicle-backend
             org.opencontainers.image.description=Chronicle backend (Spring Boot)
           cache-from: type=gha
@@ -200,7 +200,7 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
-            org.opencontainers.image.vendor=Methodic Labs
+            org.opencontainers.image.vendor=Chronicle BCM
             org.opencontainers.image.title=chronicle-frontend
             org.opencontainers.image.description=Chronicle frontend (React + nginx)
           cache-from: type=gha

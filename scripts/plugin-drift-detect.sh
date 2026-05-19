@@ -44,7 +44,7 @@ fi
 echo "Plugin version drift detected:"
 echo "$drift_lines"
 
-repo="${REPO:-uzaira0/methodic}"
+repo="${REPO:-uzaira0/chronicle}"
 event="${EVENT_NAME:-}"
 
 if [ "$event" = "pull_request" ]; then

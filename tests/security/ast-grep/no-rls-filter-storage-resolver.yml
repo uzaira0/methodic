@@ -1,0 +1,8 @@
+id: no-rls-filter-storage-resolver
+language: Kotlin
+severity: error
+message: >
+  RLSContextFilter must not accept StorageResolver. A filter-level DB dependency
+  can set RLS on a temporary connection instead of the actual query connection.
+rule:
+  pattern: "class RLSContextFilter($$$ARGS, private val $NAME: StorageResolver, $$$REST)"

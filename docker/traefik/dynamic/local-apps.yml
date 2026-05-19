@@ -11,6 +11,9 @@ http:
     wasm-ss-strip:
       stripPrefix:
         prefixes: ["/wasm-ss"]
+    accelerometer-tracking-strip:
+      stripPrefix:
+        prefixes: ["/accelerometer-tracking"]
     sleepscoring-api-strip:
       stripPrefix:
         prefixes: ["/sleep-scoring"]
@@ -42,6 +45,13 @@ http:
         permanent: false
 
   routers:
+    accelerometer-tracking-local:
+      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/accelerometer-tracking`)"
+      entryPoints: [web]
+      middlewares: [local-only, accelerometer-tracking-strip]
+      service: accelerometer-tracking-svc
+      priority: 110
+
     wasm-ss-local:
       rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/wasm-ss`)"
       entryPoints: [web]
@@ -120,6 +130,10 @@ http:
       priority: 5
 
   services:
+    accelerometer-tracking-svc:
+      loadBalancer:
+        servers:
+          - url: "http://actilife-dashboard:8088"
     chronicle-fe-svc:
       loadBalancer:
         servers:

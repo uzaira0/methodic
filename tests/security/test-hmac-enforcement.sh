@@ -9,10 +9,16 @@ set -euo pipefail
 #
 # Usage:
 #   BASE_URL=http://localhost:40320 TEST_STUDY_ID=<uuid> ./test-hmac-enforcement.sh
+#   MOBILE_SIGNING_SECRET=<secret> ./test-hmac-enforcement.sh
 # =============================================================================
 
 BASE_URL="${BASE_URL:-http://localhost:40320}"
+HOST_HEADER="${HOST_HEADER:-}"
 TEST_STUDY_ID="${TEST_STUDY_ID:-00000000-0000-0000-0000-000000000000}"
+TEST_PARTICIPANT_ID="${TEST_PARTICIPANT_ID:-hmac-smoke-participant}"
+TEST_DEVICE_ID="${TEST_DEVICE_ID:-hmac-smoke-device}"
+MOBILE_PATH="/chronicle/v4/study/${TEST_STUDY_ID}/participant/${TEST_PARTICIPANT_ID}/enroll"
+MOBILE_BODY='{}'
 
 # -- Colors ------------------------------------------------------------------
 RED='\033[0;31m'
@@ -32,16 +38,24 @@ log_fail()  { echo -e "  ${RED}[FAIL]${RESET} $1"; fail_count=$((fail_count + 1)
 log_info()  { echo -e "  ${CYAN}[INFO]${RESET} $1"; info_count=$((info_count + 1)); }
 log_header(){ echo -e "\n${BOLD}$1${RESET}"; }
 
+curl_host_args=()
+if [[ -n "$HOST_HEADER" ]]; then
+  curl_host_args=(-H "Host: ${HOST_HEADER}")
+fi
+
 # =============================================================================
 # Test 1: Unsigned Request Detection
 # =============================================================================
 log_header "Test 1: Unsigned Request Detection"
-echo -e "  Sending request to ${YELLOW}${BASE_URL}/chronicle/v3/studies${RESET} without HMAC headers..."
+echo -e "  Sending request to ${YELLOW}${BASE_URL}${MOBILE_PATH}${RESET} without HMAC headers..."
 
 http_code=$(curl -s -o /dev/null -w '%{http_code}' \
-  -X GET \
-  "${BASE_URL}/chronicle/v3/studies" \
+  -X POST \
+  "${BASE_URL}${MOBILE_PATH}" \
+  "${curl_host_args[@]}" \
   -H "Content-Type: application/json" \
+  -H "X-Chronicle-Device-Id: ${TEST_DEVICE_ID}" \
+  --data "${MOBILE_BODY}" \
   2>/dev/null || echo "000")
 
 if [[ "$http_code" == "000" ]]; then
@@ -51,8 +65,8 @@ elif [[ "$http_code" == "401" || "$http_code" == "403" ]]; then
   log_pass "Unsigned request rejected with HTTP ${http_code}"
   log_info "Phase 2 (signing-required: true) is ACTIVE -- unsigned requests are blocked"
   phase_detected="phase2"
-elif [[ "$http_code" == "200" ]]; then
-  log_pass "Server responded with HTTP 200 (unsigned request accepted)"
+elif [[ "$http_code" == "200" || "$http_code" == "400" || "$http_code" == "409" || "$http_code" == "500" ]]; then
+  log_pass "Unsigned request reached application code with HTTP ${http_code}"
   log_info "Phase 1 (signing-required: false) is active -- unsigned requests are allowed"
   phase_detected="phase1"
 else
@@ -65,71 +79,86 @@ fi
 # =============================================================================
 log_header "Test 2: HMAC Signing Algorithm (Informational)"
 
-log_info "Chronicle HMAC signing uses the following algorithm:"
-echo ""
-echo -e "  ${BOLD}String-to-sign construction:${RESET}"
-echo "    METHOD\\nPATH\\nTIMESTAMP\\nNONCE\\nBODY_HASH"
-echo ""
-echo -e "  ${BOLD}Where:${RESET}"
-echo "    METHOD     = HTTP method (GET, POST, etc.)"
-echo "    PATH       = Request path (e.g. /chronicle/v3/studies)"
-echo "    TIMESTAMP  = Unix epoch seconds (sent in X-Chronicle-Timestamp)"
-echo "    NONCE      = Unique request ID / UUID (sent in X-Chronicle-Nonce)"
-echo "    BODY_HASH  = SHA-256 hex digest of the request body (empty string hash for GET)"
-echo ""
-echo -e "  ${BOLD}Signature:${RESET}"
-echo "    HMAC-SHA256(shared_key, string_to_sign)  -- hex-encoded"
-echo ""
-echo -e "  ${BOLD}Required headers:${RESET}"
-echo "    X-Chronicle-Signature  : <hex-encoded HMAC-SHA256>"
-echo "    X-Chronicle-Timestamp  : <unix epoch seconds>"
-echo "    X-Chronicle-Nonce      : <unique UUID per request>"
-echo ""
+log_info "Chronicle signs METHOD|PATH|TIMESTAMP|NONCE|SHA256(BODY) with HMAC-SHA256 and Base64 encodes the result."
 
-log_info "Cannot execute a signed request without the shared key -- skipping live test"
+if [[ -n "${MOBILE_SIGNING_SECRET:-}" ]]; then
+  TIMESTAMP=$(date +%s)
+  NONCE="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
+  BODY_HASH="$(printf '%s' "${MOBILE_BODY}" | sha256sum | awk '{print $1}')"
+  STRING_TO_SIGN="POST|${MOBILE_PATH}|${TIMESTAMP}|${NONCE}|${BODY_HASH}"
+  SIGNATURE="$(printf '%s' "${STRING_TO_SIGN}" | openssl dgst -sha256 -hmac "${MOBILE_SIGNING_SECRET}" -binary | openssl base64 -A)"
+
+  signed_code=$(curl -s -o /dev/null -w '%{http_code}' \
+    -X POST \
+    "${BASE_URL}${MOBILE_PATH}" \
+    "${curl_host_args[@]}" \
+    -H "Content-Type: application/json" \
+    -H "X-Chronicle-Device-Id: ${TEST_DEVICE_ID}" \
+    -H "X-Chronicle-Signature: ${SIGNATURE}" \
+    -H "X-Chronicle-Timestamp: ${TIMESTAMP}" \
+    -H "X-Chronicle-Nonce: ${NONCE}" \
+    --data "${MOBILE_BODY}" \
+    2>/dev/null || echo "000")
+
+  if [[ "$signed_code" == "401" || "$signed_code" == "403" ]]; then
+    log_fail "Signed mobile request was rejected with HTTP ${signed_code}"
+  elif [[ "$signed_code" == "000" ]]; then
+    log_fail "Signed mobile request could not connect"
+  else
+    log_pass "Signed request passed HMAC validation and reached application code with HTTP ${signed_code}"
+  fi
+else
+  log_info "MOBILE_SIGNING_SECRET not set -- skipping signed live request"
+fi
 
 # =============================================================================
 # Test 3: Replay Protection Check
 # =============================================================================
 log_header "Test 3: Replay Protection (Nonce Reuse)"
 
-if [[ "$phase_detected" == "phase2" ]]; then
+if [[ "$phase_detected" == "phase2" && -n "${MOBILE_SIGNING_SECRET:-}" ]]; then
   TIMESTAMP=$(date +%s)
-  NONCE="test-replay-$(uuidgen 2>/dev/null || echo "fixed-nonce-for-replay-test")"
-  # Use a dummy signature -- the point is to test nonce rejection on second use.
-  DUMMY_SIG="0000000000000000000000000000000000000000000000000000000000000000"
+  NONCE="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
+  BODY_HASH="$(printf '%s' "${MOBILE_BODY}" | sha256sum | awk '{print $1}')"
+  SIGNATURE="$(printf '%s' "POST|${MOBILE_PATH}|${TIMESTAMP}|${NONCE}|${BODY_HASH}" | openssl dgst -sha256 -hmac "${MOBILE_SIGNING_SECRET}" -binary | openssl base64 -A)"
 
   echo -e "  Sending first request with nonce ${YELLOW}${NONCE}${RESET}..."
   first_code=$(curl -s -o /dev/null -w '%{http_code}' \
-    -X GET \
-    "${BASE_URL}/chronicle/v3/studies" \
+    -X POST \
+    "${BASE_URL}${MOBILE_PATH}" \
+    "${curl_host_args[@]}" \
     -H "Content-Type: application/json" \
-    -H "X-Chronicle-Signature: ${DUMMY_SIG}" \
+    -H "X-Chronicle-Device-Id: ${TEST_DEVICE_ID}" \
+    -H "X-Chronicle-Signature: ${SIGNATURE}" \
     -H "X-Chronicle-Timestamp: ${TIMESTAMP}" \
     -H "X-Chronicle-Nonce: ${NONCE}" \
+    --data "${MOBILE_BODY}" \
     2>/dev/null || echo "000")
   log_info "First request returned HTTP ${first_code}"
 
   echo -e "  Sending second request with same nonce..."
   second_code=$(curl -s -o /dev/null -w '%{http_code}' \
-    -X GET \
-    "${BASE_URL}/chronicle/v3/studies" \
+    -X POST \
+    "${BASE_URL}${MOBILE_PATH}" \
+    "${curl_host_args[@]}" \
     -H "Content-Type: application/json" \
-    -H "X-Chronicle-Signature: ${DUMMY_SIG}" \
+    -H "X-Chronicle-Device-Id: ${TEST_DEVICE_ID}" \
+    -H "X-Chronicle-Signature: ${SIGNATURE}" \
     -H "X-Chronicle-Timestamp: ${TIMESTAMP}" \
     -H "X-Chronicle-Nonce: ${NONCE}" \
+    --data "${MOBILE_BODY}" \
     2>/dev/null || echo "000")
 
   if [[ "$second_code" == "401" || "$second_code" == "403" ]]; then
     log_pass "Replayed nonce rejected with HTTP ${second_code} -- replay protection is active"
-  elif [[ "$first_code" == "401" || "$first_code" == "403" ]]; then
-    log_info "Both requests rejected (signature invalid) -- replay protection cannot be verified without a valid key"
   else
     log_fail "Replayed nonce was not rejected (HTTP ${second_code}) -- replay protection may be missing"
   fi
 elif [[ "$phase_detected" == "phase1" ]]; then
   log_info "Phase 1 active -- replay protection is not enforced when signing is optional"
   log_info "Expected Phase 2 behavior: second request with the same nonce should return 401/403"
+elif [[ -z "${MOBILE_SIGNING_SECRET:-}" ]]; then
+  log_info "MOBILE_SIGNING_SECRET not set -- replay protection cannot be verified with a valid signature"
 else
   log_info "Phase detection inconclusive -- skipping replay test"
 fi

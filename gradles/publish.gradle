@@ -2,7 +2,7 @@
 
 //ext.snapshotUrl = "https://artifactory.openlattice.com/artifactory/libs-snapshot-local"
 //ext.releaseUrl = "https://artifactory.openlattice.com/artifactory/libs-release-local"
-ext.githubPackageUrl = "https://maven.pkg.github.com/uzaira0/methodic"
+ext.githubPackageUrl = "https://maven.pkg.github.com/uzaira0/chronicle"
 ext.sonatypeMasterUrl = "https://oss.sonatype.org/service/local/staging/deploy/maven2"
 ext.sonatypeSnapshotUrl = "https://oss.sonatype.org/content/repositories/snapshots"
 
@@ -27,6 +27,7 @@ if (project.hasProperty('projectName') && project.hasProperty('scmUrl')) {
 println "Basename for jars will be: " + jarname
 
 def maybeBranch = providers.exec {
+    workingDir rootProject.projectDir
     commandLine 'git', 'rev-parse', '--abbrev-ref', 'HEAD'
 }.standardOutput.asText.get().trim()
 def ghBranch = System.getenv("GITHUB_REF")
@@ -74,6 +75,7 @@ static def convertToTag(tagString, branchString) {
 
 def runCommand(String... command) {
     return providers.exec {
+        workingDir rootProject.projectDir
         commandLine command
     }.standardOutput.asText.get()
 }
@@ -194,9 +196,9 @@ if (ext."signing.password" != null) {
 
                             developers {
                                 developer {
-                                    id 'methodic'
-                                    name 'Methodic Team'
-                                    email 'support@getmethodic.com'
+                                    id 'chronicle'
+                                    name 'Chronicle Team'
+                                    email 'chronicle-screentime-app@research.bcm.edu'
                                 }
                             }
                         }
@@ -257,9 +259,9 @@ if (ext."signing.password" != null) {
 
                             developers {
                                 developer {
-                                    id 'methodic'
-                                    name 'Methodic Team'
-                                    email 'support@getmethodic.com'
+                                    id 'chronicle'
+                                    name 'Chronicle Team'
+                                    email 'chronicle-screentime-app@research.bcm.edu'
                                 }
                             }
                         }

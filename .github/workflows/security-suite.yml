@@ -20,7 +20,7 @@ jobs:
   # ============================================================================
   # CI-safe security layers (no running stack required)
   # Layers: SAST(1), SCA(3), Container(4), Secrets(5), IaC(6),
-  #         Auth/JWT(14), Input validation(15), Crypto(16),
+  #         SSO broker hardening, Auth/JWT(14), Input validation(15), Crypto(16),
   #         License(17), Compliance(12)
   # ============================================================================
   security-layers:
@@ -35,9 +35,11 @@ jobs:
           - sca
           - secrets
           - iac
+          - sso
           - auth
           - injection
           - crypto
+          - license
           - compliance
     steps:
       - name: Checkout repository
@@ -55,6 +57,16 @@ jobs:
       - name: Install semgrep
         if: matrix.layer == 'sast'
         run: pip install semgrep
+
+      - name: Setup Node for ast-grep
+        if: matrix.layer == 'sast'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: lts/*
+
+      - name: Install ast-grep
+        if: matrix.layer == 'sast'
+        run: npm install -g @ast-grep/cli
 
       - name: Install checkov
         if: matrix.layer == 'iac'
@@ -124,7 +136,6 @@ jobs:
         with:
           sarif_file: ${{ env.REPORT_DIR }}
           category: security-${{ matrix.layer }}
-        continue-on-error: true
 
   # ============================================================================
   # Summary gate — fails the PR if any layer failed
@@ -163,13 +174,14 @@ jobs:
           echo "| 3 | sca | Dependency vulnerability scanning (Bun audit) |" >> $GITHUB_STEP_SUMMARY
           echo "| 5 | secrets | Gitleaks secret detection |" >> $GITHUB_STEP_SUMMARY
           echo "| 6 | iac | Checkov + Hadolint IaC checks |" >> $GITHUB_STEP_SUMMARY
+          echo "| - | sso | Keycloak broker isolation and SAML hardening guardrails |" >> $GITHUB_STEP_SUMMARY
           echo "| 12 | compliance | OPA/Conftest policy-as-code |" >> $GITHUB_STEP_SUMMARY
           echo "| 14 | auth | JWT structure analysis |" >> $GITHUB_STEP_SUMMARY
           echo "| 15 | injection | SQL injection pattern scan |" >> $GITHUB_STEP_SUMMARY
           echo "| 16 | crypto | Weak algorithm detection |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Skipped Layers (require running stack)" >> $GITHUB_STEP_SUMMARY
-          echo "DAST (2), API fuzz (7), TLS (8), Database (9), HIPAA (10), GDPR (11), Network (13), Rate limit (18), WAF (19), Runtime (20), Smoke (21), DB security (22), API headers (23), Business logic (24), Contract drift (25)" >> $GITHUB_STEP_SUMMARY
+          echo "### Live-stack Layers" >> $GITHUB_STEP_SUMMARY
+          echo "DAST (2), API fuzz (7), TLS (8), Database (9), HIPAA (10), GDPR (11), Network (13), Rate limit (18), WAF (19), Runtime (20), Smoke (21), DB security (22), API headers (23), Business logic (24), Contract drift (25) are covered by scripts under tests/security/ and must be run against a deployed stack." >> $GITHUB_STEP_SUMMARY
 
       - name: Check overall status
         if: needs.security-layers.result == 'failure'

@@ -17,13 +17,13 @@ pluginManagement {
         id("signing")
     }
     repositories {
-        maven(url = "https://maven.pkg.github.com/uzaira0/methodic")
+        maven(url = "https://maven.pkg.github.com/uzaira0/chronicle")
         maven(url = "https://plugins.gradle.org/m2/")
         mavenCentral()
     }
 }
 
-rootProject.name="methodic"
+rootProject.name="chronicle"
 
 include("chronicle-models")
 include("chronicle-api")

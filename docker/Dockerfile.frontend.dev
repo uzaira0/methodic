@@ -27,6 +27,11 @@ COPY chronicle-web/src ./src
 # Expose webpack dev server port
 EXPOSE 9000
 
+USER bun
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD wget --quiet --tries=1 --spider http://127.0.0.1:9000/ || exit 1
+
 # Run webpack dev server (the 'app' script runs webpack-dev-server)
 # Host 0.0.0.0 and allowedHosts are configured in webpack.config.dev.js
 CMD ["bun", "run", "app"]
