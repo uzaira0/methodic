@@ -103,6 +103,14 @@ PY
     echo "SSO hardening scan complete"
     ;;
 
+  mobile)
+    echo "=== Mobile: upload signing/activityClass guardrails ==="
+    "$ROOT_DIR/tests/security/mobile-upload-guardrails.sh" "$REPORT_DIR" | tee "$REPORT_DIR/mobile-upload-guardrails.txt"
+    echo "=== Mobile: dogfood lifecycle tooling guardrails ==="
+    "$ROOT_DIR/tests/security/dogfood-tooling-guardrails.sh" "$REPORT_DIR" | tee "$REPORT_DIR/dogfood-tooling-guardrails.txt"
+    echo "Mobile upload guardrails complete"
+    ;;
+
   auth)
     echo "=== Auth: JWT/session pattern check ==="
     # Check for hardcoded secrets and insecure auth patterns
@@ -150,7 +158,7 @@ PY
 
   *)
     echo "ERROR: Unknown layer: $LAYER"
-    echo "Valid layers: sast, sca, secrets, iac, sso, auth, injection, crypto, license, compliance"
+    echo "Valid layers: sast, sca, secrets, iac, sso, mobile, auth, injection, crypto, license, compliance"
     exit 1
     ;;
 esac

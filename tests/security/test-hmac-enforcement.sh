@@ -8,17 +8,31 @@ set -euo pipefail
 # unsigned) and Phase 2 (reject unsigned) configurations.
 #
 # Usage:
-#   BASE_URL=http://localhost:40320 TEST_STUDY_ID=<uuid> ./test-hmac-enforcement.sh
+#   BASE_URL=http://10.23.4.137 TEST_STUDY_ID=<uuid> ./test-hmac-enforcement.sh
 #   MOBILE_SIGNING_SECRET=<secret> ./test-hmac-enforcement.sh
 # =============================================================================
 
-BASE_URL="${BASE_URL:-http://localhost:40320}"
+BASE_URL="${BASE_URL:-http://10.23.4.137}"
 HOST_HEADER="${HOST_HEADER:-}"
 TEST_STUDY_ID="${TEST_STUDY_ID:-00000000-0000-0000-0000-000000000000}"
 TEST_PARTICIPANT_ID="${TEST_PARTICIPANT_ID:-hmac-smoke-participant}"
 TEST_DEVICE_ID="${TEST_DEVICE_ID:-hmac-smoke-device}"
+STRICT="${HMAC_STRICT:-0}"
 MOBILE_PATH="/chronicle/v4/study/${TEST_STUDY_ID}/participant/${TEST_PARTICIPANT_ID}/enroll"
 MOBILE_BODY='{}'
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --strict)
+      STRICT=1
+      shift
+      ;;
+    *)
+      echo "unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
 
 # -- Colors ------------------------------------------------------------------
 RED='\033[0;31m'
@@ -192,5 +206,16 @@ echo ""
 echo -e "  ${GREEN}Passed: ${pass_count}${RESET}  ${RED}Failed: ${fail_count}${RESET}  ${CYAN}Info: ${info_count}${RESET}"
 echo ""
 
-# Always exit 0 -- this is a readiness check, not a gate
+if [[ "$STRICT" == "1" ]]; then
+  if [[ "$phase_detected" != "phase2" ]]; then
+    echo "Strict mode requires Phase 2 HMAC enforcement." >&2
+    exit 1
+  fi
+  if [[ "$fail_count" -gt 0 ]]; then
+    echo "Strict mode failed: ${fail_count} HMAC check(s) failed." >&2
+    exit 1
+  fi
+fi
+
+# Default mode is a readiness check, not a gate.
 exit 0
