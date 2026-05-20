@@ -171,7 +171,6 @@ sudo chmod 600 /etc/chronicle/backup-encryption-key
 # 4. Retrieve the latest off-site backup
 mkdir -p /opt/chronicle/backups/latest
 rsync <off-site-source>/latest/ /opt/chronicle/backups/latest/
-# or: aws s3 sync s3://chronicle-backups/latest/ /opt/chronicle/backups/latest/
 
 # 5. Copy environment configuration
 cp docker/.env.production docker/.env

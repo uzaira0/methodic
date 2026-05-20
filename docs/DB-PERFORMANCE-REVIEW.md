@@ -120,17 +120,17 @@ SELECT ... FROM chronicle_usage_events
 WHERE study_id = ? AND participant_id = ANY(?) AND timestamp >= ? AND timestamp < ?
 ORDER BY timestamp ASC
 ```
-- **Table**: `chronicle_usage_events` (Redshift/Postgres event storage)
+- **Table**: `chronicle_usage_events` (Postgres event storage)
 - **WHERE columns**: `study_id`, `participant_id`, `timestamp`
 - **Classification**: COLD -- researcher data export
-- **Assessment**: This runs against Redshift or the event storage Postgres. Index coverage depends on the target. For Postgres, a composite index on `(study_id, participant_id, timestamp)` is needed. **Verify this index exists on the event storage database.**
+- **Assessment**: This runs against the event storage Postgres database. A composite index on `(study_id, participant_id, timestamp)` is needed. **Verify this index exists on the event storage database.**
 
 #### C2. Download Preprocessed Usage Events
 ```sql
 SELECT ... FROM preprocessed_usage_events
 WHERE study_id = ? AND participant_id = ANY(?) AND app_datetime_start >= ? AND app_datetime_start < ?
 ```
-- **Table**: `preprocessed_usage_events` (Redshift/Postgres)
+- **Table**: `preprocessed_usage_events` (Postgres event storage)
 - **WHERE columns**: `study_id`, `participant_id`, `app_datetime_start`
 - **Classification**: COLD
 - **Assessment**: Same concern as C1. Needs index on `(study_id, participant_id, app_datetime_start)`.
@@ -165,7 +165,7 @@ SELECT ... FROM ios_sensor_data
 WHERE study_id = ? AND participant_id = ANY(?) AND sensor_type = ANY(?) AND recorded_date_time >= ? AND recorded_date_time < ?
 ORDER BY recorded_date_time ASC
 ```
-- **Table**: `ios_sensor_data` (Redshift/Postgres)
+- **Table**: `ios_sensor_data` (Postgres event storage)
 - **WHERE columns**: `study_id`, `participant_id`, `sensor_type`, `recorded_date_time`
 - **Classification**: COLD
 - **Assessment**: Needs index on `(study_id, participant_id, sensor_type, recorded_date_time)` on event storage. **Verify on target database.**
@@ -240,18 +240,18 @@ SELECT organization_id FROM organization_studies WHERE study_id = ? LIMIT 1
 | HIGH | `app_usage_survey` | `(study_id, participant_id, timestamp)` | C3 | Full scan on download; also fix duplicate PK bug |
 | HIGH | `questionnaire_submissions` | `(study_id, questionnaire_id)` | C6 | Full scan on download |
 | MEDIUM | `organization_studies` | `(study_id)` | E4 | PK is (org_id, study_id), lookup by study_id alone |
-| LOW | Event storage tables | Verify composite indexes exist | C1, C2, C5 | Depends on Redshift vs Postgres deployment |
+| LOW | Event storage tables | Verify composite indexes exist | C1, C2, C5 | Applies to the Postgres event storage deployment |
 
 ## Bugs Found
 
 ### `app_usage_survey` Duplicate PK Column
 In `ChroniclePostgresTables.kt`:
 ```kotlin
-.primaryKey(RedshiftColumns.APP_PACKAGE_NAME, RedshiftColumns.APP_PACKAGE_NAME, RedshiftColumns.TIMESTAMP)
+.primaryKey(PostgresEventColumns.APP_PACKAGE_NAME, PostgresEventColumns.APP_PACKAGE_NAME, PostgresEventColumns.TIMESTAMP)
 ```
 `APP_PACKAGE_NAME` is listed twice. This should likely be:
 ```kotlin
-.primaryKey(STUDY_ID, PARTICIPANT_ID, RedshiftColumns.APP_PACKAGE_NAME, RedshiftColumns.TIMESTAMP)
+.primaryKey(STUDY_ID, PARTICIPANT_ID, PostgresEventColumns.APP_PACKAGE_NAME, PostgresEventColumns.TIMESTAMP)
 ```
 
 ---

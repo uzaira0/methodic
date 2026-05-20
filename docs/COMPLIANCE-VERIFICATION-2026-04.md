@@ -36,9 +36,9 @@
   `chronicle_usage_events`, `chronicle_usage_stats`, `preprocessed_usage_events`,
   `questionnaire_submissions`, `time_use_diary_submissions`, `app_usage_survey`,
   `upload_buffer`, `audit`, `audit_buffer`, `participant_stats`.
-- Tables not in `ChroniclePostgresTables.kt` (defined in `RedshiftDataTables.kt`):
+- Event storage tables defined outside `ChroniclePostgresTables.kt`:
   `sensor_data`, `chronicle_usage_events`, `chronicle_usage_stats`, `preprocessed_usage_events`.
-  These are Redshift-origin tables that also exist in Postgres -- the encryption script correctly covers them.
+  These are Postgres event storage tables -- the encryption script correctly covers them.
 - Script is idempotent (checks `pg_class` for existing `tde_heap` before converting).
 
 ## 2. SSL/TLS Configuration -- PASS

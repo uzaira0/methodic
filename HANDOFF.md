@@ -12,13 +12,13 @@
 |---|----------|---------|--------|
 | 1 | CRITICAL | RLSContextFilter, RLSContextManager, StorageResolver | Designed, not implemented |
 | 2 | CRITICAL | `.github/workflows/docker-build-deploy.yml` | Not implemented |
-| 3 | CRITICAL | `rhizome/.../S3ListingIterator.kt` | Not implemented |
-| 4 | CRITICAL | `chronicle-server/.../AwsBlobDataService.kt` | Not implemented |
+| 3 | CRITICAL | Removed legacy cloud object listing path | Removed from local deployment scope |
+| 4 | CRITICAL | Removed legacy cloud blob service path | Removed from local deployment scope |
 | 5 | HIGH | `chronicle-web/.../participant-dashboard-page.tsx` | Not implemented |
 | 6 | HIGH | `chronicle-server/.../SqlIdentifierValidator.kt` | Not implemented |
-| 7 | MEDIUM | `rhizome-client/.../AmazonLaunchConfiguration.java` | Not implemented |
+| 7 | MEDIUM | Removed legacy cloud launch configuration | Removed from local deployment scope |
 | 8 | MEDIUM | `chronicle-server/.../VaultConfiguration.kt` | Not implemented |
-| 9 | MEDIUM | `chronicle-server/.../AwsBlobDataService.kt` | Not implemented |
+| 9 | MEDIUM | Removed legacy cloud presign path | Removed from local deployment scope |
 | 10 | LOW | `chronicle-web/.../study-operations-api.ts` | Not implemented |
 
 ---
@@ -102,7 +102,7 @@ class RLSConnectionWrapper(
 
 - `getPlatformStorage()` and `getPlatformReadStorage()` return `javax.sql.DataSource` (not `HikariDataSource`)
 - Wrap the underlying `HikariDataSource` with `RLSDataSourceWrapper`
-- Event storage methods (`resolve`, `getEventStorageWithFlavor`, `getDefaultEventStorage`) keep returning `HikariDataSource` — Redshift doesn't use PG RLS
+- Event storage methods (`resolve`, `getEventStorageWithFlavor`, `getDefaultEventStorage`) keep returning `HikariDataSource` because they target the local Postgres event store separately from the RLS-wrapped platform storage path.
 
 ### Test impact:
 
@@ -136,33 +136,19 @@ Also restrict the trigger to `main` only (not `develop`).
 
 ---
 
-## Issue 3 — S3ListingIterator Pagination Bug (CRITICAL)
+## Issue 3 — Legacy Cloud Object Listing Pagination Bug (CRITICAL)
 
-**File:** `rhizome/src/main/kotlin/com/geekbeast/rhizome/aws/S3ListingIterator.kt:35`
+**Status:** Removed from the local BCM deployment path.
 
-**Bug:** `if (index == result.commonPrefixes().size)` hardcodes `commonPrefixes()` but `S3ObjectIterator` overrides `getBufferLength()` to use `contents().size`. When iterating objects (not prefixes), `commonPrefixes().size` is always 0, causing a re-fetch on every single `next()` call.
-
-**Fix:** Line 35: `result.commonPrefixes().size` → `getBufferLength()`
+**Resolution:** Chronicle local hosting uses local Postgres and local backup replication only. The legacy cloud object listing implementation was removed rather than repaired.
 
 ---
 
-## Issue 4 — S3Client/S3Presigner Resource Leak (CRITICAL)
+## Issue 4 — Legacy Cloud Blob Client Resource Leak (CRITICAL)
 
-**File:** `chronicle-server/.../storage/aws/AwsBlobDataService.kt:40-41`
+**Status:** Removed from the local BCM deployment path.
 
-**Bug:** `s3` and `presigner` are created in the constructor but never closed. Both hold HTTP connection pools and background threads.
-
-**Fix:** Implement `AutoCloseable` and add `@PreDestroy`:
-```kotlin
-@Service
-class AwsBlobDataService(...) : ByteBlobDataManager, AutoCloseable {
-    @PreDestroy
-    override fun close() {
-        s3.close()
-        presigner.close()
-    }
-}
-```
+**Resolution:** The external object-store blob service was removed. Chronicle now routes blob persistence through the local blob data path for this deployment.
 
 ---
 
@@ -186,13 +172,11 @@ class AwsBlobDataService(...) : ByteBlobDataManager, AutoCloseable {
 
 ---
 
-## Issue 7 — Wrong @JsonProperty on AmazonLaunchConfiguration (MEDIUM)
+## Issue 7 — Legacy Cloud Launch Configuration Mapping (MEDIUM)
 
-**File:** `rhizome-client/.../AmazonLaunchConfiguration.java:33`
+**Status:** Removed from the local BCM deployment path.
 
-**Bug:** `@JsonProperty(AwsLaunchConfiguration.BUCKET_FIELD)` on `getRegion()` method. Should be `REGION_FIELD`.
-
-**Fix:** Change `BUCKET_FIELD` → `REGION_FIELD`.
+**Resolution:** The unused cloud launch configuration model was deleted rather than repaired.
 
 ---
 
@@ -206,13 +190,11 @@ class AwsBlobDataService(...) : ByteBlobDataManager, AutoCloseable {
 
 ---
 
-## Issue 9 — AwsBlobDataService Wrong Catch Type (MEDIUM)
+## Issue 9 — Legacy Cloud Presign Error Handling (MEDIUM)
 
-**File:** `chronicle-server/.../storage/aws/AwsBlobDataService.kt:157`
+**Status:** Removed from the local BCM deployment path.
 
-**Bug:** `catch (e: S3Exception)` in `getPresignedUrl()`. Presigning is a local operation (no S3 call) — it throws `SdkClientException`, not `S3Exception`. The wrong catch type means presigning errors propagate as unhandled.
-
-**Fix:** Change `S3Exception` → `SdkException` (parent of both `SdkClientException` and `S3Exception`).
+**Resolution:** External object-store presign support is out of scope for local hosting and was removed.
 
 ---
 
@@ -245,10 +227,10 @@ All submodules have unpushed commits on `develop`:
 | Submodule | Commits ahead | Summary |
 |-----------|--------------|---------|
 | chronicle-api | 2 | Joda-Time removal, Java 21 source compat |
-| chronicle-server | 3 | AWS SDK v1→v2, Joda removal, Java 21 + JMH + property tests |
+| chronicle-server | 3 | Local object storage cleanup, Joda removal, Java 21 + JMH + property tests |
 | chronicle-web | 2 | SHA-pin actions + biome rules, zod-schemas + parity + Pa11y + OIDC |
-| rhizome | 4 | AWS SDK v1→v2, Joda removal, dead dep removal, Java 21 |
-| rhizome-client | 3 | AWS SDK v1→v2, Joda removal, Java 21 |
+| rhizome | 4 | Cloud-provider cleanup, Joda removal, dead dep removal, Java 21 |
+| rhizome-client | 3 | Cloud-provider cleanup, Joda removal, Java 21 |
 | chronicle (Android) | 0 | Clean |
 
-Root repo has 3 unpushed commits: Trivy removal, action hardening, Joda/AWS refactor.
+Root repo has 3 unpushed commits: Trivy removal, action hardening, Joda/cloud-provider refactor.
