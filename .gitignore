@@ -75,7 +75,6 @@ full_biome.log
 tests/security/reports/schemathesis/
 .hypothesis/
 tests/security/.trivy-cache/
-chronicle-models
 
 # Lefthook local overrides (personal config, not committed)
 lefthook-local.yml
