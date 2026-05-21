@@ -7,8 +7,8 @@ Branch (all 7 repos): `refactor/data-collection-modularization`
 
 ## Autonomy status
 
-`active` — Phases 0–12 complete and committed; Phase 13 verification in
-progress; Phase 14 (push) pending an explicit user request.
+`active` — Phases 0–13 complete, committed, and verified; Phase 14 (push)
+pending an explicit user request.
 
 ## Completed
 
@@ -114,11 +114,25 @@ runtime behavior is unchanged until parity is proven.
   current schemas plus an idempotent re-run. `chronicle-server@d5ac40e9`
   (root `627f748`).
 
+### Phase 13 — Full verification matrix ✅
+
+Three tracks, all green:
+
+- **Android** — verified during Phase 10: `:app:assembleDebug`,
+  `testDebugUnitTest`, and 28/28 instrumented tests on device.
+- **Backend (JVM)** — `chronicle-models` 70, `chronicle-api` 211,
+  `chronicle-server` 1202: **1483 tests, 0 failures, 0 errors**. (A Hazelcast
+  `TargetDisconnectedException` in the server log is a benign test-teardown
+  race, not a failure — build reported `BUILD SUCCESSFUL`.)
+- **Security/supply-chain** — collection guardrail layer green. Verification
+  surfaced three guardrails with stale `app/` paths after Phase 10's module
+  split; all three retargeted to the new `:collection-*` module locations and
+  re-confirmed passing (root `d6f8154`).
+
 ## Pending
 
 | Phase | Scope | Notes |
 |-------|-------|-------|
-| 13 | Full verification matrix | backend + security tracks in progress; Android verified in Phase 10 |
 | 14 | Commit & push sequence | submodule pushes need an explicit `git push` request |
 
 ## Notes for the next session
