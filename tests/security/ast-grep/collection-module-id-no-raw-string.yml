@@ -1,0 +1,34 @@
+# Catalog #6 (design §4) / §1A.1 — module IDs are CollectionModuleId references,
+# not raw string literals.
+#
+# Per design §1A.1 each module ID is declared exactly once as a CollectionModuleId
+# enum constant; wire/diagnostics use CollectionModuleId.id. A raw string literal
+# such as "usage_events" / "hardware_sensors" in collection code duplicates the ID
+# namespace and silently desyncs from the enum. This rule flags those literals.
+#
+# Exceptions: CollectionModuleId.kt itself declares the canonical literals, and the
+# JsonValue/JsonCreator/fromIdOrNull plumbing necessarily handles raw strings.
+id: collection-module-id-no-raw-string
+language: Kotlin
+severity: error
+message: >
+  Use a CollectionModuleId enum constant, not a raw module-ID string literal
+  (design §1A.1, guardrail #2). Module IDs are declared once in CollectionModuleId;
+  wire/diagnostics code must reference CollectionModuleId.<CONST>.id.
+files:
+  - "chronicle/app/src/main/java/com/openlattice/chronicle/collection/**/*.kt"
+  - "chronicle-models/src/main/kotlin/com/openlattice/chronicle/collection/**/*.kt"
+ignores:
+  # CollectionModuleId.kt is the single sanctioned declaration of the literals.
+  - "**/CollectionModuleId.kt"
+rule:
+  any:
+    - pattern: '"usage_events"'
+    - pattern: '"device_lifecycle"'
+    - pattern: '"hardware_sensors"'
+    - pattern: '"user_identification"'
+    - pattern: '"upload_telemetry"'
+    - pattern: '"sensor_availability"'
+    - pattern: '"time_use_diary"'
+    - pattern: '"questionnaire"'
+    - pattern: '"app_inventory"'

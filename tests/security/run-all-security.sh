@@ -143,6 +143,98 @@ PY
     echo "License scan complete"
     ;;
 
+  collection)
+    # Data collection modularization guardrails (refactor Phase 12, design §4).
+    # Semgrep rules + ast-grep structural rules + an upload-batch shell guardrail,
+    # all scoped to the collection packages so they cannot false-positive on
+    # legacy app/backend code.
+    for tool in semgrep ast-grep python3; do
+      command -v "$tool" >/dev/null 2>&1 || {
+        echo "ERROR: '$tool' is required for the collection layer but is not installed"
+        exit 1
+      }
+    done
+
+    echo "=== Collection: Semgrep modularization rules (Android collection package) ==="
+    set +e
+    semgrep scan --quiet \
+      --config "$ROOT_DIR/tests/security/collection-rules/collection-modularization.yaml" \
+      --sarif -o "$REPORT_DIR/collection-semgrep-modularization.sarif" \
+      "$ROOT_DIR/chronicle/app/src/main/java/com/openlattice/chronicle/collection"
+    coll_modular_status=$?
+    set -e
+    [ -f "$REPORT_DIR/collection-semgrep-modularization.sarif" ] || {
+      echo "Semgrep did not produce a collection modularization SARIF report"
+      exit 1
+    }
+    if [ "$coll_modular_status" -gt 1 ]; then
+      echo "Semgrep execution failed with status $coll_modular_status"
+      exit "$coll_modular_status"
+    fi
+
+    echo "=== Collection: Semgrep DTO secret-redaction rule (chronicle-models) ==="
+    set +e
+    semgrep scan --quiet \
+      --config "$ROOT_DIR/tests/security/collection-rules/collection-dto.yaml" \
+      --sarif -o "$REPORT_DIR/collection-semgrep-dto.sarif" \
+      "$ROOT_DIR/chronicle-models/src/main/kotlin/com/openlattice/chronicle/collection"
+    coll_dto_status=$?
+    set -e
+    [ -f "$REPORT_DIR/collection-semgrep-dto.sarif" ] || {
+      echo "Semgrep did not produce a collection DTO SARIF report"
+      exit 1
+    }
+    if [ "$coll_dto_status" -gt 1 ]; then
+      echo "Semgrep execution failed with status $coll_dto_status"
+      exit "$coll_dto_status"
+    fi
+
+    coll_semgrep_findings="$(python3 - \
+      "$REPORT_DIR/collection-semgrep-modularization.sarif" \
+      "$REPORT_DIR/collection-semgrep-dto.sarif" <<'PY'
+import json, sys
+total = 0
+for path in sys.argv[1:]:
+    with open(path, encoding="utf-8") as f:
+        sarif = json.load(f)
+    for run in sarif.get("runs", []):
+        total += len([r for r in run.get("results", []) if not r.get("suppressions")])
+print(total)
+PY
+)"
+    echo "Collection Semgrep actionable findings: $coll_semgrep_findings"
+
+    echo "=== Collection: ast-grep structural rules ==="
+    coll_ast_findings=0
+    for rule in collection-module-id-no-raw-string \
+                collection-queue-insert-only-in-sink \
+                collection-sensor-insert-only-in-sink \
+                collection-hardware-service-only-via-manager \
+                collection-lifecycle-record-only-via-module \
+                collection-worker-no-direct-sensor-instantiation \
+                collection-settings-service-no-rls-context-call; do
+      ast-grep scan --rule "$ROOT_DIR/tests/security/ast-grep/${rule}.yml" \
+        "$ROOT_DIR/chronicle" "$ROOT_DIR/chronicle-models" "$ROOT_DIR/chronicle-server" \
+        --format sarif > "$REPORT_DIR/collection-${rule}.sarif" 2>/dev/null || true
+      n="$(python3 -c 'import sys,json; print(len(json.load(open(sys.argv[1]))["runs"][0]["results"]))' \
+        "$REPORT_DIR/collection-${rule}.sarif" 2>/dev/null || echo 0)"
+      echo "  $rule: $n finding(s)"
+      coll_ast_findings=$((coll_ast_findings + n))
+    done
+
+    echo "=== Collection: upload batch-validation shell guardrail ==="
+    "$ROOT_DIR/tests/security/collection-upload-validation-guardrail.sh" "$REPORT_DIR"
+
+    echo "=== Collection: guardrail fixture self-check (rules must fire on bad code) ==="
+    "$ROOT_DIR/tests/security/collection-guardrail-fixtures.sh" "$REPORT_DIR"
+
+    if [ "$coll_semgrep_findings" -gt 0 ] || [ "$coll_ast_findings" -gt 0 ]; then
+      echo "Collection guardrails found violations (Semgrep: $coll_semgrep_findings, ast-grep: $coll_ast_findings)"
+      exit 1
+    fi
+    echo "Collection guardrails complete"
+    ;;
+
   compliance)
     echo "=== Compliance: Conftest OPA policies ==="
     if [ -d "$ROOT_DIR/tests/security/policies" ]; then
@@ -158,7 +250,7 @@ PY
 
   *)
     echo "ERROR: Unknown layer: $LAYER"
-    echo "Valid layers: sast, sca, secrets, iac, sso, mobile, auth, injection, crypto, license, compliance"
+    echo "Valid layers: sast, sca, secrets, iac, sso, mobile, auth, injection, crypto, license, compliance, collection"
     exit 1
     ;;
 esac
