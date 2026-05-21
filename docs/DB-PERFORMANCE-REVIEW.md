@@ -38,7 +38,7 @@ WHERE study_id = ? AND participant_id = ? AND source_device_id = ?
 
 #### H3. Insert to Upload Buffer
 ```sql
-INSERT INTO upload_buffer (study_id, participant_id, upload_data, uploaded_at, upload_type)
+INSERT INTO upload_buffer (study_id, participant_id, data, uploaded_at, upload_type)
 VALUES (?, ?, ?::jsonb, ?, 'Android')
 ```
 - **Table**: `upload_buffer`
@@ -65,7 +65,7 @@ ON CONFLICT (study_id, participant_id) DO UPDATE SET ...
 
 #### H5. Insert Sensor Data to Upload Buffer
 ```sql
-INSERT INTO upload_buffer (study_id, participant_id, upload_data, uploaded_at, upload_type, source_device_id)
+INSERT INTO upload_buffer (study_id, participant_id, data, uploaded_at, upload_type, source_device_id)
 VALUES (?, ?, ?::jsonb, now(), 'Ios', ?)
 ```
 - **Table**: `upload_buffer`
@@ -117,13 +117,13 @@ ON CONFLICT (sample_id) DO NOTHING
 #### C1. Download Usage Events
 ```sql
 SELECT ... FROM chronicle_usage_events
-WHERE study_id = ? AND participant_id = ANY(?) AND timestamp >= ? AND timestamp < ?
-ORDER BY timestamp ASC
+WHERE study_id = ? AND participant_id = ANY(?) AND event_timestamp >= ? AND event_timestamp < ?
+ORDER BY event_timestamp ASC
 ```
 - **Table**: `chronicle_usage_events` (Postgres event storage)
-- **WHERE columns**: `study_id`, `participant_id`, `timestamp`
+- **WHERE columns**: `study_id`, `participant_id`, `event_timestamp`
 - **Classification**: COLD -- researcher data export
-- **Assessment**: This runs against the event storage Postgres database. A composite index on `(study_id, participant_id, timestamp)` is needed. **Verify this index exists on the event storage database.**
+- **Assessment**: This runs against the event storage Postgres database. A composite index on `(study_id, participant_id, event_timestamp)` is needed. **Verify this index exists on the event storage database.**
 
 #### C2. Download Preprocessed Usage Events
 ```sql
@@ -138,14 +138,14 @@ WHERE study_id = ? AND participant_id = ANY(?) AND app_datetime_start >= ? AND a
 #### C3. Download App Usage Survey Data
 ```sql
 SELECT ... FROM app_usage_survey
-WHERE study_id = ? AND participant_id = ANY(?) AND timestamp >= ? AND timestamp < ?
+WHERE study_id = ? AND participant_id = ANY(?) AND event_timestamp >= ? AND event_timestamp < ?
 ```
 - **Table**: `app_usage_survey`
-- **WHERE columns**: `study_id`, `participant_id`, `timestamp`
+- **WHERE columns**: `study_id`, `participant_id`, `event_timestamp`
 - **Index**: **NO INDEX DEFINED** in `ChroniclePostgresTables.kt`
 - **Classification**: COLD
 - **Assessment**: **MISSING INDEX**. The `app_usage_survey` table has a primary key on `(app_package_name, app_package_name, timestamp)` -- note the **duplicate column bug** in the PK definition. This PK does not cover the download query's WHERE clause at all.
-- **RECOMMENDATION**: Fix the PK to `(study_id, participant_id, app_package_name, timestamp)` and add index on `(study_id, participant_id, timestamp)`.
+- **RECOMMENDATION**: Fix the PK to `(study_id, participant_id, app_package_name, event_timestamp)` and add index on `(study_id, participant_id, event_timestamp)`.
 
 #### C4. Download Android Sensor Data
 ```sql
@@ -172,7 +172,7 @@ ORDER BY recorded_date_time ASC
 
 #### C6. Download Questionnaire Submissions
 ```sql
-SELECT participant_id, question_title, completed_at, responses
+SELECT participant_id, question_title, completed_at, response
 FROM questionnaire_submissions
 WHERE study_id = ? AND questionnaire_id = ?
 ```
@@ -237,7 +237,7 @@ SELECT organization_id FROM organization_studies WHERE study_id = ? LIMIT 1
 | Priority | Table | Missing Index | Affected Query | Impact |
 |----------|-------|--------------|----------------|--------|
 | HIGH | `upload_buffer` | `(upload_type, study_id, participant_id)` | W1 (getMoveSql) | Background task scans without type filter |
-| HIGH | `app_usage_survey` | `(study_id, participant_id, timestamp)` | C3 | Full scan on download; also fix duplicate PK bug |
+| HIGH | `app_usage_survey` | `(study_id, participant_id, event_timestamp)` | C3 | Full scan on download; also fix duplicate PK bug |
 | HIGH | `questionnaire_submissions` | `(study_id, questionnaire_id)` | C6 | Full scan on download |
 | MEDIUM | `organization_studies` | `(study_id)` | E4 | PK is (org_id, study_id), lookup by study_id alone |
 | LOW | Event storage tables | Verify composite indexes exist | C1, C2, C5 | Applies to the Postgres event storage deployment |
@@ -297,7 +297,7 @@ WHERE study_id = '<sample-study-uuid>'
 
 -- H3: Upload buffer insert timing (check for lock contention)
 EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
-INSERT INTO upload_buffer (study_id, participant_id, upload_data, uploaded_at, upload_type)
+INSERT INTO upload_buffer (study_id, participant_id, data, uploaded_at, upload_type)
 VALUES ('<uuid>', 'test', '[]'::jsonb, now(), 'Android');
 -- Then: DELETE FROM upload_buffer WHERE study_id = '<uuid>' AND participant_id = 'test';
 ```
@@ -323,8 +323,8 @@ EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
 SELECT * FROM app_usage_survey
 WHERE study_id = '<uuid>'
   AND participant_id = ANY(ARRAY['p1', 'p2'])
-  AND timestamp >= '2026-01-01'
-  AND timestamp < '2026-04-01';
+  AND event_timestamp >= '2026-01-01'
+  AND event_timestamp < '2026-04-01';
 
 -- C4: Android sensor data download
 EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
@@ -337,7 +337,7 @@ ORDER BY sample_timestamp ASC;
 
 -- C6: Questionnaire submissions (likely missing index)
 EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
-SELECT participant_id, question_title, completed_at, responses
+SELECT participant_id, question_title, completed_at, response
 FROM questionnaire_submissions
 WHERE study_id = '<uuid>' AND questionnaire_id = '<questionnaire-uuid>';
 ```
