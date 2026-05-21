@@ -7,7 +7,8 @@ Branch (all 7 repos): `refactor/data-collection-modularization`
 
 ## Autonomy status
 
-`active` — foundation complete, implementation phases pending.
+`active` — Phases 0–12 complete and committed; Phase 13 verification in
+progress; Phase 14 (push) pending an explicit user request.
 
 ## Completed
 
@@ -47,28 +48,87 @@ Branch (all 7 repos): `refactor/data-collection-modularization`
   `.gitignore`, `.gitmodules` entry added, git dir absorbed (root `041c183`).
   Shared collection DTOs (design §1B) will land here, committable + CI-verified.
 
+### Phase 2 — Shared module DTOs ✅
+
+- `chronicle-models@f85ecf4` (root `be51f76`): collection DTOs implementing
+  design §1B — `CollectionModuleId`, `CollectionModuleSetting`,
+  `CollectionPrivacyClass`, `CollectionModuleDiagnostics`, `NetworkPolicy`,
+  plus serialization + compatibility tests.
+
+### Phase 3 — Android collection core package ✅
+
+- `chronicle@32ac6b0` (root `2e5ac2e`): collection core package — interfaces,
+  sinks, resolver (design §1C).
+
+### Phases 4–8 — Per-module extraction ✅
+
+Each phase wraps one module behind a migration switch defaulting `false`, so
+runtime behavior is unchanged until parity is proven.
+
+- Phase 4 — usage events: `chronicle@f89f38c` (root `00b82a7`)
+- Phase 5 — device lifecycle: `chronicle@1e9e370` (root `cbc067a`)
+- Phase 6 — hardware sensors: `chronicle@7b5c261` (root `0808c78`); the
+  power-save degraded-mode guardrail was repointed to the new locations
+  (`SensorGateway.isPowerSaveMode` / `SensorRuntimeController` `DEGRADED`) in
+  root `6594542`.
+- Phase 7 — user identification: `chronicle@eebd614d` (root `d2dcdb9`)
+- Phase 8 — upload telemetry / diagnostics: `chronicle@5d67b4a` (root `31fe391`)
+
+### Phase 9 — Backend generalized settings (additive) ✅
+
+- `chronicle-api@68293967`, `chronicle-web@4059f780`, `chronicle-server@b8c624d7`
+  (root `3d921a9`): generalized `AndroidDataCollectionSetting` read path,
+  OpenAPI schema, regenerated TS types. Read-only and additive (design §1D).
+
+### Phase 10 — Gradle module split ✅
+
+- `chronicle` `abb62a3`…`a302cb1` (root `81ee1ed`): dependency inversion first,
+  then the split. New `:collection-base` library holds the persistence layer
+  and R/BuildConfig-free primitives; `:collection-core`, `:collection-upload`,
+  `:collection-sensors`, `:collection-usage`, `:collection-lifecycle` split out
+  of `:app`. The `preferences → collection.identification` back-edge and the
+  `collection → HardwareSensorService` cycle were inverted behind interfaces.
+  Dependency graph acyclic; merged manifest byte-identical to pre-refactor;
+  `:app:assembleDebug`, `testDebugUnitTest`, and 28/28 instrumented tests pass.
+
+### Phase 11 — Data quality + dogfood tooling ✅
+
+- root `cc80f06`: dogfood report / battery harness / long-run / sensor-settings
+  scripts and their guardrails.
+
+### Phase 12 — Static security/structural guardrails ✅
+
+- root `ff6c4f8`: collection security layer + 12-rule guardrail catalog
+  (design §4); all rules fire on fixtures, zero false positives.
+
+### Post-Phase-12 — Review & V21 fix ✅
+
+- A four-agent review of the committed changes (`/review-fixes`) found that the
+  Phase 9 `V21__repair_android_sensor_device_id_columns.sql` migration
+  backfilled `device_id` with a raw `source_device_id::uuid` cast, while the
+  upload path derives `device_id` as a v3 (MD5 name-based) UUID — so repaired
+  rows would never join. V21 also referenced the legacy `source_device_id`
+  column unconditionally (crashing on current schemas). Rewritten to derive the
+  v3 UUID in SQL, guard every legacy-column reference, fix the PK/NOT-NULL
+  ordering, and batch the backfill. Verified against PostgreSQL on legacy and
+  current schemas plus an idempotent re-run. `chronicle-server@d5ac40e9`
+  (root `627f748`).
+
 ## Pending
 
 | Phase | Scope | Notes |
 |-------|-------|-------|
-| 2  | Shared module DTOs + serialization/compatibility tests in `chronicle-models` | implements design §1B; first code phase |
-| 3  | Android collection core package (interfaces, sinks, resolver) | design §1C |
-| 4  | Usage events module | wraps `UsageCollectionDelegate` |
-| 5  | Device lifecycle module | wraps `DeviceLifecycleEventRecorder` |
-| 6  | Hardware sensors module | extracts `SensorRuntimeController` |
-| 7  | User identification module | |
-| 8  | Upload telemetry / diagnostics module | |
-| 9  | Backend generalized settings (additive) | design §1D |
-| 10 | Gradle module split (`:collection-*` libraries) | |
-| 11 | Data quality + dogfood tooling | |
-| 12 | Static security/structural guardrails | implements design §4 catalog |
-| 13 | Full verification matrix | |
-| 14 | Commit & push sequence | submodule pushes need a `git push` request |
+| 13 | Full verification matrix | backend + security tracks in progress; Android verified in Phase 10 |
+| 14 | Commit & push sequence | submodule pushes need an explicit `git push` request |
 
 ## Notes for the next session
 
-- Phases 3–8 each wrap one module independently — suitable for parallel subagent
-  fan-out once Phase 2 contracts are committed.
 - `JAVA_HOME=/home/uzair/.local/jdks/temurin-21` required for Gradle.
 - Submodule commits precede root pointer bumps; never use `git stash`.
+- Phase 4–8 migration switches still default to `false`/legacy — flipping them
+  to prove parity is follow-up work beyond this refactor's scope.
+- Pre-existing latent bug surfaced during review (not introduced here, not
+  fixed): `MoveToIosEventStorageTask.kt` `mapSensorDataToStorage` has a
+  non-local `return` inside `mapValues {}` that drops all but the first sensor
+  type in multi-sensor iOS uploads.
 - Re-confirm with the user before `git push` (Phase 14).
