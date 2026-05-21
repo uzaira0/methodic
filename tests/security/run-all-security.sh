@@ -155,12 +155,15 @@ PY
       }
     done
 
-    echo "=== Collection: Semgrep modularization rules (Android collection package) ==="
+    echo "=== Collection: Semgrep modularization rules (Android collection packages) ==="
+    # Phase 10 split the collection code out of :app into :collection-* Gradle
+    # modules; :app keeps only the module holders / TargetUserRouter. Scan the
+    # collection package in :app and in every :collection-* module.
     set +e
     semgrep scan --quiet \
       --config "$ROOT_DIR/tests/security/collection-rules/collection-modularization.yaml" \
       --sarif -o "$REPORT_DIR/collection-semgrep-modularization.sarif" \
-      "$ROOT_DIR/chronicle/app/src/main/java/com/openlattice/chronicle/collection"
+      "$ROOT_DIR"/chronicle/{app,collection-core,collection-upload,collection-sensors,collection-usage,collection-lifecycle}/src/main/java/com/openlattice/chronicle/collection
     coll_modular_status=$?
     set -e
     [ -f "$REPORT_DIR/collection-semgrep-modularization.sarif" ] || {

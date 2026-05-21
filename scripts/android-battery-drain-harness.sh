@@ -191,8 +191,10 @@ adb_shell dumpsys activity processes "$PACKAGE" > "$RUN_DIR/activity-processes-f
 adb_shell logcat -d > "$RUN_DIR/logcat-final.txt" || true
 
 # Wake-lock summary attributed to the Chronicle uid, from final batterystats.
+# Android labels app uid X (user 0) as u0a<X-10000>, e.g. 10234 -> u0a234.
 if [[ -n "$uid" ]]; then
-  grep -E "Wake lock|Job [0-9]|u0a${uid#1000}" "$RUN_DIR/batterystats-final.txt" \
+  uid_suffix=$((uid - 10000))
+  grep -E "Wake lock|Job [0-9]|u0a${uid_suffix}" "$RUN_DIR/batterystats-final.txt" \
     > "$RUN_DIR/wakelock-summary.txt" 2>/dev/null || true
 fi
 # WorkManager / foreground-service state for the Chronicle package.

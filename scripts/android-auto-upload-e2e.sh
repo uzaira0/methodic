@@ -298,7 +298,7 @@ sleep 3
 
 deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
 observed_buffer=0
-observed_activity_class=0
+observed_final_storage=0
 while (( $(date +%s) <= deadline )); do
   current_events="$(usage_events_count)"
   current_activity="$(usage_activity_class_count)"
@@ -308,12 +308,9 @@ while (( $(date +%s) <= deadline )); do
   now="$(date -Is)"
   echo "[$now] final_usage_events=$current_events final_activity_class=$current_activity usage_buffer_events=$current_usage_buffer usage_buffer_activity_class=$current_buffer_activity sensor_buffer_samples=$current_sensor_buffer"
 
-  if (( current_activity > before_activity || current_buffer_activity > before_buffer_activity )); then
-    observed_activity_class=1
-  fi
-
   if (( current_events > before_events )); then
     if (( REQUIRE_ACTIVITY_CLASS == 1 && current_activity <= before_activity )); then
+      observed_final_storage=1
       echo "Final storage grew, but no new non-null activity_class is present yet."
     else
       echo "PASS: automatic usage upload reached final storage."
@@ -349,10 +346,15 @@ done
 "$ADB_BIN" -s "$SERIAL" logcat -d > "$LOGCAT_FILE"
 "$ADB_BIN" -s "$SERIAL" exec-out uiautomator dump /dev/tty > "$UI_FILE" || true
 
-if (( observed_buffer == 1 && REQUIRE_FINAL_STORAGE == 1 )); then
+# Most-specific cause first. observed_final_storage is latched only when usage
+# events reached final storage but no new non-null activity_class appeared, so
+# it must outrank the buffer-only and no-upload diagnoses.
+if (( observed_final_storage == 1 )); then
+  echo "FAIL: usage events reached final storage, but no new non-null activity_class observed before timeout." >&2
+elif (( observed_buffer == 1 && REQUIRE_FINAL_STORAGE == 1 )); then
   echo "FAIL: automatic usage upload reached upload_buffer, but did not reach final storage before timeout." >&2
-elif (( observed_activity_class == 0 && REQUIRE_ACTIVITY_CLASS == 1 )); then
-  echo "FAIL: no new non-null activity_class observed before timeout." >&2
+elif (( observed_buffer == 1 )); then
+  echo "FAIL: automatic usage upload reached upload_buffer, but no new non-null activity_class observed before timeout." >&2
 else
   echo "FAIL: no automatic usage upload observed before timeout." >&2
 fi

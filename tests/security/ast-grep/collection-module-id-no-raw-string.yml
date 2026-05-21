@@ -8,6 +8,11 @@
 #
 # Exceptions: CollectionModuleId.kt itself declares the canonical literals, and the
 # JsonValue/JsonCreator/fromIdOrNull plumbing necessarily handles raw strings.
+#
+# Scope: the collection package wherever it lives — :app and every :collection-*
+# Gradle module (Phase 10 split it out of :app), plus the shared chronicle-models
+# collection package. Test code is excluded via ignores: it legitimately asserts
+# on the raw wire literals.
 id: collection-module-id-no-raw-string
 language: Kotlin
 severity: error
@@ -16,11 +21,13 @@ message: >
   (design §1A.1, guardrail #2). Module IDs are declared once in CollectionModuleId;
   wire/diagnostics code must reference CollectionModuleId.<CONST>.id.
 files:
-  - "chronicle/app/src/main/java/com/openlattice/chronicle/collection/**/*.kt"
-  - "chronicle-models/src/main/kotlin/com/openlattice/chronicle/collection/**/*.kt"
+  - "**/collection/**/*.kt"
 ignores:
   # CollectionModuleId.kt is the single sanctioned declaration of the literals.
   - "**/CollectionModuleId.kt"
+  # Test code asserts on the raw wire literals and is not production collection code.
+  - "**/test/**"
+  - "**/androidTest/**"
 rule:
   any:
     - pattern: '"usage_events"'
