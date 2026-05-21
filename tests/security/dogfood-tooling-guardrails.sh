@@ -132,8 +132,9 @@ pass "long-run script restores device state on exit"
 # Power-save degraded mode (Methodic-style cadence multiplier) must be
 # preserved. Phase 6 relocated this logic out of HardwareSensorService into
 # the sensor collection runtime: the SensorGateway power-save probe drives
-# SensorCollectionMode.DEGRADED in SensorRuntimeController.
-SENSOR_RUNTIME_DIR="$ROOT_DIR/chronicle/app/src/main/java/com/openlattice/chronicle/collection/sensors"
+# SensorCollectionMode.DEGRADED in SensorRuntimeController. Phase 10 then split
+# the sensor collection runtime into the :collection-sensors Gradle module.
+SENSOR_RUNTIME_DIR="$ROOT_DIR/chronicle/collection-sensors/src/main/java/com/openlattice/chronicle/collection/sensors"
 HARDWARE_SENSOR_SERVICE="$ROOT_DIR/chronicle/app/src/main/java/com/openlattice/chronicle/services/sensors/HardwareSensorService.kt"
 { grep -q "isPowerSaveMode" "$SENSOR_RUNTIME_DIR/SensorGateway.kt" 2>/dev/null \
   && grep -q "SensorCollectionMode\\.DEGRADED" "$SENSOR_RUNTIME_DIR/SensorRuntimeController.kt" 2>/dev/null; } \

@@ -74,7 +74,8 @@ if [[ "${CHRONICLE_SKIP_ANDROID_BUILD:-0}" != "1" ]]; then
   fi
 fi
 
-require_file_contains "$APP_DIR/src/main/java/com/openlattice/chronicle/sensors/UsageEventsChronicleSensor.kt" \
+# Phase 10 split the usage collector into the :collection-usage Gradle module.
+require_file_contains "$ANDROID_DIR/collection-usage/src/main/java/com/openlattice/chronicle/sensors/UsageEventsChronicleSensor.kt" \
   "activityClass[[:space:]]*=[[:space:]]*it\\.className" \
   "UsageEvents collector preserves Android activity class"
 require_file_contains "$APP_DIR/src/main/java/com/openlattice/chronicle/services/upload/UploadExecutor.kt" \

@@ -13,7 +13,10 @@
 #                                     gated by SensorSettingsMigration).
 #   - Enrollment.kt                 : legacy enrollment-time start (retires at Phase 6).
 #   - MainActivity.kt               : legacy UI-driven start (retires at Phase 6).
-# Sanctioned caller (the boundary itself): HardwareSensorsCollectionModule.kt.
+# Sanctioned caller (the boundary itself): after Phase 10's dependency inversion the
+# :collection-sensors module talks to the HardwareSensorServiceController interface;
+# HardwareSensorServiceControllerImpl.kt is the :app-side adapter that owns the real
+# HardwareSensorService start/stop, so it is the sanctioned boundary and is exempt.
 id: collection-hardware-service-only-via-manager
 language: Kotlin
 severity: error
@@ -23,6 +26,7 @@ message: >
   service start/stop bypasses module lifecycle ownership.
 ignores:
   - "**/collection/sensors/HardwareSensorsCollectionModule.kt"
+  - "**/services/sensors/HardwareSensorServiceControllerImpl.kt"
   - "**/receivers/lifecycle/PowerSaveModeReceiver.kt"
   - "**/receivers/lifecycle/StartOnBoot.kt"
   - "**/services/sensors/SensorSettingsRefreshWorker.kt"
