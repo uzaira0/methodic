@@ -129,9 +129,16 @@ grep -q "trap restore_device_state EXIT" "$LONG_RUN" \
   || fail "long-run script must restore device state on exit"
 pass "long-run script restores device state on exit"
 
-grep -q "pm\\.isPowerSaveMode" "$ROOT_DIR/chronicle/app/src/main/java/com/openlattice/chronicle/services/sensors/HardwareSensorService.kt" \
+# Power-save degraded mode (Methodic-style cadence multiplier) must be
+# preserved. Phase 6 relocated this logic out of HardwareSensorService into
+# the sensor collection runtime: the SensorGateway power-save probe drives
+# SensorCollectionMode.DEGRADED in SensorRuntimeController.
+SENSOR_RUNTIME_DIR="$ROOT_DIR/chronicle/app/src/main/java/com/openlattice/chronicle/collection/sensors"
+HARDWARE_SENSOR_SERVICE="$ROOT_DIR/chronicle/app/src/main/java/com/openlattice/chronicle/services/sensors/HardwareSensorService.kt"
+{ grep -q "isPowerSaveMode" "$SENSOR_RUNTIME_DIR/SensorGateway.kt" 2>/dev/null \
+  && grep -q "SensorCollectionMode\\.DEGRADED" "$SENSOR_RUNTIME_DIR/SensorRuntimeController.kt" 2>/dev/null; } \
   || fail "hardware sensor collection must keep original Methodic Battery Saver degraded mode"
-if grep -q "BATTERY_DEGRADED_THRESHOLD" "$ROOT_DIR/chronicle/app/src/main/java/com/openlattice/chronicle/services/sensors/HardwareSensorService.kt"; then
+if grep -rq "BATTERY_DEGRADED_THRESHOLD" "$SENSOR_RUNTIME_DIR" "$HARDWARE_SENSOR_SERVICE" 2>/dev/null; then
   fail "hardware sensor collection must not add a separate low-battery degraded threshold"
 fi
 pass "hardware sensor collection stays close to original Methodic degraded-mode behavior"
