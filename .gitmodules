@@ -16,3 +16,7 @@
 [submodule "chronicle-web"]
 	path = chronicle-web
 	url = https://github.com/uzaira0/chronicle-web.git
+[submodule "chronicle-models"]
+	path = chronicle-models
+	url = https://github.com/uzaira0/chronicle-models.git
+	branch = refactor/data-collection-modularization

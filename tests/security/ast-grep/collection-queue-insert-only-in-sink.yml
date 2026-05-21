@@ -1,0 +1,37 @@
+# Catalog #7 (design §4) / §1C.2 — dataQueue inserts only in the sanctioned
+# UsageEventSink.
+#
+# Design §1C.2: the only sanctioned writer of usage-style rows into `dataQueue` is
+# UsageEventSink (wrapping StorageQueue.insertEntries, reached via
+# queueEntryData()). Any other production callsite is a NEW boundary violation.
+#
+# This rule matches:
+#   - `$Q.queueEntryData().insertEntry(...)` — the dataQueue DAO accessor + insert, and
+#   - `storageQueue.insertEntries(...)`      — the StorageQueue write the sink wraps.
+# It deliberately does NOT match the *user* queue (userStorageQueue.insertEntry /
+# userQueueDao.insertEntries) — that is a different table governed by Phase 7.
+#
+# LEGACY EXCEPTIONS (migration switches OFF — Phases 4-5 not flipped, these still run):
+#   - UsageMonitoringWorker.kt  : legacy direct dataQueue writer (retires at Phase 4B,
+#                                 gated by UsageWorkerMigration).
+#   - DeviceLifecycleEvents.kt  : legacy `recordNow` direct lifecycle writer to dataQueue
+#                                 (retires at Phase 5B, gated by
+#                                 LifecycleWorkerMigration.USE_MODULE_MANAGER_LIFECYCLE_PATH).
+# Sanctioned writer (the boundary itself, not an exception): UsageEventSink.kt.
+id: collection-queue-insert-only-in-sink
+language: Kotlin
+severity: error
+message: >
+  Direct dataQueue insert outside the sanctioned UsageEventSink
+  (design §1C.2, guardrail #7). Route usage-style writes through UsageEventSink so
+  the QueueEntry boundary stays in one place.
+ignores:
+  - "**/collection/sink/UsageEventSink.kt"
+  - "**/services/usage/UsageMonitoringWorker.kt"
+  - "**/services/lifecycle/DeviceLifecycleEvents.kt"
+  - "**/test/**"
+  - "**/androidTest/**"
+rule:
+  any:
+    - pattern: $Q.queueEntryData().insertEntry($$$ARGS)
+    - pattern: storageQueue.insertEntries($$$ARGS)

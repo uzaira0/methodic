@@ -14,6 +14,9 @@ http:
     accelerometer-tracking-strip:
       stripPrefix:
         prefixes: ["/accelerometer-tracking"]
+    ess-strip:
+      stripPrefix:
+        prefixes: ["/ess"]
     sleepscoring-api-strip:
       stripPrefix:
         prefixes: ["/sleep-scoring"]
@@ -46,84 +49,98 @@ http:
 
   routers:
     accelerometer-tracking-local:
-      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/accelerometer-tracking`)"
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/accelerometer-tracking`)"
       entryPoints: [web]
       middlewares: [local-only, accelerometer-tracking-strip]
       service: accelerometer-tracking-svc
       priority: 110
 
+    ess-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/ess`)"
+      entryPoints: [web]
+      middlewares: [local-only, ess-strip]
+      service: ess-svc
+      priority: 110
+
+    actobridge-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && (PathPrefix(`/actobridge`) || Path(`/health`))"
+      entryPoints: [web]
+      middlewares: [local-only]
+      service: actobridge-svc
+      priority: 110
+
     wasm-ss-local:
-      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/wasm-ss`)"
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/wasm-ss`)"
       entryPoints: [web]
       middlewares: [local-only, wasm-ss-strip]
       service: wasm-ss-svc
       priority: 100
 
     sleepscoring-api-local:
-      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/sleep-scoring/api`)"
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/sleep-scoring/api`)"
       entryPoints: [web]
       middlewares: [local-only, sleepscoring-api-strip]
       service: sleepscoring-api-svc
       priority: 100
 
     sleepscoring-fe-local:
-      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/sleep-scoring`)"
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/sleep-scoring`)"
       entryPoints: [web]
       middlewares: [local-only, sleepscoring-fe-strip]
       service: sleepscoring-fe-svc
       priority: 99
 
     flash-ws-local:
-      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/flash/ws`)"
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/flash/ws`)"
       entryPoints: [web]
       middlewares: [local-only, flash-ws-strip]
       service: flash-ws-svc
       priority: 102
 
     flash-api-local:
-      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/flash/api`)"
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/flash/api`)"
       entryPoints: [web]
       middlewares: [local-only, flash-api-strip]
       service: flash-api-svc
       priority: 101
 
     flash-fe-local:
-      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/flash`)"
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/flash`)"
       entryPoints: [web]
       middlewares: [local-only, flash-fe-strip]
       service: flash-fe-svc
       priority: 99
 
     temporal-local:
-      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/temporal`)"
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/temporal`)"
       entryPoints: [web]
       middlewares: [local-only, temporal-strip]
       service: temporal-svc
       priority: 100
 
     minio-local:
-      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/minio`)"
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/minio`)"
       entryPoints: [web]
       middlewares: [local-only, minio-strip]
       service: minio-svc
       priority: 100
 
     grafana-local:
-      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/grafana`)"
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/grafana`)"
       entryPoints: [web]
       middlewares: [local-only]
       service: grafana-svc
       priority: 100
 
     chronicle-frontend-local:
-      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/chronicle`)"
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/chronicle`)"
       entryPoints: [web]
       middlewares: [local-only, chronicle-fe-strip]
       service: chronicle-fe-svc
       priority: 1
 
     chronicle-root-local:
-      rule: "!Host(`chronicle-screentime-app.research.bcm.edu`) && Path(`/`)"
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && Path(`/`)"
       entryPoints: [web]
       middlewares: [local-only, chronicle-root-redirect]
       service: chronicle-fe-svc
@@ -133,7 +150,15 @@ http:
     accelerometer-tracking-svc:
       loadBalancer:
         servers:
-          - url: "http://actilife-dashboard:8088"
+          - url: "http://accelogtracker-dashboard:8088"
+    actobridge-svc:
+      loadBalancer:
+        servers:
+          - url: "http://actobridge-upload-server:9321"
+    ess-svc:
+      loadBalancer:
+        servers:
+          - url: "http://ess-scoring-upload-server:8000"
     chronicle-fe-svc:
       loadBalancer:
         servers:

@@ -10,9 +10,10 @@ Ignore for now:
 - Twilio/SMS delivery and Twilio BAA/compliance follow-up.
 - Alertmanager outbound notification receivers such as Slack, PagerDuty,
   OpsGenie, or email webhooks.
-- Redshift runtime, Redshift JDBC, Redshift migration/flush jobs, and
-  Redshift-specific cleanup. Chronicle local hosting uses local Postgres only.
-- AWS/S3 runtime features, AWS launch configuration, and AWS-specific cleanup.
+- External warehouse runtime, warehouse JDBC, warehouse migration/flush jobs, and
+  warehouse-specific cleanup. Chronicle local hosting uses local Postgres only.
+- Cloud object-storage runtime features, cloud launch configuration, and
+  cloud-provider-specific cleanup.
 - Firebase/FCM or other external push providers.
 - Cloud deployment, hosted staging, and non-local cloud-provider runbooks.
 

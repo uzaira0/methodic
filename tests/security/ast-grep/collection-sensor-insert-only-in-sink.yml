@@ -1,0 +1,25 @@
+# Catalog #8 (design §4) / §1C.2 — sensor-sample inserts only in the sanctioned
+# SensorSampleSink.
+#
+# Design §1C.2: the only sanctioned writer of hardware sensor samples into
+# `sensor_samples` is SensorSampleSink (wrapping SensorSampleDao.insertAll). Any
+# other production callsite is a NEW boundary violation.
+#
+# Current state: only SensorSampleSink.kt calls sensorSampleDao().insertAll — the
+# legacy HardwareSensorService writes already route through the sink. The exception
+# list is therefore minimal (the sink itself + tests).
+#
+# The rule matches the `sensorSampleDao()` accessor specifically so it cannot
+# false-positive on unrelated DAO `insertAll` calls.
+id: collection-sensor-insert-only-in-sink
+language: Kotlin
+severity: error
+message: >
+  Direct sensor_samples insert outside the sanctioned SensorSampleSink
+  (design §1C.2, guardrail #8). Route sensor-sample writes through SensorSampleSink.
+ignores:
+  - "**/collection/sink/SensorSampleSink.kt"
+  - "**/test/**"
+  - "**/androidTest/**"
+rule:
+  pattern: $D.sensorSampleDao().insertAll($$$ARGS)

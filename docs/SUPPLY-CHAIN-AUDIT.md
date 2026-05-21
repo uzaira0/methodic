@@ -43,7 +43,7 @@ Chronicle's dependency posture is **generally well-maintained** with recent libr
 
 | Library | Version | Issue | Severity | Recommendation |
 |---------|---------|-------|----------|----------------|
-| commons-collections (v3) | 3.2.2 | Transitive via AWS SDK. Deserialization gadget chain (CVE-2015-6420, CVE-2017-15708). Not directly exploitable unless untrusted deserialization is used, but widens attack surface. | MEDIUM | Exclude or force upgrade to commons-collections 3.2.3+ or ensure no Java serialization of untrusted input. |
+| commons-collections (v3) | 3.2.2 | Historical transitive dependency. Deserialization gadget chain (CVE-2015-6420, CVE-2017-15708). Not directly exploitable unless untrusted deserialization is used, but widens attack surface. | MEDIUM | Exclude or force upgrade to commons-collections 3.2.3+ or ensure no Java serialization of untrusted input. |
 | commons-collections4 | 4.1 (declared) -> 4.4 (resolved) | Declared at 4.1 in chronicle.gradle but resolved to 4.4 via POI transitive. The declaration should be updated to match. | LOW | Update `ext.commons_collections4_version` to `4.4` in chronicle.gradle. |
 | commons-beanutils | forced 1.11.0 | Already force-overridden (good). | OK | No action needed. |
 | Twilio SDK | 9.6.1 (resolved) vs 7.34.1 (declared) | The `ext.twilio_version` in chronicle.gradle says `7.34.1` but the resolved tree shows `9.6.1`. Version declaration is stale. | LOW | Update `ext.twilio_version` to `9.6.1` in chronicle.gradle. |

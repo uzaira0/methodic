@@ -163,52 +163,9 @@ path "secret/data/chronicle/tde-principal-key" {
 
 ## Auto-Unseal Configuration
 
-In production, manual unsealing after every Vault restart is impractical. Configure auto-unseal using a cloud KMS.
-
-### AWS KMS
-
-```hcl
-# vault-config.hcl
-seal "awskms" {
-    region     = "us-east-1"
-    kms_key_id = "arn:aws:kms:us-east-1:ACCOUNT:key/KEY-ID"
-}
-```
-
-IAM policy required:
-```json
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": ["kms:Encrypt", "kms:Decrypt", "kms:DescribeKey"],
-            "Resource": "arn:aws:kms:us-east-1:ACCOUNT:key/KEY-ID"
-        }
-    ]
-}
-```
-
-### Azure Key Vault
-
-```hcl
-seal "azurekeyvault" {
-    tenant_id  = "TENANT-ID"
-    vault_name = "chronicle-vault"
-    key_name   = "vault-unseal-key"
-}
-```
-
-### GCP Cloud KMS
-
-```hcl
-seal "gcpckms" {
-    project    = "chronicle-prod"
-    region     = "global"
-    key_ring   = "chronicle-keyring"
-    crypto_key = "vault-unseal"
-}
-```
+In production, manual unsealing after every Vault restart is impractical. For
+the local BCM deployment, prefer an on-prem HSM/KMS or a tightly controlled
+operator unseal procedure until a local key-management target is selected.
 
 ### Verification
 

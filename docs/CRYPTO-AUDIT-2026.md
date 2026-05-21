@@ -246,7 +246,7 @@ The development `nginx.conf` listens on port 80 only, with no TLS. This is accep
 | **OpenSSL 3.5** | C | ML-KEM, ML-DSA via oqs-provider | Stable, production-ready |
 | **BouncyCastle 1.79+** | Java/Kotlin | ML-KEM, ML-DSA, SLH-DSA | Stable, usable for server-side |
 | **Go crypto (1.24+)** | Go | ML-KEM experimental | Experimental, Traefik dependency |
-| **AWS-LC** | C | ML-KEM hybrid | Production-ready (FIPS validated) |
+| **FIPS-validated TLS crypto libraries** | C | ML-KEM hybrid support varies | Evaluate only if required by the local deployment baseline |
 | **liboqs** (Open Quantum Safe) | C | Full NIST suite | Reference implementation, usable |
 | **Android Conscrypt** | Java/Android | Not yet | No PQC support as of Android 16 |
 

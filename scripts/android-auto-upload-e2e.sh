@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ADB_BIN="${ADB:-adb}"
+ADB_BIN="${ADB:-}"
 SERIAL="${ANDROID_SERIAL:-}"
 PACKAGE="${CHRONICLE_ANDROID_PACKAGE:-com.openlattice.chronicle.bcmtest.debug}"
 MAIN_ACTIVITY="${CHRONICLE_ANDROID_MAIN_ACTIVITY:-com.openlattice.chronicle.MainActivity}"
@@ -16,6 +16,7 @@ TIMEOUT_SECONDS="${CHRONICLE_AUTO_UPLOAD_TIMEOUT_SECONDS:-2700}"
 POLL_SECONDS="${CHRONICLE_AUTO_UPLOAD_POLL_SECONDS:-30}"
 APP_SECONDS="${CHRONICLE_AUTO_UPLOAD_APP_SECONDS:-8}"
 REQUIRE_FINAL_STORAGE=1
+REQUIRE_ACTIVITY_CLASS=1
 LOG_DIR="${CHRONICLE_AUTO_UPLOAD_LOG_DIR:-/tmp}"
 EXTRA_APPS="${CHRONICLE_AUTO_UPLOAD_APPS:-}"
 
@@ -36,6 +37,7 @@ Options:
   --app-seconds SECONDS        foreground time per app (default: 8)
   --apps CSV                   additional app packages to try via monkey
   --accept-buffer              pass when backend upload_buffer grows, even before final mover
+  --allow-no-activity-class    do not require a new non-null activity_class row
   --log-dir DIR                directory for logcat/UI artifacts (default: /tmp)
   -h, --help                   show this help
 
@@ -82,6 +84,10 @@ while [[ $# -gt 0 ]]; do
       REQUIRE_FINAL_STORAGE=0
       shift
       ;;
+    --allow-no-activity-class)
+      REQUIRE_ACTIVITY_CLASS=0
+      shift
+      ;;
     --log-dir)
       LOG_DIR="${2:?missing --log-dir value}"
       shift 2
@@ -97,6 +103,28 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ -z "$ADB_BIN" ]]; then
+  for candidate in \
+    "$HOME/.local/android-sdk/platform-tools/adb" \
+    "${ANDROID_HOME:-}/platform-tools/adb" \
+    "${ANDROID_SDK_ROOT:-}/platform-tools/adb" \
+    adb; do
+    [[ "$candidate" == "/platform-tools/adb" ]] && continue
+    if command -v "$candidate" >/dev/null 2>&1; then
+      ADB_BIN="$(command -v "$candidate")"
+      break
+    elif [[ -x "$candidate" ]]; then
+      ADB_BIN="$candidate"
+      break
+    fi
+  done
+fi
+
+if [[ -z "$ADB_BIN" ]]; then
+  echo "adb was not found. Set ADB=/path/to/adb." >&2
+  exit 1
+fi
 
 if [[ -f "$ROOT_DIR/docker/.env" ]]; then
   if [[ -z "$POSTGRES_USER" ]]; then
@@ -154,8 +182,20 @@ usage_events_count() {
   psql_scalar "select count(*) from chronicle_usage_events where study_id='$STUDY_ID' and participant_id='$PARTICIPANT_ID';"
 }
 
-buffer_count() {
-  psql_scalar "select count(*) from upload_buffer where study_id='$STUDY_ID' and participant_id='$PARTICIPANT_ID';"
+usage_buffer_elements_count() {
+  psql_scalar "select coalesce(sum(jsonb_array_length(data)),0) from upload_buffer where study_id='$STUDY_ID' and participant_id='$PARTICIPANT_ID' and upload_type='Android';"
+}
+
+sensor_buffer_elements_count() {
+  psql_scalar "select coalesce(sum(jsonb_array_length(data)),0) from upload_buffer where study_id='$STUDY_ID' and participant_id='$PARTICIPANT_ID' and upload_type='AndroidSensor';"
+}
+
+usage_activity_class_count() {
+  psql_scalar "select count(*) from chronicle_usage_events where study_id='$STUDY_ID' and participant_id='$PARTICIPANT_ID' and activity_class is not null;"
+}
+
+usage_buffer_activity_class_count() {
+  psql_scalar "select count(*) from upload_buffer cross join lateral jsonb_array_elements(data) elem where study_id='$STUDY_ID' and participant_id='$PARTICIPANT_ID' and upload_type='Android' and elem->'activity_class'->>'value' is not null;"
 }
 
 package_installed() {
@@ -219,8 +259,11 @@ adb_shell appops set "$PACKAGE" GET_USAGE_STATS allow || true
 adb_shell appops get "$PACKAGE" GET_USAGE_STATS || true
 
 before_events="$(usage_events_count)"
-before_buffer="$(buffer_count)"
-echo "Before: final_events=$before_events upload_buffer_rows=$before_buffer"
+before_activity="$(usage_activity_class_count)"
+before_usage_buffer="$(usage_buffer_elements_count)"
+before_sensor_buffer="$(sensor_buffer_elements_count)"
+before_buffer_activity="$(usage_buffer_activity_class_count)"
+echo "Before: final_usage_events=$before_events final_activity_class=$before_activity usage_buffer_events=$before_usage_buffer usage_buffer_activity_class=$before_buffer_activity sensor_buffer_samples=$before_sensor_buffer"
 
 "$ADB_BIN" -s "$SERIAL" logcat -c
 
@@ -255,29 +298,46 @@ sleep 3
 
 deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
 observed_buffer=0
+observed_final_storage=0
 while (( $(date +%s) <= deadline )); do
   current_events="$(usage_events_count)"
-  current_buffer="$(buffer_count)"
+  current_activity="$(usage_activity_class_count)"
+  current_usage_buffer="$(usage_buffer_elements_count)"
+  current_sensor_buffer="$(sensor_buffer_elements_count)"
+  current_buffer_activity="$(usage_buffer_activity_class_count)"
   now="$(date -Is)"
-  echo "[$now] final_events=$current_events upload_buffer_rows=$current_buffer"
+  echo "[$now] final_usage_events=$current_events final_activity_class=$current_activity usage_buffer_events=$current_usage_buffer usage_buffer_activity_class=$current_buffer_activity sensor_buffer_samples=$current_sensor_buffer"
 
   if (( current_events > before_events )); then
-    echo "PASS: automatic upload reached final storage."
-    "$ADB_BIN" -s "$SERIAL" logcat -d > "$LOGCAT_FILE"
-    "$ADB_BIN" -s "$SERIAL" exec-out uiautomator dump /dev/tty > "$UI_FILE" || true
-    echo "Artifacts: $LOGCAT_FILE $UI_FILE"
-    exit 0
-  fi
-
-  if (( current_buffer > before_buffer )); then
-    observed_buffer=1
-    if (( REQUIRE_FINAL_STORAGE == 0 )); then
-      echo "PASS: automatic upload reached backend upload_buffer."
+    if (( REQUIRE_ACTIVITY_CLASS == 1 && current_activity <= before_activity )); then
+      observed_final_storage=1
+      echo "Final storage grew, but no new non-null activity_class is present yet."
+    else
+      echo "PASS: automatic usage upload reached final storage."
       "$ADB_BIN" -s "$SERIAL" logcat -d > "$LOGCAT_FILE"
       "$ADB_BIN" -s "$SERIAL" exec-out uiautomator dump /dev/tty > "$UI_FILE" || true
       echo "Artifacts: $LOGCAT_FILE $UI_FILE"
       exit 0
     fi
+  fi
+
+  if (( current_usage_buffer > before_usage_buffer )); then
+    observed_buffer=1
+    if (( REQUIRE_FINAL_STORAGE == 0 )); then
+      if (( REQUIRE_ACTIVITY_CLASS == 1 && current_buffer_activity <= before_buffer_activity )); then
+        echo "Usage upload reached backend buffer, but no new non-null activity_class is present yet."
+      else
+        echo "PASS: automatic usage upload reached backend upload_buffer."
+        "$ADB_BIN" -s "$SERIAL" logcat -d > "$LOGCAT_FILE"
+        "$ADB_BIN" -s "$SERIAL" exec-out uiautomator dump /dev/tty > "$UI_FILE" || true
+        echo "Artifacts: $LOGCAT_FILE $UI_FILE"
+        exit 0
+      fi
+    fi
+  fi
+
+  if (( REQUIRE_FINAL_STORAGE == 0 && current_sensor_buffer > before_sensor_buffer && current_usage_buffer <= before_usage_buffer )); then
+    echo "Sensor buffer grew, but usage upload has not grown yet; continuing."
   fi
 
   sleep "$POLL_SECONDS"
@@ -286,10 +346,17 @@ done
 "$ADB_BIN" -s "$SERIAL" logcat -d > "$LOGCAT_FILE"
 "$ADB_BIN" -s "$SERIAL" exec-out uiautomator dump /dev/tty > "$UI_FILE" || true
 
-if (( observed_buffer == 1 )); then
-  echo "FAIL: automatic upload reached upload_buffer, but did not reach final storage before timeout." >&2
+# Most-specific cause first. observed_final_storage is latched only when usage
+# events reached final storage but no new non-null activity_class appeared, so
+# it must outrank the buffer-only and no-upload diagnoses.
+if (( observed_final_storage == 1 )); then
+  echo "FAIL: usage events reached final storage, but no new non-null activity_class observed before timeout." >&2
+elif (( observed_buffer == 1 && REQUIRE_FINAL_STORAGE == 1 )); then
+  echo "FAIL: automatic usage upload reached upload_buffer, but did not reach final storage before timeout." >&2
+elif (( observed_buffer == 1 )); then
+  echo "FAIL: automatic usage upload reached upload_buffer, but no new non-null activity_class observed before timeout." >&2
 else
-  echo "FAIL: no automatic upload observed before timeout." >&2
+  echo "FAIL: no automatic usage upload observed before timeout." >&2
 fi
 echo "Artifacts: $LOGCAT_FILE $UI_FILE" >&2
 exit 1

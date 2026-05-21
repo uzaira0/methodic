@@ -5,8 +5,8 @@ providers:
   docker:
     exposedByDefault: false
     watch: true
-    # No default network — each container picks via traefik.docker.network label
-    # (backend uses chronicle-backend-bridge, frontend uses traefik-apps)
+    # Only Chronicle compose containers are auto-discovered. Non-Chronicle
+    # intranet HTTP routes live in the file provider and never use TLS.
     endpoint: tcp://docker-socket-proxy:2375
     constraints: "Label(`com.docker.compose.project`, `chronicle`)"
   file:
@@ -22,8 +22,7 @@ entryPoints:
         writeTimeout: 60s
         idleTimeout: 360s
     # F5 VIP (chronicle-screentime-app.research.bcm.edu) terminates client
-    # TLS and re-encrypts (server SSL profile) to this entrypoint.
-    # Traefik accepts TLS on :80 to match the F5 backend configuration.
+    # TLS and forwards plaintext HTTP to this entrypoint.
     # Trust X-Forwarded-* from RFC1918 sources so rate-limiting keys on
     # the real client IP and Spring trusts X-Forwarded-Proto.
     forwardedHeaders:
