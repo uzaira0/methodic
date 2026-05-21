@@ -13,14 +13,26 @@ usage() {
   cat <<'EOF'
 Usage: scripts/chronicle-dogfood-report.sh [options]
 
-Prints a local Postgres dogfood report for one Chronicle participant: device
-inventory, upload queues, usage rows, ActivityClass coverage, sensor data,
-sensor availability, upload lag, and future timestamp skew.
+Prints a local Postgres data-quality dogfood report for one Chronicle
+participant. Covers: device/app-version inventory, upload buffer queue depth,
+usage event counts, ActivityClass coverage and top missing-activityClass
+packages, device lifecycle events (shutdown/startup, screen/keyguard,
+battery/power/network), hardware sensor sample counts and types, the modeled
+sensor availability matrix, last upload timestamps per stream, malformed row
+counts, duplicate/replay counts, clock skew, future-timestamp rows, and stale
+participants.
+
+All secrets and participant-sensitive values are redacted: this script never
+prints API keys, the mobile signing secret, or the Postgres password.
 
 Options:
   --study-id UUID         study UUID
   --participant-id ID     participant ID
   -h, --help              show help
+
+Environment overrides: CHRONICLE_STUDY_ID, CHRONICLE_PARTICIPANT_ID,
+CHRONICLE_POSTGRES_CONTAINER, POSTGRES_USER, POSTGRES_DB, POSTGRES_PASSWORD.
+Postgres credentials are read from docker/.env when not set in the environment.
 EOF
 }
 
@@ -171,4 +183,209 @@ FROM android_device_sensor_availability
 WHERE study_id = :'study_id'::uuid
   AND participant_id = :'participant_id'
 ORDER BY reported_at DESC;
+
+\echo '== Sensor Availability Matrix (modeled Chronicle sensors) =='
+-- Cross-joins the full modeled AndroidSensorType inventory against the latest
+-- reported availability so every modeled sensor shows present/absent/unknown.
+WITH modeled(sensor) AS (
+  VALUES
+    ('accelerometer'), ('gyroscope'), ('magnetometer'), ('gravity'),
+    ('linearAcceleration'), ('rotationVector'), ('stepCounter'), ('light'),
+    ('proximity'), ('significantMotion'), ('tiltDetector'),
+    ('screenOrientation'), ('samsungGripWifi'), ('samsungMotion')
+),
+latest AS (
+  SELECT available_sensors, unavailable_sensors
+  FROM android_device_sensor_availability
+  WHERE study_id = :'study_id'::uuid
+    AND participant_id = :'participant_id'
+  ORDER BY reported_at DESC
+  LIMIT 1
+)
+SELECT
+  m.sensor AS modeled_sensor,
+  CASE
+    WHEN l.available_sensors IS NULL THEN 'unknown_no_report'
+    WHEN m.sensor = ANY (l.available_sensors) THEN 'available'
+    WHEN m.sensor = ANY (l.unavailable_sensors) THEN 'unavailable'
+    ELSE 'not_reported'
+  END AS status
+FROM modeled m
+LEFT JOIN latest l ON true
+ORDER BY m.sensor;
+
+\echo '== Device Lifecycle Events =='
+-- Lifecycle events are system-origin usage-style rows: app_package_name = 'android'.
+SELECT
+  interaction_type,
+  count(*) AS events,
+  min(event_timestamp) AS first_event_at,
+  max(event_timestamp) AS latest_event_at
+FROM chronicle_usage_events
+WHERE study_id = :'study_id'
+  AND participant_id = :'participant_id'
+  AND app_package_name = 'android'
+GROUP BY interaction_type
+ORDER BY events DESC, interaction_type;
+
+\echo '== Device Lifecycle Event Categories =='
+SELECT
+  CASE
+    WHEN interaction_type IN ('Device Startup', 'Device Shutdown') THEN 'shutdown_startup'
+    WHEN interaction_type IN ('Screen Interactive', 'Screen Non-interactive', 'Keyguard Hidden') THEN 'screen_keyguard'
+    WHEN interaction_type IN (
+      'Battery Low', 'Battery Okay', 'Battery Charging', 'Battery Discharging',
+      'Power Save Mode On', 'Power Save Mode Off',
+      'Network Connected', 'Network Disconnected'
+    ) THEN 'battery_power_network'
+    WHEN interaction_type = 'Low Memory' THEN 'memory'
+    ELSE 'other'
+  END AS lifecycle_category,
+  count(*) AS events
+FROM chronicle_usage_events
+WHERE study_id = :'study_id'
+  AND participant_id = :'participant_id'
+  AND app_package_name = 'android'
+GROUP BY lifecycle_category
+ORDER BY events DESC, lifecycle_category;
+
+\echo '== Top Missing-ActivityClass Packages =='
+-- App packages with the most usage rows that have no activity_class set.
+SELECT
+  app_package_name,
+  count(*) AS total_rows,
+  count(*) FILTER (WHERE activity_class IS NULL) AS rows_missing_activity_class,
+  round(
+    100.0 * count(*) FILTER (WHERE activity_class IS NULL) / nullif(count(*), 0),
+    1
+  ) AS pct_missing_activity_class
+FROM chronicle_usage_events
+WHERE study_id = :'study_id'
+  AND participant_id = :'participant_id'
+  AND app_package_name <> 'android'
+GROUP BY app_package_name
+HAVING count(*) FILTER (WHERE activity_class IS NULL) > 0
+ORDER BY rows_missing_activity_class DESC, app_package_name
+LIMIT 25;
+
+\echo '== Last Upload Timestamps By Stream =='
+-- chronicle_usage_events records an uploaded_at; android_sensor_data does not,
+-- so the sensor stream uses the latest sample_timestamp as the freshness proxy.
+SELECT 'usage_events' AS stream,
+  max(uploaded_at) AS last_uploaded_at,
+  'uploaded_at' AS timestamp_source
+FROM chronicle_usage_events
+WHERE study_id = :'study_id'
+  AND participant_id = :'participant_id'
+  AND app_package_name <> 'android'
+UNION ALL
+SELECT 'device_lifecycle' AS stream,
+  max(uploaded_at) AS last_uploaded_at,
+  'uploaded_at' AS timestamp_source
+FROM chronicle_usage_events
+WHERE study_id = :'study_id'
+  AND participant_id = :'participant_id'
+  AND app_package_name = 'android'
+UNION ALL
+SELECT 'sensor_samples' AS stream,
+  max(sample_timestamp) AS last_uploaded_at,
+  'sample_timestamp' AS timestamp_source
+FROM android_sensor_data
+WHERE study_id = :'study_id'::uuid
+  AND participant_id = :'participant_id';
+
+\echo '== Upload Queue Depth (server-side upload_buffer) =='
+SELECT
+  upload_type,
+  count(*) AS pending_batches,
+  coalesce(sum(jsonb_array_length(data)), 0) AS pending_items
+FROM upload_buffer
+WHERE study_id = :'study_id'::uuid
+  AND participant_id = :'participant_id'
+GROUP BY upload_type
+ORDER BY upload_type;
+
+\echo '== Malformed Row Counts =='
+-- Rows present in final storage that are missing a required field. Backend
+-- rejects malformed payloads at upload, so non-zero here flags a storage issue.
+SELECT 'usage_missing_timestamp' AS check,
+  count(*) FILTER (WHERE event_timestamp IS NULL) AS malformed_rows
+FROM chronicle_usage_events
+WHERE study_id = :'study_id'
+  AND participant_id = :'participant_id'
+UNION ALL
+SELECT 'usage_missing_package' AS check,
+  count(*) FILTER (WHERE app_package_name IS NULL OR app_package_name = '')
+FROM chronicle_usage_events
+WHERE study_id = :'study_id'
+  AND participant_id = :'participant_id'
+UNION ALL
+SELECT 'sensor_missing_type' AS check,
+  count(*) FILTER (WHERE sensor_type IS NULL OR sensor_type = '')
+FROM android_sensor_data
+WHERE study_id = :'study_id'::uuid
+  AND participant_id = :'participant_id';
+
+\echo '== Duplicate / Replay Counts =='
+-- Backend does not yet expose dedup/replay counters; report zero plus an
+-- explicit not_tracked marker until those counters exist (plan step 11A.15).
+\echo 'duplicate_upload_count=0'
+\echo 'duplicate_upload_count_not_tracked=true'
+\echo 'replay_upload_count=0'
+\echo 'replay_upload_count_not_tracked=true'
+
+\echo '== Clock Skew Distribution (event_timestamp vs uploaded_at) =='
+SELECT
+  count(*) AS total_rows,
+  count(*) FILTER (WHERE event_timestamp > uploaded_at) AS future_event_rows,
+  count(*) FILTER (WHERE event_timestamp > uploaded_at + interval '5 minutes') AS future_skew_rows,
+  round(min(extract(epoch FROM event_timestamp - uploaded_at))::numeric, 1) AS min_skew_seconds,
+  round(avg(extract(epoch FROM event_timestamp - uploaded_at))::numeric, 1) AS avg_skew_seconds,
+  round(max(extract(epoch FROM event_timestamp - uploaded_at))::numeric, 1) AS max_skew_seconds
+FROM chronicle_usage_events
+WHERE study_id = :'study_id'
+  AND participant_id = :'participant_id';
+
+\echo '== Stale Participants In Study =='
+-- Participants whose most recent upload is older than 7 days (or who have no
+-- usage rows at all). Scoped to the study, not just the report participant.
+WITH last_upload AS (
+  SELECT participant_id, max(uploaded_at) AS last_uploaded_at
+  FROM chronicle_usage_events
+  WHERE study_id = :'study_id'
+  GROUP BY participant_id
+)
+SELECT
+  d.participant_id,
+  lu.last_uploaded_at,
+  CASE
+    WHEN lu.last_uploaded_at IS NULL THEN 'no_usage_rows'
+    WHEN lu.last_uploaded_at < now() - interval '7 days' THEN 'stale'
+    ELSE 'active'
+  END AS freshness
+FROM (
+  SELECT DISTINCT participant_id
+  FROM devices
+  WHERE study_id = :'study_id'::uuid
+) d
+LEFT JOIN last_upload lu ON lu.participant_id = d.participant_id
+WHERE lu.last_uploaded_at IS NULL
+   OR lu.last_uploaded_at < now() - interval '7 days'
+ORDER BY lu.last_uploaded_at NULLS FIRST, d.participant_id
+LIMIT 50;
+
+\echo '== App Version / Device Inventory =='
+SELECT
+  device_id,
+  source_device_id,
+  source_device ->> 'manufacturer' AS manufacturer,
+  source_device ->> 'model' AS model,
+  source_device ->> 'os' AS os,
+  source_device ->> 'osVersion' AS os_version,
+  source_device ->> 'appVersion' AS app_version,
+  source_device ->> 'appPackageName' AS app_package
+FROM devices
+WHERE study_id = :'study_id'::uuid
+  AND participant_id = :'participant_id'
+ORDER BY device_id;
 SQL

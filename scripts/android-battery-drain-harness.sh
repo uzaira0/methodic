@@ -146,6 +146,14 @@ printf '%s\n' "$initial_battery" > "$RUN_DIR/battery-initial.txt"
 adb_shell dumpsys batterystats --charged > "$RUN_DIR/batterystats-initial.txt" || true
 adb_shell dumpsys jobscheduler "$PACKAGE" > "$RUN_DIR/jobscheduler-initial.txt" || true
 adb_shell dumpsys package "$PACKAGE" > "$RUN_DIR/package.txt" || true
+# Baseline wake-lock, sensor, network, foreground-service and process state so a
+# run can attribute drain to wake locks / sensors / upload work.
+adb_shell dumpsys power > "$RUN_DIR/power-initial.txt" || true
+adb_shell dumpsys sensorservice > "$RUN_DIR/sensorservice-initial.txt" || true
+adb_shell dumpsys netstats > "$RUN_DIR/netstats-initial.txt" || true
+adb_shell dumpsys activity services "$PACKAGE" > "$RUN_DIR/foreground-services-initial.txt" || true
+adb_shell dumpsys procstats --hours 24 "$PACKAGE" > "$RUN_DIR/procstats-initial.txt" || true
+adb_shell dumpsys activity processes "$PACKAGE" > "$RUN_DIR/activity-processes-initial.txt" || true
 
 samples="$RUN_DIR/battery-samples.csv"
 echo "timestamp,level,status,health,ac_powered,usb_powered,wireless_powered,temperature_tenths_c,voltage_mv,charge_counter_uah,current_now" > "$samples"
@@ -174,7 +182,23 @@ adb_shell dumpsys battery > "$RUN_DIR/battery-final.txt" || true
 adb_shell dumpsys batterystats --charged > "$RUN_DIR/batterystats-final.txt" || true
 adb_shell dumpsys jobscheduler "$PACKAGE" > "$RUN_DIR/jobscheduler-final.txt" || true
 adb_shell dumpsys netstats > "$RUN_DIR/netstats-final.txt" || true
+# Final wake-lock, sensor, foreground-service, WorkManager and process state.
+adb_shell dumpsys power > "$RUN_DIR/power-final.txt" || true
+adb_shell dumpsys sensorservice > "$RUN_DIR/sensorservice-final.txt" || true
+adb_shell dumpsys activity services "$PACKAGE" > "$RUN_DIR/foreground-services-final.txt" || true
+adb_shell dumpsys procstats --hours 24 "$PACKAGE" > "$RUN_DIR/procstats-final.txt" || true
+adb_shell dumpsys activity processes "$PACKAGE" > "$RUN_DIR/activity-processes-final.txt" || true
 adb_shell logcat -d > "$RUN_DIR/logcat-final.txt" || true
+
+# Wake-lock summary attributed to the Chronicle uid, from final batterystats.
+if [[ -n "$uid" ]]; then
+  grep -E "Wake lock|Job [0-9]|u0a${uid#1000}" "$RUN_DIR/batterystats-final.txt" \
+    > "$RUN_DIR/wakelock-summary.txt" 2>/dev/null || true
+fi
+# WorkManager / foreground-service state for the Chronicle package.
+grep -E -i "WorkManager|WorkSpec|foreground|combined_upload|usage|sensor_settings_refresh" \
+  "$RUN_DIR/jobscheduler-final.txt" "$RUN_DIR/foreground-services-final.txt" \
+  > "$RUN_DIR/worker-service-state.txt" 2>/dev/null || true
 
 python3 - "$samples" "$RUN_DIR/summary.txt" <<'PY'
 import csv
@@ -204,6 +228,15 @@ with open(summary_path, "w", encoding="utf-8") as out:
     except Exception:
         out.write("charge_counter_delta_mAh=unknown\n")
 PY
+
+# App process uptime: elapsed wall time the Chronicle process has been alive.
+process_uptime="$(
+  adb_shell dumpsys activity processes "$PACKAGE" 2>/dev/null \
+    | awk '/uptime:/ {print; exit}' | tr -d '\r'
+)"
+{
+  echo "process_uptime=${process_uptime:-unknown}"
+} >> "$RUN_DIR/summary.txt"
 
 cat "$RUN_DIR/summary.txt"
 echo "Artifacts: $RUN_DIR"
