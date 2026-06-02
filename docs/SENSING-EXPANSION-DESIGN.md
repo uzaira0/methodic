@@ -4,7 +4,16 @@ Design spec for four new data-collection capabilities, all delivered as
 `:collection-*` modules under the existing modularization architecture and all
 configurable per-study from the web study dashboard.
 
-Status: **design** — not yet implemented. Companion to
+Status: **partially implemented.** Feature B (battery telemetry) is built and
+shipped — the `:collection-battery` Android module, `CollectionModuleId
+.battery_telemetry` (active), the `battery_telemetry` server table with
+`V24__add_battery_telemetry.sql`, the `uploadBatteryTelemetryV4` endpoint
+(`/chronicle/v4/study/{studyId}/participant/{participantId}/android/battery`, plus
+the deprecated v3 variant), and `AuditAction.BATTERY_TELEMETRY_UPLOAD`. Feature A
+(app audio), Feature C (interaction salience), and Feature D (participant outreach)
+remain **design — not yet implemented**; their `CollectionModuleId`s
+(`audio_activity`, `audio_content`, `interaction_events`) exist only as **reserved,
+inactive** (`active = false`, namespace-frozen, no implementation). Companion to
 `DATA-COLLECTION-MODULARIZATION-DESIGN.md` (the modularization this builds on).
 
 ## 1. Scope
