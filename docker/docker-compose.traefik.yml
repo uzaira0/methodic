@@ -45,7 +45,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
-      - traefik
+      # chronicle-private edge net: only chronicle-traefik can reach the socket proxy.
+      # Previously on the shared traefik-apps bridge, where any sibling app container
+      # could query the docker API by IP. Isolated 2026-06-02 (see docs/NETWORK-TOPOLOGY.md).
+      - chronicle-edge
     healthcheck:
       test: ["CMD-SHELL", "wget --quiet --tries=1 -O /dev/null http://localhost:2375/version || exit 1"]
       interval: 30s
@@ -75,6 +78,7 @@ services:
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro,z
       - ./traefik/dynamic/crowdsec-waf.yml.template:/etc/traefik/crowdsec-waf.yml.template:ro,z
       - ./traefik/dynamic:/etc/traefik/dynamic:z
+      - ./traefik/plugins-local:/plugins-local:ro,z
       - traefik_access_logs:/var/log/traefik
     entrypoint:
       - sh
@@ -92,7 +96,13 @@ services:
       chronicle-crowdsec:
         condition: service_healthy
     networks:
+      # Stays on traefik-apps to route the unrelated intranet apps (sleep-scoring,
+      # flash, ios, accelog, ess, actobridge). chronicle-edge is the private net to
+      # reach chronicle's own services (frontend, grafana, crowdsec, socket-proxy)
+      # now that they've left the shared bridge. chronicle-traefik is the only
+      # chronicle container still on traefik-apps — the controlled choke point.
       - traefik
+      - chronicle-edge
       - chronicle-backend-bridge
       - chronicle-sso-edge
     deploy:
@@ -139,7 +149,9 @@ services:
       start_period: 30s
       retries: 5
     networks:
-      - traefik
+      # chronicle-private edge net (was the shared traefik-apps bridge). Only
+      # chronicle-traefik queries LAPI:8080 / AppSec:7422 — no sibling app needs it.
+      - chronicle-edge
     deploy:
       resources:
         limits:
@@ -698,6 +710,11 @@ services:
       - "traefik.http.routers.chronicle-mobile.priority=20"
       - "traefik.http.routers.chronicle-mobile.service=chronicle-backend"
       - "traefik.http.routers.chronicle-mobile.middlewares=crowdsec-waf@file,chronicle-mobile-ratelimit,chronicle-mobile-headers,chronicle-mobile-cors,chronicle-body-limit"
+      # tls: the F5 terminates client TLS and forwards X-Forwarded-Proto=https, which
+      # Traefik (trusting RFC1918 forwardedHeaders) treats as a SECURE request — secure
+      # requests only match routers with tls enabled. Without this, all F5 traffic 404s.
+      # (Internal plain-HTTP /chronicle/v3,v4 access stays served by chronicle-mobile-f5-fallback.)
+      - "traefik.http.routers.chronicle-mobile.tls=true"
 
       # F5 TLS termination may forward to Traefik without preserving the public
       # Host header. Keep mobile API paths routed to the backend even when Host
@@ -740,6 +757,7 @@ services:
       - "traefik.http.routers.chronicle-web.priority=20"
       - "traefik.http.routers.chronicle-web.service=chronicle-backend"
       - "traefik.http.routers.chronicle-web.middlewares=crowdsec-waf@file,chronicle-web-strip,chronicle-web-ratelimit,chronicle-web-headers,chronicle-web-cors,chronicle-body-limit"
+      - "traefik.http.routers.chronicle-web.tls=true"
 
       # Request body size limit (10MB) for API endpoints
       - "traefik.http.middlewares.chronicle-body-limit.buffering.maxRequestBodyBytes=10485760"
@@ -778,6 +796,7 @@ services:
       - "traefik.http.routers.chronicle-block.priority=15"
       - "traefik.http.routers.chronicle-block.service=chronicle-backend"
       - "traefik.http.routers.chronicle-block.middlewares=crowdsec-waf@file,chronicle-web-headers,chronicle-block-response"
+      - "traefik.http.routers.chronicle-block.tls=true"
 
       # Return empty response (Traefik doesn't have a built-in 404 middleware, so we use replacepathregex to a non-existent path)
       - "traefik.http.middlewares.chronicle-block-response.replacepathregex.regex=.*"
@@ -871,14 +890,31 @@ services:
           memory: 128M
           pids: 512
     networks:
+      # Off the shared traefik-apps bridge → chronicle-private edge net, so sibling
+      # app containers can no longer reach the SPA by IP. Reached only via chronicle-traefik.
       - chronicle-internal
-      - traefik
+      - chronicle-edge
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik-apps}"
-      # Frontend routing moved to file provider (local-apps.yml) — local access only.
-      # Only the service definition is kept here for Docker provider discovery.
+      - "traefik.docker.network=chronicle-edge"
+      # Internal (local-host) frontend routing stays in the file provider
+      # (local-apps.yml, plain-HTTP, local-only). The service def is shared.
       - "traefik.http.services.chronicle-frontend.loadbalancer.server.port=8080"
+      # Public (F5 / external) frontend + root. tls=true so they match the F5's
+      # forwarded-https (see chronicle-mobile.tls note). No local-only middleware —
+      # this is the public participant SPA + web forms (/survey, /questionnaire, /tud).
+      - "traefik.http.routers.chronicle-frontend-pub.rule=Host(`${DOMAIN}`) && PathPrefix(`/chronicle`)"
+      - "traefik.http.routers.chronicle-frontend-pub.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
+      - "traefik.http.routers.chronicle-frontend-pub.priority=5"
+      - "traefik.http.routers.chronicle-frontend-pub.tls=true"
+      - "traefik.http.routers.chronicle-frontend-pub.service=chronicle-frontend"
+      - "traefik.http.routers.chronicle-frontend-pub.middlewares=crowdsec-waf@file,chronicle-fe-strip@file"
+      - "traefik.http.routers.chronicle-root-pub.rule=Host(`${DOMAIN}`) && Path(`/`)"
+      - "traefik.http.routers.chronicle-root-pub.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
+      - "traefik.http.routers.chronicle-root-pub.priority=6"
+      - "traefik.http.routers.chronicle-root-pub.tls=true"
+      - "traefik.http.routers.chronicle-root-pub.service=chronicle-frontend"
+      - "traefik.http.routers.chronicle-root-pub.middlewares=crowdsec-waf@file,chronicle-root-redirect@file"
 
   # ===========================================
   # MONITORING: VictoriaMetrics + VictoriaLogs
@@ -1008,8 +1044,11 @@ services:
       - victoria-metrics
       - victoria-logs
     networks:
+      # Off the shared traefik-apps bridge → chronicle-private edge net. Closes the
+      # contradiction where Grafana was local-only at the router but reachable by IP
+      # from every sibling on the flat bridge. Reached only via chronicle-traefik.
       - chronicle-internal
-      - traefik
+      - chronicle-edge
     deploy:
       resources:
         limits:
@@ -1017,7 +1056,7 @@ services:
           pids: 256
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik-apps}"
+      - "traefik.docker.network=chronicle-edge"
       # Grafana routing is handled by the file provider (local-apps.yml)
       # to enforce internal-only access without XFF spoofing risk.
       - "traefik.http.services.chronicle-grafana.loadbalancer.server.port=3000"
@@ -1054,10 +1093,19 @@ networks:
     name: chronicle-sso-db
     driver: bridge
     internal: true
+  chronicle-edge:
+    # Chronicle-private edge net. Carries chronicle-traefik <-> chronicle's own
+    # routed/infra services (frontend, grafana, crowdsec, docker-socket-proxy).
+    # These were on the shared traefik-apps bridge, where any sibling project's
+    # container could reach them by IP and bypass the proxy/WAF. Now only
+    # chronicle-traefik bridges this net and traefik-apps.
+    name: chronicle-edge
+    driver: bridge
   traefik:
-    # Shared network for Traefik to reach frontend, Grafana, and other routed services.
-    # Other compose projects (flash-processing, sleep-scoring, etc.) connect
-    # to this network via `external: true` + `name: traefik-apps` in their compose files.
+    # Shared bridge that the unrelated intranet apps (flash-processing, sleep-scoring,
+    # ios, accelog, ess, actobridge) attach to via `external: true` + `name: traefik-apps`.
+    # chronicle-traefik joins it ONLY to route those apps; no other chronicle service
+    # is on it anymore (see chronicle-edge above).
     external: true
     name: traefik-apps
 

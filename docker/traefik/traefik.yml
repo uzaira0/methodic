@@ -42,9 +42,11 @@ accessLog:
   format: json
   bufferingSize: 100
 
-# CrowdSec bouncer plugin for WAF + IP reputation
+# CrowdSec bouncer plugin for WAF + IP reputation.
+# Vendored locally (source at ./traefik/plugins-local/src/<moduleName>, mounted at
+# /plugins-local) so Traefik does NOT fetch from plugins.traefik.io at boot — a failed
+# remote pull previously disabled plugins and silently dropped every crowdsec-gated router.
 experimental:
-  plugins:
+  localPlugins:
     crowdsec-bouncer:
       moduleName: github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin
-      version: v1.5.1
