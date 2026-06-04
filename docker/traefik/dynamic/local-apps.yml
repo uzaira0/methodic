@@ -1,5 +1,13 @@
 http:
   middlewares:
+    # Restricts the non-Chronicle intranet apps to genuinely-local sources.
+    # Keys on the real TCP source (RemoteAddr). Verified against access logs: real
+    # public traffic transits the F5, which preserves the client's public source IP
+    # (ClientHost = public IP, no X-Forwarded-For), so public clients are denied here
+    # AND the sibling routers are Host-gated to intranet names (never the public
+    # DOMAIN) — two independent gates keep public traffic off the sibling apps.
+    # NOTE: do NOT add ipStrategy/excludedIPs here — intranet-direct traffic carries
+    # no XFF, so an XFF-based strategy 403s legitimate local access (verified).
     local-only:
       ipAllowList:
         sourceRange:
@@ -47,7 +55,28 @@ http:
         replacement: "/chronicle"
         permanent: false
 
+    # Guarantee B: force PUBLIC (Host=DOMAIN) chronicle onto HTTPS. Only matches
+    # NON-secure requests (tls-less router) carrying the public Host — i.e. any
+    # plain-HTTP chronicle request that ever reaches :80 from the F5 path is bounced
+    # to https://DOMAIN/<path>. Secure F5 traffic matches the tls=true docker routers
+    # and is untouched; intranet-direct (Host=IP) traffic is untouched.
+    chronicle-https-redirect:
+      redirectScheme:
+        scheme: https
+        permanent: true
+
   routers:
+    # Public plain-HTTP chronicle → HTTPS (Guarantee B). Non-tls so it matches only
+    # non-secure requests; Host-gated to the public DOMAIN so intranet-direct
+    # (Host=IP) plaintext access is unaffected. Priority above chronicle-mobile-f5-fallback
+    # (19) so it wins for non-secure Host=DOMAIN chronicle paths.
+    chronicle-public-https-redirect:
+      rule: "Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/chronicle`)"
+      entryPoints: [web]
+      middlewares: [chronicle-https-redirect]
+      service: chronicle-fe-svc
+      priority: 25
+
     accelerometer-tracking-local:
       rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/accelerometer-tracking`)"
       entryPoints: [web]
