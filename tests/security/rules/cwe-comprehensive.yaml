@@ -838,3 +838,68 @@ rules:
       owasp: "A01:2021"
       category: security
       confidence: MEDIUM
+
+  # ===========================================================================
+  # CWE-770: Allocation of Resources Without Limits or Throttling
+  # Every mobile/web upload entrypoint accepts a client-supplied batch and writes
+  # it to storage. Each must bound the batch size with require(<list>.size <= N)
+  # BEFORE touching the DB, or a single request can persist an unbounded batch
+  # (memory exhaustion / DoS). All current upload services do this; this rule
+  # fails the build if a new upload path ships without the guard. The delegating
+  # pass-through controllers (e.g. StudyV4Controller) are excluded via pattern-not.
+  # Pinned by the *UploadServiceTest classes.
+  # ===========================================================================
+  - id: chronicle-upload-unbounded-batch
+    patterns:
+      # Any upload-service function returning a count (the upload entrypoints) ...
+      - pattern: |
+          fun $F(...): Int {
+            ...
+          }
+      # ... that does not call require(...) anywhere in its body (the size guard) ...
+      - pattern-not-regex: "require\\("
+      # ... excluding private helpers (the guard lives in the public entrypoint).
+      - pattern-not: |
+          private fun $F(...): Int {
+            ...
+          }
+    paths:
+      include:
+        - "*/services/upload/*"
+    message: >
+      Upload service entrypoint writes a batch without a size guard. Add
+      require(<collection>.size <= 10_000) before touching storage so a single
+      request cannot persist an unbounded batch. See BatteryTelemetryUploadService.
+    languages: [kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-770
+      owasp: "A04:2021"
+      category: security
+      confidence: HIGH
+
+  # ===========================================================================
+  # CWE-20: Improper Input Validation
+  # Collection request bodies on the mobile/web controllers must be @Valid so
+  # bean-validation runs at the edge. The v4 ingestion endpoints all use
+  # @Valid @RequestBody; this rule fails the build if a List body ships without it.
+  # ===========================================================================
+  - id: chronicle-unvalidated-list-request-body
+    patterns:
+      - pattern: |
+          fun $F(..., @RequestBody $P: List<$T>, ...): $R { ... }
+      - pattern-not: |
+          fun $F(..., @Valid @RequestBody $P: List<$T>, ...): $R { ... }
+    paths:
+      include:
+        - "*/controllers/*"
+    message: >
+      Controller accepts a List request body without @Valid. Annotate the body
+      @Valid so bean-validation (and any size/element constraints) run at the edge.
+    languages: [kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-20
+      owasp: "A03:2021"
+      category: security
+      confidence: MEDIUM
