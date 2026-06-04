@@ -104,7 +104,7 @@ Evidence is the Android submodule git history (HEAD `0cb5a01`, 46 commits since 
 | App inventory (`app_inventory`) and on-device Time-Use-Diary (`time_use_diary`) | RESERVED | enum + CLAUDE.md |
 | Participant outreach: compliance ladder + Temporal escalation + dashboard at-risk panel | DESIGNED-ONLY (server/web) | `SENSING-EXPANSION-DESIGN.md` §7 |
 | New privacy classes `MEDIA_CONTENT` / `INTERACTION_METADATA`, policy DTOs `AudioCapturePolicy` / `InteractionPolicy` | DESIGNED-ONLY | `SENSING-EXPANSION-DESIGN.md` §3 |
-| Per-study per-module config UI (study dashboard) — web form still emits legacy `AndroidSensorSetting` | DESIGNED-ONLY (the gap) | `SENSING-EXPANSION-DESIGN.md` §2 |
+| ~~Per-study per-module config UI (study dashboard)~~ — **SHIPPED**: the study create/edit form now toggles each active `CollectionModuleId` and writes an `AndroidDataCollectionSetting` (`DataCollection` setting type), alongside the legacy `AndroidSensorSetting`. Settings changes are captured in an immutable, module-granular `study_settings_audit` trail (create + update paths, `GET /settings/audit`). | SHIPPED | `study-form-dialog.tsx`, `StudyController`, `V25__study_settings_audit_immutability.sql` |
 | SSL certificate pinning | DESIGNED-ONLY (TODO in OkHttp builder) | `utils/Utils.kt` |
 
 ---
