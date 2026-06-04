@@ -2,6 +2,7 @@ logging/
 .classpath
 .project
 .gradle/
+.kotlin/
 .settings/
 .idea/
 bin/
