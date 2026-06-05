@@ -290,11 +290,20 @@ Edge cases:
   they differ only in immediacy). DISCARD is offered only for the dedicated-queue
   modules. A per-module tag column on `dataQueue` is the follow-up that would make
   selective discard of the shared queue honorable. (Not in prod / no ongoing study.)
-- **Idle sensor service notification.** Because the gate lives at the persistence
-  point (not at service start), a legacy path can leave `HardwareSensorService`
-  running with its foreground notification while the gate is closed and nothing is
-  being persisted. This is a UX/efficiency wart, not a consent leak (no data is
-  collected); tightening the legacy start paths is a follow-up.
+- **Idle sensor service notification — closed.** The per-sample persistence gate stops
+  un-acknowledged *writes*, but on its own it would let a legacy start path
+  (`StartOnBoot`, `PowerSaveModeReceiver`, `Enrollment`, ...) leave
+  `HardwareSensorService` running with its foreground notification while the gate is
+  closed and nothing is collected. `HardwareSensorService.onCreate` now re-checks
+  `CollectionGate` off the main thread (the gate reads Room) once the foreground
+  notification is up — the foreground-service contract requires `startForeground()`
+  within ~5s, before the async gate read can complete — and `stopSelf()`s when
+  `hardware_sensors` is not server-enabled-AND-acknowledged. So a gated start posts the
+  notification only momentarily before the service stops itself, instead of leaving it up.
+  `device_lifecycle` events are unaffected (their `DeviceLifecycleReceiver` is also
+  registered, independently, by the always-on `DeviceUnlockMonitoringService`). The
+  remaining residue is a sub-second notification flicker on a gated start attempt, the
+  unavoidable cost of the `startForeground`-within-5s contract.
 
 ---
 
