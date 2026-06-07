@@ -54,6 +54,105 @@ http:
         regex: "^https?://[^/]+/?$"
         replacement: "/chronicle"
         permanent: false
+    chronicle-keycloak-ratelimit:
+      rateLimit:
+        average: 10
+        burst: 20
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+    chronicle-keycloak-headers:
+      headers:
+        browserXssFilter: true
+        contentTypeNosniff: true
+        frameDeny: true
+        referrerPolicy: strict-origin-when-cross-origin
+    chronicle-keycloak-forwarded-https:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Host: chronicle-screentime-app.research.bcm.edu
+          X-Forwarded-Port: "443"
+          X-Forwarded-Proto: https
+    chronicle-keycloak-block-response:
+      replacePathRegex:
+        regex: ".*"
+        replacement: "/keycloak/blocked-route-not-found"
+    chronicle-body-limit:
+      buffering:
+        maxRequestBodyBytes: 10485760
+    chronicle-mobile-ratelimit:
+      rateLimit:
+        average: 5
+        burst: 10
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+    chronicle-mobile-headers:
+      headers:
+        contentTypeNosniff: true
+        browserXssFilter: true
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+    chronicle-mobile-cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        accessControlAllowHeaders:
+          - X-Chronicle-App-Key
+          - Content-Type
+          - Accept
+          - X-Chronicle-Signature
+          - X-Chronicle-Timestamp
+          - X-Chronicle-Nonce
+        accessControlAllowOriginList:
+          - https://chronicle-screentime-app.research.bcm.edu
+        accessControlMaxAge: 86400
+    chronicle-web-strip:
+      stripPrefix:
+        prefixes: ["/chronicle/api/web"]
+    chronicle-web-ratelimit:
+      rateLimit:
+        average: 20
+        burst: 30
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+    chronicle-web-headers:
+      headers:
+        frameDeny: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        referrerPolicy: strict-origin-when-cross-origin
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        contentSecurityPolicy: "default-src 'none'; frame-ancestors 'none'"
+    chronicle-web-cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - PATCH
+          - OPTIONS
+        accessControlAllowHeaders:
+          - Authorization
+          - Content-Type
+          - X-Requested-With
+          - Accept
+          - Origin
+        accessControlAllowOriginList:
+          - https://chronicle-screentime-app.research.bcm.edu
+        accessControlAllowCredentials: true
+        accessControlMaxAge: 86400
+    chronicle-block-response:
+      replacePathRegex:
+        regex: ".*"
+        replacement: "/blocked-route-not-found"
 
     # Guarantee B: force PUBLIC (Host=DOMAIN) chronicle onto HTTPS. Only matches
     # NON-secure requests (tls-less router) carrying the public Host — i.e. any
@@ -76,6 +175,109 @@ http:
       middlewares: [chronicle-https-redirect]
       service: chronicle-fe-svc
       priority: 25
+
+    # F5 fallback routes for public Chronicle traffic where the upstream proxy
+    # does not preserve the public Host header. These remain path-scoped and sit
+    # below the backend/mobile API router priorities so API traffic keeps using
+    # the backend-specific docker-label routers.
+    chronicle-frontend-f5-fallback:
+      rule: "PathPrefix(`/chronicle`)"
+      entryPoints: [web]
+      middlewares: [chronicle-fe-strip]
+      service: chronicle-fe-svc
+      priority: 4
+
+    chronicle-root-f5-fallback:
+      rule: "Path(`/`)"
+      entryPoints: [web]
+      middlewares: [chronicle-root-redirect]
+      service: chronicle-fe-svc
+      priority: 1
+
+    chronicle-keycloak-semicolon-block-f5-fallback:
+      rule: "PathPrefix(`/keycloak`) && PathRegexp(`.*;.*`)"
+      entryPoints: [web]
+      middlewares: [chronicle-keycloak-block-response]
+      service: chronicle-keycloak-svc
+      priority: 100
+
+    chronicle-keycloak-admin-block-f5-fallback:
+      rule: "Path(`/keycloak`) || Path(`/keycloak/`) || PathPrefix(`/keycloak/admin`) || PathPrefix(`/keycloak/health`) || PathPrefix(`/keycloak/metrics`)"
+      entryPoints: [web]
+      middlewares: [chronicle-keycloak-ratelimit, chronicle-keycloak-headers, chronicle-keycloak-block-response]
+      service: chronicle-keycloak-svc
+      priority: 99
+
+    chronicle-keycloak-f5-fallback:
+      rule: "PathPrefix(`/keycloak`)"
+      entryPoints: [web]
+      middlewares: [chronicle-keycloak-ratelimit, chronicle-keycloak-headers, chronicle-keycloak-forwarded-https]
+      service: chronicle-keycloak-svc
+      priority: 30
+
+    chronicle-mobile-secure-f5-fallback:
+      rule: "PathPrefix(`/chronicle/v4/`) || PathPrefix(`/chronicle/v3/`) || PathPrefix(`/chronicle/v2/`) || PathPrefix(`/chronicle/study/`) || PathPrefix(`/chronicle/limits/`)"
+      entryPoints: [web]
+      middlewares: [chronicle-mobile-ratelimit, chronicle-mobile-headers, chronicle-mobile-cors, chronicle-body-limit]
+      service: chronicle-backend-svc
+      priority: 19
+      tls: {}
+
+    chronicle-web-secure-f5-fallback:
+      rule: "PathPrefix(`/chronicle/api/web/`)"
+      entryPoints: [web]
+      middlewares: [chronicle-web-strip, chronicle-web-ratelimit, chronicle-web-headers, chronicle-web-cors, chronicle-body-limit]
+      service: chronicle-backend-svc
+      priority: 20
+      tls: {}
+
+    chronicle-block-secure-f5-fallback:
+      rule: "PathPrefix(`/chronicle/datastore/`) || PathPrefix(`/chronicle/principal/`) || PathPrefix(`/chronicle/compliance/`) || PathPrefix(`/chronicle/import/`) || PathPrefix(`/prometheus/`)"
+      entryPoints: [web]
+      middlewares: [chronicle-web-headers, chronicle-block-response]
+      service: chronicle-backend-svc
+      priority: 15
+      tls: {}
+
+    chronicle-frontend-secure-f5-fallback:
+      rule: "PathPrefix(`/chronicle`)"
+      entryPoints: [web]
+      middlewares: [chronicle-fe-strip]
+      service: chronicle-fe-svc
+      priority: 4
+      tls: {}
+
+    chronicle-root-secure-f5-fallback:
+      rule: "Path(`/`)"
+      entryPoints: [web]
+      middlewares: [chronicle-root-redirect]
+      service: chronicle-fe-svc
+      priority: 1
+      tls: {}
+
+    chronicle-keycloak-semicolon-block-secure-f5-fallback:
+      rule: "PathPrefix(`/keycloak`) && PathRegexp(`.*;.*`)"
+      entryPoints: [web]
+      middlewares: [chronicle-keycloak-block-response]
+      service: chronicle-keycloak-svc
+      priority: 100
+      tls: {}
+
+    chronicle-keycloak-admin-block-secure-f5-fallback:
+      rule: "Path(`/keycloak`) || Path(`/keycloak/`) || PathPrefix(`/keycloak/admin`) || PathPrefix(`/keycloak/health`) || PathPrefix(`/keycloak/metrics`)"
+      entryPoints: [web]
+      middlewares: [chronicle-keycloak-ratelimit, chronicle-keycloak-headers, chronicle-keycloak-block-response]
+      service: chronicle-keycloak-svc
+      priority: 99
+      tls: {}
+
+    chronicle-keycloak-secure-f5-fallback:
+      rule: "PathPrefix(`/keycloak`)"
+      entryPoints: [web]
+      middlewares: [chronicle-keycloak-ratelimit, chronicle-keycloak-headers, chronicle-keycloak-forwarded-https]
+      service: chronicle-keycloak-svc
+      priority: 30
+      tls: {}
 
     accelerometer-tracking-local:
       rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/accelerometer-tracking`)"
@@ -192,6 +394,14 @@ http:
       loadBalancer:
         servers:
           - url: "http://chronicle-frontend:8080"
+    chronicle-backend-svc:
+      loadBalancer:
+        servers:
+          - url: "http://chronicle-backend:40320"
+    chronicle-keycloak-svc:
+      loadBalancer:
+        servers:
+          - url: "http://chronicle-keycloak:8080"
     grafana-svc:
       loadBalancer:
         servers:

@@ -92,6 +92,7 @@ deploy-audit.log
 # Environment files with real secrets (templates are tracked)
 docker/.env
 docker/secrets/
+.tmp/
 !docker/.env.example
 !docker/.env.staging
 !docker/.env.production
