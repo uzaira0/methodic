@@ -8,9 +8,12 @@ name: chronicle
 # Non-Chronicle apps are local intranet HTTP only.
 #
 # API Routes:
-#   - Mobile: https://${DOMAIN}/chronicle/v3/... (requires X-Chronicle-App-Key header)
-#   - Web:    https://${DOMAIN}/chronicle/api/web/... (requires Authorization header)
-#   - Frontend: https://${DOMAIN}/chronicle
+#   - Mobile API: https://${DOMAIN}/chronicle/v3/...
+#     (requires X-Chronicle-App-Key header)
+#   - Web API: https://${DOMAIN}/chronicle/api/web/...
+#     (requires Authorization header)
+#   - Frontend: internal-only at intranet hosts only via
+#     Host-gated local route in local-apps.yml
 #
 # Direct backend routes (/chronicle/datastore/*, /chronicle/principal/*) are blocked.
 #
@@ -897,18 +900,9 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=chronicle-edge"
-      # Internal (local-host) frontend routing stays in the file provider
-      # (local-apps.yml, plain-HTTP, local-only). The service def is shared.
+      # Frontend routing is local-only in traefik/dynamic/local-apps.yml (host-gated
+      # to intranet hostnames). Public exposure is API-only.
       - "traefik.http.services.chronicle-frontend.loadbalancer.server.port=8080"
-      # Public (F5 / external) frontend at /chronicle. tls=true so they match the F5's
-      # forwarded-https (see chronicle-mobile.tls note). No local-only middleware —
-      # this is the public participant SPA + web forms (/survey, /questionnaire, /tud).
-      - "traefik.http.routers.chronicle-frontend-pub.rule=Host(`${DOMAIN}`) && PathPrefix(`/chronicle`)"
-      - "traefik.http.routers.chronicle-frontend-pub.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
-      - "traefik.http.routers.chronicle-frontend-pub.priority=5"
-      - "traefik.http.routers.chronicle-frontend-pub.tls=true"
-      - "traefik.http.routers.chronicle-frontend-pub.service=chronicle-frontend"
-      - "traefik.http.routers.chronicle-frontend-pub.middlewares=crowdsec-waf@file,chronicle-fe-strip@file"
 
   # ===========================================
   # MONITORING: VictoriaMetrics + VictoriaLogs

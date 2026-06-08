@@ -149,39 +149,7 @@ http:
         regex: ".*"
         replacement: "/blocked-route-not-found"
 
-    # Guarantee B: force PUBLIC (Host=DOMAIN) chronicle onto HTTPS. Only matches
-    # NON-secure requests (tls-less router) carrying the public Host — i.e. any
-    # plain-HTTP chronicle request that ever reaches :80 from the F5 path is bounced
-    # to https://DOMAIN/<path>. Secure F5 traffic matches the tls=true docker routers
-    # and is untouched; intranet-direct (Host=IP) traffic is untouched.
-    chronicle-https-redirect:
-      redirectScheme:
-        scheme: https
-        permanent: true
-
   routers:
-    # Public plain-HTTP chronicle → HTTPS (Guarantee B). Non-tls so it matches only
-    # non-secure requests; Host-gated to the public DOMAIN so intranet-direct
-    # (Host=IP) plaintext access is unaffected. Priority above chronicle-mobile-f5-fallback
-    # (19) so it wins for non-secure Host=DOMAIN chronicle paths.
-    chronicle-public-https-redirect:
-      rule: "Host(`chronicle-screentime-app.research.bcm.edu`) && PathPrefix(`/chronicle`)"
-      entryPoints: [web]
-      middlewares: [chronicle-https-redirect]
-      service: chronicle-fe-svc
-      priority: 25
-
-    # F5 fallback routes for public Chronicle traffic where the upstream proxy
-    # does not preserve the public Host header. These remain path-scoped and sit
-    # below the backend/mobile API router priorities so API traffic keeps using
-    # the backend-specific docker-label routers.
-    chronicle-frontend-f5-fallback:
-      rule: "PathPrefix(`/chronicle`)"
-      entryPoints: [web]
-      middlewares: [chronicle-fe-strip]
-      service: chronicle-fe-svc
-      priority: 4
-
     chronicle-keycloak-semicolon-block-f5-fallback:
       rule: "PathPrefix(`/keycloak`) && PathRegexp(`.*;.*`)"
       entryPoints: [web]
@@ -225,14 +193,6 @@ http:
       middlewares: [chronicle-web-headers, chronicle-block-response]
       service: chronicle-backend-svc
       priority: 15
-      tls: {}
-
-    chronicle-frontend-secure-f5-fallback:
-      rule: "PathPrefix(`/chronicle`)"
-      entryPoints: [web]
-      middlewares: [chronicle-fe-strip]
-      service: chronicle-fe-svc
-      priority: 4
       tls: {}
 
     chronicle-keycloak-semicolon-block-secure-f5-fallback:
