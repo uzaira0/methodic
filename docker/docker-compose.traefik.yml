@@ -900,7 +900,7 @@ services:
       # Internal (local-host) frontend routing stays in the file provider
       # (local-apps.yml, plain-HTTP, local-only). The service def is shared.
       - "traefik.http.services.chronicle-frontend.loadbalancer.server.port=8080"
-      # Public (F5 / external) frontend + root. tls=true so they match the F5's
+      # Public (F5 / external) frontend at /chronicle. tls=true so they match the F5's
       # forwarded-https (see chronicle-mobile.tls note). No local-only middleware —
       # this is the public participant SPA + web forms (/survey, /questionnaire, /tud).
       - "traefik.http.routers.chronicle-frontend-pub.rule=Host(`${DOMAIN}`) && PathPrefix(`/chronicle`)"
@@ -909,12 +909,6 @@ services:
       - "traefik.http.routers.chronicle-frontend-pub.tls=true"
       - "traefik.http.routers.chronicle-frontend-pub.service=chronicle-frontend"
       - "traefik.http.routers.chronicle-frontend-pub.middlewares=crowdsec-waf@file,chronicle-fe-strip@file"
-      - "traefik.http.routers.chronicle-root-pub.rule=Host(`${DOMAIN}`) && Path(`/`)"
-      - "traefik.http.routers.chronicle-root-pub.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
-      - "traefik.http.routers.chronicle-root-pub.priority=6"
-      - "traefik.http.routers.chronicle-root-pub.tls=true"
-      - "traefik.http.routers.chronicle-root-pub.service=chronicle-frontend"
-      - "traefik.http.routers.chronicle-root-pub.middlewares=crowdsec-waf@file,chronicle-root-redirect@file"
 
   # ===========================================
   # MONITORING: VictoriaMetrics + VictoriaLogs

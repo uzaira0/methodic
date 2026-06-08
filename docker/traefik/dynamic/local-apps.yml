@@ -49,11 +49,6 @@ http:
     chronicle-fe-strip:
       stripPrefix:
         prefixes: ["/chronicle"]
-    chronicle-root-redirect:
-      redirectRegex:
-        regex: "^https?://[^/]+/?$"
-        replacement: "/chronicle"
-        permanent: false
     chronicle-keycloak-ratelimit:
       rateLimit:
         average: 10
@@ -187,13 +182,6 @@ http:
       service: chronicle-fe-svc
       priority: 4
 
-    chronicle-root-f5-fallback:
-      rule: "Path(`/`)"
-      entryPoints: [web]
-      middlewares: [chronicle-root-redirect]
-      service: chronicle-fe-svc
-      priority: 1
-
     chronicle-keycloak-semicolon-block-f5-fallback:
       rule: "PathPrefix(`/keycloak`) && PathRegexp(`.*;.*`)"
       entryPoints: [web]
@@ -245,14 +233,6 @@ http:
       middlewares: [chronicle-fe-strip]
       service: chronicle-fe-svc
       priority: 4
-      tls: {}
-
-    chronicle-root-secure-f5-fallback:
-      rule: "Path(`/`)"
-      entryPoints: [web]
-      middlewares: [chronicle-root-redirect]
-      service: chronicle-fe-svc
-      priority: 1
       tls: {}
 
     chronicle-keycloak-semicolon-block-secure-f5-fallback:
@@ -370,12 +350,6 @@ http:
       service: chronicle-fe-svc
       priority: 1
 
-    chronicle-root-local:
-      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && Path(`/`)"
-      entryPoints: [web]
-      middlewares: [local-only, chronicle-root-redirect]
-      service: chronicle-fe-svc
-      priority: 5
 
   services:
     accelerometer-tracking-svc:
