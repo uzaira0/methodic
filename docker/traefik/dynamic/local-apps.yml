@@ -304,11 +304,25 @@ http:
       priority: 100
 
     chronicle-frontend-local:
-      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`) || Host(`chronicle-screentime-app.research.bcm.edu`)) && PathPrefix(`/chronicle`)"
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/chronicle`)"
       entryPoints: [web]
       middlewares: [local-only, chronicle-fe-strip]
       service: chronicle-fe-svc
       priority: 1
+
+    chronicle-web-api-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/chronicle/api/web`)"
+      entryPoints: [web]
+      middlewares: [local-only, chronicle-web-strip, chronicle-web-ratelimit, chronicle-web-headers, chronicle-web-cors, chronicle-body-limit]
+      service: chronicle-backend-svc
+      priority: 10
+
+    chronicle-mobile-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && (PathPrefix(`/chronicle/v4/`) || PathPrefix(`/chronicle/v3/`) || PathPrefix(`/chronicle/v2/`) || PathPrefix(`/chronicle/study/`) || PathPrefix(`/chronicle/limits/`))"
+      entryPoints: [web]
+      middlewares: [local-only, crowdsec-waf@file, chronicle-mobile-ratelimit, chronicle-mobile-headers, chronicle-mobile-cors, chronicle-body-limit]
+      service: chronicle-backend-svc
+      priority: 20
 
 
   services:
