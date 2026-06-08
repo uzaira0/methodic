@@ -7,7 +7,7 @@ pluginManagement {
         id("org.owasp.dependencycheck")                 version "12.2.2" apply false
         id("org.hidetake.swagger.generator")            version "2.19.2" apply false
         id("com.github.johnrengelman.shadow")           version "8.1.1" apply false
-        id("org.jetbrains.kotlin.plugin.spring")        version "2.3.21" apply false
+        id("org.jetbrains.kotlin.plugin.spring")        version "2.4.0" apply false
         id("com.github.jk1.dependency-license-report")  version "3.1.2" apply false
 
         id("idea")
