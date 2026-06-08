@@ -1,6 +1,6 @@
 pluginManagement {
     plugins {
-        kotlin("jvm")                               version "2.3.21" apply false
+        kotlin("jvm")                               version "2.4.0" apply false
 
         id("org.jetbrains.dokka")                       version "2.2.0" apply false
         id("com.github.spotbugs")                       version "6.5.4" apply false
