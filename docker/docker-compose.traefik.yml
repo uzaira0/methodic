@@ -587,6 +587,7 @@ services:
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-change-me-local-oidc-secret}
       OIDC_IDP_HINT: ${OIDC_IDP_HINT:-bcm}
       OIDC_COOKIE_TOKEN_CLAIM: ${OIDC_COOKIE_TOKEN_CLAIM:-id_token}
+      CHRONICLE_SECURITY_COOKIE_SECURE: ${CHRONICLE_SECURITY_COOKIE_SECURE:-true}
       # MFA enforcement via amr claim (default: disabled)
       CHRONICLE_SECURITY_REQUIRE_MFA: ${REQUIRE_MFA:-false}
       # Token expiry configuration
