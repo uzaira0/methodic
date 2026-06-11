@@ -17,9 +17,9 @@ pluginManagement {
         id("signing")
     }
     repositories {
-        maven(url = "https://maven.pkg.github.com/uzaira0/chronicle")
         maven(url = "https://plugins.gradle.org/m2/")
         mavenCentral()
+        maven(url = "https://maven.pkg.github.com/uzaira0/chronicle")
     }
 }
 

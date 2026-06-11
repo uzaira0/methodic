@@ -33,7 +33,7 @@ RUN git config --global user.email "build@docker" && git config --global user.na
     git init && git add -A && git commit -m "docker build" --allow-empty && git tag v0.0.0
 
 # Pre-fetch dependencies (this layer is cached when only source code changes)
-ENV GRADLE_OPTS="-Xmx1g -Xms256m -Dorg.gradle.jvmargs='-Xmx1g -Xms256m'"
+ENV GRADLE_OPTS="-Xmx1g -Xms256m -Dorg.gradle.jvmargs='-Xmx1g -Xms256m' -Dorg.gradle.vfs.watch=false"
 RUN --mount=type=cache,target=/root/.gradle/caches \
     --mount=type=cache,target=/root/.gradle/wrapper \
     ./gradlew dependencies --no-daemon -PdevelopmentMode=true || true

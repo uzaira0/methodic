@@ -3,3 +3,7 @@
 # Note: flat structure, kebab-case keys (Jackson + Rhizome ConfigurationLoader convention)
 allowed-origins:
   - "https://${DOMAIN}"
+  - "http://${DOMAIN}"
+  - "http://${TRAEFIK_BIND_IP}"
+  - "http://cnrc-deni-p001"
+  - "http://cnrc-deni-p001.cnrc.bcm.edu"
