@@ -49,6 +49,13 @@ http:
     chronicle-fe-strip:
       stripPrefix:
         prefixes: ["/chronicle"]
+    chronicle-preprocessing-strip:
+      stripPrefix:
+        prefixes: ["/chronicle/preprocessing-gui"]
+    chronicle-preprocessing-slash:
+      redirectRegex:
+        regex: "^http://([^/]+)/chronicle/preprocessing-gui$"
+        replacement: "http://${1}/chronicle/preprocessing-gui/"
     chronicle-keycloak-ratelimit:
       rateLimit:
         average: 10
@@ -104,10 +111,18 @@ http:
           - X-Chronicle-Nonce
         accessControlAllowOriginList:
           - https://chronicle-screentime-app.research.bcm.edu
+          - http://10.23.4.137
+          - http://cnrc-deni-p001
+          - http://cnrc-deni-p001.cnrc.bcm.edu
         accessControlMaxAge: 86400
     chronicle-web-strip:
-      stripPrefix:
-        prefixes: ["/chronicle/api/web"]
+      replacePathRegex:
+        regex: "^/chronicle/api/web/?(.*)"
+        replacement: "/chronicle/v3/${1}"
+    chronicle-web-internal-header:
+      headers:
+        customRequestHeaders:
+          X-Chronicle-Internal-Web: "true"
     chronicle-web-ratelimit:
       rateLimit:
         average: 20
@@ -142,6 +157,9 @@ http:
           - Origin
         accessControlAllowOriginList:
           - https://chronicle-screentime-app.research.bcm.edu
+          - http://10.23.4.137
+          - http://cnrc-deni-p001
+          - http://cnrc-deni-p001.cnrc.bcm.edu
         accessControlAllowCredentials: true
         accessControlMaxAge: 86400
     chronicle-block-response:
@@ -310,10 +328,24 @@ http:
       service: chronicle-fe-svc
       priority: 1
 
+    chronicle-preprocessing-gui-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/chronicle/preprocessing-gui`)"
+      entryPoints: [web]
+      middlewares: [local-only, chronicle-preprocessing-strip]
+      service: chronicle-preprocessing-gui-svc
+      priority: 30
+
+    chronicle-preprocessing-gui-slash-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && Path(`/chronicle/preprocessing-gui`)"
+      entryPoints: [web]
+      middlewares: [local-only, chronicle-preprocessing-slash]
+      service: chronicle-preprocessing-gui-svc
+      priority: 31
+
     chronicle-web-api-local:
       rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/chronicle/api/web`)"
       entryPoints: [web]
-      middlewares: [local-only, chronicle-web-strip, chronicle-web-ratelimit, chronicle-web-headers, chronicle-web-cors, chronicle-body-limit]
+      middlewares: [local-only, chronicle-web-strip, chronicle-web-internal-header, chronicle-web-ratelimit, chronicle-web-headers, chronicle-web-cors, chronicle-body-limit]
       service: chronicle-backend-svc
       priority: 10
 
@@ -342,6 +374,10 @@ http:
       loadBalancer:
         servers:
           - url: "http://chronicle-frontend:8080"
+    chronicle-preprocessing-gui-svc:
+      loadBalancer:
+        servers:
+          - url: "http://chronicle-preprocessing-frontend:8080"
     chronicle-backend-svc:
       loadBalancer:
         servers:

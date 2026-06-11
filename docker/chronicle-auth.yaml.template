@@ -17,6 +17,8 @@ configurations:
     base64EncodedSecret: false
     signingAlgorithm: "RS256"
     testingTokenIssuer: false
+testingLoginEnabled: ${TESTING_LOGIN_ENABLED}
+allowProductionTestingLogin: ${ALLOW_PRODUCTION_TESTING_LOGIN}
 oidc:
   enabled: ${OIDC_ENABLED}
   providerLabel: "${OIDC_PROVIDER_LABEL}"

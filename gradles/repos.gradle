@@ -1,29 +1,26 @@
 repositories {
-  //Hit our repos first.
+  maven {
+    url "https://repo.maven.apache.org/maven2"
+  }
+  maven {
+    url = "https://plugins.gradle.org/m2/"
+  }
+  maven {
+    url "https://repo.spring.io/release/"
+  }
+  maven {
+    url 'https://oss.sonatype.org/content/repositories/snapshots'
+  }
+  maven {
+    url "https://repository.apache.org/snapshots/"
+  }
+  // Local development resolves Chronicle modules as projects. Keep GitHub
+  // Packages last so public dependencies do not require package credentials.
   maven {
     url "https://maven.pkg.github.com/uzaira0/chronicle"
     credentials {
       username = System.getenv("GITHUB_ACTOR") ?: findProperty("gpr.user") ?: "curator-bot"
       password = System.getenv("GITHUB_TOKEN") ?: findProperty("gpr.key") ?: ""
     }
-  }
-
-  // Hit sonatype snapshots
-  maven {
-    url 'https://oss.sonatype.org/content/repositories/snapshots'
-  }
-
-  maven {
-    url = "https://plugins.gradle.org/m2/"
-  }
-
-  maven {
-    url "https://repo.spring.io/release/"
-  }
-  maven {
-    url "https://repo.maven.apache.org/maven2"
-  }
-  maven {
-    url "https://repository.apache.org/snapshots/"
   }
 }
