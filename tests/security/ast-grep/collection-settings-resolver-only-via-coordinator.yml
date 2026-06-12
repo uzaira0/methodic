@@ -1,0 +1,38 @@
+# Per-sensor consent redesign / hardware-gate + per-sensor authority guardrail.
+#
+# CollectionSettingsResolver is constructed in exactly ONE place: the coordinator's
+# CollectionLoopCoordinator.resolveCollectableSettings(), which is the single point that
+#   (a) applies the per-device HARDWARE GATE — drops sensor modules whose hardware is absent
+#       on this device (the "Samsung sensor offered on a Pixel" bug), and
+#   (b) lets CollectionSettingsResolver enforce PER-SENSOR AUTHORITY — a sensor a migrated
+#       per-sensor study omits stays off, never re-enabled by the legacy AndroidSensor bridge
+#       (the "removing a sensor mid-study silently no-ops on enrolled devices" bug).
+#
+# Constructing the resolver anywhere else creates a settings-resolution path that bypasses
+# BOTH protections. All collection-settings resolution must funnel through the coordinator,
+# so the gate + authority apply uniformly. This rule flags any out-of-band construction.
+#
+# EXCEPTIONS:
+#   - CollectionLoopCoordinator.kt  : the single sanctioned construction + gate point.
+#   - CollectionSettingsResolver.kt : the class declaration itself.
+#   - test / androidTest            : tests construct it directly with a fake source.
+id: collection-settings-resolver-only-via-coordinator
+language: Kotlin
+severity: error
+message: >
+  CollectionSettingsResolver may only be constructed in CollectionLoopCoordinator
+  (resolveCollectableSettings), the single point applying the per-device hardware gate and
+  per-sensor authority. A resolver built elsewhere bypasses the hardware gate (device-absent
+  sensors) and the legacy-bridge suppression. Resolve collection settings via the coordinator.
+files:
+  - "**/collection/**/*.kt"
+ignores:
+  # The single sanctioned construction + hardware-gate point.
+  - "**/CollectionLoopCoordinator.kt"
+  # The class declaration itself is not a construction call site.
+  - "**/CollectionSettingsResolver.kt"
+  # Tests construct the resolver directly with a fake LegacySensorSettingSource.
+  - "**/test/**"
+  - "**/androidTest/**"
+rule:
+  pattern: CollectionSettingsResolver($$$ARGS)

@@ -40,6 +40,12 @@ pre-commit:
 
     detekt:
       glob: "**/*.kt"
+      # Security guardrail fixtures are deliberately malformed (they exist to TRIGGER
+      # rules) and are not production source — never code-quality-lint them. Excluding
+      # them also sidesteps the {staged_files} space-vs-comma `--input` issue when
+      # several fixture .kt files are staged together.
+      exclude:
+        - "tests/security/fixtures/**"
       run: detekt-cli --input {staged_files} --config detekt.yml --build-upon-default-config
 
 pre-push:
