@@ -31,6 +31,15 @@ rules:
     paths:
       include:
         - "*.kt"
+      exclude:
+        # CollectionAcknowledgmentEntry is the SERVER-SIDE append-only consent TRAIL record —
+        # not a device-bound diagnostics/settings DTO. It is the authoritative "who consented to
+        # what, when" anchor (the DB participant_collection_acknowledgment.participant_id), so it
+        # MUST carry the real participantId — a redacted ref would defeat the consent audit. It
+        # lives in chronicle-models only because the web/researcher view reads it. Out of the
+        # §1B.3 diagnostics-redaction scope; the device-POSTed CollectionAcknowledgment payload
+        # (no participantId — it's in the request path) is still covered.
+        - "CollectionAcknowledgmentEntry.kt"
     metadata:
       cwe: CWE-200
       owasp: "A01:2021"

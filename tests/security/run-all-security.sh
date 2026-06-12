@@ -215,7 +215,8 @@ PY
                 collection-hardware-service-only-via-manager \
                 collection-lifecycle-record-only-via-module \
                 collection-worker-no-direct-sensor-instantiation \
-                collection-settings-service-no-rls-context-call; do
+                collection-settings-service-no-rls-context-call \
+                collection-settings-resolver-only-via-coordinator; do
       ast-grep scan --rule "$ROOT_DIR/tests/security/ast-grep/${rule}.yml" \
         "$ROOT_DIR/chronicle" "$ROOT_DIR/chronicle-models" "$ROOT_DIR/chronicle-server" \
         --format sarif > "$REPORT_DIR/collection-${rule}.sarif" 2>/dev/null || true

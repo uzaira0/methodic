@@ -139,3 +139,34 @@ rules:
       confidence: HIGH
       references:
         - docs/DATA-COLLECTION-MODULARIZATION-DESIGN.md#1A.5
+
+  # --- Per-sensor consent redesign: settings resolution funnels through the coordinator.
+  # CollectionSettingsResolver is constructed in exactly one place —
+  # CollectionLoopCoordinator.resolveCollectableSettings() — which (a) applies the per-device
+  # HARDWARE GATE (drops sensor modules whose hardware is absent: the "Samsung sensor on a
+  # Pixel" bug) and (b) lets the resolver enforce PER-SENSOR AUTHORITY (a sensor a per-sensor
+  # study omits stays off, never re-enabled by the legacy AndroidSensor bridge: the "sensor
+  # removal silently no-ops on enrolled devices" bug). A resolver constructed anywhere else
+  # bypasses both. This is the Semgrep mirror of the ast-grep
+  # collection-settings-resolver-only-via-coordinator rule (defence-in-depth across engines).
+  # The coordinator's sanctioned construction is excluded via pattern-not-inside its helper.
+  - id: chronicle-collection-resolver-construction-only-in-coordinator
+    languages: [kotlin]
+    severity: ERROR
+    message: >
+      CollectionSettingsResolver may only be constructed in CollectionLoopCoordinator
+      (resolveCollectableSettings) — the single point applying the per-device hardware gate
+      and per-sensor authority. A resolver built elsewhere bypasses the hardware gate
+      (device-absent sensors) and the legacy-bridge suppression. Resolve via the coordinator.
+    patterns:
+      - pattern: CollectionSettingsResolver(...)
+      - pattern-not-inside: |
+          fun resolveCollectableSettings(...) {
+            ...
+          }
+    metadata:
+      cwe: CWE-1188
+      category: security
+      confidence: HIGH
+      references:
+        - docs/superpowers/specs/2026-06-11-per-sensor-modules-design.md

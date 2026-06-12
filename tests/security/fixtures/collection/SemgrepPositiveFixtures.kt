@@ -61,3 +61,12 @@ fun badPermission(): String {
     // ruleid: chronicle-collection-no-dangerous-permission-request
     return "android.permission.ACCESS_FINE_LOCATION"
 }
+
+// ---------------------------------------------------------------------------
+// Per-sensor authority / hardware gate: CollectionSettingsResolver must only be built inside
+// CollectionLoopCoordinator.resolveCollectableSettings. A direct construction in any other
+// function bypasses the per-device hardware gate and the legacy-bridge suppression → rule fires.
+fun badDirectResolver(source: LegacySensorSettingSource): Any {
+    // ruleid: chronicle-collection-resolver-construction-only-in-coordinator
+    return CollectionSettingsResolver(source).resolveAll(generalized = null)
+}

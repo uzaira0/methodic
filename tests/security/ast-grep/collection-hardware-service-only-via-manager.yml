@@ -17,6 +17,13 @@
 # :collection-sensors module talks to the HardwareSensorServiceController interface;
 # HardwareSensorServiceControllerImpl.kt is the :app-side adapter that owns the real
 # HardwareSensorService start/stop, so it is the sanctioned boundary and is exempt.
+#
+# Sanctioned lifecycle owner (per-sensor consent redesign, 2026-06-11): the grouped
+# HardwareSensorsCollectionModule is retired; CollectionLoopCoordinator.updateSensorService()
+# is now THE place that starts/stops the one shared sensor foreground service, driven by the
+# freshly-reconciled per-sensor gate state (anySensorCollects). It is the redesign's sensor
+# service-lifecycle owner and is therefore exempt — the rule still catches any OTHER (e.g. a
+# new worker/receiver) direct start/stop that bypasses the coordinator.
 id: collection-hardware-service-only-via-manager
 language: Kotlin
 severity: error
@@ -27,6 +34,8 @@ message: >
 ignores:
   - "**/collection/sensors/HardwareSensorsCollectionModule.kt"
   - "**/services/sensors/HardwareSensorServiceControllerImpl.kt"
+  # Per-sensor redesign sensor service-lifecycle owner (replaces the retired grouped module).
+  - "**/collection/state/CollectionLoopCoordinator.kt"
   - "**/receivers/lifecycle/PowerSaveModeReceiver.kt"
   - "**/receivers/lifecycle/StartOnBoot.kt"
   - "**/services/sensors/SensorSettingsRefreshWorker.kt"

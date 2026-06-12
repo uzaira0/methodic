@@ -64,6 +64,7 @@ ast_fixture() {
     collection-lifecycle-record-only-via-module)    echo "astgrep/collection/other/DirectRecordAsyncFixture.kt" ;;
     collection-worker-no-direct-sensor-instantiation) echo "astgrep/services/usage/NewUsageWorkerFixture.kt" ;;
     collection-settings-service-no-rls-context-call) echo "astgrep/services/settings/SettingsServiceFixture.kt" ;;
+    collection-settings-resolver-only-via-coordinator) echo "astgrep/collection/other/DirectResolverConstructionFixture.kt" ;;
     *) echo "" ;;
   esac
 }
@@ -74,7 +75,8 @@ for rule in collection-module-id-no-raw-string \
             collection-hardware-service-only-via-manager \
             collection-lifecycle-record-only-via-module \
             collection-worker-no-direct-sensor-instantiation \
-            collection-settings-service-no-rls-context-call; do
+            collection-settings-service-no-rls-context-call \
+            collection-settings-resolver-only-via-coordinator; do
   fixture="$FIX_DIR/$(ast_fixture "$rule")"
   [[ -f "$fixture" ]] || fail "Missing ast-grep fixture for $rule"
   # Strip files:/ignores: path-scope blocks so the rule applies regardless of the
