@@ -596,8 +596,11 @@ services:
       TESTING_LOGIN_ENABLED: ${TESTING_LOGIN_ENABLED:-false}
       ALLOW_PRODUCTION_TESTING_LOGIN: ${ALLOW_PRODUCTION_TESTING_LOGIN:-false}
       CHRONICLE_SECURITY_COOKIE_SECURE: ${CHRONICLE_SECURITY_COOKIE_SECURE:-false}
-      # MFA enforcement via amr claim (default: disabled)
-      CHRONICLE_SECURITY_REQUIRE_MFA: ${REQUIRE_MFA:-false}
+      # MFA enforcement via RFC 8176 amr claim. DEFAULT: disabled (false).
+      # Set true ONLY after the IdP enforces MFA and emits an amr claim containing
+      # mfa/otp/hwk — enabling it sooner 401s every OIDC login (lockout).
+      # See docs/security/compliance-evidence/W3-mfa-enforcement.md (HIPAA §164.312(d)).
+      CHRONICLE_SECURITY_REQUIRE_MFA: ${CHRONICLE_SECURITY_REQUIRE_MFA:-false}
       # Token expiry configuration
       CHRONICLE_SECURITY_JWT_ACCESS_TOKEN_EXPIRY_MINUTES: ${ACCESS_TOKEN_EXPIRY_MINUTES:-15}
       CHRONICLE_SECURITY_JWT_REFRESH_TOKEN_EXPIRY_DAYS: ${REFRESH_TOKEN_EXPIRY_DAYS:-7}
