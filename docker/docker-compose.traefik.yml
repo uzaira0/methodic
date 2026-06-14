@@ -196,6 +196,10 @@ services:
       - postgres_data:/data/db
       # TDE keyring storage (for file-based provider - development only)
       - postgres_tde_keyring:/var/lib/postgresql/tde-keyring
+      # RLS roles (chronicle_app / chronicle_admin) — MUST run first: the backend's
+      # request-path RLS wrapper does SET ROLE chronicle_app on every authenticated
+      # request, and init-audit-immutability references the roles.
+      - ./init-db-roles.sql:/docker-entrypoint-initdb.d/10-init-db-roles.sql:ro
       # Initialization script for TDE setup
       - ./init-db-encryption.sh:/docker-entrypoint-initdb.d/20-init-db-encryption.sh:ro
       - ./init-replication.sh:/docker-entrypoint-initdb.d/25-init-replication.sh:ro
