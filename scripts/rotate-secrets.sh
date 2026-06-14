@@ -10,11 +10,16 @@
 #   ./scripts/rotate-secrets.sh --dry-run      # show what would change, touch nothing
 #   ./scripts/rotate-secrets.sh --only <name>  # rotate a single secret by env var name
 #
-# Secrets that CANNOT be auto-rotated (require external coordination):
+# Secrets that CANNOT be auto-rotated by THIS script (require external coordination):
 #   MOBILE_APP_KEY        — embedded in the Android APK; rotating requires a new app release
 #   MOBILE_SIGNING_SECRET — shared with the Android APK signing process
-#   PG_TDE_VAULT_TOKEN    — issued by external Vault cluster
+#   PG_TDE_VAULT_TOKEN    — Vault AUTH token, issued by the external Vault cluster
 #   SMTP_PASSWORD         — managed by the email provider (Office 365 admin)
+#
+# The TDE principal KEY itself IS rotatable (distinct from PG_TDE_VAULT_TOKEN
+# above): rotate it via scripts/rotate-tde-principal-key.sh, invoked here by the
+# rotate_tde_principal_key helper. It creates a new principal-key version under
+# the active pg_tde provider and re-wraps the internal keys (no table rewrite).
 #
 # Pre-requisites:
 #   - openssl, docker, docker compose
@@ -184,6 +189,20 @@ rotate_crowdsec_bouncer_key() {
   RESTART_NEEDED[traefik]=1
 }
 
+rotate_tde_principal_key() {
+  log "Rotating TDE principal key (delegating to rotate-tde-principal-key.sh)..."
+  local rotate_tde="$SCRIPT_DIR/rotate-tde-principal-key.sh"
+  [[ -x "$rotate_tde" ]] || err "rotate-tde-principal-key.sh not found or not executable at $rotate_tde"
+
+  if $DRY_RUN; then
+    "$rotate_tde" --dry-run
+  else
+    "$rotate_tde" || err "TDE principal key rotation failed — see output above"
+  fi
+  # The TDE principal key lives in pg_tde/Vault, not docker/.env, so no env_set
+  # and no service restart is required (re-wrap is online).
+}
+
 rotate_mobile_signing_secret() {
   warn "MOBILE_SIGNING_SECRET is shared with the Android APK signing process."
   warn "Rotating it requires publishing a new app version with the updated secret."
@@ -236,15 +255,16 @@ if [[ -n "$ONLY" ]]; then
     HAZELCAST_CLIENT_PASSWORD)  rotate_hazelcast_passwords ;;
     GRAFANA_ADMIN_PASSWORD)     rotate_grafana_admin_password ;;
     CROWDSEC_BOUNCER_API_KEY)   rotate_crowdsec_bouncer_key ;;
+    TDE_PRINCIPAL_KEY)          rotate_tde_principal_key ;;
     MOBILE_SIGNING_SECRET)      rotate_mobile_signing_secret ;;
     MOBILE_APP_KEY)             rotate_mobile_app_key ;;
     *)
-      err "Unknown secret: $ONLY. Rotatable: ${ROTATABLE_SECRETS[*]} ${DANGEROUS_SECRETS[*]}"
+      err "Unknown secret: $ONLY. Rotatable: ${ROTATABLE_SECRETS[*]} TDE_PRINCIPAL_KEY ${DANGEROUS_SECRETS[*]}"
       ;;
   esac
 else
   log "=== Starting full secret rotation ==="
-  log "Secrets to rotate: ${ROTATABLE_SECRETS[*]}"
+  log "Secrets to rotate: ${ROTATABLE_SECRETS[*]} TDE_PRINCIPAL_KEY"
   log ""
   warn "Secrets that require manual coordination (will prompt individually):"
   warn "  MOBILE_SIGNING_SECRET, MOBILE_APP_KEY"
@@ -260,6 +280,7 @@ else
   rotate_hazelcast_passwords
   rotate_grafana_admin_password
   rotate_crowdsec_bouncer_key
+  rotate_tde_principal_key
 
   if ! $AUTO; then
     rotate_mobile_signing_secret
@@ -299,7 +320,10 @@ restart_services() {
   done
 }
 
-if [[ ${#RESTART_NEEDED[@]} -gt 0 ]]; then
+# Guard: under `set -u`, an empty `declare -A` array errors on ${#arr[@]}.
+# The +x test is set only when the array has at least one element. Some rotations
+# (e.g. the TDE principal key) intentionally populate nothing.
+if [[ -n "${RESTART_NEEDED[*]+x}" ]]; then
   log ""
   log "Services needing restart: ${!RESTART_NEEDED[*]}"
 

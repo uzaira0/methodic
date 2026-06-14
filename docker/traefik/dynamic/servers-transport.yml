@@ -1,0 +1,61 @@
+# =============================================================================
+# W4 — Traefik ↔ backend mTLS serversTransport  (STAGED, DEFAULT-OFF)
+# =============================================================================
+# HIPAA-2028 Compliance Lane — W4 (encryption in transit / transport hardening).
+# Control: HIPAA Security Rule §164.312(e)(1) — Transmission security.
+# Evidence: docs/security/compliance-evidence/W4-encryption-transport.md
+# Lane design: docs/superpowers/specs/2026-06-13-hipaa-2028-compliance-lane-design.md (§79–83)
+#
+# WHAT THIS IS
+#   A dynamic-config serversTransport that describes the client certificate +
+#   key Traefik would PRESENT to the chronicle-backend, and the CA it would use
+#   to VERIFY the backend's server certificate, when the Traefik→backend hop on
+#   the internal `chronicle-backend-bridge` network is upgraded from plain HTTP
+#   to mutually-authenticated TLS.
+#
+# THIS FILE IS INERT ON ITS OWN.
+#   Traefik loads this file (providers.file watches /etc/traefik/dynamic/), but a
+#   serversTransport changes NOTHING until a router's *service* explicitly binds
+#   to it via `loadbalancer.serversTransport=chronicle-backend-mtls`. The active
+#   chronicle-backend service still targets plain HTTP on port 40320 (see the
+#   commented enablement block in docker-compose.traefik.yml next to the
+#   `traefik.http.services.chronicle-backend.loadbalancer.server.port=40320`
+#   label). Defining this transport does not alter the live transport path.
+#
+# ENABLING IS A TWO-SIDED CHANGE (do not flip one side alone):
+#   1. BACKEND (chronicle-server jetty.yaml) must terminate TLS on 8443 and
+#      REQUIRE client auth — i.e. require-ssl: true, require-client-auth: true,
+#      https-port: 8443 (today: use-ssl true but require-ssl false /
+#      require-client-auth false, and it actively serves plain HTTP on 40320).
+#   2. TRAEFIK (compose) must point the chronicle-backend service at https on
+#      8443 and bind serversTransport=chronicle-backend-mtls (commented block).
+#   3. The cert material below must exist (mount ./traefik/certs → /etc/traefik/certs).
+#   See the evidence doc (§ "How to enable") for the exact sequence + cutover.
+#
+# CERT PATHS BELOW ARE PLACEHOLDERS.
+#   /etc/traefik/certs/ is not mounted today. To use it, add a read-only bind
+#   mount (e.g. `- ./traefik/certs:/etc/traefik/certs:ro,z`) to the traefik
+#   service volumes and populate client.crt / client.key / ca.crt. Until then the
+#   transport is referenced by nothing and never instantiated.
+# =============================================================================
+
+http:
+  serversTransports:
+    chronicle-backend-mtls:
+      # Verify the backend's SERVER certificate against this CA. Because the hop
+      # is on the internal chronicle-backend-bridge, the backend's cert SAN must
+      # match the service name Traefik dials (chronicle-backend); set
+      # serverName accordingly if the cert CN/SAN differs from the dial target.
+      serverName: chronicle-backend
+      rootCAs:
+        - /etc/traefik/certs/ca.crt
+      # CLIENT certificate Traefik PRESENTS to the backend (this is the "mutual"
+      # half of mTLS). The backend, once configured with require-client-auth:
+      # true, validates this against its own trust store and rejects the
+      # connection if absent/untrusted.
+      certificates:
+        - certFile: /etc/traefik/certs/client.crt
+          keyFile: /etc/traefik/certs/client.key
+      # insecureSkipVerify stays FALSE — verifying the backend cert is the point
+      # of upgrading off plain HTTP. Do not set true to "make it work".
+      insecureSkipVerify: false

@@ -78,8 +78,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       # PostgreSQL SSL/TLS Configuration for HIPAA-compliant encryption in transit
       # Options: disable, allow, prefer, require, verify-ca, verify-full
-      # Production recommendation: verify-full (validates server certificate and hostname)
-      POSTGRES_SSL_MODE: ${POSTGRES_SSL_MODE:-require}
+      # Default verify-full (validates server certificate AND hostname). The backend JDBC URL
+      # (rhizome-docker.yaml.template) also hardcodes sslmode=verify-full; this requires the
+      # postgres server cert SAN to cover the 'postgres' hostname and be signed by the mounted
+      # CA (/app/ssl/ca.crt). See docs/security/compliance-evidence/W4-encryption-transport.md.
+      POSTGRES_SSL_MODE: ${POSTGRES_SSL_MODE:-verify-full}
       # Path to CA certificate for server certificate verification
       POSTGRES_SSL_ROOT_CERT: /app/ssl/ca.crt
       JWT_SECRET: ${JWT_SECRET}

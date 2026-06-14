@@ -157,3 +157,65 @@ _has_no_new_privileges(service) {
 	some i
 	service.security_opt[i] == "no-new-privileges:true"
 }
+
+# ---------------------------------------------------------------------------
+# 8. PostgreSQL sslmode must not be weaker than verify-full (HIPAA W4)
+#
+# The prod backend JDBC URL hardcodes sslmode=verify-full (see
+# docker/rhizome-docker.yaml.template). POSTGRES_SSL_MODE is retained only for
+# non-prod overrides; any compose service that sets it to a weaker mode would
+# (re-)introduce a connection that does not verify the server cert + hostname.
+# We block disable / allow / prefer / require / verify-ca.
+#
+# Compose typically sets this as ${POSTGRES_SSL_MODE:-<default>}. We extract the
+# literal default after ":-" and evaluate that. When the value is a bare
+# interpolation with no literal default (e.g. ${POSTGRES_SSL_MODE}) or is
+# absent, there is no literal to judge, so this rule does not fire — the literal
+# default in docker/.env.example (verify-full) governs that case, and a CI run
+# would surface a too-weak literal default there. We only deny when a weak mode
+# is observable as a literal in the compose file itself.
+# ---------------------------------------------------------------------------
+
+# Modes weaker than verify-full (everything except verify-full).
+weak_sslmodes := {"disable", "allow", "prefer", "require", "verify-ca"}
+
+# environment as an object (key: value mapping)
+deny[msg] {
+	service := input.services[name]
+	raw := service.environment["POSTGRES_SSL_MODE"]
+	is_string(raw)
+	mode := _sslmode_literal(raw)
+	weak_sslmodes[mode]
+	msg := sprintf("Service '%s' sets POSTGRES_SSL_MODE='%s', weaker than required 'verify-full'. Use sslmode=verify-full (encrypts + verifies server cert AND hostname); the prod JDBC URL in rhizome-docker.yaml.template already hardcodes it.", [name, mode])
+}
+
+# environment as an array of "KEY=VALUE" strings
+deny[msg] {
+	service := input.services[name]
+	env_entry := service.environment[_]
+	is_string(env_entry)
+	startswith(env_entry, "POSTGRES_SSL_MODE=")
+	raw := substring(env_entry, count("POSTGRES_SSL_MODE="), -1)
+	mode := _sslmode_literal(raw)
+	weak_sslmodes[mode]
+	msg := sprintf("Service '%s' sets POSTGRES_SSL_MODE='%s', weaker than required 'verify-full'. Use sslmode=verify-full (encrypts + verifies server cert AND hostname); the prod JDBC URL in rhizome-docker.yaml.template already hardcodes it.", [name, mode])
+}
+
+# Resolve the literal sslmode value from a compose env value.
+# Handles three forms:
+#   "require"                       -> "require"
+#   "${POSTGRES_SSL_MODE:-require}" -> "require"  (literal default after ":-")
+#   "${POSTGRES_SSL_MODE}"          -> "" (no literal — caller's set lookup misses)
+
+# Bare literal (no ${...} interpolation at all).
+_sslmode_literal(raw) = trim_space(raw) {
+	not contains(raw, "${")
+}
+
+# ${VAR:-default} form — take the literal default after ":-".
+_sslmode_literal(raw) = trim_space(fallback) {
+	contains(raw, "${")
+	contains(raw, ":-")
+	after := substring(raw, indexof(raw, ":-") + 2, -1)
+	fallback := substring(after, 0, indexof(after, "}"))
+}
