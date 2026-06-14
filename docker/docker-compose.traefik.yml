@@ -570,8 +570,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       # PostgreSQL SSL/TLS Configuration for HIPAA-compliant encryption in transit
       # Options: disable, allow, prefer, require, verify-ca, verify-full
-      # Production recommendation: verify-full (validates server certificate and hostname)
-      POSTGRES_SSL_MODE: ${POSTGRES_SSL_MODE:-require}
+      # Default verify-full (validates server certificate AND hostname). The backend JDBC URL
+      # (rhizome-docker.yaml.template) also hardcodes sslmode=verify-full; this requires the
+      # postgres server cert SAN to cover the 'postgres' hostname and be signed by the mounted
+      # CA (/app/ssl/ca.crt). See docs/security/compliance-evidence/W4-encryption-transport.md.
+      POSTGRES_SSL_MODE: ${POSTGRES_SSL_MODE:-verify-full}
       # Path to CA certificate for server certificate verification
       POSTGRES_SSL_ROOT_CERT: /app/ssl/ca.crt
       JWT_SECRET: ${JWT_SECRET}
@@ -713,6 +716,36 @@ services:
       - "traefik.enable=true"
       - "traefik.docker.network=chronicle-backend-bridge"
       - "traefik.http.services.chronicle-backend.loadbalancer.server.port=40320"
+
+      # ===========================================
+      # W4 — Traefik ↔ backend mTLS (STAGED, DEFAULT-OFF — leave commented)
+      # ===========================================
+      # HIPAA-2028 Compliance Lane W4 (encryption in transit, §164.312(e)(1)).
+      # The ACTIVE transport above is plain HTTP on the internal
+      # chronicle-backend-bridge (port=40320) and MUST stay that way until the
+      # backend itself terminates TLS. The lines below are the EXACT enablement
+      # steps — an operator uncomments them (plus the backend-side + cert steps)
+      # to flip the Traefik→backend hop to mutually-authenticated TLS. The
+      # serversTransport they reference is defined, inert, in
+      # traefik/dynamic/servers-transport.yml (loaded but bound to nothing).
+      #
+      # mTLS requires the backend to BOTH present a server cert AND demand
+      # Traefik's client cert. To enable, in order
+      # (see docs/security/compliance-evidence/W4-encryption-transport.md):
+      #   1. BACKEND FIRST — chronicle-server jetty.yaml must terminate TLS and
+      #      require client auth: require-ssl: true, require-client-auth: true,
+      #      https-port: 8443 (today: use-ssl true but require-ssl false /
+      #      require-client-auth false, and it actively serves plain HTTP on 40320).
+      #   2. Mount the client cert/key + CA into the traefik service — add to its
+      #      `volumes:`  ->  - ./traefik/certs:/etc/traefik/certs:ro,z  — and
+      #      populate client.crt / client.key / ca.crt.
+      #   3. THEN uncomment the three lines below (point the service at https on
+      #      8443 + bind the serversTransport). Comment out — do NOT delete — the
+      #      active port=40320 line above only at cutover.
+      #
+      # - "traefik.http.services.chronicle-backend.loadbalancer.server.port=8443"
+      # - "traefik.http.services.chronicle-backend.loadbalancer.server.scheme=https"
+      # - "traefik.http.services.chronicle-backend.loadbalancer.serversTransport=chronicle-backend-mtls@file"
 
       # ===========================================
       # MOBILE API: /chronicle/v3/*, /chronicle/v2/*, /chronicle/study/*
