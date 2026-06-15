@@ -65,7 +65,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout Android app
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: uzaira0/chronicle
           ref: ${{ inputs.android_ref || 'develop' }}
@@ -146,7 +146,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout server repo
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           submodules: true
           fetch-depth: 0
@@ -208,7 +208,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Checkout (for Maestro flows and configs)
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Set up JDK 17
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4

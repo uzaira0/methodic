@@ -107,7 +107,7 @@ jobs:
     steps:
       - name: Checkout
         if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.image_tag != '') }}
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
           submodules: true
@@ -244,7 +244,7 @@ jobs:
       DEPLOY_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Deploy to staging
         uses: appleboy/ssh-action@2ead5e36573ea353427de4e2ccc5ebac8e2bc577 # v1.2.2
@@ -299,7 +299,7 @@ jobs:
       url: https://${{ vars.PRODUCTION_DOMAIN }}/chronicle
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Deploy to production
         uses: appleboy/ssh-action@2ead5e36573ea353427de4e2ccc5ebac8e2bc577 # v1.2.2
@@ -351,7 +351,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
 
