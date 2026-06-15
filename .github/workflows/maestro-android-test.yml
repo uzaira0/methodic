@@ -333,7 +333,7 @@ jobs:
 
       # -- Install Maestro --
       - name: Maestro CLI cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         id: maestro-cache
         with:
           path: ~/.maestro
@@ -352,14 +352,14 @@ jobs:
 
       # -- Cache Android system image (avoids ~500 MB download per API level) --
       - name: Cache Android system image
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: /usr/local/lib/android/sdk/system-images/android-${{ matrix.api-level }}
           key: system-image-api${{ matrix.api-level }}-google_apis-x86_64-v1
 
       # -- Cache AVD snapshot (avoids cold boot) --
       - name: AVD cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         id: avd-cache
         with:
           path: |
