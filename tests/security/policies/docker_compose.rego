@@ -207,13 +207,14 @@ deny[msg] {
 #   "${POSTGRES_SSL_MODE:-require}" -> "require"  (literal default after ":-")
 #   "${POSTGRES_SSL_MODE}"          -> "" (no literal — caller's set lookup misses)
 
-# Bare literal (no ${...} interpolation at all).
-_sslmode_literal(raw) = trim_space(raw) {
+# Bare literal (no ${...} interpolation at all). Lowercased because libpq treats sslmode
+# case-insensitively, so "REQUIRE"/"Require" are the same weak mode as "require".
+_sslmode_literal(raw) = lower(trim_space(raw)) {
 	not contains(raw, "${")
 }
 
-# ${VAR:-default} form — take the literal default after ":-".
-_sslmode_literal(raw) = trim_space(fallback) {
+# ${VAR:-default} form — take the literal default after ":-" (also lowercased).
+_sslmode_literal(raw) = lower(trim_space(fallback)) {
 	contains(raw, "${")
 	contains(raw, ":-")
 	after := substring(raw, indexof(raw, ":-") + 2, -1)
