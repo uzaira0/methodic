@@ -4,15 +4,21 @@ on:
   push:
     branches:
       - main
-      - develop
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Serialize production deploys; never cancel an in-flight deploy.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: self-hosted
+    # Requires manual approval via the GitHub "production" environment protection rules.
+    environment: production
     timeout-minutes: 15
     steps:
       - name: Checkout

@@ -1,7 +1,7 @@
 # Production Readiness Handoff — 10 Critical Fixes
 
-**Date:** 2026-05-06
-**Status:** All 10 issues analyzed and architecturally designed. Implementation not yet started.
+**Date:** 2026-05-06 (original analysis) · **Updated:** 2026-06-18 (verified against current code + remediated)
+**Status:** All 10 issues now resolved or out-of-scope. CRITICAL #1 was fixed by the HIPAA-2028 RLS work (verified beyond the original design); cloud issues #3/#4/#7/#9 confirmed removed; #10 + bonus already done; #2/#5/#6/#8 fixed 2026-06-18. Per-issue status below.
 **Branch:** `develop` (all repos)
 
 ---
@@ -10,16 +10,18 @@
 
 | # | Severity | File(s) | Status |
 |---|----------|---------|--------|
-| 1 | CRITICAL | RLSContextFilter, RLSContextManager, StorageResolver | Designed, not implemented |
-| 2 | CRITICAL | `.github/workflows/docker-build-deploy.yml` | Not implemented |
-| 3 | CRITICAL | Removed legacy cloud object listing path | Removed from local deployment scope |
-| 4 | CRITICAL | Removed legacy cloud blob service path | Removed from local deployment scope |
-| 5 | HIGH | `chronicle-web/.../participant-dashboard-page.tsx` | Not implemented |
-| 6 | HIGH | `chronicle-server/.../SqlIdentifierValidator.kt` | Not implemented |
-| 7 | MEDIUM | Removed legacy cloud launch configuration | Removed from local deployment scope |
-| 8 | MEDIUM | `chronicle-server/.../VaultConfiguration.kt` | Not implemented |
-| 9 | MEDIUM | Removed legacy cloud presign path | Removed from local deployment scope |
-| 10 | LOW | `chronicle-web/.../study-operations-api.ts` | Not implemented |
+| 1 | CRITICAL | RLSContextFilter, RLSRequestContext, StorageResolver | ✅ FIXED — RLSRequestContext + RLSAwareHikariDataSource (session-local `set_config`) + per-request `SET ROLE chronicle_app` so RLS engages despite a superuser pool; V28 control-plane policy split. Verified 2026-06-18. |
+| 2 | CRITICAL | `.github/workflows/docker-build-deploy.yml` | ✅ FIXED 2026-06-18 — trigger gated to `main`, `deploy-production` concurrency, `production` environment approval gate. |
+| 3 | CRITICAL | Removed legacy cloud object listing path | ✅ Removed (verified 2026-06-18 — no AWS/S3 remnants in built tree). |
+| 4 | CRITICAL | Removed legacy cloud blob service path | ✅ Removed (verified) — blob persistence via `LocalBlobDataService`. |
+| 5 | HIGH | `chronicle-web/.../participant-dashboard-page.tsx` | ✅ FIXED 2026-06-18 — `fetchWithCsrf` exported + used; TUD-ids GET now carries `X-CSRF-Token`. |
+| 6 | HIGH | `chronicle-server/.../SqlIdentifierValidator.kt` | ✅ FIXED 2026-06-18 — segmented validation rejects system catalogs (`pg_*`/`information_schema`) + injection while keeping `schema.table`. |
+| 7 | MEDIUM | Removed legacy cloud launch configuration | ✅ Removed (verified). |
+| 8 | MEDIUM | `chronicle-server/.../VaultConfiguration.kt` | ✅ FIXED 2026-06-18 — default address `https://localhost:8200`. |
+| 9 | MEDIUM | Removed legacy cloud presign path | ✅ Removed (verified) — local presigned-URL path only. |
+| 10 | LOW | `chronicle-web/.../study-operations-api.ts` | ✅ FIXED — no `any` casts remain (verified 2026-06-18). |
+
+> **Note (2026-06-18):** The per-issue design sections below are the *original* analysis. The summary table above reflects verified current status. Issue 6's fix intentionally diverges from the original "forbid dots" design — import sources are legitimately schema-qualified (`src.system_apps`), so dots are preserved while system catalogs and injection are blocked. Issue 2's `production` environment only *enforces* approval once protection rules are configured in the repo's GitHub environment settings.
 
 ---
 
@@ -220,17 +222,16 @@ Also restrict the trigger to `main` only (not `develop`).
 
 ---
 
-## Submodule Unpushed Commits
+## Submodule Push Status (updated 2026-06-18)
 
-All submodules have unpushed commits on `develop`:
+| Submodule | Status |
+|-----------|--------|
+| chronicle-server | ✅ `develop` pushed (0/0 with origin). |
+| chronicle-api | ✅ `develop` pushed (0/0). |
+| chronicle-models | ✅ `main` pushed (0/0). |
+| chronicle-web | ✅ `develop` pushed (0/0). |
+| chronicle (Android) | ✅ `develop` pushed (0/0). |
+| rhizome | ⚠️ Pinned by root at the AWS-removal commit `6ea3fb66`, which lives on `origin/refactor/data-collection-modularization` — **not merged into `develop`** (whose tip still contains the AWS code). Fresh clone resolves fine; re-bumping from `develop` would regress the cloud removal. |
+| rhizome-client | ⚠️ Same as rhizome — pinned at `e168eed` on the refactor branch, not merged to `develop`. |
 
-| Submodule | Commits ahead | Summary |
-|-----------|--------------|---------|
-| chronicle-api | 2 | Joda-Time removal, Java 21 source compat |
-| chronicle-server | 3 | Local object storage cleanup, Joda removal, Java 21 + JMH + property tests |
-| chronicle-web | 2 | SHA-pin actions + biome rules, zod-schemas + parity + Pa11y + OIDC |
-| rhizome | 4 | Cloud-provider cleanup, Joda removal, dead dep removal, Java 21 |
-| rhizome-client | 3 | Cloud-provider cleanup, Joda removal, Java 21 |
-| chronicle (Android) | 0 | Clean |
-
-Root repo has 3 unpushed commits: Trivy removal, action hardening, Joda/cloud-provider refactor.
+Root `develop` is in sync with origin.
