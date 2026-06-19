@@ -102,3 +102,4 @@ docker/postgres-ssl/**/*.key
 docker/postgres-ssl/**/*.p12
 docker/certs/privkey.pem
 docker/tls/*.key
+dist/
