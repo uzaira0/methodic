@@ -793,6 +793,12 @@ services:
       - "traefik.http.middlewares.chronicle-mobile-headers.headers.stsSeconds=31536000"
       - "traefik.http.middlewares.chronicle-mobile-headers.headers.stsIncludeSubdomains=true"
       - "traefik.http.middlewares.chronicle-mobile-headers.headers.stsPreload=true"
+      # Strip the internal-web HMAC-bypass header from ALL participant-device traffic.
+      # X-Chronicle-Internal-Web is legitimately stamped only by the intranet web->backend
+      # router (local-apps.yml); a participant device must never carry it. Without this an
+      # on-path/intranet attacker could send it on /chronicle/v4/study/... and bypass mobile
+      # request signing. Empty value => Traefik removes the inbound header before forwarding.
+      - "traefik.http.middlewares.chronicle-mobile-headers.headers.customRequestHeaders.X-Chronicle-Internal-Web="
 
       # ===========================================
       # WEB API: /chronicle/api/web/*
