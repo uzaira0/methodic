@@ -7,32 +7,30 @@
 
 ---
 
-## ⚠️ READ FIRST — git state for the device transition
+## git state for the device transition — ALL PUSHED (2026-06-19)
 
-**Nothing is pushed.** Every repo is ahead of its `origin` and the working trees are
-clean. To pick this up on another machine you must move these commits there (push where
-allowed; the protected ones need a PR). Exact unpushed commits:
+Everything is on `origin`. To resume on the other machine: clone/pull, then
+`git submodule update --init --recursive`. For the three protected submodules, check out
+the feature branch (their `develop` PRs aren't merged yet — see below).
 
-| Repo | Branch | Ahead | Top (this work) + prior unpushed |
-|------|--------|-------|----------------------------------|
-| root (`.`) | `develop` | 3 | `e0cfaa0` pointer bump (this), `37ffbad`, `aee5305` |
-| `chronicle` (android) | `develop` | 3 | **`f5ef584` permission grant flow (this)**, `41a5b62`, `0e5a830` |
-| `chronicle-server` | `develop` | 1 | `300a3db0` (prior 6-module batch) |
-| `chronicle-web` | `develop` | 1 | `ed6c769a` (prior) |
-| `chronicle-api` | `develop` | 1 | `f19bac7` (prior) |
-| `chronicle-models` | `main` | 1 | `536d6c9` (prior) |
+| Repo | Branch on origin | Commit | Notes |
+|------|------------------|--------|-------|
+| root (`uzaira0/methodic`) | `develop` | `b2f515e` | pushed; in sync |
+| `chronicle` (android) | `develop` | **`f5ef584`** | pushed; **this work** |
+| `chronicle-models` | `main` | `536d6c9` | pushed; in sync |
+| `chronicle-server` | `feat/sensing-expansion-6modules` | `300a3db0` | PR [#19](https://github.com/uzaira0/chronicle-server/pull/19) → develop (unmerged) |
+| `chronicle-web` | `feat/sensing-expansion-6modules` | `ed6c769a` | PR [#114](https://github.com/uzaira0/chronicle-web/pull/114) → develop (unmerged) |
+| `chronicle-api` | `feat/sensing-expansion-6modules` | `f19bac73` | PR [#12](https://github.com/uzaira0/chronicle-api/pull/12) → develop (unmerged) |
 
-**This handoff's work is only `chronicle@f5ef584` + root `@e0cfaa0`.** The other ahead
-commits are the already-documented six-sensing-expansion-modules batch (see memory
-`chronicle-six-expansion-modules-wired.md`) — they ride along because that batch was never
-pushed either.
+**This handoff's work is `chronicle@f5ef584` + root `@b2f515e`.** The other commits are the
+already-documented six-sensing-expansion-modules batch (memory
+`chronicle-six-expansion-modules-wired.md`).
 
-**Push constraints** (memory `chronicle-submodule-fold-topology`): `chronicle-server` /
-`chronicle-web` / `chronicle-api` `develop` are **protected** → PR + rebase-merge only
-(direct push = GH006). `chronicle` (android) `develop`, `chronicle-models` `main`, and the
-root are pushable directly. **No push has been authorized yet — confirm before pushing
-anything outward.** If the new machine just `git pull`s `origin`, it will NOT see any of
-this until pushed.
+**Why feature branches for server/web/api** (memory `chronicle-submodule-fold-topology`):
+their `develop` is **protected** → PR + rebase-merge only (direct push = GH006). The commits
+are on origin via `feat/sensing-expansion-6modules`; the root's submodule pointers reference
+those exact SHAs, so `submodule update` resolves. Merge the 3 PRs (rebase-merge) to land them
+on `develop`; then re-bump the root pointers if the rebase changes the SHAs.
 
 ---
 
@@ -162,7 +160,8 @@ affordance cleared. APK installed; APK at
 
 ## Open follow-ups
 
-1. **Push** (above) — nothing is on `origin`. Protected: server/web/api develop (PR + rebase-merge).
+1. **Merge the 3 protected-repo PRs** (rebase-merge into develop): server #19, web #114, api #12.
+   Then re-bump root submodule pointers if the rebase changed the SHAs.
 2. **Final visual confirmation** — scrolled Data Sharing screenshot showing sleep /
    activity_recognition / health_connect rows below "Device Settings". Blocked when last
    attempted: the Pixel's wifi-adb dropped (reconnect timed out; not rebooted per rule). Wake
