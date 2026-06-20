@@ -22,12 +22,34 @@ path "secret/metadata/chronicle/*" {
     capabilities = ["read", "list"]
 }
 
+# W2 (HIPAA-2028) — per-study envelope-encryption PRIVATE keys live at
+#   secret/data/encryption/study/{studyId}/{keyId}  (VaultStudyKeyStore).
+# The backend WRITES these when provisioning/rotating a study key and READS them for
+# decrypt-on-read/export — so this path needs create/update/read (the chronicle/* secrets
+# above are read-only by contrast). Keys are never deleted in place (rotation mints a new
+# keyId); destructive ops stay denied below so prior ciphertext stays decryptable.
+path "secret/data/encryption/*" {
+    capabilities = ["create", "update", "read"]
+}
+
+path "secret/metadata/encryption/*" {
+    capabilities = ["read", "list"]
+}
+
 # Deny destructive operations on secrets
 path "secret/delete/chronicle/*" {
     capabilities = ["deny"]
 }
 
 path "secret/destroy/chronicle/*" {
+    capabilities = ["deny"]
+}
+
+path "secret/delete/encryption/*" {
+    capabilities = ["deny"]
+}
+
+path "secret/destroy/encryption/*" {
     capabilities = ["deny"]
 }
 
