@@ -131,7 +131,7 @@ jobs:
 
       # -- Upload SARIF to GitHub Security tab (if any produced) ------------
       - name: Upload SARIF files to GitHub Security
-        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v3
         if: always() && hashFiles(format('{0}/*.sarif', env.REPORT_DIR)) != ''
         with:
           sarif_file: ${{ env.REPORT_DIR }}
