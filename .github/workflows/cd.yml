@@ -54,7 +54,7 @@ jobs:
     if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.image_tag != '') }}
     steps:
       - name: Wait for CI workflow to succeed
-        uses: lewagon/wait-on-check-action@ccfb013c15c8afb7bf2b7c028fb74dc5a068cccc # v1.3.4
+        uses: lewagon/wait-on-check-action@96d9100b431964d10e0136aff8b9ccb92470505e # v1.8.0
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -63,7 +63,7 @@ jobs:
           allowed-conclusions: success
 
       - name: Wait for JVM smoke tests
-        uses: lewagon/wait-on-check-action@ccfb013c15c8afb7bf2b7c028fb74dc5a068cccc # v1.3.4
+        uses: lewagon/wait-on-check-action@96d9100b431964d10e0136aff8b9ccb92470505e # v1.8.0
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -72,7 +72,7 @@ jobs:
           allowed-conclusions: success
 
       - name: Wait for container structure tests
-        uses: lewagon/wait-on-check-action@ccfb013c15c8afb7bf2b7c028fb74dc5a068cccc # v1.3.4
+        uses: lewagon/wait-on-check-action@96d9100b431964d10e0136aff8b9ccb92470505e # v1.8.0
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -81,7 +81,7 @@ jobs:
           allowed-conclusions: success
 
       - name: Wait for HTTP smoke tests
-        uses: lewagon/wait-on-check-action@ccfb013c15c8afb7bf2b7c028fb74dc5a068cccc # v1.3.4
+        uses: lewagon/wait-on-check-action@96d9100b431964d10e0136aff8b9ccb92470505e # v1.8.0
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
