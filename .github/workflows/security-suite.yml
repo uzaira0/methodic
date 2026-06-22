@@ -9,9 +9,9 @@ on:
       - develop
   workflow_dispatch:
 
+# Least privilege: SARIF upload (security-events: write) granted on the scan job.
 permissions:
   contents: read
-  security-events: write
 
 env:
   REPORT_DIR: ${{ github.workspace }}/tests/security/reports
@@ -27,6 +27,9 @@ jobs:
     name: "Layer: ${{ matrix.layer }}"
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
     strategy:
       fail-fast: false
       matrix:
@@ -45,6 +48,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           fetch-depth: 0
           submodules: true
 
@@ -165,23 +169,23 @@ jobs:
 
       - name: Generate summary
         run: |
-          echo "## Security Suite Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### CI Layers (static analysis, no running stack)" >> $GITHUB_STEP_SUMMARY
-          echo "| # | Layer | Description |" >> $GITHUB_STEP_SUMMARY
-          echo "|---|-------|-------------|" >> $GITHUB_STEP_SUMMARY
-          echo "| 1 | sast | Semgrep static analysis |" >> $GITHUB_STEP_SUMMARY
-          echo "| 3 | sca | Dependency vulnerability scanning (Bun audit) |" >> $GITHUB_STEP_SUMMARY
-          echo "| 5 | secrets | Gitleaks secret detection |" >> $GITHUB_STEP_SUMMARY
-          echo "| 6 | iac | Checkov + Hadolint IaC checks |" >> $GITHUB_STEP_SUMMARY
-          echo "| - | sso | Keycloak broker isolation and SAML hardening guardrails |" >> $GITHUB_STEP_SUMMARY
-          echo "| 12 | compliance | OPA/Conftest policy-as-code |" >> $GITHUB_STEP_SUMMARY
-          echo "| 14 | auth | JWT structure analysis |" >> $GITHUB_STEP_SUMMARY
-          echo "| 15 | injection | SQL injection pattern scan |" >> $GITHUB_STEP_SUMMARY
-          echo "| 16 | crypto | Weak algorithm detection |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Live-stack Layers" >> $GITHUB_STEP_SUMMARY
-          echo "DAST (2), API fuzz (7), TLS (8), Database (9), HIPAA (10), GDPR (11), Network (13), Rate limit (18), WAF (19), Runtime (20), Smoke (21), DB security (22), API headers (23), Business logic (24), Contract drift (25) are covered by scripts under tests/security/ and must be run against a deployed stack." >> $GITHUB_STEP_SUMMARY
+          echo "## Security Suite Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### CI Layers (static analysis, no running stack)" >> "$GITHUB_STEP_SUMMARY"
+          echo "| # | Layer | Description |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|-------|-------------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 1 | sast | Semgrep static analysis |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 3 | sca | Dependency vulnerability scanning (Bun audit) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 5 | secrets | Gitleaks secret detection |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 6 | iac | Checkov + Hadolint IaC checks |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| - | sso | Keycloak broker isolation and SAML hardening guardrails |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 12 | compliance | OPA/Conftest policy-as-code |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 14 | auth | JWT structure analysis |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 15 | injection | SQL injection pattern scan |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 16 | crypto | Weak algorithm detection |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Live-stack Layers" >> "$GITHUB_STEP_SUMMARY"
+          echo "DAST (2), API fuzz (7), TLS (8), Database (9), HIPAA (10), GDPR (11), Network (13), Rate limit (18), WAF (19), Runtime (20), Smoke (21), DB security (22), API headers (23), Business logic (24), Contract drift (25) are covered by scripts under tests/security/ and must be run against a deployed stack." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check overall status
         if: needs.security-layers.result == 'failure'

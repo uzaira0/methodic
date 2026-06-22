@@ -10,10 +10,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least privilege: SARIF upload (security-events: write) and PR comments
+# (pull-requests: write) are granted only on the jobs that need them, below.
 permissions:
   contents: read
-  security-events: write
-  pull-requests: write
 
 jobs:
   # ============================================================================
@@ -23,10 +23,19 @@ jobs:
     name: Detekt (Kotlin analysis)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write   # upload-sarif
     steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           submodules: true
 
       - name: Setup JDK 21
@@ -68,10 +77,19 @@ jobs:
     name: PMD (bug patterns)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write     # pmd-github-action createGitHubAnnotations
     steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           submodules: true
 
       - name: Run PMD
@@ -91,10 +109,19 @@ jobs:
     name: Bearer (data flow SAST)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write   # upload-sarif
     steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           submodules: true
 
       - name: Run Bearer
@@ -118,10 +145,19 @@ jobs:
     name: OSV-Scanner (Google vuln DB)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write   # upload-sarif
     steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           submodules: true
 
       - name: Run OSV-Scanner
@@ -147,10 +183,19 @@ jobs:
     name: Grype (Anchore vuln scan)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write   # upload-sarif
     steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           submodules: true
 
       - name: Run Grype
@@ -176,9 +221,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           submodules: true
 
       - name: Generate SBOM
@@ -204,14 +255,21 @@ jobs:
     timeout-minutes: 20
     if: github.event_name == 'pull_request'
     steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Checkout PR
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           submodules: true
 
       - name: Checkout base branch spec
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           ref: ${{ github.base_ref }}
           path: base
           submodules: true
@@ -236,7 +294,14 @@ jobs:
 
       - name: Install oasdiff
         run: |
-          curl -sSfL https://raw.githubusercontent.com/Tufin/oasdiff/main/install.sh | sh -s -- -b /usr/local/bin
+          # Pinned release + checksum-verified (was: curl install.sh | sh — pipe-to-shell
+          # from a mutable 'main' script with no verification).
+          OASDIFF_VERSION=1.20.0
+          OASDIFF_SHA256=16f9a277edf8605cdb5595f8a7a4fbb474130c803a26099a1ff7e474b01c8580
+          curl -fsSL "https://github.com/oasdiff/oasdiff/releases/download/v${OASDIFF_VERSION}/oasdiff_${OASDIFF_VERSION}_linux_amd64.tar.gz" \
+            -o /tmp/oasdiff.tar.gz
+          echo "${OASDIFF_SHA256}  /tmp/oasdiff.tar.gz" | sha256sum -c -
+          sudo tar -xzf /tmp/oasdiff.tar.gz -C /usr/local/bin oasdiff
 
       - name: Check for breaking changes
         run: |
@@ -260,10 +325,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write     # comment-summary-in-pr
     steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           submodules: true
 
       - name: Dependency Review
@@ -285,6 +359,11 @@ jobs:
       id-token: write
       contents: read
     steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:

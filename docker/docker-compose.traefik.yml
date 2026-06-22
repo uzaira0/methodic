@@ -405,12 +405,17 @@ services:
           -c log_connections=on \
           -c log_disconnections=on \
           -c log_statement=ddl
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          pids: 512
 
   keycloak:
     build:
       context: .
       dockerfile: Dockerfile.keycloak
-    image: chronicle-keycloak:26.6.1-local
+    image: chronicle-keycloak:26.6.3-local
     container_name: chronicle-keycloak
     profiles: ["sso"]
     restart: unless-stopped
@@ -762,7 +767,7 @@ services:
       # Traefik (trusting RFC1918 forwardedHeaders) treats as a SECURE request — secure
       # requests only match routers with tls enabled. Without this, all F5 traffic 404s.
       # (Internal plain-HTTP /chronicle/v3,v4 access stays served by chronicle-mobile-f5-fallback.)
-      - "traefik.http.routers.chronicle-mobile.tls=true"
+      - "traefik.http.routers.chronicle-mobile.tls=true"  # nosemgrep: chronicle-traefik-no-tls-on-plain-web-entrypoint
 
       # F5 TLS termination may forward to Traefik without preserving the public
       # Host header. Keep mobile API paths routed to the backend even when Host
@@ -811,7 +816,7 @@ services:
       - "traefik.http.routers.chronicle-web.priority=20"
       - "traefik.http.routers.chronicle-web.service=chronicle-backend"
       - "traefik.http.routers.chronicle-web.middlewares=crowdsec-waf@file,chronicle-web-strip,chronicle-web-ratelimit,chronicle-web-headers,chronicle-web-cors,chronicle-body-limit"
-      - "traefik.http.routers.chronicle-web.tls=true"
+      - "traefik.http.routers.chronicle-web.tls=true"  # nosemgrep: chronicle-traefik-no-tls-on-plain-web-entrypoint
 
       # Request body size limit (10MB) for API endpoints
       - "traefik.http.middlewares.chronicle-body-limit.buffering.maxRequestBodyBytes=10485760"
@@ -850,7 +855,7 @@ services:
       - "traefik.http.routers.chronicle-block.priority=15"
       - "traefik.http.routers.chronicle-block.service=chronicle-backend"
       - "traefik.http.routers.chronicle-block.middlewares=crowdsec-waf@file,chronicle-web-headers,chronicle-block-response"
-      - "traefik.http.routers.chronicle-block.tls=true"
+      - "traefik.http.routers.chronicle-block.tls=true"  # nosemgrep: chronicle-traefik-no-tls-on-plain-web-entrypoint
 
       # Return empty response (Traefik doesn't have a built-in 404 middleware, so we use replacepathregex to a non-existent path)
       - "traefik.http.middlewares.chronicle-block-response.replacepathregex.regex=.*"

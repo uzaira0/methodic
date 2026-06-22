@@ -36,15 +36,22 @@ jobs:
       SERVER_URL: ${{ inputs.server_url }}
       BUILD_TYPE: ${{ inputs.build_type }}
     steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Checkout main chronicle repo (for chronicle-api source)
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           submodules: recursive
           path: chronicle
 
       - name: Checkout Android app
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           repository: uzaira0/chronicle
           ref: ${{ inputs.android_ref }}
           path: app
@@ -90,7 +97,7 @@ jobs:
           URL="${SERVER_URL%/}/"
 
           # Replace production URL with the custom server URL in all source files
-          find app/src -name '*.kt' -exec grep -l 'chronicle-screentime-app.research.bcm.edu' {} \; | while read f; do
+          find app/src -name '*.kt' -exec grep -l 'chronicle-screentime-app.research.bcm.edu' {} \; | while read -r f; do
             sed -i "s|https://chronicle-screentime-app.research.bcm.edu|${URL}|g" "$f"
             echo "Patched: $f"
           done

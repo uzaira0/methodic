@@ -8,9 +8,37 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # Egress containment: this job runs untrusted Gradle build code while holding
+      # packages:write and PUBLISHES chronicle-api/rhizome JARs to GitHub Packages
+      # (consumed downstream by the Android app) — same propagation risk as cd.yml's
+      # build-images. block-mode denies any callout outside the allowlist. If a
+      # legitimate endpoint is blocked on first run, read the StepSecurity report
+      # and add it here.
+      - name: Harden runner (egress firewall)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          disable-sudo: true
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            codeload.github.com:443
+            objects.githubusercontent.com:443
+            uploads.github.com:443
+            maven.pkg.github.com:443
+            actions-results-receiver-production.githubapp.com:443
+            *.actions.githubusercontent.com:443
+            api.adoptium.net:443
+            services.gradle.org:443
+            plugins.gradle.org:443
+            repo.maven.apache.org:443
+            repo1.maven.org:443
+            repository.apache.org:443
+
       - name: Check out repository code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           fetch-depth: 0
           submodules: true
       - name: Set up JDK 21

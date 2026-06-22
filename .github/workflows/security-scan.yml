@@ -15,10 +15,10 @@ on:
   # Allow manual trigger
   workflow_dispatch:
 
+# Least privilege: SARIF upload (security-events: write) granted on the gradle job;
+# no job posts PR comments, so the former workflow-level pull-requests:write is dropped.
 permissions:
   contents: read
-  security-events: write
-  pull-requests: write
 
 env:
   # NVD API key for faster dependency-check updates (optional but recommended)
@@ -33,10 +33,19 @@ jobs:
     name: Gradle Dependency Check
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
     steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           fetch-depth: 0
           submodules: true
 
@@ -112,9 +121,15 @@ jobs:
       run:
         working-directory: chronicle-web
     steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           submodules: true
 
       - name: Setup Bun
@@ -141,10 +156,10 @@ jobs:
           cat bun-audit-output.txt
 
           if [ "${AUDIT_EXIT:-0}" -ne 0 ]; then
-            echo "has_vulnerabilities=true" >> $GITHUB_OUTPUT
+            echo "has_vulnerabilities=true" >> "$GITHUB_OUTPUT"
             echo "::warning::Bun audit found high or critical vulnerabilities"
           else
-            echo "has_vulnerabilities=false" >> $GITHUB_OUTPUT
+            echo "has_vulnerabilities=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Upload Bun Audit Reports
@@ -181,28 +196,28 @@ jobs:
 
       - name: Generate Summary
         run: |
-          echo "## Security Scan Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "## Security Scan Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Component | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----------|--------|" >> "$GITHUB_STEP_SUMMARY"
 
           if [ "${{ needs.gradle-security-scan.result }}" == "success" ]; then
-            echo "| Gradle Dependencies | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+            echo "| Gradle Dependencies | :white_check_mark: Passed |" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "| Gradle Dependencies | :x: Failed |" >> $GITHUB_STEP_SUMMARY
+            echo "| Gradle Dependencies | :x: Failed |" >> "$GITHUB_STEP_SUMMARY"
           fi
 
           if [ "${{ needs.bun-security-scan.result }}" == "success" ]; then
-            echo "| Bun Dependencies | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+            echo "| Bun Dependencies | :white_check_mark: Passed |" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "| Bun Dependencies | :x: Failed |" >> $GITHUB_STEP_SUMMARY
+            echo "| Bun Dependencies | :x: Failed |" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
-          echo "- Download the artifacts for detailed reports" >> $GITHUB_STEP_SUMMARY
-          echo "- Review the GitHub Security tab for SARIF-imported findings" >> $GITHUB_STEP_SUMMARY
-          echo "- Update vulnerable dependencies or add documented suppressions" >> $GITHUB_STEP_SUMMARY
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Next Steps" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Download the artifacts for detailed reports" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Review the GitHub Security tab for SARIF-imported findings" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Update vulnerable dependencies or add documented suppressions" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check Overall Status
         if: needs.gradle-security-scan.result == 'failure' || needs.bun-security-scan.result == 'failure'

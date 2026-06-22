@@ -21,9 +21,9 @@ on:
         default: "[26,27,28,29,30,31,32,33,34,35]"
         type: string
 
+# Least privilege: checks: write (test-reporter) is granted on the maestro-test job.
 permissions:
   contents: read
-  checks: write
 
 env:
   APP_PACKAGE: com.openlattice.chronicle
@@ -64,9 +64,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Checkout Android app
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           repository: uzaira0/chronicle
           ref: ${{ inputs.android_ref || 'develop' }}
           path: chronicle-android
@@ -145,9 +151,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Checkout server repo
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           submodules: true
           fetch-depth: 0
 
@@ -178,6 +190,9 @@ jobs:
   maestro-test:
     needs: [configure, build-apk, build-backend]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write       # dorny/test-reporter publishes a check run
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.configure.outputs.matrix) }}
@@ -201,6 +216,11 @@ jobs:
           --health-retries=5
 
     steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -209,6 +229,8 @@ jobs:
 
       - name: Checkout (for Maestro flows and configs)
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
 
       - name: Set up JDK 17
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
@@ -342,10 +364,18 @@ jobs:
       - name: Install Maestro
         if: steps.maestro-cache.outputs.cache-hit != 'true'
         run: |
-          # Pin Maestro version for reproducibility
-          export MAESTRO_VERSION=1.39.13
-          curl -fsSL "https://get.maestro.mobile.dev" | bash
-          maestro --version
+          # Pinned release + checksum-verified (was: curl get.maestro.mobile.dev | bash —
+          # pipe-to-shell from a mutable installer with no verification). The zip
+          # extracts to maestro/bin/maestro; move it to ~/.maestro (PATH set below).
+          MAESTRO_VERSION=1.39.13
+          MAESTRO_SHA256=2751b2d76545e42ece4c308eb38b3bb16bb08b1651d6dcf8850c91c4a7306a13
+          curl -fsSL "https://github.com/mobile-dev-inc/maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip" \
+            -o /tmp/maestro.zip
+          echo "${MAESTRO_SHA256}  /tmp/maestro.zip" | sha256sum -c -
+          rm -rf "${HOME}/.maestro" /tmp/maestro-extract
+          unzip -q /tmp/maestro.zip -d /tmp/maestro-extract
+          mv /tmp/maestro-extract/maestro "${HOME}/.maestro"
+          "${HOME}/.maestro/bin/maestro" --version
 
       - name: Add Maestro to PATH
         run: echo "${HOME}/.maestro/bin" >> "${GITHUB_PATH}"
@@ -437,10 +467,12 @@ jobs:
       - name: Capture failure evidence
         if: failure()
         timeout-minutes: 2
+        env:
+          API_LEVEL: ${{ matrix.api-level }}   # via env to avoid ${{ }} injection into the shell
         run: |
           mkdir -p failure-screenshots
-          timeout 30 adb exec-out screencap -p > "failure-screenshots/screen-api${{ matrix.api-level }}.png" 2>/dev/null || true
-          timeout 30 adb logcat -d > "failure-screenshots/logcat-api${{ matrix.api-level }}.txt" 2>/dev/null || true
+          timeout 30 adb exec-out screencap -p > "failure-screenshots/screen-api${API_LEVEL}.png" 2>/dev/null || true
+          timeout 30 adb logcat -d > "failure-screenshots/logcat-api${API_LEVEL}.txt" 2>/dev/null || true
 
       - name: Upload failure artifacts
         if: failure()

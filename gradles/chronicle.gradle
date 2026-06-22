@@ -61,17 +61,31 @@ configurations.all {
     force 'com.fasterxml.jackson.core:jackson-annotations:2.21'
     force 'commons-beanutils:commons-beanutils:1.11.0'
     force 'io.grpc:grpc-netty-shaded:1.75.0'
+    // Align the whole gRPC family to 1.75.0 (matches grpc-netty-shaded). Fixes
+    // GHSA-cfgp-2977-2fmm + GHSA-9hxf-ppjv-w6rq in grpc-protobuf 1.54.1, pulled in
+    // transitively via io.temporal:temporal-sdk:1.27.0. 1.54.x has no compatible
+    // CVE-fixed micro release that keeps the family consistent, so we lift to 1.75.0.
+    force 'io.grpc:grpc-protobuf:1.75.0'
+    force 'io.grpc:grpc-protobuf-lite:1.75.0'
+    force 'io.grpc:grpc-services:1.75.0'
+    force 'io.grpc:grpc-stub:1.75.0'
     force 'org.bouncycastle:bcpg-jdk18on:1.84'
     force 'org.bouncycastle:bcprov-jdk18on:1.84'
+    // bcpkix pulled in (1.80) via the Kotlin compiler classpath; lift to 1.84 to
+    // clear GHSA-wg6q-6289-32hp and align with bcprov/bcpg.
+    force 'org.bouncycastle:bcpkix-jdk18on:1.84'
+    // commons-compress: lift transitive 1.25.0/1.24.0 to 1.26.0
+    // (GHSA-4265-ccf5-phj5, GHSA-4g9r-vxhx-9pgx).
+    force 'org.apache.commons:commons-compress:1.26.0'
     // Also force all netty modules to match the updated version
-    force "io.netty:netty-codec-http2:4.2.13.Final"
-    force "io.netty:netty-codec-http:4.2.13.Final"
-    force "io.netty:netty-codec:4.2.13.Final"
-    force "io.netty:netty-handler:4.2.13.Final"
-    force "io.netty:netty-buffer:4.2.13.Final"
-    force "io.netty:netty-common:4.2.13.Final"
-    force "io.netty:netty-transport:4.2.13.Final"
-    force "io.netty:netty-resolver:4.2.13.Final"
+    force "io.netty:netty-codec-http2:4.2.15.Final"
+    force "io.netty:netty-codec-http:4.2.15.Final"
+    force "io.netty:netty-codec:4.2.15.Final"
+    force "io.netty:netty-handler:4.2.15.Final"
+    force "io.netty:netty-buffer:4.2.15.Final"
+    force "io.netty:netty-common:4.2.15.Final"
+    force "io.netty:netty-transport:4.2.15.Final"
+    force "io.netty:netty-resolver:4.2.15.Final"
   }
 
   resolutionStrategy.dependencySubstitution.all { DependencySubstitution dependency ->
@@ -156,7 +170,7 @@ ext.kryo_shaded_version='4.0.0'
 ext.log4j_version='2.25.4'
 ext.lz4_version='1.8.1'
 ext.minlog_version='1.3.0'
-ext.netty_epoll_version='4.2.13.Final'
+ext.netty_epoll_version='4.2.15.Final'
 ext.netty_os_arch='linux-x86_64'
 ext.objenesis_version='2.4'
 ext.odata_version='5.0.0'

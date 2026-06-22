@@ -34,7 +34,7 @@ subprojects {
                 setProperty("assemblyEnabled", false)
             }
             "nvd" {
-                setProperty("apiKey", System.getenv("NVD_API_KEY") ?: "")
+                setProperty("apiKey", System.getenv("NVD_API_KEY") ?: (findProperty("nvdApiKey") as String? ?: ""))
                 setProperty("delay", 3500)
             }
         }

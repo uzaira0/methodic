@@ -5,3 +5,13 @@ RUN /opt/keycloak/bin/kc.sh build \
     --http-relative-path=/keycloak \
     --health-enabled=true \
     --metrics-enabled=true
+
+# Liveness against the management-port health interface (satisfies CKV_DOCKER_2).
+# bash + the :9000 management port are both present in the optimized Keycloak
+# image; the compose service overrides this with a fuller request-level check.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000'
+
+# Run as the non-root keycloak user (satisfies CKV_DOCKER_3); matches the
+# compose service's user 1000:0.
+USER 1000
