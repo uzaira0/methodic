@@ -35,7 +35,10 @@ subprojects {
             }
             "nvd" {
                 setProperty("apiKey", System.getenv("NVD_API_KEY") ?: (findProperty("nvdApiKey") as String? ?: ""))
-                setProperty("delay", 3500)
+                // Inter-request delay (ms) for the NVD API. With a valid API key NVD allows
+                // ~1 request / 0.6s; 1000ms stays safely under that. (3500ms was needlessly
+                // conservative and made a cold full-feed pull take 4h+.)
+                setProperty("delay", 1000)
             }
         }
     }
