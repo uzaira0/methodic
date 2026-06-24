@@ -263,10 +263,14 @@ services:
       -c archive_command='mkdir -p /pgdata/wal_archive && test ! -f /pgdata/wal_archive/%f && cp %p /pgdata/wal_archive/%f'
       -c max_wal_senders=3
       -c max_parallel_workers_per_gather=0
+      -c shared_buffers=512MB
     deploy:
       resources:
         limits:
-          memory: 1G
+          # Raised from 1G: 128MB default shared_buffers + a big sort/hash on the
+          # ~1GB encrypted sensor table could OOM-kill a backend (same blast radius
+          # as a crash). 2G limit pairs with shared_buffers=512MB above.
+          memory: 2G
           pids: 512
 
   postgres-replica:
@@ -316,7 +320,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          # Raised from 512M to match a heavier primary; a standby replays the
+          # primary's workload and must not OOM mid-replay (would break HA).
+          memory: 1G
           pids: 512
     # Start as standby using pg_basebackup from primary
     command: |
@@ -573,6 +579,11 @@ services:
     environment:
       CHRONICLE_SERVER_XMS: ${BACKEND_XMS:-"-Xms512m"}
       CHRONICLE_SERVER_XMX: ${BACKEND_XMX:-"-Xmx2g"}
+      # On OutOfMemoryError, EXIT the JVM so the container restart policy restarts it.
+      # Without this the JVM hangs half-dead and, since there is no autoheal for
+      # 'unhealthy' (only 'exited') containers, it would stay down silently. The JVM
+      # reads JAVA_TOOL_OPTIONS automatically, independent of the start script.
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:+ExitOnOutOfMemoryError}
       CHRONICLE_SERVER_ARGS: "local postgres medialocal"
       # Domain name for CORS configuration (used by envsubst in cors.yaml.template)
       DOMAIN: ${DOMAIN}
