@@ -216,7 +216,12 @@ services:
     networks:
       - chronicle-internal
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      # Must use -h 127.0.0.1 (TCP), not the default local unix socket: the socket
+      # matches pg_hba "local all all peer", and the healthcheck's OS user != the
+      # DB role, so socket checks log a FATAL "Peer authentication failed" every
+      # interval (~8.5k/day of log spam) even though pg_isready still reports up.
+      # The replica healthcheck already does this correctly.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -257,6 +262,7 @@ services:
       -c archive_mode=on
       -c archive_command='mkdir -p /pgdata/wal_archive && test ! -f /pgdata/wal_archive/%f && cp %p /pgdata/wal_archive/%f'
       -c max_wal_senders=3
+      -c max_parallel_workers_per_gather=0
     deploy:
       resources:
         limits:
@@ -356,7 +362,8 @@ services:
         -c pgaudit.log_catalog=off \
         -c pgaudit.log_client=on \
         -c pgaudit.log_level=log \
-        -c pgaudit.log_statement_once=on
+        -c pgaudit.log_statement_once=on \
+        -c max_parallel_workers_per_gather=0
       '
 
   keycloak-postgres:
@@ -383,7 +390,8 @@ services:
     networks:
       - chronicle-sso-db
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      # -h 127.0.0.1 to avoid peer-auth FATAL spam over the local socket (see primary).
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
       timeout: 5s
       start_period: 20s
