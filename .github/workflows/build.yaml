@@ -32,9 +32,12 @@ jobs:
             api.adoptium.net:443
             services.gradle.org:443
             plugins.gradle.org:443
+            plugins-artifacts.gradle.org:443
             repo.maven.apache.org:443
             repo1.maven.org:443
             repository.apache.org:443
+            repo.spring.io:443
+            oss.sonatype.org:443
 
       - name: Check out repository code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
