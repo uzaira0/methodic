@@ -9,22 +9,27 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
+# These jobs only read the diff and warn/exit — no PR API writes — so contents:read
+# is sufficient (dropped an unused workflow-level pull-requests:write).
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   check-gitignored-files:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           fetch-depth: 0
           submodules: false
       - name: Verify no gitignored files were added
+        env:
+          BASE_REF: ${{ github.base_ref }}   # via env to avoid ${{ }} injection into the shell
         run: |
-          git fetch origin "${{ github.base_ref }}" --depth=1
-          added=$(git diff --name-only --diff-filter=A "origin/${{ github.base_ref }}"...HEAD)
+          git fetch origin "$BASE_REF" --depth=1
+          added=$(git diff --name-only --diff-filter=A "origin/$BASE_REF"...HEAD)
           violations=""
           for f in $added; do
             # --no-index forces ignore-rule check even for tracked files; without it,
@@ -43,15 +48,19 @@ jobs:
 
   check-mixed-concerns:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           fetch-depth: 0
           submodules: false
       - name: Reject PRs mixing CI workflow changes with code changes
+        env:
+          BASE_REF: ${{ github.base_ref }}   # via env to avoid ${{ }} injection into the shell
         run: |
-          git fetch origin "${{ github.base_ref }}" --depth=1
-          changed=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)
+          git fetch origin "$BASE_REF" --depth=1
+          changed=$(git diff --name-only "origin/$BASE_REF"...HEAD)
           touches_workflows=false
           touches_code=false
           for f in $changed; do
@@ -77,15 +86,19 @@ jobs:
 
   check-file-sizes:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           fetch-depth: 0
           submodules: false
       - name: Block files >1MB unless allow-listed
+        env:
+          BASE_REF: ${{ github.base_ref }}   # via env to avoid ${{ }} injection into the shell
         run: |
-          git fetch origin "${{ github.base_ref }}" --depth=1
-          added=$(git diff --name-only --diff-filter=AM "origin/${{ github.base_ref }}"...HEAD)
+          git fetch origin "$BASE_REF" --depth=1
+          added=$(git diff --name-only --diff-filter=AM "origin/$BASE_REF"...HEAD)
           oversized=""
           for f in $added; do
             [ -f "$f" ] || continue

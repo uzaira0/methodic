@@ -4,7 +4,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-repo="${REPO:-uzaira0/methodic}"
+repo="${REPO:-uzaira0/chronicle}"
 
 # Extract distinct action pins
 pins=$(grep -rhoE 'uses:\s+[a-zA-Z0-9._-]+/[a-zA-Z0-9._/-]+@[a-zA-Z0-9._-]+' \
@@ -16,7 +16,7 @@ while IFS= read -r pin; do
     action="${pin%@*}"
     ref="${pin#*@}"
 
-    # Skip our own _trivy-scan reusable
+    # Skip local reusable workflows
     case "$action" in
         ./.github/*) continue ;;
     esac

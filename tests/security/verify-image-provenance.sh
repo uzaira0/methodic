@@ -114,7 +114,8 @@ mkdir -p "$REPORT_DIR"
 section "Tool Check"
 
 HAS_COSIGN=false
-HAS_TRIVY=false
+HAS_GRYPE=false
+HAS_SYFT=false
 
 if command -v cosign &>/dev/null; then
     log_pass "cosign found: $(cosign version 2>&1 | head -1)"
@@ -126,19 +127,29 @@ else
     echo -e "    ${YELLOW}  go install github.com/sigstore/cosign/v2/cmd/cosign@latest${NC}"
 fi
 
-if command -v trivy &>/dev/null; then
-    log_pass "trivy found: $(trivy --version 2>&1 | head -1)"
-    HAS_TRIVY=true
+if command -v grype &>/dev/null; then
+    log_pass "grype found: $(grype version 2>&1 | head -1)"
+    HAS_GRYPE=true
 else
-    log_skip "trivy not installed"
-    echo -e "    ${YELLOW}Install: https://aquasecurity.github.io/trivy/latest/getting-started/installation/${NC}"
-    echo -e "    ${YELLOW}  brew install trivy${NC}"
-    echo -e "    ${YELLOW}  curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh${NC}"
+    log_skip "grype not installed"
+    echo -e "    ${YELLOW}Install: https://github.com/anchore/grype#installation${NC}"
+    echo -e "    ${YELLOW}  brew install grype${NC}"
+    echo -e "    ${YELLOW}  curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin${NC}"
 fi
 
-if [[ "$HAS_COSIGN" == false && "$HAS_TRIVY" == false ]]; then
+if command -v syft &>/dev/null; then
+    log_pass "syft found: $(syft version 2>&1 | head -1)"
+    HAS_SYFT=true
+else
+    log_skip "syft not installed"
+    echo -e "    ${YELLOW}Install: https://github.com/anchore/syft#installation${NC}"
+    echo -e "    ${YELLOW}  brew install syft${NC}"
+    echo -e "    ${YELLOW}  curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin${NC}"
+fi
+
+if [[ "$HAS_COSIGN" == false && "$HAS_GRYPE" == false ]]; then
     echo ""
-    log_fail "No verification tools available. Install cosign and/or trivy to proceed."
+    log_fail "No verification tools available. Install cosign and/or grype to proceed."
     echo ""
     echo -e "${BOLD}Summary: ${GREEN}$PASS passed${NC}, ${RED}$FAIL failed${NC}, ${YELLOW}$SKIP skipped${NC}"
     exit 1
@@ -204,19 +215,19 @@ else
 fi
 
 # =============================================================================
-# Section 3: SBOM Generation (trivy)
+# Section 3: SBOM Generation (syft)
 # =============================================================================
 
 section "SBOM Generation"
 
-if [[ "$HAS_TRIVY" == false ]]; then
-    log_skip "Skipping SBOM generation (trivy not installed)"
+if [[ "$HAS_SYFT" == false ]]; then
+    log_skip "Skipping SBOM generation (syft not installed)"
 else
     for image in "${IMAGES[@]}"; do
         sbom_file="$REPORT_DIR/sbom-${image}.spdx.json"
         log_info "Generating SPDX SBOM for ${image}:latest ..."
 
-        if trivy image --format spdx-json -o "$sbom_file" "${image}:latest" 2>"$REPORT_DIR/sbom-${image}.log"; then
+        if syft "${image}:latest" -o spdx-json="$sbom_file" 2>"$REPORT_DIR/sbom-${image}.log"; then
             log_pass "SBOM generated: $sbom_file"
 
             # Attach SBOM if signing mode and cosign available
@@ -240,22 +251,22 @@ fi
 
 section "Vulnerability Summary"
 
-if [[ "$HAS_TRIVY" == false ]]; then
-    log_skip "Skipping vulnerability scan (trivy not installed)"
+if [[ "$HAS_GRYPE" == false ]]; then
+    log_skip "Skipping vulnerability scan (grype not installed)"
 else
     for image in "${IMAGES[@]}"; do
         vuln_file="$REPORT_DIR/vulns-${image}.json"
         log_info "Scanning ${image}:latest for CRITICAL/HIGH vulnerabilities ..."
 
-        if trivy image --severity CRITICAL,HIGH --format json -o "$vuln_file" "${image}:latest" 2>"$REPORT_DIR/vulns-${image}.log"; then
-            # Extract vulnerability counts from trivy JSON output
+        if grype "${image}:latest" -o json --file "$vuln_file" 2>"$REPORT_DIR/vulns-${image}.log"; then
+            # Extract vulnerability counts from grype JSON output
             if command -v jq &>/dev/null; then
-                critical_count=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' "$vuln_file" 2>/dev/null || echo "0")
-                high_count=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' "$vuln_file" 2>/dev/null || echo "0")
+                critical_count=$(jq '[.matches[]? | select(.vulnerability.severity == "Critical")] | length' "$vuln_file" 2>/dev/null || echo "0")
+                high_count=$(jq '[.matches[]? | select(.vulnerability.severity == "High")] | length' "$vuln_file" 2>/dev/null || echo "0")
             else
                 # Fallback: rough count via grep
-                critical_count=$(grep -c '"CRITICAL"' "$vuln_file" 2>/dev/null || echo "0")
-                high_count=$(grep -c '"HIGH"' "$vuln_file" 2>/dev/null || echo "0")
+                critical_count=$(grep -c '"Critical"' "$vuln_file" 2>/dev/null || echo "0")
+                high_count=$(grep -c '"High"' "$vuln_file" 2>/dev/null || echo "0")
             fi
 
             if [[ "$critical_count" -gt 0 ]]; then
@@ -283,31 +294,31 @@ STRONG_COPYLEFT_PATTERNS="^GPL-|^AGPL-|^SSPL|^CC-BY-SA|^OSL"
 # Weak copyleft: LGPL, MPL, EPL, EUPL — allow linking without viral effect (normal for Java projects)
 WEAK_COPYLEFT_PATTERNS="^LGPL|^MPL|^EPL|^EUPL"
 
-if [[ "$HAS_TRIVY" == false ]]; then
-    log_skip "Skipping license scan (trivy not installed)"
+if [[ "$HAS_SYFT" == false ]]; then
+    log_skip "Skipping license scan (syft not installed)"
 else
     for image in "${IMAGES[@]}"; do
         license_file="$REPORT_DIR/licenses-${image}.json"
         log_info "Scanning ${image}:latest for licenses ..."
 
-        if trivy image --scanners license --format json -o "$license_file" "${image}:latest" 2>"$REPORT_DIR/licenses-${image}.log"; then
+        if syft "${image}:latest" -o json --file "$license_file" 2>"$REPORT_DIR/licenses-${image}.log"; then
             # Check for strong copyleft licenses (FAIL)
             strong_copyleft=""
             weak_copyleft=""
             if command -v jq &>/dev/null; then
                 strong_copyleft=$(jq -r '
-                    [.Results[]?.Licenses[]? | select(.Name | test("'"$STRONG_COPYLEFT_PATTERNS"'"; "i"))]
+                    [.artifacts[]?.licenses[]? | select(.value | test("'"$STRONG_COPYLEFT_PATTERNS"'"; "i"))]
                     | if length > 0 then
-                        map("\(.PkgName // "unknown"): \(.Name)")
+                        map("\(.value)")
                         | join("\n")
                       else
                         ""
                       end
                 ' "$license_file" 2>/dev/null || echo "")
                 weak_copyleft=$(jq -r '
-                    [.Results[]?.Licenses[]? | select(.Name | test("'"$WEAK_COPYLEFT_PATTERNS"'"; "i"))]
+                    [.artifacts[]?.licenses[]? | select(.value | test("'"$WEAK_COPYLEFT_PATTERNS"'"; "i"))]
                     | if length > 0 then
-                        map("\(.PkgName // "unknown"): \(.Name)")
+                        map("\(.value)")
                         | join("\n")
                       else
                         ""

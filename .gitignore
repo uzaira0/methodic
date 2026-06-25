@@ -2,12 +2,15 @@ logging/
 .classpath
 .project
 .gradle/
+.kotlin/
 .settings/
 .idea/
 bin/
 build/
 out/
 artifacts/
+# local detekt runner jar (downloaded tool, not source)
+detekt-cli-*.jar
 .DS_Store
 *.iml
 *.swp
@@ -15,6 +18,8 @@ artifacts/
 chronicle-server/src/main/resources/auth0.yaml
 methodic-keys.gpg-key
 methodic-keys.gpg-key.gpg
+chronicle-keys.gpg-key
+docker/.env-backups/
 
 # OWASP Dependency-Check NVD cache
 .dependency-check-data/
@@ -55,7 +60,7 @@ tests/security/reports/
 .jules/
 .Jules/
 .codex/
-AGENTS.md
+!AGENTS.md
 GEMINI.md
 MEMORY.md
 WORKFLOWS.md
@@ -73,7 +78,6 @@ full_biome.log
 tests/security/reports/schemathesis/
 .hypothesis/
 tests/security/.trivy-cache/
-chronicle-models
 
 # Lefthook local overrides (personal config, not committed)
 lefthook-local.yml
@@ -89,6 +93,15 @@ deploy-audit.log
 
 # Environment files with real secrets (templates are tracked)
 docker/.env
+docker/secrets/
+.tmp/
 !docker/.env.example
 !docker/.env.staging
 !docker/.env.production
+
+# SSL private keys (certs are tracked; keys must never be)
+docker/postgres-ssl/**/*.key
+docker/postgres-ssl/**/*.p12
+docker/certs/privkey.pem
+docker/tls/*.key
+dist/

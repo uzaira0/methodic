@@ -1,29 +1,47 @@
 name: dependabot-auto-merge
 
-# Auto-merges Dependabot PRs after CI is green:
-#   - patch + minor for everything
-#   - majors stay manual (Spring/Kotlin/Gradle/etc. need human review)
-# Keeps the dependency inbox from piling up.
+# Auto-merges a NARROW slice of Dependabot PRs after CI is green:
+#   - patch + minor for GitHub Actions (SHA-pinned, re-pinned by the bump) and
+#     direct DEVELOPMENT dependencies only.
+#   - Production-runtime deps (direct:production), indirect deps, and GHSA security
+#     updates are NEVER auto-merged — a "fix" version can itself be a poisoned
+#     publish, so a human reviews anything that ships to the PHI runtime.
+#   - majors always stay manual.
+# Pairs with dependabot.yml cooldown (worm versions are yanked before adoption).
+#
+# SECURITY (pull_request_target): this trigger runs with repo write scope on PRs
+# from forks. It is safe ONLY because this workflow executes ZERO PR-authored code
+# (no actions/checkout of the PR head, no build/install/test of PR contents).
+# DO NOT add a checkout of the PR branch or run any PR-supplied script here — doing
+# so turns this into remote-code-execution holding a write token.
 
 on: pull_request_target
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: write        # required to perform the squash merge
+  pull-requests: write   # required to enable auto-merge
 
 jobs:
   auto-merge:
     if: github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Fetch update metadata
         id: meta
-        uses: dependabot/fetch-metadata@v2
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Enable auto-merge for patch + minor
-        if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor'
+      # Allowlist: only (patch|minor) AND (GitHub Actions OR dev-only deps).
+      # Everything that ships to production — plus every indirect dep and security
+      # update — falls through to manual review.
+      - name: Enable auto-merge (Actions + dev deps, patch/minor only)
+        if: >-
+          (steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+           steps.meta.outputs.update-type == 'version-update:semver-minor') &&
+          (steps.meta.outputs.package-ecosystem == 'github_actions' ||
+           steps.meta.outputs.dependency-type == 'direct:development')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}

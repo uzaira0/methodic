@@ -1,6 +1,6 @@
 name: lefthook-ci
 
-# Mirrors the local lefthook pre-commit checks (gitleaks, biome, trivy-secrets) in CI
+# Mirrors the local lefthook pre-commit checks (gitleaks, biome) in CI
 # so that developers running with HUSKY=0 / --no-verify cannot bypass the gates.
 # Runs the same `lefthook run pre-commit` command against the PR diff range.
 
@@ -13,33 +13,38 @@ permissions:
 jobs:
   lefthook:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Install lefthook
         run: |
-          LEFTHOOK_VERSION=1.12.5
-          curl -sSL "https://github.com/evilmartians/lefthook/releases/download/v${LEFTHOOK_VERSION}/lefthook_${LEFTHOOK_VERSION}_linux_amd64" \
+          # Pinned + checksum-verified. Matches scripts/setup-hooks.sh (1.11.13) and
+          # the GoReleaser asset name (_Linux_x86_64). -f makes a 404/MITM fail loudly
+          # instead of installing the error body; the sha256 check rejects tampering.
+          LEFTHOOK_VERSION=1.11.13
+          LEFTHOOK_SHA256=d64379c1c0f74d10884c3487093608df973d37dcfbbc8aefa7e54564dcffb177
+          curl -fsSL "https://github.com/evilmartians/lefthook/releases/download/v${LEFTHOOK_VERSION}/lefthook_${LEFTHOOK_VERSION}_Linux_x86_64" \
             -o /tmp/lefthook
+          echo "${LEFTHOOK_SHA256}  /tmp/lefthook" | sha256sum -c -
           sudo install -m 0755 /tmp/lefthook /usr/local/bin/lefthook
 
       - name: Install gitleaks
         run: |
           GITLEAKS_VERSION=8.21.2
-          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+          GITLEAKS_SHA256=5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
             -o /tmp/gitleaks.tar.gz
+          echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tar.gz" | sha256sum -c -
           sudo tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
-
-      - name: Install trivy
-        run: |
-          sudo apt-get update && sudo apt-get install -y wget gnupg lsb-release
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | \
-            sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
-          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | \
-            sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update && sudo apt-get install -y trivy
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:

@@ -9,7 +9,7 @@ if [ ! -f "$report" ]; then
     exit 1
 fi
 
-repo="${REPO:-uzaira0/methodic}"
+repo="${REPO:-uzaira0/chronicle}"
 title="freshness:jvm — week of $(date -u +%Y-%m-%d)"
 
 # Build markdown body from the report

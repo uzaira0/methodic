@@ -17,11 +17,14 @@ services:
       - KAFKA_CFG_NODE_ID=0
       - KAFKA_CFG_PROCESS_ROLES=controller,broker
       - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
-      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_LISTENERS=SASL_PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=SASL_PLAINTEXT://kafka:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=SASL_PLAINTEXT
+      - KAFKA_CFG_SASL_MECHANISM_INTER_BROKER_PROTOCOL=PLAIN
+      - KAFKA_CLIENT_USERS=${KAFKA_USER:?Set KAFKA_USER in .env}
+      - KAFKA_CLIENT_PASSWORDS=${KAFKA_PASSWORD:?Set KAFKA_PASSWORD in .env}
       # Topic settings
       - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
       - KAFKA_CFG_NUM_PARTITIONS=3
@@ -36,7 +39,7 @@ services:
     networks:
       - chronicle-internal
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      test: ["CMD-SHELL", "printf 'security.protocol=SASL_PLAINTEXT\nsasl.mechanism=PLAIN\nsasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username=\"%s\" password=\"%s\";\n' \"$$KAFKA_CLIENT_USERS\" \"$$KAFKA_CLIENT_PASSWORDS\" > /tmp/client.properties && kafka-topics.sh --bootstrap-server localhost:9092 --command-config /tmp/client.properties --list"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -49,6 +52,9 @@ services:
     environment:
       - KAFKA_CLUSTERS_0_NAME=chronicle
       - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+      - KAFKA_CLUSTERS_0_PROPERTIES_SECURITY_PROTOCOL=SASL_PLAINTEXT
+      - KAFKA_CLUSTERS_0_PROPERTIES_SASL_MECHANISM=PLAIN
+      - KAFKA_CLUSTERS_0_PROPERTIES_SASL_JAAS_CONFIG=org.apache.kafka.common.security.plain.PlainLoginModule required username="${KAFKA_USER}" password="${KAFKA_PASSWORD}";
       - DYNAMIC_CONFIG_ENABLED=true
     ports:
       - "8080:8080"
@@ -63,6 +69,9 @@ services:
     image: fluent/fluent-bit:2.2
     container_name: chronicle-fluent-bit
     restart: unless-stopped
+    environment:
+      - KAFKA_USER=${KAFKA_USER:?Set KAFKA_USER in .env}
+      - KAFKA_PASSWORD=${KAFKA_PASSWORD:?Set KAFKA_PASSWORD in .env}
     volumes:
       - ./siem/fluent-bit-kafka.conf:/fluent-bit/etc/fluent-bit.conf:ro
       - ./siem/parsers.conf:/fluent-bit/etc/parsers.conf:ro

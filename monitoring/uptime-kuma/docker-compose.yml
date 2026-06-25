@@ -27,13 +27,11 @@ services:
       - no-new-privileges:true
     labels:
       - 'traefik.enable=true'
-      - 'traefik.http.routers.uptime-kuma.rule=Host(`uptime.getmethodic.com`)'
-      - 'traefik.http.routers.uptime-kuma.entrypoints=websecure'
-      - 'traefik.http.routers.uptime-kuma.tls=true'
-      - 'traefik.http.routers.uptime-kuma.tls.certresolver=letsencrypt'
+      - 'traefik.http.routers.uptime-kuma.rule=Host(`${DOMAIN}`)'
+      - 'traefik.http.routers.uptime-kuma.entrypoints=${TRAEFIK_ENTRYPOINT:-web}'
       - 'traefik.http.services.uptime-kuma.loadbalancer.server.port=3001'
 
 networks:
   default:
-    name: ${CHRONICLE_NETWORK:-traefik}
+    name: ${TRAEFIK_NETWORK:-traefik-apps}
     external: true

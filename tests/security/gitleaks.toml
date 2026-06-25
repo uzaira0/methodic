@@ -7,6 +7,14 @@ paths = [
   '''package-lock\.json''',
   '''\.snap$''',
   '''\.golden\.json$''',
+  '''(^|/)backups/''',
+  '''(^|/)docker/rhizome-docker\.yaml$''',
+  '''(^|/)docker/chronicle-auth\.yaml$''',
+  '''(^|/)docker/mail\.yaml$''',
+  '''(^|/)docker/mobile-security\.yaml$''',
+  '''(^|/)docker/vault\.yaml$''',
+  '''(^|/)docker/cors\.yaml$''',
+  '''(^|/)docker/chronicle-config\.json$''',
 ]
 
 # Allow test JWTs and mock tokens
@@ -14,4 +22,6 @@ regexes = [
   '''test-token''',
   '''testing-token''',
   '''HS256''',
+  '''\$\{\{\s*secrets\.[A-Z0-9_]+\s*\}\}''',
+  '''\$\{\{\s*github\.token\s*\}\}''',
 ]

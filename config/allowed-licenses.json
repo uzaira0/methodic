@@ -52,6 +52,18 @@
     { "moduleLicense": "Go License" },
     { "moduleLicense": "Unicode/ICU License" },
     { "moduleLicense": "Python-2.0" },
-    { "moduleLicense": "BlueOak-1.0.0" }
+    { "moduleLicense": "BlueOak-1.0.0" },
+    { "moduleLicense": "The MIT License (MIT)" },
+    { "moduleLicense": "MIT-0" },
+    { "moduleLicense": "Apache License 2.0" },
+    { "moduleLicense": "3-Clause BSD License" },
+    { "moduleLicense": "The (New) BSD License" },
+    { "moduleLicense": "BSD licence" },
+    { "moduleLicense": "Eclipse Public License v. 2.0" },
+    { "moduleLicense": "GNU General Public License, version 2 with the GNU Classpath Exception" },
+    { "moduleLicense": "Public Domain, per Creative Commons CC0" },
+    { "moduleName": "com.geekbeast:rhizome" },
+    { "moduleName": "com.geekbeast:rhizome-client" },
+    { "moduleName": "org.antlr:antlr-runtime" }
   ]
 }

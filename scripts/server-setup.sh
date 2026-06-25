@@ -4,7 +4,7 @@ set -euo pipefail
 # Chronicle Server First-Time Setup Script
 # Run this on a fresh server to set up Chronicle with GitHub Actions self-hosted runner
 
-REPO_URL="${REPO_URL:-https://github.com/uzaira0/methodic.git}"
+REPO_URL="${REPO_URL:-https://github.com/uzaira0/chronicle.git}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/chronicle}"
 RUNNER_VERSION="${RUNNER_VERSION:-2.311.0}"
 
@@ -131,7 +131,7 @@ install_runner() {
     echo "[*] Setting up GitHub Actions self-hosted runner..."
     echo ""
     echo "You need a runner token from GitHub:"
-    echo "  1. Go to: https://github.com/uzaira0/methodic/settings/actions/runners/new"
+    echo "  1. Go to: https://github.com/uzaira0/chronicle/settings/actions/runners/new"
     echo "  2. Copy the token shown in the 'Configure' section"
     echo ""
     read -p "Enter your GitHub runner token (or 'skip' to skip): " RUNNER_TOKEN
@@ -151,7 +151,7 @@ install_runner() {
     rm actions-runner.tar.gz
 
     # Configure runner
-    ./config.sh --url "https://github.com/uzaira0/methodic" \
+    ./config.sh --url "https://github.com/uzaira0/chronicle" \
         --token "$RUNNER_TOKEN" \
         --name "chronicle-server" \
         --labels "self-hosted,chronicle" \

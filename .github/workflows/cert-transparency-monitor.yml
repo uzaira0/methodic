@@ -1,0 +1,56 @@
+name: cert-transparency-monitor
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-certs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Check Certificate Transparency logs
+        id: ct-check
+        run: |
+          DOMAIN="${{ vars.CHRONICLE_DOMAIN || 'chronicle-screentime-app.research.bcm.edu' }}"
+
+          # Query crt.sh for recent certificates
+          certs=$(curl -s "https://crt.sh/?q=%25.${DOMAIN}&output=json" 2>/dev/null || echo "[]")
+
+          if [ "$certs" = "[]" ] || [ -z "$certs" ]; then
+            echo "No certificates found or crt.sh unreachable"
+            exit 0
+          fi
+
+          # Check for certificates issued in the last 24 hours
+          recent=$(echo "$certs" | jq -r '[.[] | select(.not_before > (now - 86400 | strftime("%Y-%m-%dT%H:%M:%S")))] | length')
+
+          if [ "$recent" -gt "0" ]; then
+            echo "new_certs=$recent" >> "$GITHUB_OUTPUT"
+            echo "WARNING: $recent new certificate(s) issued for $DOMAIN in the last 24 hours"
+            echo "$certs" | jq -r '.[] | select(.not_before > (now - 86400 | strftime("%Y-%m-%dT%H:%M:%S"))) | "Issuer: \(.issuer_name) | CN: \(.common_name) | Not Before: \(.not_before)"'
+          else
+            echo "No new certificates in the last 24 hours"
+          fi
+
+      - name: Alert on unexpected certificates
+        if: steps.ct-check.outputs.new_certs != '' && steps.ct-check.outputs.new_certs != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          existing=$(gh issue list --label "security,cert-transparency" --state open --json number --jq '.[0].number' 2>/dev/null)
+          if [ -z "$existing" ]; then
+            gh issue create \
+              -t "cert-transparency: new certificate detected for production domain" \
+              -b "New TLS certificate(s) detected in CT logs. Verify these are legitimate. See workflow run for details." \
+              -l "security,cert-transparency"
+          fi

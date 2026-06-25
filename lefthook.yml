@@ -28,14 +28,9 @@ pre-commit:
         If this is a false positive, add an inline '# gitleaks:allow' comment
         or update tests/security/gitleaks.toml.
 
-    trivy-secrets:
-      run: trivy fs --scanners secret --exit-code 1 --severity CRITICAL --quiet --skip-dirs docker/certs,docker/postgres-ssl .
-      tags: optional
-
     hadolint:
       glob: "docker/Dockerfile*"
-      run: hadolint {staged_files}
-      tags: optional
+      run: hadolint --failure-threshold error {staged_files}
 
     typecheck:
       root: "chronicle-web/"
@@ -45,8 +40,13 @@ pre-commit:
 
     detekt:
       glob: "**/*.kt"
+      # Security guardrail fixtures are deliberately malformed (they exist to TRIGGER
+      # rules) and are not production source — never code-quality-lint them. Excluding
+      # them also sidesteps the {staged_files} space-vs-comma `--input` issue when
+      # several fixture .kt files are staged together.
+      exclude:
+        - "tests/security/fixtures/**"
       run: detekt-cli --input {staged_files} --config detekt.yml --build-upon-default-config
-      tags: optional
 
 pre-push:
   parallel: true

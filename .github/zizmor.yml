@@ -1,0 +1,20 @@
+# zizmor configuration — records ACCEPTED findings with rationale so the gate can
+# go green on known/triaged risks while still failing on anything new.
+# Each ignore is a deliberate security decision, not a silence-for-convenience.
+rules:
+  dangerous-triggers:
+    ignore:
+      # Safe by construction: this pull_request_target workflow checks out ZERO
+      # PR-authored code (no actions/checkout of the PR head) and only runs
+      # fetch-metadata + `gh pr merge`. See the SECURITY note in the file header.
+      - dependabot-auto-merge.yml
+      # Gated to same-repo PRs only (head.repo.full_name == github.repository), so
+      # fork PRs cannot reach the privileged path; PR title is read via env, not
+      # interpolated into the shell.
+      - jules-supersede.yml
+  bot-conditions:
+    ignore:
+      # The `github.actor == 'dependabot[bot]'` gate is correct here: a fork PR's
+      # actor is its author, never dependabot[bot], so attackers are excluded. The
+      # job also executes no PR code. Accepted.
+      - dependabot-auto-merge.yml

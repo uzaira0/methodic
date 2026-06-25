@@ -32,6 +32,11 @@ CONTAINER="chronicle-postgres"
 BACKEND_CONTAINER="chronicle-backend"
 DB_USER="chronicle"
 DB_NAME="chronicle"
+# Connect over TCP (-h 127.0.0.1), NOT the default local unix socket: the socket
+# matches pg_hba "local all all peer" and docker-exec's OS user != the DB role, so
+# socket connections fail with "Peer authentication failed" — which silently broke
+# every pg_dump/psql here. TCP uses scram-sha-256 with the password below.
+DB_HOST="127.0.0.1"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.traefik.yml"
 
 # Retention policy
@@ -97,10 +102,13 @@ do_full_backup() {
 
     log "Starting full backup to ${BACKUP_DIR}"
 
+    # Password for TCP auth, pulled from the running container's env (set once).
+    local PGPW; PGPW=$(docker exec "$CONTAINER" printenv POSTGRES_PASSWORD)
+
     # 1. Database dump
     log "  Dumping database..."
     DUMP_TMP=$(mktemp); TEMP_FILES+=("$DUMP_TMP")
-    docker exec "$CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" -Fc -Z6 > "$DUMP_TMP"
+    docker exec -e PGPASSWORD="$PGPW" "$CONTAINER" pg_dump -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -Fc -Z6 > "$DUMP_TMP"
     encrypt_file "$DUMP_TMP" "${BACKUP_DIR}/database.dump.enc"
     rm -f "$DUMP_TMP"
     log_ok "database.dump.enc ($(du -h "${BACKUP_DIR}/database.dump.enc" | cut -f1))"
@@ -122,12 +130,21 @@ do_full_backup() {
         fi
     done
     CONFIG_TMP=$(mktemp); TEMP_FILES+=("$CONFIG_TMP")
-    tar -czf "$CONFIG_TMP" \
-        -C "$SCRIPT_DIR" \
-        .env \
-        rhizome-docker.yaml \
-        chronicle-auth.yaml \
-        postgres-ssl/
+    # postgres-ssl/server/server.key is mode 600 owned by the postgres uid and is
+    # unreadable by the backup user. Stage every readable secret, then pull
+    # server.key through the container (which runs as the postgres uid) so the
+    # bundle is complete instead of aborting the whole backup on a permission error.
+    CONFIG_STAGE=$(mktemp -d)
+    ( cd "$SCRIPT_DIR" && tar -cf - --exclude=postgres-ssl/server/server.key \
+        .env rhizome-docker.yaml chronicle-auth.yaml postgres-ssl/ ) | tar -xf - -C "$CONFIG_STAGE"
+    if docker exec "$CONTAINER" cat /etc/postgres-ssl-src/server.key > "$CONFIG_STAGE/postgres-ssl/server/server.key" 2>/dev/null \
+        && [ -s "$CONFIG_STAGE/postgres-ssl/server/server.key" ]; then
+        log_ok "  captured server.key via container"
+    else
+        log_warn "  server.key not captured (container read failed) — restore will need a regenerated key"
+    fi
+    tar -czf "$CONFIG_TMP" -C "$CONFIG_STAGE" .
+    rm -rf "$CONFIG_STAGE"
     encrypt_file "$CONFIG_TMP" "${BACKUP_DIR}/config-secrets.tar.gz.enc"
     rm -f "$CONFIG_TMP"
     log_ok "config-secrets.tar.gz.enc"
@@ -154,11 +171,11 @@ do_full_backup() {
     # 5. Manifest
     log "  Creating manifest..."
 
-    DB_SIZE=$(docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -t -A \
+    DB_SIZE=$(docker exec -e PGPASSWORD="$PGPW" "$CONTAINER" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -t -A \
         -c "SELECT pg_size_pretty(pg_database_size('${DB_NAME}'));" 2>/dev/null || echo "unknown")
-    TABLE_COUNT=$(docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -t -A \
+    TABLE_COUNT=$(docker exec -e PGPASSWORD="$PGPW" "$CONTAINER" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -t -A \
         -c "SELECT COUNT(*) FROM pg_class WHERE relkind='r' AND relnamespace=(SELECT oid FROM pg_namespace WHERE nspname='public');" 2>/dev/null || echo "0")
-    TDE_COUNT=$(docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -t -A \
+    TDE_COUNT=$(docker exec -e PGPASSWORD="$PGPW" "$CONTAINER" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -t -A \
         -c "SELECT COUNT(*) FROM pg_class c JOIN pg_am am ON c.relam=am.oid WHERE c.relkind='r' AND am.amname='tde_heap' AND c.relnamespace=(SELECT oid FROM pg_namespace WHERE nspname='public');" 2>/dev/null || echo "0")
 
     # Build checksums
@@ -280,9 +297,13 @@ do_verify() {
     rm -f "$KEYRING_TMP"
 
     # Write Prometheus-compatible metrics for monitoring
-    VERIFY_METRICS_FILE="/var/log/chronicle/backup-verify-metrics.prom"
-    mkdir -p "$(dirname "$VERIFY_METRICS_FILE")" 2>/dev/null || true
-    cat > "$VERIFY_METRICS_FILE" 2>/dev/null <<PROM || true
+    # Override with CHRONICLE_BACKUP_METRICS_FILE when /var/log/chronicle isn't
+    # writable by the backup user (avoids a redirect error spamming the log; the
+    # default dir is owned by the backend container).
+    VERIFY_METRICS_FILE="${CHRONICLE_BACKUP_METRICS_FILE:-/var/log/chronicle/backup-verify-metrics.prom}"
+    METRICS_DIR="$(dirname "$VERIFY_METRICS_FILE")"
+    if mkdir -p "$METRICS_DIR" 2>/dev/null && [ -w "$METRICS_DIR" ]; then
+        cat > "$VERIFY_METRICS_FILE" <<PROM
 # HELP chronicle_backup_verify_success Whether the last backup verification passed (1) or failed (0).
 # TYPE chronicle_backup_verify_success gauge
 chronicle_backup_verify_success $([ "$ERRORS" -eq 0 ] && echo 1 || echo 0)
@@ -293,7 +314,10 @@ chronicle_backup_verify_timestamp_seconds $(date +%s)
 # TYPE chronicle_backup_verify_errors gauge
 chronicle_backup_verify_errors ${ERRORS}
 PROM
-    chmod 644 "$VERIFY_METRICS_FILE" 2>/dev/null || true
+        chmod 644 "$VERIFY_METRICS_FILE" 2>/dev/null || true
+    else
+        log_warn "  metrics dir $METRICS_DIR not writable; skipping Prometheus metrics export"
+    fi
 
     echo ""
     if [ "$ERRORS" -eq 0 ]; then

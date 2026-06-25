@@ -74,7 +74,7 @@ setup_file_key_provider() {
             -- Check if key provider already exists
             IF NOT EXISTS (
                 SELECT 1 FROM pg_tde_list_all_database_key_providers()
-                WHERE provider_name = 'chronicle-file-vault'
+                WHERE name = 'chronicle-file-vault'
             ) THEN
                 PERFORM pg_tde_add_database_key_provider_file(
                     'chronicle-file-vault',
@@ -91,21 +91,23 @@ setup_file_key_provider() {
         DO \$\$
         BEGIN
             IF NOT EXISTS (
-                SELECT 1 FROM pg_tde_list_all_keys()
+                SELECT 1 FROM pg_tde_key_info()
                 WHERE key_name = 'chronicle-principal-key'
             ) THEN
                 PERFORM pg_tde_create_key_using_database_key_provider(
                     'chronicle-principal-key',
                     'chronicle-file-vault'
                 );
-                PERFORM pg_tde_set_key_using_database_key_provider(
-                    'chronicle-principal-key',
-                    'chronicle-file-vault'
-                );
-                RAISE NOTICE 'Principal encryption key created and set';
+                RAISE NOTICE 'Principal encryption key created';
             ELSE
                 RAISE NOTICE 'Principal key already exists';
             END IF;
+
+            PERFORM pg_tde_set_key_using_database_key_provider(
+                'chronicle-principal-key',
+                'chronicle-file-vault'
+            );
+            RAISE NOTICE 'Principal encryption key set';
         END
         \$\$;
 EOSQL
@@ -142,7 +144,7 @@ setup_vault_key_provider() {
         BEGIN
             IF NOT EXISTS (
                 SELECT 1 FROM pg_tde_list_all_database_key_providers()
-                WHERE provider_name = 'chronicle-vault'
+                WHERE name = 'chronicle-vault'
             ) THEN
                 PERFORM pg_tde_add_database_key_provider_vault_v2(
                     'chronicle-vault',
@@ -162,21 +164,23 @@ setup_vault_key_provider() {
         DO \$\$
         BEGIN
             IF NOT EXISTS (
-                SELECT 1 FROM pg_tde_list_all_keys()
+                SELECT 1 FROM pg_tde_key_info()
                 WHERE key_name = 'chronicle-principal-key'
             ) THEN
                 PERFORM pg_tde_create_key_using_database_key_provider(
                     'chronicle-principal-key',
                     'chronicle-vault'
                 );
-                PERFORM pg_tde_set_key_using_database_key_provider(
-                    'chronicle-principal-key',
-                    'chronicle-vault'
-                );
-                RAISE NOTICE 'Principal encryption key created and set in Vault';
+                RAISE NOTICE 'Principal encryption key created in Vault';
             ELSE
                 RAISE NOTICE 'Principal key already exists in Vault';
             END IF;
+
+            PERFORM pg_tde_set_key_using_database_key_provider(
+                'chronicle-principal-key',
+                'chronicle-vault'
+            );
+            RAISE NOTICE 'Principal encryption key set in Vault';
         END
         \$\$;
 EOSQL
@@ -194,7 +198,7 @@ verify_encryption() {
         SELECT * FROM pg_tde_list_all_database_key_providers();
 
         -- List encryption keys
-        SELECT * FROM pg_tde_list_all_keys();
+        SELECT * FROM pg_tde_key_info();
 
         -- Create a test encrypted table to verify TDE works
         CREATE TABLE IF NOT EXISTS _tde_verification_test (
@@ -209,7 +213,13 @@ verify_encryption() {
         ON CONFLICT DO NOTHING;
 
         -- Verify table is encrypted
-        SELECT pg_tde_is_encrypted('_tde_verification_test'::regclass) AS is_encrypted;
+        DO \$\$
+        BEGIN
+            IF NOT pg_tde_is_encrypted('_tde_verification_test'::regclass) THEN
+                RAISE EXCEPTION 'TDE verification table is not encrypted';
+            END IF;
+        END
+        \$\$;
 
         -- Clean up test table
         DROP TABLE IF EXISTS _tde_verification_test;
@@ -224,7 +234,7 @@ enable_encryption_on_table() {
     echo "[INFO] Enabling encryption on table: ${table_name}"
 
     psql -v ON_ERROR_STOP=1 --username "${POSTGRES_USER:-postgres}" --dbname "${POSTGRES_DB}" <<-EOSQL
-        ALTER TABLE ${table_name} SET ACCESS METHOD tde_heap;
+        ALTER TABLE public."${table_name}" SET ACCESS METHOD tde_heap;
 EOSQL
 }
 
@@ -255,34 +265,30 @@ esac
 # Verify encryption is working
 verify_encryption
 
-# Convert sensitive tables to tde_heap (idempotent)
-# These tables contain PII, research data, or audit trails
-echo "[INFO] Converting sensitive tables to tde_heap..."
+# Convert public application tables to tde_heap (idempotent).
+# The table list is discovered at runtime to avoid stale hard-coded inventories.
+echo "[INFO] Discovering and converting public application tables to tde_heap..."
 
-SENSITIVE_TABLES=(
-    candidates
-    study_participants
-    devices
-    sensor_data
-    android_sensor_data
-    chronicle_usage_events
-    chronicle_usage_stats
-    preprocessed_usage_events
-    questionnaire_submissions
-    time_use_diary_submissions
-    app_usage_survey
-    upload_buffer
-    audit
-    audit_buffer
-    participant_stats
+mapfile -t SENSITIVE_TABLES < <(
+    psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB}" -t -A -c \
+        "SELECT c.relname
+         FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE c.relkind = 'r'
+         AND n.nspname = 'public'
+         ORDER BY c.relname;" | sed '/^$/d'
 )
+
+if [ "${#SENSITIVE_TABLES[@]}" -eq 0 ]; then
+    echo "[INFO] No public application tables exist yet (run migrate-tde.sh after backend creates schema)"
+fi
 
 for TABLE in "${SENSITIVE_TABLES[@]}"; do
     # Only convert if table exists (it may not on first init before backend creates schema)
-    TABLE_EXISTS=$(psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB}" -t -A -c \
+    TABLE_EXISTS=$(psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB}" -t -A -c \
         "SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname = '${TABLE}' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public'));")
     if [ "$TABLE_EXISTS" = "t" ]; then
-        CURRENT_AM=$(psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB}" -t -A -c \
+        CURRENT_AM=$(psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB}" -t -A -c \
             "SELECT am.amname FROM pg_class c JOIN pg_am am ON c.relam = am.oid WHERE c.relname = '${TABLE}';")
         if [ "$CURRENT_AM" != "tde_heap" ]; then
             enable_encryption_on_table "$TABLE"

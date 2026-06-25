@@ -30,11 +30,11 @@ concurrency:
   group: cd-${{ github.ref }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
 
+# Least-privilege floor. Writes are granted per-job (build-images: packages/
+# attestations/id-token; create-release: contents) so the job that executes
+# third-party build code (build-images) never holds contents:write.
 permissions:
-  contents: write       # GitHub Releases
-  packages: write       # ghcr.io push
-  actions: read         # workflow status checks
-  attestations: write   # provenance attestations
+  contents: read
 
 env:
   REGISTRY: ghcr.io
@@ -49,6 +49,11 @@ jobs:
   ci-gate:
     name: Wait for CI
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      checks: read        # wait-on-check reads check-run conclusions
+      actions: read
     # Skip CI gate for manual deploys with explicit image tag
     if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.image_tag != '') }}
     steps:
@@ -94,19 +99,60 @@ jobs:
   build-images:
     name: Build & push images
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [ci-gate]
     # Also run if ci-gate was skipped (manual deploy with explicit tag)
     if: ${{ always() && (needs.ci-gate.result == 'success' || needs.ci-gate.result == 'skipped') }}
+    # This job executes third-party build code (gradlew + bun install run inside the
+    # Docker builds). Grant only what the push + attestation need — NO contents:write.
+    permissions:
+      contents: read
+      packages: write       # ghcr.io push
+      attestations: write   # provenance attestations
+      id-token: write       # required by actions/attest-build-provenance (Sigstore OIDC)
     outputs:
       backend_digest: ${{ steps.build-backend.outputs.digest }}
       frontend_digest: ${{ steps.build-frontend.outputs.digest }}
       image_tag: ${{ steps.meta.outputs.primary_tag }}
       version: ${{ steps.meta.outputs.version }}
     steps:
+      # Egress containment: this job runs untrusted build code while holding a
+      # registry-push token. block-mode denies any callout outside the allowlist,
+      # so a poisoned dependency cannot exfiltrate the token or push elsewhere.
+      # If a legitimate endpoint is blocked on first run, read the StepSecurity
+      # report and add it here (see plan: staged audit→block promotion).
+      - name: Harden runner (egress firewall)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          disable-sudo: true
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            codeload.github.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            actions-results-receiver-production.githubapp.com:443
+            *.actions.githubusercontent.com:443
+            auth.docker.io:443
+            registry-1.docker.io:443
+            production.cloudflare.docker.com:443
+            repo.maven.apache.org:443
+            plugins.gradle.org:443
+            services.gradle.org:443
+            dl.google.com:443
+            repo1.maven.org:443
+            registry.npmjs.org:443
+            fulcio.sigstore.dev:443
+            rekor.sigstore.dev:443
+            tuf-repo-cdn.sigstore.dev:443
+
       - name: Checkout
         if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.image_tag != '') }}
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           fetch-depth: 0
           submodules: true
 
@@ -172,7 +218,7 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
-            org.opencontainers.image.vendor=Methodic Labs
+            org.opencontainers.image.vendor=Chronicle BCM
             org.opencontainers.image.title=chronicle-backend
             org.opencontainers.image.description=Chronicle backend (Spring Boot)
           cache-from: type=gha
@@ -198,7 +244,7 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
-            org.opencontainers.image.vendor=Methodic Labs
+            org.opencontainers.image.vendor=Chronicle BCM
             org.opencontainers.image.title=chronicle-frontend
             org.opencontainers.image.description=Chronicle frontend (React + nginx)
           cache-from: type=gha
@@ -228,7 +274,10 @@ jobs:
   deploy-staging:
     name: Deploy to staging
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [build-images]
+    permissions:
+      contents: read      # checkout only; deploy runs over SSH, no GITHUB_TOKEN writes
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'workflow_dispatch' && (github.event.inputs.environment == 'staging' || github.event.inputs.environment == ''))
@@ -241,7 +290,9 @@ jobs:
       DEPLOY_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
 
       - name: Deploy to staging
         uses: appleboy/ssh-action@2ead5e36573ea353427de4e2ccc5ebac8e2bc577 # v1.2.2
@@ -286,7 +337,10 @@ jobs:
   deploy-production:
     name: Deploy to production
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [build-images]
+    permissions:
+      contents: read      # checkout only; deploy runs over SSH, no GITHUB_TOKEN writes
     if: >-
       (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production') ||
       startsWith(github.ref, 'refs/tags/v')
@@ -295,7 +349,9 @@ jobs:
       url: https://${{ vars.PRODUCTION_DOMAIN }}/chronicle
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
 
       - name: Deploy to production
         uses: appleboy/ssh-action@2ead5e36573ea353427de4e2ccc5ebac8e2bc577 # v1.2.2
@@ -340,14 +396,16 @@ jobs:
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [build-images, deploy-production]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Generate changelog

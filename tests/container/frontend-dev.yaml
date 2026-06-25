@@ -1,0 +1,74 @@
+# Container structure tests for chronicle-web dev (Dockerfile.frontend.dev)
+# Run: container-structure-test test --image chronicle-frontend-dev --config tests/container/frontend-dev.yaml
+
+schemaVersion: "2.0.0"
+
+metadataTest:
+  exposedPorts: ["9000"]
+  cmd: ["bun", "run", "app"]
+  workdir: "/app"
+
+fileExistenceTests:
+  - name: "bun binary exists"
+    path: "/usr/local/bin/bun"
+    shouldExist: true
+    isExecutableBy: "owner"
+
+  - name: "package.json exists"
+    path: "/app/package.json"
+    shouldExist: true
+
+  - name: "node_modules installed"
+    path: "/app/node_modules"
+    shouldExist: true
+
+  - name: "webpack config directory exists"
+    path: "/app/config"
+    shouldExist: true
+
+  - name: "flow-typed directory exists"
+    path: "/app/flow-typed"
+    shouldExist: true
+
+  - name: "source directory exists"
+    path: "/app/src"
+    shouldExist: true
+
+  - name: "bun lockfile not present as bun.lock (installed from it)"
+    path: "/app/bun.lock"
+    shouldExist: false
+
+commandTests:
+  - name: "bun is available"
+    command: "bun"
+    args: ["--version"]
+    exitCode: 0
+
+  - name: "python3 is installed (node-gyp dependency)"
+    command: "python3"
+    args: ["--version"]
+    exitCode: 0
+
+  - name: "make is installed (node-gyp dependency)"
+    command: "make"
+    args: ["--version"]
+    exitCode: 0
+
+  - name: "g++ is installed (node-gyp dependency)"
+    command: "g++"
+    args: ["--version"]
+    exitCode: 0
+
+  - name: "node_modules is not empty"
+    command: "sh"
+    args: ["-c", "ls /app/node_modules/ | wc -l"]
+    expectedOutput: ["[1-9]"]
+
+  - name: "source directory contains files"
+    command: "sh"
+    args: ["-c", "find /app/src -type f | wc -l"]
+    expectedOutput: ["[1-9]"]
+
+  - name: "working directory is /app"
+    command: "pwd"
+    expectedOutput: ["/app"]

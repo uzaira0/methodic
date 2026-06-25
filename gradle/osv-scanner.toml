@@ -1,0 +1,621 @@
+# osv-scanner config — DIRECTORY-SCOPED to gradle/verification-metadata.xml
+#
+# Why this file exists and why it only lives in gradle/:
+# OSV-Scanner's `--recursive .` (see .github/workflows/analysis.yml :: osv-scanner job)
+# parses gradle/verification-metadata.xml as if it were a resolved dependency manifest.
+# It is NOT. verification-metadata.xml is Gradle's *artifact-hash catalog* — it pins
+# checksums for EVERY artifact Gradle has ever resolved across ALL configurations
+# (compile, test, build-classpath, plugin-classpath, multiple coordinate versions of
+# the same library). It is an integrity-verification ledger, not the runtime graph.
+#
+# The authoritative resolved runtime dependency set is the per-module gradle.lockfile
+# (chronicle-server/, chronicle-api/, rhizome/, rhizome-client/, chronicle-models/).
+# Every high-severity CVE that OSV flagged against verification-metadata.xml was
+# verified to be a STALE CATALOG ENTRY whose resolved lockfile version is already
+# patched, e.g.:
+#   - org.slf4j:slf4j-ext 1.7.12 (CVSS 9.8, GHSA-w77p-8cfg-2x43) — NOT in any lockfile
+#   - spring-security-web 6.5.8 (CVSS 9.1, GHSA-mf92-479x-3373)  — resolved is 6.5.10
+#   - bcprov/bcpg-jdk18on 1.71 (CVSS 8.7, GHSA-cj8j-37rh-8475)   — resolved is 1.84
+#   - org.yaml:snakeyaml 1.18/1.27                               — resolved is 2.5
+#   - io.netty:netty-handler 4.1.128/4.1.133                     — resolved is 4.2.13.Final
+#   - org.eclipse.jetty:jetty-http 12.0.32                       — resolved is 12.0.35
+#   - org.postgresql:postgresql 42.7.10                          — resolved is 42.7.11
+#
+# This config is placed in gradle/ (NOT repo root) so OSV-Scanner auto-loads it ONLY
+# for manifests in this directory (i.e. verification-metadata.xml). Identical CVE IDs
+# that ALSO appear in a real gradle.lockfile remain UNSUPPRESSED and continue to be
+# reported (verified: GHSA-j288 in commons-lang3 still surfaces from the lockfiles).
+# Those lockfile findings are tracked as dependency bumps owned by the dependency stream.
+
+[[IgnoredVulns]]
+id = "GHSA-22wj-vf5f-wrvj"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-27xj-rqx5-2255"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-288c-cq4h-88gq"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-355h-qmc2-wpwf"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-38f8-5428-x5cv"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-3f7h-mf4q-vrm4"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-3mc7-4q67-w48m"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-3pxv-7cmr-fjr4"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-3qp7-7mw8-wx86"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-3w8q-xq97-5j7x"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-4265-ccf5-phj5"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-445c-vh5m-36rj"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-4773-3jfm-qmx3"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-4g9r-vxhx-9pgx"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-4gq5-ch57-c2mg"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-4h8f-2wvx-gg5w"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-4jrv-ppp4-jm57"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-4w82-r329-3q67"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-563q-j3cm-6jxm"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-57j2-w4cx-62h2"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-57rv-r2g8-2cj3"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-58pp-9c76-5625"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-5949-rw7g-wx7w"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-5mg8-w23w-74h3"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-5p34-5m6p-p58g"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-5r5r-6hpj-8gg9"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-5ww9-j83m-q7qx"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-5x3r-wrvg-rp6q"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-645p-88qh-w398"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-67mf-3cr5-8w23"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-6fhj-vr9j-g45r"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-6fmv-xxpf-w3cw"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-6fpp-rgj9-8rwc"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-6hcq-hmm3-jj3c"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-6hg6-v5c8-fphq"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-6p4f-wcwh-5vvm"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-6wqp-v4v6-c87c"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-72hv-8253-57qq"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-758m-v56v-grj4"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-763g-fqq7-48wg"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-78wr-2p64-hpwj"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-7g45-4rm6-3mm3"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-7r82-7xv7-xcpj"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-84h7-rjj3-6jx4"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-85cw-hj65-qqv9"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-89qr-369f-5m5x"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-8c4j-34r4-xr8g"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-8w26-6f25-cm9x"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-8xfc-gm6g-vgpv"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-95cm-88f5-f2c7"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-98qh-xjc8-98pq"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-98wm-3w3q-mw94"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-9gph-22xh-8x98"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-9hxf-ppjv-w6rq"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-9m6f-7xcq-8vf8"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-9mxf-g3x6-wv74"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-9vvp-fxw6-jcxr"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-9w3m-gqgf-c4p9"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-c265-37vj-cwcc"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-c2gf-v879-257j"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-c2q3-4qrh-fm48"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-c3fc-8qff-9hwx"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-c4r9-r8fh-9vj2"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-c653-97m9-rcg9"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-c8hm-7hpq-7jhg"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-cf6r-3wgc-h863"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-cfgp-2977-2fmm"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-cggj-fvv3-cqwv"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-cj8j-37rh-8475"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-cjjf-94ff-43w7"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-cmfg-87vq-g5g4"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-cvc6-q2cp-2xhw"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-cvm9-fjm9-3572"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-f3j5-rmmp-3fc5"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-f6hv-jmp6-3vwv"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-f9hv-mg5h-xcw9"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-f9xh-2qgp-cq57"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-fmmc-742q-jg75"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-fqwf-pjwf-7vqv"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-gjmw-vf9h-g25v"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-gmg8-593g-7mv3"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-gp32-7h29-rpxm"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-gwp4-hfv6-p7hw"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-gwrp-pvrq-jmwv"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-gww7-p5w4-wrfv"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-h3cw-g4mq-c5x2"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-h46c-h94j-95f3"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-h4rc-386g-6m85"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-h822-r4r5-v8jg"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-hhhw-99gj-p3c3"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-hr8g-6v94-x4m9"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-hvcg-qmg6-jm4c"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-j288-q9x7-2f5v"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-j823-4qch-3rgm"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-jjjh-jjxp-wpff"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-m4cv-j2px-7723"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-m6x4-97wx-4q27"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-mc6h-4qgp-37qh"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-mf92-479x-3373"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-mj4r-2hfc-f8p6"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-mjmj-j48q-9wg2"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-mph4-vhrx-mv67"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-mvr2-9pj6-7w5j"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-mx7p-6679-8g3q"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-mx9v-gmh4-mgqw"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-p43x-xfjf-5jhr"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-prj3-ccx8-p6x4"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-pwqr-wmgm-9rr8"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-q93h-jc49-78gg"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-qjw2-hr98-qgfh"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-qmqc-x3r4-6v39"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-qr7j-h6gg-jmgc"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-r3gr-cxrf-hg25"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-r4gv-qr8j-p3pg"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-r695-7vr9-jgc2"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-rf6r-2c4q-2vwg"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-rgv9-q543-rqg4"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-rpr3-cw39-3pxh"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-rvwf-54qp-4r6v"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-v3xw-c963-f5hc"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-v435-xc8x-wvr9"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-v585-23hc-c647"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-v8h7-rr48-vmmv"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-vc5p-v9hr-52mj"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-vfqx-33qm-g869"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-vxf7-qj7q-83fh"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-w37g-rhq8-7m4j"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-w573-9ffj-6ff9"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-w77p-8cfg-2x43"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-w9fj-cfpg-grvv"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-wf8f-6423-gfxg"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-wg35-8jpf-2xv3"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-wg6q-6289-32hp"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-wh8g-3j2c-rqj5"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-wjxj-5m7g-mg7q"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-wxr5-93ph-8wr9"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-x2w5-5m2g-7h5m"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-x2wq-9x2f-fhj7"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-x4gw-5cx5-pgmh"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+[[IgnoredVulns]]
+id = "GHSA-xxqh-mfjm-7mv9"
+reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
+
+# --- jackson-databind: stale hash-catalog entries after the runtime bump to 2.22.0 ---
+# Resolved runtime/compile/test jackson-databind is now 2.22.0 on every module gradle.lockfile
+# (OSV query: 0 vulns). verification-metadata.xml is an append-only hash catalog and still retains
+# older jackson-databind coordinates (2.9.x / 2.12.7.1 / 2.14.0 / 2.15.x / 2.16.0 / 2.18.x / 2.21.x)
+# that nothing resolves to anymore. These IDs are therefore stale catalog entries here. The one live
+# lockfile occurrence (dokka doc-gen classpath jackson-databind 2.12.7.1, chronicle-server/ +
+# chronicle-api/) is suppressed with a build-time rationale in those per-module osv-scanner.toml files.
+[[IgnoredVulns]]
+id = "GHSA-3wrr-7qpf-2prh"
+reason = "Stale jackson-databind entry in gradle/verification-metadata.xml hash catalog; resolved runtime jackson-databind is 2.22.0 (unaffected). The dokka-classpath 2.12.7.1 lockfile occurrence is suppressed in the per-module osv-scanner.toml (build-time doc-gen only)."
+[[IgnoredVulns]]
+id = "GHSA-5hh8-q8hv-fr38"
+reason = "Stale jackson-databind entry in gradle/verification-metadata.xml hash catalog; resolved runtime jackson-databind is 2.22.0 (unaffected). The dokka-classpath 2.12.7.1 lockfile occurrence is suppressed in the per-module osv-scanner.toml (build-time doc-gen only)."
+[[IgnoredVulns]]
+id = "GHSA-5jmj-h7xm-6q6v"
+reason = "Stale jackson-databind entry in gradle/verification-metadata.xml hash catalog; resolved runtime jackson-databind is 2.22.0 (unaffected). The dokka-classpath 2.12.7.1 lockfile occurrence is suppressed in the per-module osv-scanner.toml (build-time doc-gen only)."
+[[IgnoredVulns]]
+id = "GHSA-9fxm-vc8v-hj55"
+reason = "Stale jackson-databind entry in gradle/verification-metadata.xml hash catalog; resolved runtime jackson-databind is 2.22.0 (unaffected). The dokka-classpath 2.12.7.1 lockfile occurrence is suppressed in the per-module osv-scanner.toml (build-time doc-gen only)."
+[[IgnoredVulns]]
+id = "GHSA-hgj6-7826-r7m5"
+reason = "Stale jackson-databind entry in gradle/verification-metadata.xml hash catalog; resolved runtime jackson-databind is 2.22.0 (unaffected). The dokka-classpath 2.12.7.1 lockfile occurrence is suppressed in the per-module osv-scanner.toml (build-time doc-gen only)."
+[[IgnoredVulns]]
+id = "GHSA-j3rv-43j4-c7qm"
+reason = "Stale jackson-databind entry in gradle/verification-metadata.xml hash catalog; resolved runtime jackson-databind is 2.22.0 (unaffected). The dokka-classpath 2.12.7.1 lockfile occurrence is suppressed in the per-module osv-scanner.toml (build-time doc-gen only)."
+[[IgnoredVulns]]
+id = "GHSA-rcqc-6cw3-h962"
+reason = "Stale jackson-databind entry in gradle/verification-metadata.xml hash catalog; resolved runtime jackson-databind is 2.22.0 (unaffected). The dokka-classpath 2.12.7.1 lockfile occurrence is suppressed in the per-module osv-scanner.toml (build-time doc-gen only)."
+[[IgnoredVulns]]
+id = "GHSA-rmj7-2vxq-3g9f"
+reason = "Stale jackson-databind entry in gradle/verification-metadata.xml hash catalog; resolved runtime jackson-databind is 2.22.0 (unaffected). The dokka-classpath 2.12.7.1 lockfile occurrence is suppressed in the per-module osv-scanner.toml (build-time doc-gen only)."
+

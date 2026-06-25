@@ -1,0 +1,68 @@
+name: dns-monitor
+
+on:
+  schedule:
+    - cron: '0 */4 * * *'  # Every 4 hours
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-dns:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Verify DNS records
+        id: dns-check
+        run: |
+          DOMAIN="${{ vars.CHRONICLE_DOMAIN || 'chronicle-screentime-app.research.bcm.edu' }}"
+          fail=0
+
+          # Resolve A record
+          a_record=$(dig +short A "$DOMAIN" 2>/dev/null | head -1)
+          if [ -z "$a_record" ]; then
+            echo "ALERT: No A record found for $DOMAIN"
+            fail=1
+          else
+            echo "A record: $a_record"
+          fi
+
+          # Check for unexpected CNAME (subdomain takeover indicator)
+          cname=$(dig +short CNAME "$DOMAIN" 2>/dev/null | head -1)
+          if [ -n "$cname" ]; then
+            echo "CNAME found: $cname — verify this is expected"
+            # Check if CNAME points to a dangling target
+            cname_target=$(dig +short A "$cname" 2>/dev/null | head -1)
+            if [ -z "$cname_target" ]; then
+              echo "ALERT: CNAME target $cname has no A record — possible subdomain takeover"
+              fail=1
+            fi
+          fi
+
+          # Check MX records (if email is used)
+          mx=$(dig +short MX "$DOMAIN" 2>/dev/null)
+          echo "MX records: ${mx:-none}"
+
+          # Check SPF
+          spf=$(dig +short TXT "$DOMAIN" 2>/dev/null | grep "v=spf1")
+          echo "SPF: ${spf:-none}"
+
+          if [ "$fail" = "1" ]; then
+            echo "alert=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Alert on DNS anomaly
+        if: steps.dns-check.outputs.alert == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            -t "dns-monitor: DNS anomaly detected for production domain" \
+            -b "DNS resolution check detected an anomaly. Possible domain hijacking or misconfiguration. See workflow run." \
+            -l "security,dns,p1"

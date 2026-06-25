@@ -33,7 +33,7 @@ RUN git config --global user.email "build@docker" && git config --global user.na
     git init && git add -A && git commit -m "docker build" --allow-empty && git tag v0.0.0
 
 # Pre-fetch dependencies (this layer is cached when only source code changes)
-ENV GRADLE_OPTS="-Xmx1g -Xms256m -Dorg.gradle.jvmargs='-Xmx1g -Xms256m'"
+ENV GRADLE_OPTS="-Xmx1g -Xms256m -Dorg.gradle.jvmargs='-Xmx1g -Xms256m' -Dorg.gradle.vfs.watch=false"
 RUN --mount=type=cache,target=/root/.gradle/caches \
     --mount=type=cache,target=/root/.gradle/wrapper \
     ./gradlew dependencies --no-daemon -PdevelopmentMode=true || true
@@ -101,10 +101,12 @@ ENV CHRONICLE_SERVER_ARGS="local postgres medialocal"
 
 EXPOSE 40320
 
-# HEALTHCHECK is defined in docker-compose.traefik.yml (compose always overrides Dockerfile HEALTHCHECK)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=5 \
+    CMD wget --quiet --tries=1 -O /dev/null http://127.0.0.1:40320/prometheus/ || exit 1
 
 LABEL org.opencontainers.image.source="https://github.com/uzaira0/chronicle"
-LABEL org.opencontainers.image.vendor="Methodic Labs"
+LABEL org.opencontainers.image.vendor="Chronicle BCM"
 
-# User switching happens in docker-compose command (su-exec after envsubst renders config as root)
-CMD ["su-exec", "chronicle", "./bin/chronicle-server", "local", "postgres", "medialocal"]
+USER chronicle
+
+CMD ["./bin/chronicle-server", "local", "postgres", "medialocal"]

@@ -1,0 +1,15 @@
+FROM postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94
+
+# Runtime runs as the postgres user, so gosu is not needed. Removing it avoids
+# carrying an unused Go binary and its transitive CVE surface.
+RUN apk upgrade --no-cache \
+    && rm -f /usr/local/bin/gosu
+
+# Postgres liveness (satisfies CKV_DOCKER_2); the compose service overrides this
+# with a user/db-aware pg_isready at runtime.
+HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=6 \
+    CMD pg_isready -U postgres || exit 1
+
+# Run as the non-root postgres user (satisfies CKV_DOCKER_3); matches the
+# compose service's user 70:70.
+USER postgres

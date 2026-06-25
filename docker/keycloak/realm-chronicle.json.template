@@ -1,0 +1,177 @@
+{
+  "realm": "__REALM__",
+  "enabled": true,
+  "displayName": "Chronicle",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "defaultRoles": [
+    "AuthenticatedUser"
+  ],
+  "rememberMe": false,
+  "roles": {
+    "realm": [
+      {
+        "name": "AuthenticatedUser",
+        "description": "Baseline Chronicle authenticated user role"
+      },
+      {
+        "name": "admin",
+        "description": "Chronicle administrator role"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "__CLIENT_ID__",
+      "name": "Chronicle Web",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "secret": "__CLIENT_SECRET__",
+      "redirectUris": [
+        "https://__DOMAIN__/chronicle/v3/auth/oidc/callback",
+        "http://localhost/chronicle/v3/auth/oidc/callback"
+      ],
+      "webOrigins": [
+        "https://__DOMAIN__",
+        "http://localhost"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "https://__DOMAIN__/chronicle"
+      },
+      "protocolMappers": [
+        {
+          "name": "email",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "email",
+            "claim.name": "email",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "full name",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-full-name-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "realm roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "identityProviders": [
+    {
+      "alias": "bcm",
+      "displayName": "BCM SSO",
+      "providerId": "saml",
+      "enabled": true,
+      "trustEmail": true,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "authenticateByDefault": true,
+      "linkOnly": false,
+      "hideOnLogin": false,
+      "firstBrokerLoginFlowAlias": "first broker login",
+      "config": {
+        "syncMode": "IMPORT",
+        "entityId": "https://__DOMAIN__/keycloak/realms/__REALM__",
+        "singleSignOnServiceUrl": "https://fedidp.bcm.edu/idp/profile/SAML2/Redirect/SSO",
+        "singleLogoutServiceUrl": "https://fedidp.bcm.edu/idp/profile/SAML2/Redirect/SLO",
+        "nameIDPolicyFormat": "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
+        "principalType": "SUBJECT",
+        "validateSignature": "true",
+        "signingCertificate": "MIIDTDCCAjSgAwIBAgIVAOG5n3plVD0k2za22rJhNB0cfOj6MA0GCSqGSIb3DQEBBQUAMCMxITAfBgNVBAMTGGh2bC1pZHAtZDAwMS5iZGMuYmNtLmVkdTAeFw0xMDAzMTIxNjU4MjNaFw0zMDAzMTIxNTU4MjNaMCMxITAfBgNVBAMTGGh2bC1pZHAtZDAwMS5iZGMuYmNtLmVkdTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAJIQGwkzSpjlCCl+CAMGacoDktpB/1Twp3UShBMfv1bEo8hJzhZNK+QxH+cMAJuzRaF2fslr7wyPtRnH9soq5Usxli3V6PV93oHMNLcD9hNwiaifhisWdUOTHYyXx5+Fw1xTfhLFg2tRioMibtfjV8l4z2VN28LoXn2LoAlnA0J6rTHJGUfuPXcfSn8fMSQokbltpAC+WLjbhIxQO6Reg4eC5Tz/WbZjVijEZEN8Opjh3KX9JL/jWAZCemsIZ0fvK83tVm+45N18PEYfzq0hXwfrgQYI1FK3tZs7fimtrAuF09ho2L+E/5WNLlYJcHorAeEuLdT2ZvldDtbi3/rwydcCAwEAAaN3MHUwVAYDVR0RBE0wS4IYaHZsLWlkcC1kMDAxLmJkYy5iZGMuYmNtLmVkdS9pZHAvc2hpYmJvbGV0aDAdBgNVHQ4EFgQU71kAUsprVqB8YdTiowM3yaMIzbwwDQYJKoZIhvcNAQEFBQADggEBAGdGZ58nE5xF66dFQjINXF+eFfCyWkFXvIWypLxQYVr+XdIfxVN/VYgO+b8Qea4N21YOlxt3m9v/TdQsjF0Ai73SV1j6iPoq+tDGbotpzp1Anbq75QodfpBWsWIwqKRqeU/y2gUq5CEB38rdve5hzgyOcTeEosx77s0X22RGHJiOAObkVTRvapKDM9P1Z0cSzL+r4ofnrH9wk8pI4Sqky16ay+zvbLvW5GuGeQJz8yaBEm4kk7BwhJEPnrqnDKD1d9cdeE1ww3rTAxyZsd0C8zWwg/SRQXp7XcvoNANsIiv+kT/uinAHeX+T8m3KqLxJRfjBx4uQkIJOqjGIQSJyM5U=",
+        "wantAuthnRequestsSigned": "true",
+        "wantAssertionsSigned": "true",
+        "wantAssertionsEncrypted": "false",
+        "signSpMetadata": "true",
+        "signatureAlgorithm": "RSA_SHA256",
+        "xmlSigKeyInfoKeyNameTransformer": "KEY_ID",
+        "postBindingResponse": "false",
+        "postBindingAuthnRequest": "false",
+        "postBindingLogout": "false",
+        "backchannelSupported": "false",
+        "forceAuthn": "false",
+        "hideOnLoginPage": "false",
+        "enabledFromMetadata": "true",
+        "metadataDescriptorUrl": "https://fedidp.bcm.edu/idp/shibboleth"
+      }
+    }
+  ],
+  "identityProviderMappers": [
+    {
+      "name": "BCM mail to email",
+      "identityProviderAlias": "bcm",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "attribute.name": "urn:oid:0.9.2342.19200300.100.1.3",
+        "attribute.friendly.name": "mail",
+        "user.attribute": "email"
+      }
+    },
+    {
+      "name": "BCM givenName to firstName",
+      "identityProviderAlias": "bcm",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "attribute.name": "urn:oid:2.5.4.42",
+        "attribute.friendly.name": "givenName",
+        "user.attribute": "firstName"
+      }
+    },
+    {
+      "name": "BCM sn to lastName",
+      "identityProviderAlias": "bcm",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "attribute.name": "urn:oid:2.5.4.4",
+        "attribute.friendly.name": "sn",
+        "user.attribute": "lastName"
+      }
+    },
+    {
+      "name": "BCM eppn to username",
+      "identityProviderAlias": "bcm",
+      "identityProviderMapper": "saml-username-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "attribute.name": "urn:oid:1.3.6.1.4.1.5923.1.1.1.6",
+        "attribute.friendly.name": "eduPersonPrincipalName",
+        "template": "${ATTRIBUTE.urn:oid:1.3.6.1.4.1.5923.1.1.1.6}",
+        "target": "LOCAL"
+      }
+    }
+  ]
+}

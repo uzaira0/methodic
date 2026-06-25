@@ -1,0 +1,94 @@
+rules:
+  - id: chronicle-rls-no-set-local
+    pattern-regex: 'SET\s+LOCAL\s+app\.'
+    message: >
+      PostgreSQL RLS context must not use SET LOCAL. SET LOCAL is transaction-scoped
+      and is lost across JDBC autocommit/query boundaries. Use the request-scoped
+      RLS datasource wrapper and session-scoped set_config(..., false) with explicit clear.
+    languages: [kotlin, java]
+    severity: ERROR
+    metadata:
+      cwe: CWE-863
+      owasp: "A01:2021"
+      category: security
+      confidence: HIGH
+
+  - id: chronicle-rls-no-transaction-local-set-config
+    pattern-regex: "set_config\\('app\\.[^']+',\\s*[^,]+,\\s*true\\)"
+    message: >
+      RLS context uses transaction-local set_config(..., true). That does not
+      survive normal autocommit boundaries and can leave the actual query
+      connection without RLS context. Use set_config(..., false) and clear in finally.
+    languages: [kotlin, java]
+    severity: ERROR
+    metadata:
+      cwe: CWE-863
+      owasp: "A01:2021"
+      category: security
+      confidence: HIGH
+
+  - id: chronicle-rls-filter-must-not-open-db-connection
+    patterns:
+      - pattern-inside: |
+          class RLSContextFilter(...) { ... }
+      - pattern-either:
+          - pattern: |
+              $RESOLVER.getPlatformStorage().connection.use { ... }
+          - pattern: |
+              $RESOLVER.getDefaultPlatformStorage().second.connection.use { ... }
+    message: >
+      RLSContextFilter must not set RLS on a temporary DB connection. It must
+      only publish request context; RLS must be applied when the actual query
+      connection is borrowed.
+    languages: [kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-863
+      owasp: "A01:2021"
+      category: security
+      confidence: HIGH
+
+  - id: chronicle-rls-filter-must-not-depend-on-storage-resolver
+    patterns:
+      - pattern-inside: |
+          class RLSContextFilter(...) { ... }
+      - pattern: |
+          private val storageResolver: StorageResolver
+    message: >
+      RLSContextFilter depending on StorageResolver usually means it can borrow
+      a throwaway connection and set RLS on the wrong connection. Keep DB access
+      out of the filter.
+    languages: [kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-863
+      owasp: "A01:2021"
+      category: security
+      confidence: HIGH
+
+  - id: chronicle-rls-admin-bypass-must-use-helper
+    pattern-regex: "(execute|statement)\\s*\\(\\s*\"SELECT\\s+set_config\\('app\\.is_admin',\\s*'true'"
+    message: >
+      Direct app.is_admin RLS bypass detected. Use
+      RLSConnectionCustomizer.withAdminContext so privileged DB access is scoped
+      and cleared before the connection returns to the pool.
+    languages: [kotlin, java]
+    severity: ERROR
+    metadata:
+      cwe: CWE-269
+      owasp: "A01:2021"
+      category: security
+      confidence: HIGH
+
+  - id: chronicle-traefik-no-tls-on-plain-web-entrypoint
+    pattern-regex: 'traefik\.http\.routers\.chronicle-(mobile|web|block).*\.tls=true'
+    message: >
+      Chronicle Traefik routers must not set tls=true on the plain HTTP web
+      entrypoint. TLS is terminated upstream by F5; enabling router TLS here
+      causes redirect/handshake failures for enrollment.
+    languages: [generic]
+    severity: ERROR
+    metadata:
+      cwe: CWE-16
+      category: security
+      confidence: HIGH

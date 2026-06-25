@@ -9,31 +9,16 @@
 #
 # pg_tde version: 2.0.0 (Percona PostgreSQL 17.5)
 
-set -e
+set -euo pipefail
 
 COMPOSE_FILE="${1:-docker-compose.traefik.yml}"
 CONTAINER_NAME="chronicle-postgres"
 DB_USER="${POSTGRES_USER:-chronicle}"
 DB_NAME="${POSTGRES_DB:-chronicle}"
 
-# Sensitive tables that MUST be encrypted
-SENSITIVE_TABLES=(
-    candidates
-    study_participants
-    devices
-    sensor_data
-    android_sensor_data
-    chronicle_usage_events
-    chronicle_usage_stats
-    preprocessed_usage_events
-    questionnaire_submissions
-    time_use_diary_submissions
-    app_usage_survey
-    upload_buffer
-    audit
-    audit_buffer
-    participant_stats
-)
+# Public application tables that MUST be encrypted. Populated dynamically so
+# verification fails when schema migrations add unencrypted tables.
+SENSITIVE_TABLES=()
 
 # Colors
 RED='\033[0;31m'
@@ -51,8 +36,26 @@ echo "=========================================="
 echo ""
 
 run_psql() {
-    docker compose -p chronicle -f "${COMPOSE_FILE}" exec -T postgres \
-        psql -U "${DB_USER}" -d "${DB_NAME}" -t -A -c "$1" 2>/dev/null
+    docker exec "$CONTAINER_NAME" bash -lc \
+        "PGPASSWORD=\"\$POSTGRES_PASSWORD\" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U \"\${POSTGRES_USER:-$DB_USER}\" -d \"\${POSTGRES_DB:-$DB_NAME}\" -t -A -c \"$1\""
+}
+
+discover_sensitive_tables() {
+    SENSITIVE_TABLES=()
+    local table_output
+    table_output=$(run_psql "
+        SELECT c.relname
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relkind = 'r'
+        AND n.nspname = 'public'
+        ORDER BY c.relname;
+    ")
+    while IFS= read -r TABLE; do
+        if [ -n "$TABLE" ]; then
+            SENSITIVE_TABLES+=("$TABLE")
+        fi
+    done <<< "$table_output"
 }
 
 print_status() {
@@ -131,11 +134,11 @@ echo ""
 # Check 5: Test encrypted table creation
 echo "5. Testing encrypted table creation..."
 CREATE_OUTPUT=$(docker compose -p chronicle -f "${COMPOSE_FILE}" exec -T postgres \
-    psql -U "${DB_USER}" -d "${DB_NAME}" -c "
+    bash -lc "PGPASSWORD=\"\$POSTGRES_PASSWORD\" psql -h 127.0.0.1 -U \"\${POSTGRES_USER:-$DB_USER}\" -d \"\${POSTGRES_DB:-$DB_NAME}\" -c \"
         DROP TABLE IF EXISTS _encryption_test_table;
         CREATE TABLE _encryption_test_table (id SERIAL PRIMARY KEY, test_data TEXT) USING tde_heap;
         INSERT INTO _encryption_test_table (test_data) VALUES ('TDE test');
-    " 2>&1)
+    \"" 2>&1)
 
 if echo "$CREATE_OUTPUT" | grep -q "CREATE TABLE"; then
     print_status "Encrypted table creation works" "PASS" ""
@@ -165,10 +168,16 @@ else
 fi
 echo ""
 
-# Check 7: Sensitive tables encryption status
-echo "7. Checking sensitive tables encryption..."
+# Check 7: Public application tables encryption status
+echo "7. Checking public application tables encryption..."
 echo ""
 ALL_ENCRYPTED=true
+discover_sensitive_tables
+
+if [ "${#SENSITIVE_TABLES[@]}" -eq 0 ]; then
+    print_status "  public application tables" "FAIL" "no public tables found; table discovery failed or migrations have not run"
+    ALL_ENCRYPTED=false
+fi
 
 for TABLE in "${SENSITIVE_TABLES[@]}"; do
     TABLE_EXISTS=$(run_psql "SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname = '$TABLE' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public'));")
@@ -203,8 +212,8 @@ if [ "$FAIL_COUNT" -eq 0 ]; then
     echo -e "${GREEN}All encryption checks passed!${NC}"
     echo ""
     echo "All tables:"
-    docker compose -p chronicle -f "${COMPOSE_FILE}" exec -T postgres \
-        psql -U "${DB_USER}" -d "${DB_NAME}" -c "
+    docker exec "$CONTAINER_NAME" bash -lc \
+        "PGPASSWORD=\"\$POSTGRES_PASSWORD\" psql -h 127.0.0.1 -U \"\${POSTGRES_USER:-$DB_USER}\" -d \"\${POSTGRES_DB:-$DB_NAME}\" -c \"
             SELECT c.relname AS table_name,
                    am.amname AS access_method,
                    CASE WHEN am.amname = 'tde_heap' THEN 'ENCRYPTED' ELSE 'standard' END AS status
@@ -213,7 +222,7 @@ if [ "$FAIL_COUNT" -eq 0 ]; then
             WHERE c.relkind = 'r'
             AND c.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')
             ORDER BY am.amname DESC, c.relname;
-        " 2>/dev/null || echo "Could not list tables."
+        \"" 2>/dev/null || echo "Could not list tables."
     echo ""
     exit 0
 else

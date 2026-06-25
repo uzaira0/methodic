@@ -5,8 +5,10 @@ providers:
   docker:
     exposedByDefault: false
     watch: true
-    network: traefik-apps
+    # Only Chronicle compose containers are auto-discovered. Non-Chronicle
+    # intranet HTTP routes live in the file provider and never use TLS.
     endpoint: tcp://docker-socket-proxy:2375
+    constraints: "Label(`com.docker.compose.project`, `chronicle`)"
   file:
     directory: /etc/traefik/dynamic
     watch: true
@@ -14,22 +16,20 @@ providers:
 entryPoints:
   web:
     address: :80
-    http:
-      redirections:
-        entryPoint:
-          to: websecure
-          scheme: https
-  websecure:
-    address: :443
-    http3:
-      advertisedPort: 443
-
-# TLS hardening — enforce TLS 1.2+ and prefer server cipher suites
-tls:
-  options:
-    default:
-      minVersion: VersionTLS12
-      sniStrict: true
+    transport:
+      respondingTimeouts:
+        readTimeout: 60s
+        writeTimeout: 60s
+        idleTimeout: 360s
+    # F5 VIP (chronicle-screentime-app.research.bcm.edu) terminates client
+    # TLS and forwards plaintext HTTP to this entrypoint.
+    # Trust X-Forwarded-* from RFC1918 sources so rate-limiting keys on
+    # the real client IP and Spring trusts X-Forwarded-Proto.
+    forwardedHeaders:
+      trustedIPs:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
 
 api:
   dashboard: false
@@ -39,11 +39,14 @@ ping: {}
 # Access logging for CrowdSec + Fail2ban
 accessLog:
   filePath: /var/log/traefik/access.log
+  format: json
   bufferingSize: 100
 
-# CrowdSec bouncer plugin for WAF + IP reputation
+# CrowdSec bouncer plugin for WAF + IP reputation.
+# Vendored locally (source at ./traefik/plugins-local/src/<moduleName>, mounted at
+# /plugins-local) so Traefik does NOT fetch from plugins.traefik.io at boot — a failed
+# remote pull previously disabled plugins and silently dropped every crowdsec-gated router.
 experimental:
-  plugins:
+  localPlugins:
     crowdsec-bouncer:
       moduleName: github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin
-      version: v1.5.1

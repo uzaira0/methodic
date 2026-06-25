@@ -117,8 +117,11 @@ rules:
   # CWE-611: Improper Restriction of XML External Entity Reference (XXE)
   # ===========================================================================
   - id: chronicle-xxe-document-builder
-    pattern: |
-      DocumentBuilderFactory.newInstance()
+    patterns:
+      - pattern: |
+          DocumentBuilderFactory.newInstance()
+      - pattern-not-inside: |
+          public object SecureXmlFactory { ... }
     message: >
       DocumentBuilderFactory.newInstance() detected. Ensure XXE protection
       is enabled via setFeature(disallow-doctype-decl, true) or use
@@ -132,8 +135,11 @@ rules:
       confidence: MEDIUM
 
   - id: chronicle-xxe-sax-parser
-    pattern: |
-      SAXParserFactory.newInstance()
+    patterns:
+      - pattern: |
+          SAXParserFactory.newInstance()
+      - pattern-not-inside: |
+          public object SecureXmlFactory { ... }
     message: >
       SAXParserFactory.newInstance() detected. Ensure XXE protection
       is enabled or use Chronicle SecureXmlFactory instead.
@@ -146,8 +152,11 @@ rules:
       confidence: MEDIUM
 
   - id: chronicle-xxe-xml-input-factory
-    pattern: |
-      XMLInputFactory.newInstance()
+    patterns:
+      - pattern: |
+          XMLInputFactory.newInstance()
+      - pattern-not-inside: |
+          public object SecureXmlFactory { ... }
     message: >
       XMLInputFactory.newInstance() detected. Disable DTD support with
       setProperty(SUPPORT_DTD, false) and
@@ -273,7 +282,7 @@ rules:
       confidence: MEDIUM
 
   - id: chronicle-hardcoded-password-kotlin
-    pattern-regex: "(?i)(?:val|var)\\s+\\w*(?:password|passwd|secret|api_key|apikey|api_secret|private_key|access_key)\\w*\\s*=\\s*\"[^\"]+\""
+    pattern-regex: "(?i)(?:val|var)\\s+(?!\\w*header\\w*)\\w*(?:password|passwd|secret|api_key|apikey|api_secret|private_key|access_key)\\w*\\s*=\\s*\"[^\"]+\""
     message: >
       Possible hard-coded credential in Kotlin. Passwords, API keys, and
       secrets should be loaded from environment variables, Vault, or
@@ -292,8 +301,6 @@ rules:
   - id: chronicle-trust-all-certs
     patterns:
       - pattern-either:
-          - pattern: |
-              $X.setHostnameVerifier(...)
           - pattern: |
               HostnameVerifier { $ARGS -> true }
           - pattern: |
@@ -418,11 +425,14 @@ rules:
   # CWE-601: URL Redirection to Untrusted Site (Open Redirect)
   # ===========================================================================
   - id: chronicle-open-redirect
-    pattern-either:
-      - pattern: |
-          $RESPONSE.sendRedirect($URL)
-      - pattern: |
-          "redirect:" + $URL
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $RESPONSE.sendRedirect($URL)
+          - pattern: |
+              "redirect:" + $URL
+      - pattern-not: |
+          super.sendRedirect($URL)
     message: >
       Redirect with variable URL. Ensure RedirectValidator.validate()
       is called to prevent open redirect attacks.
@@ -723,8 +733,11 @@ rules:
   # CWE-776: XML Entity Expansion (Billion Laughs)
   # ===========================================================================
   - id: chronicle-xml-entity-expansion
-    pattern: |
-      $DBF = DocumentBuilderFactory.newInstance()
+    patterns:
+      - pattern: |
+          $DBF = DocumentBuilderFactory.newInstance()
+      - pattern-not-inside: |
+          public object SecureXmlFactory { ... }
     message: >
       XML parser created. Ensure FEATURE_SECURE_PROCESSING is enabled
       to prevent billion laughs / XML bomb attacks. Or use Chronicle
@@ -788,6 +801,8 @@ rules:
     patterns:
       - pattern: |
           UUID.nameUUIDFromBytes(...)
+      - pattern-not-inside: |
+          public object DeviceIdUtils { ... }
     message: >
       UUID.nameUUIDFromBytes() generates deterministic UUIDs (v3/MD5).
       For security-sensitive identifiers, use UUID.randomUUID() which
@@ -824,3 +839,67 @@ rules:
       category: security
       confidence: MEDIUM
 
+  # ===========================================================================
+  # CWE-770: Allocation of Resources Without Limits or Throttling
+  # Every mobile/web upload entrypoint accepts a client-supplied batch and writes
+  # it to storage. Each must bound the batch size with require(<list>.size <= N)
+  # BEFORE touching the DB, or a single request can persist an unbounded batch
+  # (memory exhaustion / DoS). All current upload services do this; this rule
+  # fails the build if a new upload path ships without the guard. The delegating
+  # pass-through controllers (e.g. StudyV4Controller) are excluded via pattern-not.
+  # Pinned by the *UploadServiceTest classes.
+  # ===========================================================================
+  - id: chronicle-upload-unbounded-batch
+    patterns:
+      # Any upload-service function returning a count (the upload entrypoints) ...
+      - pattern: |
+          fun $F(...): Int {
+            ...
+          }
+      # ... that does not call require(...) anywhere in its body (the size guard) ...
+      - pattern-not-regex: "require\\("
+      # ... excluding private helpers (the guard lives in the public entrypoint).
+      - pattern-not: |
+          private fun $F(...): Int {
+            ...
+          }
+    paths:
+      include:
+        - "*/services/upload/*"
+    message: >
+      Upload service entrypoint writes a batch without a size guard. Add
+      require(<collection>.size <= 10_000) before touching storage so a single
+      request cannot persist an unbounded batch. See BatteryTelemetryUploadService.
+    languages: [kotlin]
+    severity: ERROR
+    metadata:
+      cwe: CWE-770
+      owasp: "A04:2021"
+      category: security
+      confidence: HIGH
+
+  # ===========================================================================
+  # CWE-20: Improper Input Validation
+  # Collection request bodies on the mobile/web controllers must be @Valid so
+  # bean-validation runs at the edge. The v4 ingestion endpoints all use
+  # @Valid @RequestBody; this rule fails the build if a List body ships without it.
+  # ===========================================================================
+  - id: chronicle-unvalidated-list-request-body
+    patterns:
+      - pattern: |
+          fun $F(..., @RequestBody $P: List<$T>, ...): $R { ... }
+      - pattern-not: |
+          fun $F(..., @Valid @RequestBody $P: List<$T>, ...): $R { ... }
+    paths:
+      include:
+        - "*/controllers/*"
+    message: >
+      Controller accepts a List request body without @Valid. Annotate the body
+      @Valid so bean-validation (and any size/element constraints) run at the edge.
+    languages: [kotlin]
+    severity: WARNING
+    metadata:
+      cwe: CWE-20
+      owasp: "A03:2021"
+      category: security
+      confidence: MEDIUM

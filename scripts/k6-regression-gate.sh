@@ -18,6 +18,13 @@ fi
 
 threshold="${K6_REGRESSION_THRESHOLD:-1.15}"
 
+has_real_baselines=$(jq '[.metrics[].values["p(95)"] // 0 | select(. > 0)] | length > 0' "$baselines")
+if [ "$has_real_baselines" != "true" ]; then
+    echo "Baselines contain only placeholder zeros — skipping regression check."
+    echo "Run k6 load tests against a stable build and commit real results to $baselines"
+    exit 0
+fi
+
 failed=false
 while IFS= read -r metric; do
     base_p95=$(jq -r ".metrics[\"$metric\"].values[\"p(95)\"] // empty" "$baselines")

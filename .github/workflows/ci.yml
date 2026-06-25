@@ -28,16 +28,22 @@ jobs:
         # cost (macOS minutes are 10x ubuntu).
         os: ${{ fromJSON(github.event_name == 'pull_request' && github.base_ref == 'main' && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: chronicle-web
         shell: bash
     steps:
+      - name: Harden runner (egress audit)
+        if: runner.os == 'Linux'   # harden-runner is Linux-only; matrix includes macOS/Windows
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Setup web environment
         uses: ./.github/actions/setup-web
 
       - name: 'Dependency audit (npm audit via Node)'
-        continue-on-error: true # non-blocking until existing vulns are triaged
         run: npm audit --audit-level=high --omit=dev
 
       - name: Web check
@@ -78,12 +84,24 @@ jobs:
         run: bun run size
 
   jvm-smoke:
-    name: jvm smoke
-    runs-on: ubuntu-latest
+    name: jvm smoke (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(github.event_name == 'pull_request' && github.base_ref == 'main' && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Harden runner (egress audit)
+        if: runner.os == 'Linux'   # harden-runner is Linux-only; matrix includes macOS
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
           fetch-depth: 0
           submodules: true
 
@@ -128,11 +146,17 @@ jobs:
   mutation-testing:
     name: Stryker mutation testing
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/develop'
     defaults:
       run:
         working-directory: chronicle-web
     steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Setup web environment
         uses: ./.github/actions/setup-web
 
@@ -150,11 +174,16 @@ jobs:
   dead-code:
     name: dead code detection
     runs-on: ubuntu-latest
-    continue-on-error: true # non-blocking until dead code is cleaned up
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: chronicle-web
     steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Setup web environment
         uses: ./.github/actions/setup-web
 
@@ -168,10 +197,12 @@ jobs:
   repo-automation:
     name: repo automation
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           submodules: true
 
       - name: Compose validation
@@ -180,20 +211,28 @@ jobs:
       - name: Bun workflow audit
         run: bash ./scripts/check-bun-workflows.sh
 
+      - name: Supply-chain guard (no re-enabled dependency scripts)
+        run: bash ./scripts/check-no-trusted-deps.sh
+
       - name: Silent failure hunter
         run: bash ./scripts/silent-failure-hunter.sh
 
   dependency-scan:
     name: dependency vulnerability scan (SBOM)
     runs-on: ubuntu-latest
-    continue-on-error: true # non-blocking until existing vulns are triaged
+    timeout-minutes: 20
     steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
           submodules: true
 
-      # Trivy fs scans are in container-structure-tests job (covers entire repo).
       # This job focuses on SBOM generation which needs Gradle.
 
       - name: Setup JDK 21
@@ -221,9 +260,12 @@ jobs:
   dockerfile-lint:
     name: Hadolint Dockerfile linting
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
 
       - name: Lint Dockerfile.backend
         uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
@@ -248,10 +290,12 @@ jobs:
   iac-scan:
     name: Checkov IaC scanning
     runs-on: ubuntu-latest
-    continue-on-error: true # non-blocking until existing findings are triaged
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
 
       - name: 'Checkov: scan Dockerfiles'
         uses: bridgecrewio/checkov-action@99bb2cad24e6842f80e9b4e24b907e6e3945dcff # v12
@@ -260,7 +304,7 @@ jobs:
           framework: dockerfile
           quiet: true
           output_format: cli
-          soft_fail: true
+          soft_fail: false
 
       - name: 'Checkov: scan Docker Compose'
         uses: bridgecrewio/checkov-action@99bb2cad24e6842f80e9b4e24b907e6e3945dcff # v12
@@ -269,15 +313,22 @@ jobs:
           framework: docker_compose
           quiet: true
           output_format: cli
-          soft_fail: true
+          soft_fail: false
 
   license-compliance:
     name: license compliance
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
           fetch-depth: 0
           submodules: true
 
@@ -311,7 +362,7 @@ jobs:
           bun-version: latest
 
       - name: Setup Node compatibility runtime
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: lts/*
 
@@ -325,10 +376,17 @@ jobs:
   container-structure-tests:
     name: container structure tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
           fetch-depth: 0
           submodules: true
 
@@ -337,7 +395,13 @@ jobs:
 
       - name: Install container-structure-test
         run: |
-          curl -LO https://github.com/GoogleContainerTools/container-structure-test/releases/latest/download/container-structure-test-linux-amd64
+          # Pinned + checksum-verified (was 'latest/download' — an unpinned moving
+          # target that silently adopts whatever the newest release ships).
+          CST_VERSION=v1.22.1
+          CST_SHA256=fa35e89512a8978585f76cf41397956d2e3a30c62c2ad3fb857b1597074d14ca
+          curl -fsSL "https://github.com/GoogleContainerTools/container-structure-test/releases/download/${CST_VERSION}/container-structure-test-linux-amd64" \
+            -o container-structure-test-linux-amd64
+          echo "${CST_SHA256}  container-structure-test-linux-amd64" | sha256sum -c -
           chmod +x container-structure-test-linux-amd64
           sudo mv container-structure-test-linux-amd64 /usr/local/bin/container-structure-test
 
@@ -367,60 +431,20 @@ jobs:
             --image chronicle-frontend-prod:test \
             --config tests/container/frontend-prod.yaml
 
-      # ── Trivy container & dependency scanning ──────────────────────────
-      - name: Install Trivy
-        run: |
-          sudo apt-get install -y wget apt-transport-https gnupg
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
-          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
-
-      - name: Create security reports directory
-        run: mkdir -p tests/security/reports
-
-      - name: 'Trivy: scan backend image'
-        continue-on-error: true
-        run: |
-          trivy image \
-            --severity HIGH,CRITICAL \
-            --format sarif \
-            --output tests/security/reports/trivy-chronicle-backend.sarif \
-            chronicle-backend:test
-
-      - name: 'Trivy: scan frontend-prod image'
-        continue-on-error: true
-        run: |
-          trivy image \
-            --severity HIGH,CRITICAL \
-            --format sarif \
-            --output tests/security/reports/trivy-chronicle-frontend.sarif \
-            chronicle-frontend-prod:test
-
-      - name: 'Trivy: filesystem dependency scan'
-        continue-on-error: true
-        run: |
-          trivy fs \
-            --severity HIGH,CRITICAL \
-            --format sarif \
-            --output tests/security/reports/trivy-fs-deps.sarif \
-            .
-
-      - name: Upload Trivy SARIF reports
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: trivy-security-reports
-          path: tests/security/reports/trivy-*.sarif
-          retention-days: 14
-
   http-smoke-tests:
     name: HTTP smoke tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
           fetch-depth: 0
           submodules: true
 
@@ -437,7 +461,6 @@ jobs:
         run: |
           cat > .env <<'ENVEOF'
           DOMAIN=localhost
-          EXT_DOMAIN=localhost
           TRAEFIK_NETWORK=traefik
           TRAEFIK_ENTRYPOINT=web
           POSTGRES_USER=chronicle
@@ -513,8 +536,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
+          egress-policy: audit
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
           submodules: recursive
       - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
@@ -536,8 +564,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
+          egress-policy: audit
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
           submodules: recursive
       - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
@@ -558,8 +591,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
+          egress-policy: audit
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
           submodules: recursive
       - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:

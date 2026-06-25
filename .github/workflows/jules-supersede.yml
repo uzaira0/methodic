@@ -20,6 +20,7 @@ jobs:
   supersede:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Detect persona and supersede prior PRs
         env:
