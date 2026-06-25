@@ -22,7 +22,7 @@ which includes periodic key rotation. The gap this artifact closes:
 
 | Requirement | Mechanism | Evidence |
 |---|---|---|
-| §164.312(a)(2)(iv) periodic key rotation | `scripts/rotate-tde-principal-key.sh` rotates the pg_tde principal key (new key version → set as principal; re-wraps internal keys, no table re-encryption) | script + `bash -n` / dry-run for both providers |
+| §164.312(a)(2)(iv) periodic key rotation | `scripts/rotate-tde-principal-key.sh` rotates the pg_tde principal key (new key version → set as principal; re-wraps internal keys, no table re-encryption) | **`TdePrincipalKeyRotationTest`** — runs the script's exact rotation SQL against a real Percona `pg_tde` Testcontainer; plus the script's own `bash -n` / dry-run for both providers |
 | §164.312(a)(2)(iv) key-management monitoring | `tde_principal_key` is a tracked secret in `SecretRotationService` (yearly cadence); age surfaced on `/internal/health/secrets` + Prometheus | `SecretRotationServiceTest` |
 
 ---
@@ -81,7 +81,25 @@ Prometheus textfile metrics) now tracks `tde_principal_key`:
 
 ## 4. Tests
 
-- **`com.openlattice.chronicle.services.security.SecretRotationServiceTest`** (new) — proves:
+- **`com.openlattice.chronicle.storage.tde.TdePrincipalKeyRotationTest`** (new — the rotation
+  procedure integration test the design called for) — spins up the **exact production image**
+  `percona/percona-distribution-postgresql:17.5-3` with `shared_preload_libraries=pg_tde` and the
+  file key provider (mirrors `init-db-encryption.sh` in `file` mode), creates the principal key and
+  an encrypted `tde_heap` table holding a PHI-like payload, then runs the **verbatim rotation SQL**
+  from `scripts/rotate-tde-principal-key.sh`
+  (`pg_tde_create_key_using_database_key_provider` + `pg_tde_set_key_using_database_key_provider`)
+  and asserts the design's three properties:
+  - `pg_tde_is_encrypted('…'::regclass)` is **true pre- AND post-rotation**;
+  - the PHI payload is **still readable, unchanged** after rotation (online re-wrap, no
+    re-encryption) — re-verified on a **brand-new connection** so the rotation is proven durable,
+    not session-local;
+  - `pg_tde_key_info()` advances to the rotated key version.
+
+  If the Percona image is unavailable in the runner it SKIPS via JUnit `Assume` (documented
+  staging-smoke fallback), so an offline CI never red-builds. **Verified locally**:
+  `JAVA_HOME=…/jdk21 ./gradlew :chronicle-server:test --tests "*TdePrincipalKeyRotationTest"` →
+  1 test, 0 skipped, 0 failures (the image is present on the host).
+- **`com.openlattice.chronicle.services.security.SecretRotationServiceTest`** — proves:
   `tde_principal_key` is tracked; its threshold is 365 days while others stay 90; a 200-day-old
   TDE key is **not** overdue but a 200-day-old 90-day secret **is** (per-secret cadence works);
   a 400-day-old key is overdue; an un-rotated key reports `overdue` with a null last-rotated; the
@@ -107,6 +125,7 @@ Prometheus textfile metrics) now tracks `tde_principal_key`:
 ## 6. Source pointers
 
 - **Rotation script:** `scripts/rotate-tde-principal-key.sh`
+- **Rotation integration test:** `chronicle-server/src/test/kotlin/com/openlattice/chronicle/storage/tde/TdePrincipalKeyRotationTest.kt`
 - **Orchestration:** `scripts/rotate-secrets.sh` — `rotate_tde_principal_key()`, `--only TDE_PRINCIPAL_KEY`.
 - **Monitoring:** `chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/security/SecretRotationService.kt`
   — `TRACKED_SECRETS`, `MAX_AGE_DAYS_BY_SECRET`, `maxAgeDaysFor()`.

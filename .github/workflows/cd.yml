@@ -295,7 +295,7 @@ jobs:
           persist-credentials: false
 
       - name: Deploy to staging
-        uses: appleboy/ssh-action@2ead5e36573ea353427de4e2ccc5ebac8e2bc577 # v1.2.2
+        uses: appleboy/ssh-action@2ead5e36573f08b82fbfce1504f1a4b05a647c6f # v1.2.2
         env:
           DEPLOY_TAG: ${{ needs.build-images.outputs.image_tag }}
           BACKEND_IMAGE: ${{ env.BACKEND_IMAGE }}
@@ -317,7 +317,7 @@ jobs:
               --frontend-image "$FRONTEND_IMAGE"
 
       - name: Post-deploy smoke test
-        uses: appleboy/ssh-action@2ead5e36573ea353427de4e2ccc5ebac8e2bc577 # v1.2.2
+        uses: appleboy/ssh-action@2ead5e36573f08b82fbfce1504f1a4b05a647c6f # v1.2.2
         env:
           DEPLOY_PATH: ${{ vars.STAGING_DEPLOY_PATH }}
         with:
@@ -354,7 +354,7 @@ jobs:
           persist-credentials: false
 
       - name: Deploy to production
-        uses: appleboy/ssh-action@2ead5e36573ea353427de4e2ccc5ebac8e2bc577 # v1.2.2
+        uses: appleboy/ssh-action@2ead5e36573f08b82fbfce1504f1a4b05a647c6f # v1.2.2
         env:
           DEPLOY_TAG: ${{ needs.build-images.outputs.image_tag }}
           BACKEND_IMAGE: ${{ env.BACKEND_IMAGE }}
@@ -376,7 +376,7 @@ jobs:
               --frontend-image "$FRONTEND_IMAGE"
 
       - name: Post-deploy smoke test
-        uses: appleboy/ssh-action@2ead5e36573ea353427de4e2ccc5ebac8e2bc577 # v1.2.2
+        uses: appleboy/ssh-action@2ead5e36573f08b82fbfce1504f1a4b05a647c6f # v1.2.2
         env:
           DEPLOY_PATH: ${{ vars.PRODUCTION_DEPLOY_PATH }}
         with:

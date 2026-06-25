@@ -4,9 +4,18 @@
 **Controls:** HIPAA §164.308(a)(8) *Evaluation* (periodic technical security evaluation),
 §164.308(a)(1)(ii)(A) *Risk analysis*; 2025 NPRM — vulnerability scan **at least every 6 months**
 + penetration test **at least annually**.
-**Status:** Implemented. Scanning runs on the self-hosted host (GitHub-hosted Actions are
-unreliable on these repos); each cycle emits a dated, retained, checksummed evidence bundle.
+**Status:** Implemented. The cadence runs as a **scheduled GitHub Actions workflow**
+(`.github/workflows/compliance-vuln-cadence.yml`) now that these repos are public and Actions
+run; `scripts/compliance-scan.sh` remains the equivalent offline/self-hosted runner. Each cycle
+emits a dated, retained, checksummed, HIPAA-mapped evidence bundle and imports per-scanner SARIF
+into the GitHub Security tab.
 See the lane design: `docs/superpowers/specs/2026-06-13-hipaa-2028-compliance-lane-design.md` (§91–99).
+
+> **Note on the design caveat.** The lane design (§97) said GitHub-hosted Actions were
+> infra-broken and the cadence had to run self-hosted. That is now **stale**: as of 2026-06-25
+> all repos are public and Actions execute, so the cadence is primarily a scheduled GH Actions
+> workflow (SHA-pinned, harden-runner egress-audited, actionlint + zizmor-clean at medium+). The
+> self-hosted `scripts/compliance-scan.sh` is retained as the offline/air-gapped equivalent.
 
 ---
 
@@ -59,10 +68,41 @@ as `backup-chronicle.sh` → `backup-verify-metrics.prom`.
 
 ---
 
-## 4. Scheduling (self-hosted)
+## 4. Scheduling
 
-GitHub-hosted Actions are unreliable on these repos, so the cadence runs from cron on the
-self-hosted host (the same way `docker/backup-chronicle.sh` does — in-file cron header):
+### 4a. Scheduled GitHub Actions workflow (primary)
+
+`.github/workflows/compliance-vuln-cadence.yml` runs the cadence on a 6-month cron and is the
+primary, audit-visible mechanism now that the repos are public and Actions execute:
+
+```yaml
+on:
+  schedule:
+    - cron: '30 3 1 1,7 *'   # 1 Jan + 1 Jul, 03:30 UTC — exactly twice a year (NPRM floor)
+  workflow_dispatch:          # manual run; `cycle` input selects vuln-scan | pentest-prep
+```
+
+Four scanner jobs run in parallel — **OWASP Dependency-Check** (Gradle CVEs, CVSS>=7),
+**OSV-Scanner** (Google vuln DB), **Grype** (Anchore DB), **Semgrep** (the repo CWE + RLS
+ruleset). Each:
+
+- Hardens the runner with `step-security/harden-runner` (egress **audit**).
+- Is **SHA-pinned** (every `uses:` carries a 40-char commit SHA + `# vN` comment), the repo standard.
+- Uploads its **SARIF into the GitHub Security tab** (categories `depcheck-cadence`,
+  `osv-cadence`, `grype-cadence`, `semgrep-cadence`).
+
+A final `evidence-bundle` job (`needs: [all four]`, `if: always()`) downloads every scanner
+artifact and assembles the **dated, HIPAA-mapped bundle**: `manifest.json` (cycle metadata, next-due
+date, per-scanner result, control refs), `compliance-report.md`, per-artifact `SHA256SUMS`
+(tamper-evidence), and a job-summary render. The bundle artifact is named
+`hipaa-vuln-evidence-<date>-<cycle>` with **730-day (2-year) retention**.
+
+The workflow passes `actionlint` and `zizmor --min-severity medium` (the enforcing gate) clean.
+
+### 4b. Self-hosted / offline equivalent (retained)
+
+`scripts/compliance-scan.sh` runs the same scanners from cron on the self-hosted host (the same
+in-file cron-header convention as `docker/backup-chronicle.sh`) for air-gapped / offline cycles:
 
 ```cron
 # 6-month vulnerability scan (Jan + Jul), with retention pruning
@@ -80,28 +120,55 @@ at a 6-month cadence) and **never** prunes `pentest-prep` bundles (audit materia
 
 ## 5. Annual penetration test
 
-Automated scanning does **not** satisfy the annual penetration-test requirement. The engagement,
-scope, firm, report location, and remediation status are tracked in
-`docs/security/pentest-register.md`. The `--cycle pentest-prep` run captures a point-in-time
-evidence snapshot to hand the testers and to file alongside their report.
+Automated scanning does **not** satisfy the annual penetration-test requirement (2025 NPRM:
+penetration test **at least annually**). The full cadence, scope, and retention are documented in
+the companion artifact **`docs/security/compliance-evidence/W5-vuln-pentest-cadence.md`** and the
+durable record lives in **`docs/security/pentest-register.md`**. In brief:
+
+- **Frequency:** at least once per calendar year (independent of the 6-month automated scans).
+- **Prep:** `scripts/compliance-scan.sh --cycle pentest-prep` (or the workflow's
+  `workflow_dispatch` with `cycle=pentest-prep`) captures a point-in-time evidence snapshot to hand
+  the testers and to file alongside their report.
+- **Scope (baseline):** mobile API (`/chronicle/v3`, `/chronicle/v4`), web API
+  (`/chronicle/api/web`), authn/authz (OIDC + API-key + RLS study isolation), Traefik edge (WAF,
+  rate limiting). Expanded per the year's risk analysis.
+- **Retention:** `pentest-prep` evidence bundles are **never pruned** (audit material); the register
+  rows are kept indefinitely.
+- **On completion:** file the report, log findings + remediation status in the register, open
+  tracking issues for anything not fixed during the engagement.
 
 ---
 
 ## 6. Verification
 
-`scripts/compliance-scan.sh` was exercised locally (`--dry-run`, then a real
+**Local script:** `scripts/compliance-scan.sh` was exercised locally (`--dry-run`, then a real
 `--layers compliance,secrets` run with the scoped dependency scan): it produced a dated bundle
 with `gitleaks.sarif` (0), the conftest `compliance.json`, a scoped `trivy-deps.sarif`
 (HIGH/CRITICAL dependency CVEs), a checksummed `manifest.json`, a rendered `compliance-report.md`,
-and the Prometheus metric file — confirming the packaging, manifest, report, metrics, and prune
-path. Per project memory, verification is done with local runs, not GitHub Actions.
+and the Prometheus metric file — confirming the packaging, manifest, report, metrics, and prune path.
+
+**GitHub Actions workflow:** `.github/workflows/compliance-vuln-cadence.yml` was validated locally
+the way the workflow runs:
+
+| Check | Command | Result (2026-06-25) |
+|---|---|---|
+| Workflow lint | `actionlint .github/workflows/compliance-vuln-cadence.yml` (shellcheck on PATH) | exit 0 — clean |
+| Workflow SAST | `zizmor --offline --min-severity medium --config .github/zizmor.yml …` (v1.26.1) | "No findings to report" — exit 0 |
+| OSV-Scanner | `osv-scanner scan --recursive .` | **No issues found** (357 documented suppressions in `osv-scanner.toml`) — exit 0 |
+| Grype | `grype dir:.` | **No vulnerabilities found** — exit 0 |
+| Semgrep | `semgrep scan --config tests/security/rules/cwe-comprehensive.yaml .` | **0 findings** (36 rules) — exit 0 |
+
+All three runtime scanners are clean-or-documented-suppressed; the SARIF the workflow emits will
+import into the Security tab with zero net new findings.
 
 ---
 
 ## 7. Source pointers
 
-- **Cadence orchestrator:** `scripts/compliance-scan.sh` (in-file cron header, `--cycle`,
-  `--layers`, `--evidence-root`, `--retention-cycles`, `--dry-run`, `--prune`).
+- **Scheduled GH Actions cadence (primary):** `.github/workflows/compliance-vuln-cadence.yml`
+  (6-month cron, SHA-pinned, harden-runner, SARIF→Security tab, dated 2-year-retention bundle).
+- **Cadence orchestrator (offline/self-hosted):** `scripts/compliance-scan.sh` (in-file cron header,
+  `--cycle`, `--layers`, `--evidence-root`, `--retention-cycles`, `--dry-run`, `--prune`).
 - **Scanner layers (reused):** `tests/security/run-all-security.sh`,
   `tests/security/rules/`, `tests/security/policies/docker_compose.rego`,
   `tests/security/gitleaks.toml`, `tests/security/ast-grep/`.

@@ -46,20 +46,45 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-      - name: Validate Gradle wrapper
-        uses: gradle/actions/wrapper-validation@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
+      - name: Validate Gradle wrapper (offline checksum)
+        # gradle/actions/wrapper-validation makes a network call to an endpoint that
+        # isn't in this job's harden-runner block-mode allowlist (observed:
+        # ECONNREFUSED to an AWS us-west-2 host, distinct from the Cloudflare-fronted
+        # services.gradle.org). The wrapper-jar integrity check is fully deterministic
+        # offline, so verify the committed jar against the official Gradle 9.5.0 wrapper
+        # checksum directly — no network, block-safe.
+        # On a Gradle bump: update EXPECTED from
+        #   https://services.gradle.org/distributions/gradle-<version>-wrapper.jar.sha256
+        run: |
+          set -euo pipefail
+          EXPECTED=497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7
+          echo "${EXPECTED}  gradle/wrapper/gradle-wrapper.jar" | sha256sum -c -
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/main' }}
+      - name: Detect signing availability
+        # Signing + publish to GitHub Packages only happen when the GPG signing key
+        # is configured. When it isn't (e.g. this repo builds/deploys locally on the
+        # box), build unsigned and skip publish instead of hard-failing.
+        id: signing
+        env:
+          GPG_SECRET: ${{ secrets.GPG_SECRET }}
+        run: |
+          if [ -n "${GPG_SECRET:-}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::GPG_SECRET not set — building unsigned, skipping publish."
+          fi
       - name: Prepare environment
-        if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
+        if: (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') && steps.signing.outputs.enabled == 'true'
         run: ./scripts/decrypt_signing_key.sh
         env:
           GPG_SECRET: ${{ secrets.GPG_SECRET }}
           SIGNING_KEY_PASSPHRASE: ${{ secrets.SIGNING_KEY_PASSPHRASE }}
       - name: Build
-        if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
+        if: (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') && steps.signing.outputs.enabled == 'true'
         uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
         with:
           arguments: build -x :chronicle-server:spotbugsMain -x :chronicle-server:spotbugsTest -x :chronicle-server:test
@@ -68,7 +93,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SIGNING_KEY_PASSPHRASE: ${{ secrets.SIGNING_KEY_PASSPHRASE }}
       - name: Publish to Github Packages
-        if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
+        if: (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') && steps.signing.outputs.enabled == 'true'
         uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
         with:
           arguments: :chronicle-api:publish :rhizome-client:publish :rhizome:publish
@@ -76,8 +101,10 @@ jobs:
           GPG_SECRET: ${{ secrets.GPG_SECRET }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SIGNING_KEY_PASSPHRASE: ${{ secrets.SIGNING_KEY_PASSPHRASE }}
-      - name: Build (PR validation)
-        if: github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/main'
+      - name: Build (unsigned)
+        # Runs on PRs, and on develop/main when signing isn't configured — so the
+        # backend is always compile-validated even without the GPG key.
+        if: ${{ !((github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') && steps.signing.outputs.enabled == 'true') }}
         run: ./gradlew build -x :chronicle-server:spotbugsMain -x :chronicle-server:spotbugsTest -x :chronicle-server:test --no-daemon
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
