@@ -587,3 +587,35 @@ reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved
 id = "GHSA-xxqh-mfjm-7mv9"
 reason = "Stale entry in gradle/verification-metadata.xml hash catalog; resolved runtime version in the module gradle.lockfile is unaffected/patched. Lockfile occurrences (if any) of this ID remain reported."
 
+# --- jackson-databind: stale hash-catalog entries after the runtime bump to 2.22.0 ---
+# Resolved runtime/compile/test jackson-databind is now 2.22.0 on every module gradle.lockfile
+# (OSV query: 0 vulns). verification-metadata.xml is an append-only hash catalog and still retains
+# older jackson-databind coordinates (2.9.x / 2.12.7.1 / 2.14.0 / 2.15.x / 2.16.0 / 2.18.x / 2.21.x)
+# that nothing resolves to anymore. These IDs are therefore stale catalog entries here. The one live
+# lockfile occurrence (dokka doc-gen classpath jackson-databind 2.12.7.1, chronicle-server/ +
+# chronicle-api/) is suppressed with a build-time rationale in those per-module osv-scanner.toml files.
+[[IgnoredVulns]]
+id = "GHSA-3wrr-7qpf-2prh"
+reason = "Stale jackson-databind entry in gradle/verification-metadata.xml hash catalog; resolved runtime jackson-databind is 2.22.0 (unaffected). The dokka-classpath 2.12.7.1 lockfile occurrence is suppressed in the per-module osv-scanner.toml (build-time doc-gen only)."
+[[IgnoredVulns]]
+id = "GHSA-5hh8-q8hv-fr38"
+reason = "Stale jackson-databind entry in gradle/verification-metadata.xml hash catalog; resolved runtime jackson-databind is 2.22.0 (unaffected). The dokka-classpath 2.12.7.1 lockfile occurrence is suppressed in the per-module osv-scanner.toml (build-time doc-gen only)."
+[[IgnoredVulns]]
+id = "GHSA-5jmj-h7xm-6q6v"
+reason = "Stale jackson-databind entry in gradle/verification-metadata.xml hash catalog; resolved runtime jackson-databind is 2.22.0 (unaffected). The dokka-classpath 2.12.7.1 lockfile occurrence is suppressed in the per-module osv-scanner.toml (build-time doc-gen only)."
+[[IgnoredVulns]]
+id = "GHSA-9fxm-vc8v-hj55"
+reason = "Stale jackson-databind entry in gradle/verification-metadata.xml hash catalog; resolved runtime jackson-databind is 2.22.0 (unaffected). The dokka-classpath 2.12.7.1 lockfile occurrence is suppressed in the per-module osv-scanner.toml (build-time doc-gen only)."
+[[IgnoredVulns]]
+id = "GHSA-hgj6-7826-r7m5"
+reason = "Stale jackson-databind entry in gradle/verification-metadata.xml hash catalog; resolved runtime jackson-databind is 2.22.0 (unaffected). The dokka-classpath 2.12.7.1 lockfile occurrence is suppressed in the per-module osv-scanner.toml (build-time doc-gen only)."
+[[IgnoredVulns]]
+id = "GHSA-j3rv-43j4-c7qm"
+reason = "Stale jackson-databind entry in gradle/verification-metadata.xml hash catalog; resolved runtime jackson-databind is 2.22.0 (unaffected). The dokka-classpath 2.12.7.1 lockfile occurrence is suppressed in the per-module osv-scanner.toml (build-time doc-gen only)."
+[[IgnoredVulns]]
+id = "GHSA-rcqc-6cw3-h962"
+reason = "Stale jackson-databind entry in gradle/verification-metadata.xml hash catalog; resolved runtime jackson-databind is 2.22.0 (unaffected). The dokka-classpath 2.12.7.1 lockfile occurrence is suppressed in the per-module osv-scanner.toml (build-time doc-gen only)."
+[[IgnoredVulns]]
+id = "GHSA-rmj7-2vxq-3g9f"
+reason = "Stale jackson-databind entry in gradle/verification-metadata.xml hash catalog; resolved runtime jackson-databind is 2.22.0 (unaffected). The dokka-classpath 2.12.7.1 lockfile occurrence is suppressed in the per-module osv-scanner.toml (build-time doc-gen only)."
+

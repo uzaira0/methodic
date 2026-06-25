@@ -9,6 +9,8 @@ bin/
 build/
 out/
 artifacts/
+# local detekt runner jar (downloaded tool, not source)
+detekt-cli-*.jar
 .DS_Store
 *.iml
 *.swp

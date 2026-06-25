@@ -5,7 +5,7 @@ schemaVersion: "2.0.0"
 
 metadataTest:
   exposedPorts: ["40320"]
-  cmd: ["su-exec", "chronicle", "./bin/chronicle-server", "local", "postgres", "medialocal"]
+  cmd: ["./bin/chronicle-server", "local", "postgres", "medialocal"]
   workdir: "/server"
   labels:
     - key: "org.opencontainers.image.source"
@@ -65,10 +65,10 @@ commandTests:
     args: ["-version"]
     exitCode: 0
 
-  - name: "java version is 17"
+  - name: "java version is 25"
     command: "java"
     args: ["-version"]
-    expectedError: ["17\\."]
+    expectedError: ["25\\."]
 
   - name: "chronicle user exists"
     command: "id"

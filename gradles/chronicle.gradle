@@ -68,9 +68,13 @@ configurations.all {
     // org.eclipse.angus:jakarta.mail (the impl, distinct from angus-mail) lingers at 2.0.2 and
     // carries CVE-2025-7962 (SMTP CRLF injection); lift to the patched 2.0.4 (sync w/ angus_mail_version).
     force 'org.eclipse.angus:jakarta.mail:2.0.4'
-    force 'com.fasterxml.jackson.core:jackson-core:2.21.3'
-    force 'com.fasterxml.jackson.core:jackson-databind:2.21.3'
-    force 'com.fasterxml.jackson.core:jackson-annotations:2.21'
+    // jackson-databind 2.21.3 carries 7 advisories (GHSA-5hh8/5jmj/9fxm/hgj6/j3rv/rcqc/rmj7, mostly
+    // deserialization bypasses). 2.21.4 clears 6; the 7th (GHSA-5jmj-h7xm-6q6v) is fixed only in 2.21.5
+    // (never published to Maven Central) and in 2.22.0. Lift the whole core trio to 2.22.0 (OSV query:
+    // 0 vulns). Keep ext.jackson_version below in sync. jackson-annotations uses MAJOR.MINOR (2.22).
+    force 'com.fasterxml.jackson.core:jackson-core:2.22.0'
+    force 'com.fasterxml.jackson.core:jackson-databind:2.22.0'
+    force 'com.fasterxml.jackson.core:jackson-annotations:2.22'
     force 'commons-beanutils:commons-beanutils:1.11.0'
     force 'io.grpc:grpc-netty-shaded:1.75.0'
     // Align the whole gRPC family to 1.75.0 (matches grpc-netty-shaded). Fixes
@@ -163,7 +167,7 @@ ext.guava_version='33.6.0-jre'
 ext.hazelcast_version='5.5.0'
 ext.hibernate_validator_version='8.0.2.Final'
 ext.hikariCP_version='6.3.3'
-ext.jackson_version='2.21.3'
+ext.jackson_version='2.22.0'
 ext.jacoco_tool_version = '0.8.13'
 ext.jakarta_annotation_version='2.1.1'
 ext.jakarta_inject_version='2.0.1'

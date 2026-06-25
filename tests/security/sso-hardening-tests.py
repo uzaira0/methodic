@@ -95,7 +95,7 @@ def assert_compose_hardening(config: dict) -> None:
 
     keycloak_build = keycloak.get("build") or {}
     check(
-        keycloak.get("image") == "chronicle-keycloak:26.6.1-local",
+        keycloak.get("image") == "chronicle-keycloak:26.6.3-local",
         "Keycloak runtime must use the local optimized Chronicle image",
     )
     check(
@@ -104,7 +104,7 @@ def assert_compose_hardening(config: dict) -> None:
     )
     dockerfile_text = (ROOT / "docker" / "Dockerfile.keycloak").read_text(encoding="utf-8")
     check(
-        "quay.io/keycloak/keycloak:26.6.1@sha256:" in dockerfile_text,
+        "quay.io/keycloak/keycloak:26.6.3@sha256:" in dockerfile_text,
         "Dockerfile.keycloak must pin the upstream Keycloak base image by digest",
     )
     check("kc.sh build" in dockerfile_text, "Dockerfile.keycloak must pre-build the optimized Keycloak server")
