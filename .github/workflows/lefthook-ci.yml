@@ -24,6 +24,9 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+          # chronicle-web (+ other gated dirs) are submodules; without this the
+          # `cd chronicle-web && bun install` step finds no package.json.
+          submodules: true
 
       - name: Install lefthook
         run: |

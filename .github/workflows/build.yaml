@@ -24,6 +24,8 @@ jobs:
             api.github.com:443
             codeload.github.com:443
             objects.githubusercontent.com:443
+            raw.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
             uploads.github.com:443
             maven.pkg.github.com:443
             actions-results-receiver-production.githubapp.com:443
@@ -31,9 +33,12 @@ jobs:
             api.adoptium.net:443
             services.gradle.org:443
             plugins.gradle.org:443
+            plugins-artifacts.gradle.org:443
             repo.maven.apache.org:443
             repo1.maven.org:443
             repository.apache.org:443
+            repo.spring.io:443
+            oss.sonatype.org:443
 
       - name: Check out repository code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -85,27 +90,28 @@ jobs:
           SIGNING_KEY_PASSPHRASE: ${{ secrets.SIGNING_KEY_PASSPHRASE }}
       - name: Build
         if: (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') && steps.signing.outputs.enabled == 'true'
-        uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
-        with:
-          arguments: build -x :chronicle-server:spotbugsMain -x :chronicle-server:spotbugsTest -x :chronicle-server:test
+        run: ./gradlew build -x :chronicle-server:spotbugsMain -x :chronicle-server:spotbugsTest -x :chronicle-server:spotbugsJmh -x :chronicle-server:test --no-daemon
         env:
           GPG_SECRET: ${{ secrets.GPG_SECRET }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SIGNING_KEY_PASSPHRASE: ${{ secrets.SIGNING_KEY_PASSPHRASE }}
       - name: Publish to Github Packages
         if: (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') && steps.signing.outputs.enabled == 'true'
-        uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
-        with:
-          arguments: :chronicle-api:publish :rhizome-client:publish :rhizome:publish
+        run: ./gradlew :chronicle-api:publish :rhizome-client:publish :rhizome:publish --no-daemon
         env:
           GPG_SECRET: ${{ secrets.GPG_SECRET }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SIGNING_KEY_PASSPHRASE: ${{ secrets.SIGNING_KEY_PASSPHRASE }}
       - name: Build (unsigned)
         # Runs on PRs, and on develop/main when signing isn't configured — so the
-        # backend is always compile-validated even without the GPG key.
+        # backend is always compile-validated even without the GPG key. gradle/actions
+        # v6 removed the `arguments:` input, so invoke ./gradlew directly (the Setup
+        # Gradle step above already configured caching/env). The wrapper's distribution
+        # download resolves via release-assets.githubusercontent.com (now allowlisted).
         if: ${{ !((github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') && steps.signing.outputs.enabled == 'true') }}
-        run: ./gradlew build -x :chronicle-server:spotbugsMain -x :chronicle-server:spotbugsTest -x :chronicle-server:test --no-daemon
+        run: ./gradlew build -x :chronicle-server:spotbugsMain -x :chronicle-server:spotbugsTest -x :chronicle-server:spotbugsJmh -x :chronicle-server:test --no-daemon
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
