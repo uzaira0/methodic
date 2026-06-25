@@ -45,14 +45,24 @@ jobs:
           distribution: 'temurin'
 
       - name: Run Detekt
-        uses: detekt/detekt-action@76e292759c806cd28cadc1e3d2fc6e48c24a9fac # v2
-        with:
-          detekt-version: '1.23.7'
-          args: >-
-            --input chronicle-server/src,chronicle-api/src,rhizome/src
-            --config detekt.yml
-            --report sarif:detekt-results.sarif
-            --report html:detekt-results.html
+        # The detekt/detekt-action repo was deleted from GitHub (404), which both broke
+        # this step and made zizmor's impostor-commit audit fatal. Run the detekt CLI
+        # directly instead — pinned release jar, sha256-verified before execution (same
+        # supply-chain control the deleted action provided, minus the dead dependency).
+        # Identical args + version to the former action; matches the local detekt run.
+        run: |
+          set -euo pipefail
+          DETEKT_VERSION=1.23.7
+          DETEKT_JAR="detekt-cli-${DETEKT_VERSION}-all.jar"
+          DETEKT_SHA256=84beded283012cb2b38bcaef4996452fcd6069d2e9ca74b50eaa79e0ad21897e
+          curl -fsSL --retry 3 -o "$DETEKT_JAR" \
+            "https://github.com/detekt/detekt/releases/download/v${DETEKT_VERSION}/${DETEKT_JAR}"
+          echo "${DETEKT_SHA256}  ${DETEKT_JAR}" | sha256sum -c -
+          java -jar "$DETEKT_JAR" \
+            --input chronicle-server/src,chronicle-api/src,rhizome/src \
+            --config detekt.yml \
+            --report sarif:detekt-results.sarif \
+            --report html:detekt-results.html \
             --build-upon-default-config
 
       - name: Upload Detekt SARIF
@@ -93,7 +103,7 @@ jobs:
           submodules: true
 
       - name: Run PMD
-        uses: pmd/pmd-github-action@d47e16fdf3a6cedee9b3adbb77ee73ca4f0e42e2 # v2
+        uses: pmd/pmd-github-action@d9c1f3c5940cbf5923f1354e83fa858b4496ebaa # v2
         with:
           version: '7.9.0'
           sourcePath: 'chronicle-server/src/main/kotlin,chronicle-api/src/main/kotlin'
@@ -125,7 +135,7 @@ jobs:
           submodules: true
 
       - name: Run Bearer
-        uses: bearer/bearer-action@5023ef27347e50c2066e3974b1e8b2e2b9594a86 # v2
+        uses: bearer/bearer-action@828eeb928ce2f4a7ca5ed57fb8b59508cb8c79bc # v2
         with:
           scanner: sast
           format: sarif
@@ -161,7 +171,7 @@ jobs:
           submodules: true
 
       - name: Run OSV-Scanner
-        uses: google/osv-scanner-action/osv-scanner-action@19ec0cd1dfd248cff32f8ef260f1be9433409c1c # v2
+        uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
         with:
           scan-args: |-
             --recursive
@@ -199,7 +209,7 @@ jobs:
           submodules: true
 
       - name: Run Grype
-        uses: anchore/scan-action@abae793926ec39a78ab18002bc7fc45e22e7e165 # v6
+        uses: anchore/scan-action@1638637db639e0ade3258b51db49a9a137574c3e # v6
         with:
           path: .
           fail-build: true
@@ -233,7 +243,7 @@ jobs:
           submodules: true
 
       - name: Generate SBOM
-        uses: anchore/sbom-action@fc46e51fd3cb168ffb36c6d1915723c47db58571 # v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           path: .
           format: spdx-json

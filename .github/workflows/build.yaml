@@ -46,8 +46,19 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-      - name: Validate Gradle wrapper
-        uses: gradle/actions/wrapper-validation@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
+      - name: Validate Gradle wrapper (offline checksum)
+        # gradle/actions/wrapper-validation makes a network call to an endpoint that
+        # isn't in this job's harden-runner block-mode allowlist (observed:
+        # ECONNREFUSED to an AWS us-west-2 host, distinct from the Cloudflare-fronted
+        # services.gradle.org). The wrapper-jar integrity check is fully deterministic
+        # offline, so verify the committed jar against the official Gradle 9.5.0 wrapper
+        # checksum directly — no network, block-safe.
+        # On a Gradle bump: update EXPECTED from
+        #   https://services.gradle.org/distributions/gradle-<version>-wrapper.jar.sha256
+        run: |
+          set -euo pipefail
+          EXPECTED=497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7
+          echo "${EXPECTED}  gradle/wrapper/gradle-wrapper.jar" | sha256sum -c -
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
         with:
