@@ -48,6 +48,15 @@ plain HTTP on 40320; the lines that would switch it to https/8443 + bind
 `chronicle-backend-mtls@file` are commented out in the compose labels. Defining the transport
 does not alter the live transport path.
 
+**Config regression guard (NEW):**
+`com.openlattice.chronicle.storage.tde.TraefikBackendMtlsConfigTest` parses the actual
+`servers-transport.yml` Traefik loads and asserts the staged transport is **safe by construction** —
+`insecureSkipVerify` is off (verification stays on), a `rootCAs` CA is pinned, the client cert+key
+(the mutual half) are present, and `serverName` matches the dialed backend. Full mTLS connectivity is
+a cert-dependent, two-sided operational cutover (so it is verified at enable time per §5), but this
+test fails the build if a future edit silently weakens the staged config into blind TLS.
+**Verified locally**: 5 tests, 0 failures.
+
 ---
 
 ## 3. The serversTransport
@@ -131,6 +140,17 @@ the JDBC URL:
 - **IaC guard:** `tests/security/policies/docker_compose.rego` denies any compose service whose
   `POSTGRES_SSL_MODE` resolves to a weaker mode (disable/allow/prefer/require/verify-ca);
   `conftest` fails the build on a downgrade. Verified passing on both compose files.
+- **Behavioral integration test (NEW):**
+  `com.openlattice.chronicle.storage.tde.PostgresSslModeEnforcementTest` brings up the production
+  Percona image, generates a self-signed server cert, and rewrites `pg_hba.conf` to
+  `hostssl … scram-sha-256` (SSL-required — the prod posture), then asserts via the real PGJDBC
+  driver that a `sslmode=disable` connection is **refused** (`no pg_hba.conf entry … no encryption`)
+  while a `sslmode=require` connection **succeeds**. It also asserts every `jdbcUrl` in
+  `docker/rhizome-docker.yaml.template` pins `sslmode=verify-full` and contains no weaker mode — the
+  config-pin guard. If the image is unavailable it SKIPS the behavioral half via `Assume` (the
+  config-pin checks still run). **Verified locally**:
+  `JAVA_HOME=…/jdk21 ./gradlew :chronicle-server:test --tests "*PostgresSslModeEnforcementTest"` →
+  4 tests, 0 skipped, 0 failures.
 
 **Precondition:** verify-full requires the postgres server certificate's SAN to include the
 `postgres` service hostname and to be signed by the CA at `/app/ssl/ca.crt`. Issue a conforming
@@ -139,6 +159,7 @@ cert before rolling, or the backend will refuse the connection.
 ## 7. Source pointers
 
 - **serversTransport (dynamic config):** `docker/traefik/dynamic/servers-transport.yml`
+- **mTLS config regression test:** `chronicle-server/src/test/kotlin/com/openlattice/chronicle/storage/tde/TraefikBackendMtlsConfigTest.kt`
 - **Staged enablement labels (commented):** `docker/docker-compose.traefik.yml` —
   `chronicle-backend` service, immediately below
   `traefik.http.services.chronicle-backend.loadbalancer.server.port=40320`.
@@ -149,3 +170,4 @@ cert before rolling, or the backend will refuse the connection.
 - **Bridge network definition:** `docker/docker-compose.traefik.yml` — `networks.chronicle-backend-bridge` (`internal: true`).
 - **sslmode pin (JDBC URL):** `docker/rhizome-docker.yaml.template` — both `jdbcUrl`s, `sslmode=verify-full`.
 - **sslmode IaC guard:** `tests/security/policies/docker_compose.rego` — `POSTGRES_SSL_MODE` weak-mode deny rule.
+- **sslmode behavioral test:** `chronicle-server/src/test/kotlin/com/openlattice/chronicle/storage/tde/PostgresSslModeEnforcementTest.kt`.
