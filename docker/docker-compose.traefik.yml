@@ -452,6 +452,23 @@ services:
       KEYCLOAK_REALM: ${OIDC_REALM:-chronicle}
       KEYCLOAK_CHRONICLE_CLIENT_ID: ${OIDC_CLIENT_ID:-chronicle-web}
       KEYCLOAK_CHRONICLE_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-change-me-local-oidc-secret}
+      # BCM Shibboleth OIDC OP (preferred over the SAML fallback). Endpoint
+      # defaults follow the standard Shibboleth IdP 4/5 OIDC OP paths — confirm
+      # them against BCM's published discovery doc
+      # (https://fedidp.bcm.edu/.well-known/openid-configuration) before go-live.
+      # clientId/clientSecret are issued by BCM when Chronicle is registered as an
+      # OIDC relying party. Until BCM provisions the OP, set KEYCLOAK_DEFAULT_IDP=bcm
+      # to fall back to the working SAML broker.
+      BCM_OIDC_CLIENT_ID: ${BCM_OIDC_CLIENT_ID:-change-me-bcm-oidc-client-id}
+      BCM_OIDC_CLIENT_SECRET: ${BCM_OIDC_CLIENT_SECRET:-change-me-bcm-oidc-client-secret}
+      BCM_OIDC_ISSUER: ${BCM_OIDC_ISSUER:-https://fedidp.bcm.edu}
+      BCM_OIDC_AUTH_URL: ${BCM_OIDC_AUTH_URL:-https://fedidp.bcm.edu/idp/profile/oidc/authorize}
+      BCM_OIDC_TOKEN_URL: ${BCM_OIDC_TOKEN_URL:-https://fedidp.bcm.edu/idp/profile/oidc/token}
+      BCM_OIDC_USERINFO_URL: ${BCM_OIDC_USERINFO_URL:-https://fedidp.bcm.edu/idp/profile/oidc/userinfo}
+      BCM_OIDC_JWKS_URL: ${BCM_OIDC_JWKS_URL:-https://fedidp.bcm.edu/idp/profile/oidc/keyset}
+      # Which broker the browser flow auto-redirects to: bcm-oidc (preferred) or
+      # bcm (SAML fallback). Both IdPs are imported; this only picks the default.
+      KEYCLOAK_DEFAULT_IDP: ${KEYCLOAK_DEFAULT_IDP:-bcm-oidc}
       DOMAIN: ${DOMAIN}
     volumes:
       - keycloak_data:/opt/keycloak/data
@@ -485,6 +502,13 @@ services:
           -e "s|__CLIENT_ID__|$$KEYCLOAK_CHRONICLE_CLIENT_ID|g" \
           -e "s|__CLIENT_SECRET__|$$KEYCLOAK_CHRONICLE_CLIENT_SECRET|g" \
           -e "s|__DOMAIN__|$$DOMAIN|g" \
+          -e "s|__BCM_OIDC_CLIENT_ID__|$$BCM_OIDC_CLIENT_ID|g" \
+          -e "s|__BCM_OIDC_CLIENT_SECRET__|$$BCM_OIDC_CLIENT_SECRET|g" \
+          -e "s|__BCM_OIDC_ISSUER__|$$BCM_OIDC_ISSUER|g" \
+          -e "s|__BCM_OIDC_AUTH_URL__|$$BCM_OIDC_AUTH_URL|g" \
+          -e "s|__BCM_OIDC_TOKEN_URL__|$$BCM_OIDC_TOKEN_URL|g" \
+          -e "s|__BCM_OIDC_USERINFO_URL__|$$BCM_OIDC_USERINFO_URL|g" \
+          -e "s|__BCM_OIDC_JWKS_URL__|$$BCM_OIDC_JWKS_URL|g" \
           /opt/keycloak/import-template/realm-chronicle.json.template > /opt/keycloak/data/import/realm-chronicle.json
         /opt/keycloak/bin/kc.sh start --optimized --import-realm --http-enabled=true --hostname="$$KEYCLOAK_PUBLIC_URL" --proxy-headers=xforwarded &
         kc_pid="$$!"
@@ -508,12 +532,12 @@ services:
         if [ -n "$$redirector_config_id" ]; then
           /opt/keycloak/bin/kcadm.sh update "authentication/config/$$redirector_config_id" -r "$$KEYCLOAK_REALM" --config /tmp/kcadm.config \
             -s alias=chronicle-bcm-idp-redirector \
-            -s config.defaultProvider=bcm \
+            -s config.defaultProvider="$$KEYCLOAK_DEFAULT_IDP" \
             -s config.hideOnLoginPage=true
         else
           /opt/keycloak/bin/kcadm.sh create "authentication/executions/$$redirector_id/config" -r "$$KEYCLOAK_REALM" --config /tmp/kcadm.config \
             -s alias=chronicle-bcm-idp-redirector \
-            -s config.defaultProvider=bcm \
+            -s config.defaultProvider="$$KEYCLOAK_DEFAULT_IDP" \
             -s config.hideOnLoginPage=true >/dev/null
         fi
         wait "$$kc_pid"
@@ -618,7 +642,7 @@ services:
       OIDC_JWKS_URI: ${OIDC_JWKS_URI:-http://keycloak:8080/keycloak/realms/${OIDC_REALM:-chronicle}/protocol/openid-connect/certs}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-chronicle-web}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-change-me-local-oidc-secret}
-      OIDC_IDP_HINT: ${OIDC_IDP_HINT:-bcm}
+      OIDC_IDP_HINT: ${OIDC_IDP_HINT:-bcm-oidc}
       OIDC_COOKIE_TOKEN_CLAIM: ${OIDC_COOKIE_TOKEN_CLAIM:-id_token}
       TESTING_LOGIN_ENABLED: ${TESTING_LOGIN_ENABLED:-false}
       ALLOW_PRODUCTION_TESTING_LOGIN: ${ALLOW_PRODUCTION_TESTING_LOGIN:-false}

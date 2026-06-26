@@ -84,20 +84,68 @@
             "access.token.claim": "true",
             "userinfo.token.claim": "true"
           }
+        },
+        {
+          "name": "amr",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "amr",
+            "claim.name": "amr",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
         }
       ]
     }
   ],
   "identityProviders": [
     {
-      "alias": "bcm",
+      "alias": "bcm-oidc",
       "displayName": "BCM SSO",
+      "providerId": "oidc",
+      "enabled": true,
+      "trustEmail": true,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "authenticateByDefault": false,
+      "linkOnly": false,
+      "hideOnLogin": false,
+      "firstBrokerLoginFlowAlias": "first broker login",
+      "config": {
+        "syncMode": "FORCE",
+        "clientId": "__BCM_OIDC_CLIENT_ID__",
+        "clientSecret": "__BCM_OIDC_CLIENT_SECRET__",
+        "clientAuthMethod": "client_secret_post",
+        "issuer": "__BCM_OIDC_ISSUER__",
+        "authorizationUrl": "__BCM_OIDC_AUTH_URL__",
+        "tokenUrl": "__BCM_OIDC_TOKEN_URL__",
+        "userInfoUrl": "__BCM_OIDC_USERINFO_URL__",
+        "jwksUrl": "__BCM_OIDC_JWKS_URL__",
+        "useJwksUrl": "true",
+        "validateSignature": "true",
+        "pkceEnabled": "true",
+        "pkceMethod": "S256",
+        "defaultScope": "openid profile email",
+        "backchannelSupported": "false",
+        "disableUserInfo": "false",
+        "filteredByClaim": "false",
+        "hideOnLoginPage": "false"
+      }
+    },
+    {
+      "alias": "bcm",
+      "displayName": "BCM SSO (SAML fallback)",
       "providerId": "saml",
       "enabled": true,
       "trustEmail": true,
       "storeToken": false,
       "addReadTokenRoleOnCreate": false,
-      "authenticateByDefault": true,
+      "authenticateByDefault": false,
       "linkOnly": false,
       "hideOnLogin": false,
       "firstBrokerLoginFlowAlias": "first broker login",
@@ -128,6 +176,55 @@
     }
   ],
   "identityProviderMappers": [
+    {
+      "name": "BCM OIDC email",
+      "identityProviderAlias": "bcm-oidc",
+      "identityProviderMapper": "oidc-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "claim": "email",
+        "user.attribute": "email"
+      }
+    },
+    {
+      "name": "BCM OIDC given_name to firstName",
+      "identityProviderAlias": "bcm-oidc",
+      "identityProviderMapper": "oidc-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "claim": "given_name",
+        "user.attribute": "firstName"
+      }
+    },
+    {
+      "name": "BCM OIDC family_name to lastName",
+      "identityProviderAlias": "bcm-oidc",
+      "identityProviderMapper": "oidc-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "claim": "family_name",
+        "user.attribute": "lastName"
+      }
+    },
+    {
+      "name": "BCM OIDC preferred_username to username",
+      "identityProviderAlias": "bcm-oidc",
+      "identityProviderMapper": "oidc-username-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "template": "${CLAIM.preferred_username}"
+      }
+    },
+    {
+      "name": "BCM OIDC amr passthrough",
+      "identityProviderAlias": "bcm-oidc",
+      "identityProviderMapper": "oidc-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "claim": "amr",
+        "user.attribute": "amr"
+      }
+    },
     {
       "name": "BCM mail to email",
       "identityProviderAlias": "bcm",

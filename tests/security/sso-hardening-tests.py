@@ -139,8 +139,9 @@ def assert_compose_hardening(config: dict) -> None:
         "Keycloak startup must configure the browser flow identity-provider redirector",
     )
     check(
-        "config.defaultProvider=bcm" in keycloak_entrypoint,
-        "Keycloak browser flow must default to the BCM identity provider",
+        "config.defaultProvider=" in keycloak_entrypoint
+        and "KEYCLOAK_DEFAULT_IDP" in keycloak_entrypoint,
+        "Keycloak browser flow must default to the configured BCM broker (KEYCLOAK_DEFAULT_IDP)",
     )
     check(
         "config.hideOnLoginPage=true" in keycloak_entrypoint,
@@ -168,6 +169,16 @@ def assert_compose_hardening(config: dict) -> None:
     keycloak_db_url = keycloak_env.get("KC_DB_URL", "")
     check("keycloak-postgres:5432" in keycloak_db_url, "Keycloak must use dedicated keycloak-postgres service")
     check("jdbc:postgresql://postgres:5432/" not in keycloak_db_url, "Keycloak must not use the Chronicle app Postgres service")
+
+    check(
+        keycloak_env.get("KEYCLOAK_DEFAULT_IDP") in {"bcm-oidc", "bcm"},
+        "KEYCLOAK_DEFAULT_IDP must select a BCM broker (bcm-oidc preferred, bcm SAML fallback)",
+    )
+    backend_env = backend.get("environment") or {}
+    check(
+        backend_env.get("OIDC_IDP_HINT") == keycloak_env.get("KEYCLOAK_DEFAULT_IDP"),
+        "Backend OIDC_IDP_HINT must match the Keycloak default broker (KEYCLOAK_DEFAULT_IDP)",
+    )
 
     labels = service_label_map(keycloak)
     check(labels.get("traefik.docker.network") == "chronicle-sso-edge", "Traefik must route Keycloak over chronicle-sso-edge")
@@ -210,6 +221,51 @@ def assert_realm_hardening(realm: dict) -> None:
     ):
         check(name in mappers, f"Required BCM mapper missing: {name}")
         check(mappers[name].get("identityProviderAlias") == "bcm", f"{name} must target the bcm provider")
+
+    # BCM Shibboleth OIDC OP broker (preferred; carries amr/MFA natively).
+    check("bcm-oidc" in providers, "BCM OIDC identity provider is missing from realm import")
+    oidc = providers["bcm-oidc"]
+    oidc_config = oidc.get("config") or {}
+    check(oidc.get("providerId") == "oidc", "bcm-oidc broker must use the oidc provider")
+    check(oidc.get("enabled") is True, "BCM OIDC provider must be enabled")
+    # The default broker is selected at runtime by the browser-flow redirector
+    # (config.defaultProvider=$KEYCLOAK_DEFAULT_IDP). Neither broker may also pin the
+    # legacy authenticateByDefault flag, which would split-brain the default when the
+    # operator selects the SAML fallback (KEYCLOAK_DEFAULT_IDP=bcm).
+    check(oidc.get("authenticateByDefault") is not True, "bcm-oidc must not pin legacy authenticateByDefault (default is redirector-driven)")
+    check(bcm.get("authenticateByDefault") is not True, "bcm (SAML) must not pin legacy authenticateByDefault (default is redirector-driven)")
+    check(oidc_config.get("validateSignature") == "true", "BCM OIDC tokens must have signatures validated")
+    check(oidc_config.get("useJwksUrl") == "true", "BCM OIDC must validate signatures against the published JWKS")
+    check(oidc_config.get("pkceEnabled") == "true", "BCM OIDC broker must use PKCE")
+
+    for name in (
+        "BCM OIDC email",
+        "BCM OIDC given_name to firstName",
+        "BCM OIDC family_name to lastName",
+        "BCM OIDC preferred_username to username",
+        "BCM OIDC amr passthrough",
+    ):
+        check(name in mappers, f"Required BCM OIDC mapper missing: {name}")
+        check(mappers[name].get("identityProviderAlias") == "bcm-oidc", f"{name} must target the bcm-oidc provider")
+
+    # MFA (amr) passthrough: the brokered amr claim must reach the Chronicle token
+    # so AmrClaimValidator can enforce CHRONICLE_SECURITY_REQUIRE_MFA. Two hops:
+    #   1) IdP mapper imports the brokered `amr` claim onto the user (FORCE).
+    amr_idp = mappers.get("BCM OIDC amr passthrough", {}).get("config") or {}
+    check(amr_idp.get("claim") == "amr", "amr passthrough must read the brokered 'amr' claim")
+    check(amr_idp.get("user.attribute") == "amr", "amr passthrough must store the 'amr' user attribute")
+    check(amr_idp.get("syncMode") == "FORCE", "amr passthrough must refresh every login (syncMode FORCE)")
+    #   2) Client protocol mapper re-emits `amr` into the issued access token.
+    clients = {client.get("clientId"): client for client in realm.get("clients", [])}
+    web = clients.get("chronicle-web") or {}
+    client_amr = next(
+        (m for m in (web.get("protocolMappers") or []) if m.get("config", {}).get("claim.name") == "amr"),
+        None,
+    )
+    check(client_amr is not None, "chronicle-web client must emit an 'amr' claim")
+    amr_cfg = (client_amr or {}).get("config") or {}
+    check(amr_cfg.get("access.token.claim") == "true", "amr claim must be present in the access token the backend validates")
+    check(amr_cfg.get("multivalued") == "true", "amr claim must be multivalued (RFC 8176 method list)")
 
 
 def main() -> None:
