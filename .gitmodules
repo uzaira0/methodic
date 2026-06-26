@@ -20,3 +20,6 @@
 	path = chronicle-models
 	url = https://github.com/uzaira0/chronicle-models.git
 	branch = refactor/data-collection-modularization
+[submodule "chronicle-ios"]
+	path = chronicle-ios
+	url = https://github.com/uzaira0/chronicle-ios.git
