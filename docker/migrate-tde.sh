@@ -120,11 +120,21 @@ echo ""
 # Step 6: Create and set principal key if not exists
 # pg_tde 2.0.0: try to create key; if it already exists, just ensure it's set
 echo "6. Setting principal key..."
-KEY_EXISTS=$(run_psql "SELECT COUNT(*) FROM pg_tde_key_info() WHERE key_name = '${KEY_NAME}';")
-if [ "$KEY_EXISTS" -gt 0 ]; then
+# Idempotent by construction: a key can exist in the keyring without
+# pg_tde_key_info() listing it as the active principal, so the old
+# COUNT(*)-based existence check produced a false negative, fell through to
+# create, and `set -e` aborted on "already exists" BEFORE any table was
+# encrypted. Instead: attempt the create, treat "already exists" as success,
+# fail only on a genuine error, then always (re)assert the principal key —
+# pg_tde_set_key is idempotent.
+CREATE_OUT=$(run_psql_verbose "SELECT pg_tde_create_key_using_database_key_provider('${KEY_NAME}', '${PROVIDER_NAME}');" || true)
+if echo "$CREATE_OUT" | grep -qi "already exists"; then
     echo -e "   ${GREEN}Principal key '${KEY_NAME}' already exists${NC}"
+elif echo "$CREATE_OUT" | grep -qi "error"; then
+    echo -e "   ${RED}Failed to create principal key:${NC}"
+    echo "$CREATE_OUT"
+    exit 1
 else
-    run_psql_verbose "SELECT pg_tde_create_key_using_database_key_provider('${KEY_NAME}', '${PROVIDER_NAME}');"
     echo -e "   ${GREEN}Principal key created${NC}"
 fi
 run_psql_verbose "SELECT pg_tde_set_key_using_database_key_provider('${KEY_NAME}', '${PROVIDER_NAME}');" >/dev/null
