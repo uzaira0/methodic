@@ -1,0 +1,36 @@
+name: stale
+
+# Closes PRs with no activity in 14 days (warned at 7).
+# Jules will reopen with a fresh attempt if the work still matters,
+# so this is safe — it just clears dead inventory.
+# Add the 'keep' or 'security' label to opt out.
+
+on:
+  schedule:
+    - cron: '0 4 * * *'   # daily 04:00 UTC
+  workflow_dispatch:
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/stale@5bef64f19d7facfb25b37b414482c7164d639639 # v9
+        with:
+          days-before-pr-stale: 7
+          days-before-pr-close: 7
+          stale-pr-label: stale
+          exempt-pr-labels: keep,security
+          stale-pr-message: >
+            This PR has had no activity for 7 days. It will be closed in 7 days
+            unless updated. Add the `keep` label to opt out.
+          close-pr-message: >
+            Closing as stale. Reopen with `gh pr reopen` if still relevant — Jules
+            personas will re-propose if the underlying issue persists.
+          # Issues left alone for now.
+          days-before-issue-stale: -1
+          days-before-issue-close: -1

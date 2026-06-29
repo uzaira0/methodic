@@ -1,0 +1,16 @@
+{
+  "metrics": {
+    "http_req_duration": {
+      "values": {
+        "avg": 0,
+        "min": 0,
+        "med": 0,
+        "max": 0,
+        "p(90)": 0,
+        "p(95)": 0,
+        "p(99)": 0
+      }
+    }
+  },
+  "_comment": "Placeholder — run k6 load tests against a stable build and replace with actual results"
+}

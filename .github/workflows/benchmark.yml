@@ -1,0 +1,48 @@
+name: benchmark
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  pull_request:
+    paths:
+      - 'chronicle-server/src/main/**'
+      - 'chronicle-server/src/jmh/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  jmh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
+
+      - name: Run JMH benchmarks
+        run: ./gradlew :chronicle-server:jmh
+
+      - name: Check for regressions
+        run: bash ./scripts/jmh-regression-gate.sh
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: jmh-results
+          path: chronicle-server/build/results/jmh/
+          retention-days: 90

@@ -1,9 +1,18 @@
 version: 2
+# cooldown delays adoption of freshly-published VERSION updates so a trojanized
+# release (Shai-Hulud-class worm) is yanked before we ingest it. It applies ONLY
+# to version updates — GHSA-driven security updates bypass cooldown and stay
+# immediate (then go to a human via dependabot-auto-merge's scoped gate).
 updates:
   - package-ecosystem: "gradle"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
+      semver-patch-days: 5
+      semver-minor-days: 7
+      semver-major-days: 14
     open-pull-requests-limit: 10
     labels:
       - "dependencies"
@@ -13,6 +22,11 @@ updates:
     directory: "/chronicle-web"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
+      semver-patch-days: 5
+      semver-minor-days: 7
+      semver-major-days: 14
     open-pull-requests-limit: 10
     labels:
       - "dependencies"
@@ -22,6 +36,11 @@ updates:
     directory: "/docker"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
+      semver-patch-days: 5
+      semver-minor-days: 7
+      semver-major-days: 14
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
@@ -31,4 +50,9 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
+      semver-patch-days: 5
+      semver-minor-days: 7
+      semver-major-days: 14
     open-pull-requests-limit: 5

@@ -1,0 +1,50 @@
+rules:
+  - id: chronicle-twilio-status-webhook-must-verify-signature
+    languages:
+      - kotlin
+    severity: ERROR
+    message: >
+      Twilio status webhooks must verify X-Twilio-Signature before mutating notification status.
+    patterns:
+      - pattern: |
+          fun updateNotificationStatus(...) {
+            ...
+            notificationService.updateNotificationStatus(...)
+            ...
+          }
+      - pattern-not: |
+          fun updateNotificationStatus(...) {
+            ...
+            twilioWebhookSignatureVerifier.isCurrentRequestValid()
+            ...
+            notificationService.updateNotificationStatus(...)
+            ...
+          }
+    paths:
+      include:
+        - chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/NotificationController.kt
+
+  - id: chronicle-notification-principal-path-must-check-subject
+    languages:
+      - kotlin
+    severity: ERROR
+    message: >
+      Notification endpoints that accept a principalId path variable must enforce self-or-admin ownership before using that principalId.
+    patterns:
+      - pattern: |
+          fun $METHOD(..., @PathVariable(PRINCIPAL_ID) principalId: String, ...) {
+            ...
+            notificationService.$CALL(..., principalId, ...)
+            ...
+          }
+      - pattern-not: |
+          fun $METHOD(..., @PathVariable(PRINCIPAL_ID) principalId: String, ...) {
+            ...
+            ensureSelfOrAdmin(principalId)
+            ...
+            notificationService.$CALL(..., principalId, ...)
+            ...
+          }
+    paths:
+      include:
+        - chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/NotificationController.kt

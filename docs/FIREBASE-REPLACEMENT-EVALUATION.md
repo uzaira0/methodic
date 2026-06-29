@@ -35,7 +35,7 @@ All events are defined in `FirebaseAnalyticsEvents.kt` (23 event constants). Eac
 - `SensorUploadWorker.kt` -- SENSOR_UPLOAD_START, SENSOR_UPLOAD_SUCCESS, SENSOR_UPLOAD_FAILURE, SENSOR_UPLOAD_RETRY
 - `CombinedUploadWorker.kt` -- upload lifecycle events
 - `UploadWorkerDelegate.kt` -- upload lifecycle events
-- `MethodicSink.kt` -- upload events
+- `ChronicleSink.kt` -- upload events
 - `EnrollmentMonitoringWorker.kt` -- ENROLLMENT_MONITOR_SUCCESS, ENROLLMENT_MONITOR_FAILURE
 
 ### 1.3 Firebase Crashlytics Usage
@@ -226,9 +226,9 @@ All events are defined in `FirebaseAnalyticsEvents.kt` (23 event constants). Eac
 - `java/com/openlattice/chronicle/services/upload/UploadWorkerDelegate.kt` -- analytics + crashlytics
 - `java/com/openlattice/chronicle/services/notifications/NotificationsWorker.kt` -- analytics + crashlytics
 - `java/com/openlattice/chronicle/services/enrollment/EnrollmentMonitoringWorker.kt` -- analytics
-- `java/com/openlattice/chronicle/services/sinks/MethodicSink.kt` -- analytics
+- `java/com/openlattice/chronicle/services/sinks/ChronicleSink.kt` -- analytics
 - `java/com/openlattice/chronicle/services/sensors/SensorUploadWorker.kt` -- analytics
-- `kotlin/com/methodic/chronicle/constants/FirebaseAnalyticsEvents.kt` -- event constants
+- `kotlin/com/openlattice/chronicle/constants/FirebaseAnalyticsEvents.kt` -- event constants
 - `AndroidManifest.xml` -- Firebase metadata
 
 ### Infrastructure (docker/)

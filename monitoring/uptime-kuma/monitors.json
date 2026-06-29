@@ -1,0 +1,39 @@
+{
+  "version": "1.23.16",
+  "notificationList": [],
+  "monitorList": [
+    {
+      "name": "Chronicle Web (frontend)",
+      "type": "http",
+      "url": "https://chronicle-screentime-app.research.bcm.edu/chronicle/",
+      "interval": 60,
+      "retryInterval": 60,
+      "maxretries": 3,
+      "method": "GET",
+      "expiryNotification": true,
+      "ignoreTls": false,
+      "upsideDown": false,
+      "accepted_statuscodes": ["200", "301", "302"]
+    },
+    {
+      "name": "Chronicle API healthz",
+      "type": "http",
+      "url": "https://chronicle-screentime-app.research.bcm.edu/chronicle/v3/healthz",
+      "interval": 60,
+      "retryInterval": 60,
+      "maxretries": 3,
+      "method": "GET",
+      "expiryNotification": true,
+      "accepted_statuscodes": ["200", "204"]
+    },
+    {
+      "name": "Chronicle API /studies (auth-required keyword)",
+      "type": "keyword",
+      "url": "https://chronicle-screentime-app.research.bcm.edu/chronicle/v3/studies",
+      "keyword": "401",
+      "interval": 300,
+      "method": "GET",
+      "accepted_statuscodes": ["401"]
+    }
+  ]
+}

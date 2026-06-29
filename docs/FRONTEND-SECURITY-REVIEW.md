@@ -80,7 +80,7 @@ The codebase uses standard React rendering patterns with no raw HTML injection p
 
 - No hardcoded API keys, secrets, or private keys found in src/.
 - The Google Analytics ID (G-WJ7BQMLPEK) is in index.html -- this is a public measurement ID, not a secret.
-- API base URLs are derived dynamically from window.location.hostname in Configuration.js (localhost, staging.getmethodic.com, api.getmethodic.com, or self-hosted).
+- API base URLs are derived dynamically from window.location.hostname in Configuration.js (localhost, staging.chronicle-screentime-app.research.bcm.edu, api.chronicle-screentime-app.research.bcm.edu, or self-hosted).
 - No .env files are referenced in the source; environment-specific config is hostname-based.
 
 ---

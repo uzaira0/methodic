@@ -140,7 +140,7 @@ In `chronicle/app/src/main/java/com/openlattice/chronicle/services/upload/Upload
 
 ```kotlin
 // Change:
-const val PRODUCTION = "https://api.getmethodic.com"
+const val PRODUCTION = "https://chronicle-screentime-app.research.bcm.edu"
 
 // To:
 const val PRODUCTION = "https://your-domain.com/api/mobile"

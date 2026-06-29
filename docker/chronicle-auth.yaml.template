@@ -2,11 +2,41 @@ domain: "localhost"
 clientId: "dummy-client-id"
 clientSecret: "${JWT_SECRET}"
 configurations:
-  - issuer: "https://localhost/"
+  - name: "local-testing"
+    issuer: "https://localhost/"
     audience: "dummy-client-id"
     secret: "${JWT_SECRET}"
     base64EncodedSecret: false
     signingAlgorithm: "HS256"
+    testingTokenIssuer: true
+  - name: "oidc-broker"
+    issuer: "${OIDC_ISSUER}"
+    audience: "${OIDC_CLIENT_ID}"
+    jwkSetUri: "${OIDC_JWKS_URI}"
+    secret: ""
+    base64EncodedSecret: false
+    signingAlgorithm: "RS256"
+    testingTokenIssuer: false
+testingLoginEnabled: ${TESTING_LOGIN_ENABLED}
+allowProductionTestingLogin: ${ALLOW_PRODUCTION_TESTING_LOGIN}
+oidc:
+  enabled: ${OIDC_ENABLED}
+  providerLabel: "${OIDC_PROVIDER_LABEL}"
+  publicBaseUrl: "${OIDC_PUBLIC_BASE_URL}"
+  issuer: "${OIDC_ISSUER}"
+  authorizationUri: "${OIDC_AUTHORIZATION_URI}"
+  tokenUri: "${OIDC_TOKEN_URI}"
+  jwkSetUri: "${OIDC_JWKS_URI}"
+  clientId: "${OIDC_CLIENT_ID}"
+  clientSecret: "${OIDC_CLIENT_SECRET}"
+  identityProviderHint: "${OIDC_IDP_HINT}"
+  scopes:
+    - openid
+    - email
+    - profile
+  redirectPath: "/chronicle/v3/auth/oidc/callback"
+  postLoginRedirectUri: "/chronicle"
+  cookieTokenClaim: "${OIDC_COOKIE_TOKEN_CLAIM}"
 managementApiUrl: "localhost"
 users:
   - user_id: "local-admin"

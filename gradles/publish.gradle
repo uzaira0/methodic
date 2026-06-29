@@ -2,7 +2,7 @@
 
 //ext.snapshotUrl = "https://artifactory.openlattice.com/artifactory/libs-snapshot-local"
 //ext.releaseUrl = "https://artifactory.openlattice.com/artifactory/libs-release-local"
-ext.githubPackageUrl = "https://maven.pkg.github.com/uzaira0/methodic"
+ext.githubPackageUrl = "https://maven.pkg.github.com/uzaira0/chronicle"
 ext.sonatypeMasterUrl = "https://oss.sonatype.org/service/local/staging/deploy/maven2"
 ext.sonatypeSnapshotUrl = "https://oss.sonatype.org/content/repositories/snapshots"
 
@@ -26,13 +26,10 @@ if (project.hasProperty('projectName') && project.hasProperty('scmUrl')) {
 
 println "Basename for jars will be: " + jarname
 
-def stdout = new ByteArrayOutputStream()
-
-exec {
+def maybeBranch = providers.exec {
+    workingDir rootProject.projectDir
     commandLine 'git', 'rev-parse', '--abbrev-ref', 'HEAD'
-    standardOutput = stdout
-}
-def maybeBranch = stdout.toString().trim()
+}.standardOutput.asText.get().trim()
 def ghBranch = System.getenv("GITHUB_REF")
 println "Branch from git: " + maybeBranch
 println "Github ref: " + ghBranch
@@ -77,12 +74,18 @@ static def convertToTag(tagString, branchString) {
 }
 
 def runCommand(String... command) {
-    def stdout = new ByteArrayOutputStream()
-    exec {
-        commandLine command
-        standardOutput = stdout
+    try {
+        return providers.exec {
+            workingDir rootProject.projectDir
+            commandLine command
+        }.standardOutput.asText.get()
+    } catch (Exception e) {
+        if (command.length >= 3 && command[0] == 'git' && command[1] == 'describe') {
+            logger.warn("Falling back to local version because git describe failed in ${rootProject.projectDir}: ${e.message}")
+            return "v0.0.0-0-g0000000"
+        }
+        throw e
     }
-    return stdout.toString()
 }
 
 def describeOutputTag = convertToTag(
@@ -144,7 +147,7 @@ artifacts {
 }
 
 
-archivesBaseName = jarname
+base.archivesName.set(jarname)
 
 ext."signing.password" = System.getenv("SIGNING_KEY_PASSPHRASE")
 
@@ -201,9 +204,9 @@ if (ext."signing.password" != null) {
 
                             developers {
                                 developer {
-                                    id 'methodic'
-                                    name 'Methodic Team'
-                                    email 'support@getmethodic.com'
+                                    id 'chronicle'
+                                    name 'Chronicle Team'
+                                    email 'chronicle-screentime-app@research.bcm.edu'
                                 }
                             }
                         }
@@ -264,9 +267,9 @@ if (ext."signing.password" != null) {
 
                             developers {
                                 developer {
-                                    id 'methodic'
-                                    name 'Methodic Team'
-                                    email 'support@getmethodic.com'
+                                    id 'chronicle'
+                                    name 'Chronicle Team'
+                                    email 'chronicle-screentime-app@research.bcm.edu'
                                 }
                             }
                         }

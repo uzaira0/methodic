@@ -9,9 +9,9 @@ on:
       - develop
   workflow_dispatch:
 
+# Least privilege: SARIF upload (security-events: write) granted on the scan job.
 permissions:
   contents: read
-  security-events: write
 
 env:
   REPORT_DIR: ${{ github.workspace }}/tests/security/reports
@@ -20,21 +20,25 @@ jobs:
   # ============================================================================
   # CI-safe security layers (no running stack required)
   # Layers: SAST(1), SCA(3), Container(4), Secrets(5), IaC(6),
-  #         Auth/JWT(14), Input validation(15), Crypto(16),
+  #         SSO broker hardening, Auth/JWT(14), Input validation(15), Crypto(16),
   #         License(17), Compliance(12)
   # ============================================================================
   security-layers:
     name: "Layer: ${{ matrix.layer }}"
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
     strategy:
       fail-fast: false
       matrix:
         layer:
           - sast
           - sca
-          - container
           - secrets
           - iac
+          - sso
           - auth
           - injection
           - crypto
@@ -42,8 +46,9 @@ jobs:
           - compliance
     steps:
       - name: Checkout repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           fetch-depth: 0
           submodules: true
 
@@ -57,18 +62,19 @@ jobs:
         if: matrix.layer == 'sast'
         run: pip install semgrep
 
+      - name: Setup Node for ast-grep
+        if: matrix.layer == 'sast'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: lts/*
+
+      - name: Install ast-grep
+        if: matrix.layer == 'sast'
+        run: npm install -g @ast-grep/cli
+
       - name: Install checkov
         if: matrix.layer == 'iac'
         run: pip install checkov
-
-      # -- Trivy (container, sca, license) ----------------------------------
-      - name: Install Trivy
-        if: contains(fromJSON('["container","sca","license"]'), matrix.layer)
-        run: |
-          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
-          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update && sudo apt-get install -y trivy
 
       # -- Gitleaks (secrets) -----------------------------------------------
       - name: Install Gitleaks
@@ -101,7 +107,7 @@ jobs:
 
       - name: Setup Node
         if: matrix.layer == 'sca'
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: lts/*
 
@@ -134,7 +140,6 @@ jobs:
         with:
           sarif_file: ${{ env.REPORT_DIR }}
           category: security-${{ matrix.layer }}
-        continue-on-error: true
 
   # ============================================================================
   # Summary gate — fails the PR if any layer failed
@@ -142,6 +147,7 @@ jobs:
   security-gate:
     name: Security Gate
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [security-layers]
     if: always()
     steps:
@@ -163,24 +169,23 @@ jobs:
 
       - name: Generate summary
         run: |
-          echo "## Security Suite Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### CI Layers (static analysis, no running stack)" >> $GITHUB_STEP_SUMMARY
-          echo "| # | Layer | Description |" >> $GITHUB_STEP_SUMMARY
-          echo "|---|-------|-------------|" >> $GITHUB_STEP_SUMMARY
-          echo "| 1 | sast | Semgrep static analysis |" >> $GITHUB_STEP_SUMMARY
-          echo "| 3 | sca | Dependency vulnerability scanning |" >> $GITHUB_STEP_SUMMARY
-          echo "| 4 | container | Trivy image/misconfig scanning |" >> $GITHUB_STEP_SUMMARY
-          echo "| 5 | secrets | Gitleaks secret detection |" >> $GITHUB_STEP_SUMMARY
-          echo "| 6 | iac | Checkov + Hadolint IaC checks |" >> $GITHUB_STEP_SUMMARY
-          echo "| 12 | compliance | OPA/Conftest policy-as-code |" >> $GITHUB_STEP_SUMMARY
-          echo "| 14 | auth | JWT structure analysis |" >> $GITHUB_STEP_SUMMARY
-          echo "| 15 | injection | SQL injection pattern scan |" >> $GITHUB_STEP_SUMMARY
-          echo "| 16 | crypto | Weak algorithm detection |" >> $GITHUB_STEP_SUMMARY
-          echo "| 17 | license | Trivy license compliance |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Skipped Layers (require running stack)" >> $GITHUB_STEP_SUMMARY
-          echo "DAST (2), API fuzz (7), TLS (8), Database (9), HIPAA (10), GDPR (11), Network (13), Rate limit (18), WAF (19), Runtime (20), Smoke (21), DB security (22), API headers (23), Business logic (24), Contract drift (25)" >> $GITHUB_STEP_SUMMARY
+          echo "## Security Suite Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### CI Layers (static analysis, no running stack)" >> "$GITHUB_STEP_SUMMARY"
+          echo "| # | Layer | Description |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|-------|-------------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 1 | sast | Semgrep static analysis |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 3 | sca | Dependency vulnerability scanning (Bun audit) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 5 | secrets | Gitleaks secret detection |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 6 | iac | Checkov + Hadolint IaC checks |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| - | sso | Keycloak broker isolation and SAML hardening guardrails |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 12 | compliance | OPA/Conftest policy-as-code |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 14 | auth | JWT structure analysis |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 15 | injection | SQL injection pattern scan |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 16 | crypto | Weak algorithm detection |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Live-stack Layers" >> "$GITHUB_STEP_SUMMARY"
+          echo "DAST (2), API fuzz (7), TLS (8), Database (9), HIPAA (10), GDPR (11), Network (13), Rate limit (18), WAF (19), Runtime (20), Smoke (21), DB security (22), API headers (23), Business logic (24), Contract drift (25) are covered by scripts under tests/security/ and must be run against a deployed stack." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check overall status
         if: needs.security-layers.result == 'failure'

@@ -1,0 +1,62 @@
+# zizmor configuration — records ACCEPTED findings with rationale so the gate can
+# go green on known/triaged risks while still failing on anything new.
+# Each ignore is a deliberate security decision, not a silence-for-convenience.
+rules:
+  dangerous-triggers:
+    ignore:
+      # Safe by construction: this pull_request_target workflow checks out ZERO
+      # PR-authored code (no actions/checkout of the PR head) and only runs
+      # fetch-metadata + `gh pr merge`. See the SECURITY note in the file header.
+      - dependabot-auto-merge.yml
+      # Gated to same-repo PRs only (head.repo.full_name == github.repository), so
+      # fork PRs cannot reach the privileged path; PR title is read via env, not
+      # interpolated into the shell.
+      - jules-supersede.yml
+  bot-conditions:
+    ignore:
+      # The `github.actor == 'dependabot[bot]'` gate is correct here: a fork PR's
+      # actor is its author, never dependabot[bot], so attackers are excluded. The
+      # job also executes no PR code. Accepted.
+      - dependabot-auto-merge.yml
+  ref-version-mismatch:
+    ignore:
+      # Every action is SHA-PINNED — that pin is the actual supply-chain control and
+      # is unchanged. The trailing `# vMAJOR` comments are floating-major *labels*,
+      # not exact versions, so they legitimately drift as upstream advances the major
+      # tag, and Dependabot bumps the SHA while keeping the `# vMAJOR` comment.
+      # ref-version-mismatch only flags comment-precision against the moving major
+      # tag — not a vulnerability. Accepted repo-wide; the SHA pin still governs.
+      # (zizmor requires explicit filenames here — no glob — so every workflow +
+      # composite action is enumerated. Add new ones as they're created.)
+      - action.yml
+      - actionlint.yml
+      - analysis.yml
+      - api-contract.yml
+      - backup-restore-test.yml
+      - benchmark.yml
+      - build-android-apk.yml
+      - build.yaml
+      - canary-synthetic.yml
+      - cd.yml
+      - cert-transparency-monitor.yml
+      - ci.yml
+      - codeql.yml
+      - compliance-vuln-cadence.yml
+      - dast-zap.yml
+      - dependabot-auto-merge.yml
+      - dns-monitor.yml
+      - docker-build-deploy.yml
+      - freshness-actions.yml
+      - freshness-jvm.yml
+      - freshness-plugin-drift.yml
+      - gitleaks.yml
+      - jfr-snapshot.yml
+      - jules-supersede.yml
+      - lefthook-ci.yml
+      - maestro-android-test.yml
+      - performance.yml
+      - pr-hygiene.yml
+      - security-scan.yml
+      - security-suite.yml
+      - stale.yml
+      - zizmor.yml

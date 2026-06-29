@@ -14,8 +14,13 @@ docker/tls/
 **/node_modules
 **/build
 **/dist
+!chronicle-web/vendor/equal/packages/*/dist
+!chronicle-web/vendor/equal/packages/*/dist/**
 **/.gradle
 **/build/
+**/logging/
+*.log
+*.log.gz
 
 # IDE
 .idea

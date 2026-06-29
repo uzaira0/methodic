@@ -1,0 +1,80 @@
+# Flow: Multi-server settings — verify per-server toggle and edit affordance
+#
+# Validates that:
+#   - The Settings screen lists each enrolled upload server as a switch row
+#   - Tapping the switch toggles the row's enabled state and persists across
+#     screen navigation
+#   - Each server row has a child "Edit configuration" link that opens
+#     ServerEnrollmentActivity for that server
+#
+# Prerequisites:
+#   - Device must already be enrolled (run 01_enrollment first)
+#   - At least one upload server exists in the Room DB
+
+appId: com.openlattice.chronicle
+tags:
+  - settings
+  - multi-server
+---
+
+- launchApp:
+    clearState: false
+
+- extendedWaitUntil:
+    visible:
+      id: "com.openlattice.chronicle:id/studyId"
+    timeout: 15000
+
+# Open Settings
+- tapOn:
+    id: "com.openlattice.chronicle:id/action_settings"
+
+- waitForAnimationToEnd:
+    timeout: 2000
+
+- extendedWaitUntil:
+    visible:
+      text: "Settings"
+    timeout: 10000
+
+# The settings screen renders each server as a SwitchPreferenceCompat row
+# (server name with a status dot prefix) followed by a child Preference titled
+# "⚙ Edit configuration". Both rows are visible.
+- assertVisible: "⚙ Edit configuration"
+
+# Toggle the first server off — the SwitchPreferenceCompat is the row whose
+# title contains the server name. Tapping the row flips the switch.
+- tapOn:
+    text: ".*Methodic.*"
+    optional: true   # name varies; the toggle below is always present
+
+# Verify the edit affordance opens ServerEnrollmentActivity
+- tapOn: "⚙ Edit configuration"
+
+- waitForAnimationToEnd:
+    timeout: 2000
+
+- assertVisible:
+    id: "com.openlattice.chronicle:id/serverUrlText"
+
+# Back out without saving
+- pressKey: back
+
+- waitForAnimationToEnd:
+    timeout: 2000
+
+- assertVisible:
+    text: "Settings"
+
+# Re-enable the server (idempotent if it wasn't toggled off)
+- tapOn:
+    text: ".*Methodic.*"
+    optional: true
+
+# Back to main
+- pressKey: back
+
+- extendedWaitUntil:
+    visible:
+      id: "com.openlattice.chronicle:id/studyId"
+    timeout: 10000

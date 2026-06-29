@@ -114,7 +114,7 @@ services:
       - "traefik.enable=true"
       - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik}"
       - "traefik.http.routers.chronicle-temporal-ui.rule=Host(`${DOMAIN}`) && PathPrefix(`/temporal`)"
-      - "traefik.http.routers.chronicle-temporal-ui.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.chronicle-temporal-ui.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
       - "traefik.http.routers.chronicle-temporal-ui.priority=10"
       - "traefik.http.services.chronicle-temporal-ui.loadbalancer.server.port=8233"
       # IP-restrict Temporal UI (same as Grafana — admin-only)

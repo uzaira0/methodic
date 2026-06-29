@@ -94,6 +94,38 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT EXECUTE ON FUNCTIONS TO chronicle_admin;
 
 -- =============================================================================
+-- Append-only audit-trail immutability (defense-in-depth)
+-- =============================================================================
+-- The append-only audit trails must stay immutable to the application roles. RLS is the
+-- PRIMARY enforcement (V2 policies on audit_logs; V44 policies on study_settings_audit and
+-- participant_collection_acknowledgment) and is GRANT-proof. This REVOKE is belt-and-suspenders:
+-- the blanket `GRANT ... ON ALL TABLES` and `ALTER DEFAULT PRIVILEGES` above otherwise hand
+-- chronicle_app (and chronicle_admin, which BYPASSes RLS) UPDATE/DELETE on every table — which
+-- is exactly what silently defeated the V15/V25/V26 REVOKEs once before (the grant re-ran after
+-- the one-time migration). Stripping it here, as the LAST word and on every re-run, means the
+-- grant never reaches these tables in the first place. Only the postgres superuser may purge
+-- (for retention). Guarded on table existence so it is a no-op at fresh-DB init (the audit
+-- tables are created later by the application's table bootstrap).
+DO $$
+DECLARE
+    audit_table TEXT;
+BEGIN
+    FOREACH audit_table IN ARRAY ARRAY[
+        'audit_logs',
+        'study_settings_audit',
+        'participant_collection_acknowledgment'
+    ] LOOP
+        IF EXISTS (
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = audit_table
+        ) THEN
+            EXECUTE format('REVOKE UPDATE, DELETE ON %I FROM chronicle_app, chronicle_admin', audit_table);
+            RAISE NOTICE 'Revoked UPDATE/DELETE on % from chronicle_app, chronicle_admin', audit_table;
+        END IF;
+    END LOOP;
+END $$;
+
+-- =============================================================================
 -- Password Configuration
 -- =============================================================================
 -- Set passwords for the roles. In production, use environment variables or

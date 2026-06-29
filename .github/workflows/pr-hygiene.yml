@@ -1,0 +1,121 @@
+name: pr-hygiene
+
+# Blocks contamination patterns that have shown up repeatedly in agent PRs:
+#   - files matching .gitignore (dev_output.log, biome_output.txt, etc.)
+#   - PRs that mix .github/workflows/ changes with non-workflow code
+#   - oversized files sneaking in (binaries, build artifacts)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# These jobs only read the diff and warn/exit — no PR API writes — so contents:read
+# is sufficient (dropped an unused workflow-level pull-requests:write).
+permissions:
+  contents: read
+
+jobs:
+  check-gitignored-files:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          submodules: false
+      - name: Verify no gitignored files were added
+        env:
+          BASE_REF: ${{ github.base_ref }}   # via env to avoid ${{ }} injection into the shell
+        run: |
+          git fetch origin "$BASE_REF" --depth=1
+          added=$(git diff --name-only --diff-filter=A "origin/$BASE_REF"...HEAD)
+          violations=""
+          for f in $added; do
+            # --no-index forces ignore-rule check even for tracked files; without it,
+            # `check-ignore` returns "not ignored" for committed files even when the
+            # path matches .gitignore (which is exactly the case we want to catch).
+            if git check-ignore --no-index -q "$f" 2>/dev/null; then
+              violations="${violations}${f}\n"
+            fi
+          done
+          if [ -n "$violations" ]; then
+            printf "ERROR: PR adds files matching .gitignore patterns:\n"
+            printf "%b" "$violations"
+            printf "\nThese are usually agent build artifacts (logs, dev output) that should not be committed.\n"
+            exit 1
+          fi
+
+  check-mixed-concerns:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          submodules: false
+      - name: Reject PRs mixing CI workflow changes with code changes
+        env:
+          BASE_REF: ${{ github.base_ref }}   # via env to avoid ${{ }} injection into the shell
+        run: |
+          git fetch origin "$BASE_REF" --depth=1
+          changed=$(git diff --name-only "origin/$BASE_REF"...HEAD)
+          touches_workflows=false
+          touches_code=false
+          for f in $changed; do
+            case "$f" in
+              .github/workflows/*) touches_workflows=true ;;
+              .github/*) ;;
+              scripts/*) ;;
+              tests/*) ;;
+              monitoring/*) ;;
+              .zap/*) ;;
+              lefthook.yml) ;;
+              docker/*) ;;
+              *) touches_code=true ;;
+            esac
+          done
+          if [ "$touches_workflows" = "true" ] && [ "$touches_code" = "true" ]; then
+            echo "::warning::PR mixes .github/workflows/ changes with application code."
+            echo "Consider splitting workflow changes into a separate PR."
+            echo ""
+            echo "Files changed:"
+            echo "$changed"
+          fi
+
+  check-file-sizes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          submodules: false
+      - name: Block files >1MB unless allow-listed
+        env:
+          BASE_REF: ${{ github.base_ref }}   # via env to avoid ${{ }} injection into the shell
+        run: |
+          git fetch origin "$BASE_REF" --depth=1
+          added=$(git diff --name-only --diff-filter=AM "origin/$BASE_REF"...HEAD)
+          oversized=""
+          for f in $added; do
+            [ -f "$f" ] || continue
+            size=$(stat -c%s "$f")
+            if [ "$size" -gt 1048576 ]; then
+              case "$f" in
+                gradle/verification-metadata.xml) ;;
+                gradle/wrapper/gradle-wrapper.jar) ;;
+                gradlew|gradlew.bat) ;;
+                *)
+                  oversized="${oversized}${f} (${size} bytes)\n"
+                  ;;
+              esac
+            fi
+          done
+          if [ -n "$oversized" ]; then
+            printf "ERROR: PR adds files >1MB outside the allow-list:\n"
+            printf "%b" "$oversized"
+            exit 1
+          fi

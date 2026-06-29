@@ -216,10 +216,12 @@
       "title": "Structured Logs (Recent Errors)",
       "type": "logs",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "victoriametrics-logs-datasource", "uid": "victorialogs" },
       "targets": [
         {
-          "expr": "{job=\"chronicle-backend\"} |= \"ERROR\" | json",
+          "datasource": { "type": "victoriametrics-logs-datasource", "uid": "victorialogs" },
+          "expr": "job:chronicle-audit ERROR | limit 200",
+          "queryType": "instant",
           "refId": "A"
         }
       ],
@@ -229,10 +231,12 @@
       "title": "Request Trace Correlation",
       "type": "logs",
       "gridPos": { "h": 6, "w": 24, "x": 0, "y": 28 },
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "victoriametrics-logs-datasource", "uid": "victorialogs" },
       "targets": [
         {
-          "expr": "{job=\"chronicle-backend\"} | json | requestId != \"\" | line_format \"[{{.requestId}}] {{.level}} {{.logger}} - {{.message}}\"",
+          "datasource": { "type": "victoriametrics-logs-datasource", "uid": "victorialogs" },
+          "expr": "job:chronicle-audit requestId:* | limit 200",
+          "queryType": "instant",
           "refId": "A"
         }
       ],

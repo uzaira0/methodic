@@ -10,10 +10,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least privilege: SARIF upload (security-events: write) and PR comments
+# (pull-requests: write) are granted only on the jobs that need them, below.
 permissions:
   contents: read
-  security-events: write
-  pull-requests: write
 
 jobs:
   # ============================================================================
@@ -22,29 +22,48 @@ jobs:
   detekt:
     name: Detekt (Kotlin analysis)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write   # upload-sarif
     steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
           submodules: true
 
-      - name: Setup JDK 17
+      - name: Setup JDK 21
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
       - name: Run Detekt
-        uses: detekt/detekt-action@76e292759c806cd28cadc1e3d2fc6e48c24a9fac # v2
-        with:
-          detekt-version: '1.23.7'
-          args: >-
-            --input chronicle-server/src,chronicle-api/src,rhizome/src
-            --config detekt.yml
-            --report sarif:detekt-results.sarif
-            --report html:detekt-results.html
+        # The detekt/detekt-action repo was deleted from GitHub (404), which both broke
+        # this step and made zizmor's impostor-commit audit fatal. Run the detekt CLI
+        # directly instead — pinned release jar, sha256-verified before execution (same
+        # supply-chain control the deleted action provided, minus the dead dependency).
+        # Identical args + version to the former action; matches the local detekt run.
+        run: |
+          set -euo pipefail
+          DETEKT_VERSION=1.23.7
+          DETEKT_JAR="detekt-cli-${DETEKT_VERSION}-all.jar"
+          DETEKT_SHA256=84beded283012cb2b38bcaef4996452fcd6069d2e9ca74b50eaa79e0ad21897e
+          curl -fsSL --retry 3 -o "$DETEKT_JAR" \
+            "https://github.com/detekt/detekt/releases/download/v${DETEKT_VERSION}/${DETEKT_JAR}"
+          echo "${DETEKT_SHA256}  ${DETEKT_JAR}" | sha256sum -c -
+          java -jar "$DETEKT_JAR" \
+            --input chronicle-server/src,chronicle-api/src,rhizome/src \
+            --config detekt.yml \
+            --report sarif:detekt-results.sarif \
+            --report html:detekt-results.html \
             --build-upon-default-config
-        continue-on-error: true
 
       - name: Upload Detekt SARIF
         uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
@@ -52,7 +71,6 @@ jobs:
         with:
           sarif_file: detekt-results.sarif
           category: detekt
-        continue-on-error: true
 
       - name: Upload Detekt HTML report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -68,21 +86,30 @@ jobs:
   pmd:
     name: PMD (bug patterns)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write     # pmd-github-action createGitHubAnnotations
     steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
           submodules: true
 
       - name: Run PMD
-        uses: pmd/pmd-github-action@d47e16fdf3a6cedee9b3adbb77ee73ca4f0e42e2 # v2
+        uses: pmd/pmd-github-action@d9c1f3c5940cbf5923f1354e83fa858b4496ebaa # v2
         with:
           version: '7.9.0'
           sourcePath: 'chronicle-server/src/main/kotlin,chronicle-api/src/main/kotlin'
           rulesets: 'rulesets/java/quickstart.xml'
           analyzeModifiedFilesOnly: false
           createGitHubAnnotations: true
-        continue-on-error: true
 
   # ============================================================================
   # Bearer — sensitive data flow analysis (HIPAA-critical)
@@ -91,19 +118,28 @@ jobs:
   bearer:
     name: Bearer (data flow SAST)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write   # upload-sarif
     steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
           submodules: true
 
       - name: Run Bearer
-        uses: bearer/bearer-action@5023ef27347e50c2066e3974b1e8b2e2b9594a86 # v2
+        uses: bearer/bearer-action@828eeb928ce2f4a7ca5ed57fb8b59508cb8c79bc # v2
         with:
           scanner: sast
           format: sarif
           output: bearer-results.sarif
-        continue-on-error: true
 
       - name: Upload Bearer SARIF
         uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
@@ -111,7 +147,6 @@ jobs:
         with:
           sarif_file: bearer-results.sarif
           category: bearer
-        continue-on-error: true
 
   # ============================================================================
   # OSV-Scanner — Google's vulnerability database (broader than NVD alone)
@@ -119,21 +154,30 @@ jobs:
   osv-scanner:
     name: OSV-Scanner (Google vuln DB)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write   # upload-sarif
     steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
           submodules: true
 
       - name: Run OSV-Scanner
-        uses: google/osv-scanner-action/osv-scanner-action@19ec0cd1dfd248cff32f8ef260f1be9433409c1c # v2
+        uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
         with:
           scan-args: |-
             --recursive
             --format=sarif
             --output=osv-results.sarif
             .
-        continue-on-error: true
 
       - name: Upload OSV SARIF
         uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
@@ -141,66 +185,34 @@ jobs:
         with:
           sarif_file: osv-results.sarif
           category: osv-scanner
-        continue-on-error: true
 
   # ============================================================================
-  # Trivy filesystem — config misconfigurations + secrets + vuln scan
-  # ============================================================================
-  trivy-fs:
-    name: Trivy filesystem scan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          submodules: true
-
-      - name: Trivy config scan
-        uses: aquasecurity/trivy-action@76071ef0d7ec797419534a183b498b4d6366cf37 # 0.31.0
-        with:
-          scan-type: config
-          scan-ref: .
-          format: sarif
-          output: trivy-config.sarif
-          severity: HIGH,CRITICAL
-        continue-on-error: true
-
-      - name: Trivy secret scan
-        uses: aquasecurity/trivy-action@76071ef0d7ec797419534a183b498b4d6366cf37 # 0.31.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: secret
-          format: sarif
-          output: trivy-secrets.sarif
-        continue-on-error: true
-
-      - name: Upload Trivy config SARIF
-        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
-        if: always()
-        with:
-          sarif_file: trivy-config.sarif
-          category: trivy-config
-        continue-on-error: true
-
-  # ============================================================================
-  # Grype — Anchore's vulnerability scanner (different DB than Trivy)
-  # Running both maximizes CVE detection coverage
+  # Grype — Anchore's vulnerability scanner (uses Anchore DB for broad CVE coverage)
   # ============================================================================
   grype:
     name: Grype (Anchore vuln scan)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write   # upload-sarif
     steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
           submodules: true
 
       - name: Run Grype
-        uses: anchore/scan-action@abae793926ec39a78ab18002bc7fc45e22e7e165 # v6
+        uses: anchore/scan-action@1638637db639e0ade3258b51db49a9a137574c3e # v6
         with:
           path: .
-          fail-build: false
+          fail-build: true
           output-format: sarif
         id: grype-scan
 
@@ -210,7 +222,6 @@ jobs:
         with:
           sarif_file: ${{ steps.grype-scan.outputs.sarif }}
           category: grype
-        continue-on-error: true
 
   # ============================================================================
   # Syft SBOM — generates Software Bill of Materials for supply chain visibility
@@ -218,14 +229,21 @@ jobs:
   sbom:
     name: Syft SBOM generation
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
           submodules: true
 
       - name: Generate SBOM
-        uses: anchore/sbom-action@fc46e51fd3cb168ffb36c6d1915723c47db58571 # v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           path: .
           format: spdx-json
@@ -244,43 +262,56 @@ jobs:
   api-diff:
     name: OpenAPI breaking change detection
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.event_name == 'pull_request'
     steps:
-      - name: Checkout PR
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
+          egress-policy: audit
+
+      - name: Checkout PR
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
           submodules: true
 
       - name: Checkout base branch spec
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           ref: ${{ github.base_ref }}
           path: base
           submodules: true
 
-      - name: Setup JDK 17
+      - name: Setup JDK 21
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@d9c87d481d55275bb5441eef3fe0e46805f9ef70 # v3
+        uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
         with:
           cache-read-only: true
 
       - name: Generate current OpenAPI spec
         run: ./gradlew :chronicle-api:generateOpenApiSpec --no-daemon
-        continue-on-error: true
 
       - name: Generate base OpenAPI spec
         working-directory: base
         run: ./gradlew :chronicle-api:generateOpenApiSpec --no-daemon
-        continue-on-error: true
 
       - name: Install oasdiff
         run: |
-          curl -sSfL https://raw.githubusercontent.com/Tufin/oasdiff/main/install.sh | sh -s -- -b /usr/local/bin
+          # Pinned release + checksum-verified (was: curl install.sh | sh — pipe-to-shell
+          # from a mutable 'main' script with no verification).
+          OASDIFF_VERSION=1.20.0
+          OASDIFF_SHA256=16f9a277edf8605cdb5595f8a7a4fbb474130c803a26099a1ff7e474b01c8580
+          curl -fsSL "https://github.com/oasdiff/oasdiff/releases/download/v${OASDIFF_VERSION}/oasdiff_${OASDIFF_VERSION}_linux_amd64.tar.gz" \
+            -o /tmp/oasdiff.tar.gz
+          echo "${OASDIFF_SHA256}  /tmp/oasdiff.tar.gz" | sha256sum -c -
+          sudo tar -xzf /tmp/oasdiff.tar.gz -C /usr/local/bin oasdiff
 
       - name: Check for breaking changes
         run: |
@@ -288,13 +319,13 @@ jobs:
           HEAD_SPEC=$(find . -not -path "./base/*" \( -name "openapi*.json" -o -name "openapi*.yaml" \) 2>/dev/null | head -1)
           if [ -n "$BASE_SPEC" ] && [ -n "$HEAD_SPEC" ]; then
             echo "Comparing $BASE_SPEC vs $HEAD_SPEC"
-            oasdiff breaking "$BASE_SPEC" "$HEAD_SPEC" --format text || true
+            oasdiff breaking "$BASE_SPEC" "$HEAD_SPEC" --format text
             echo "## API Changelog" >> "$GITHUB_STEP_SUMMARY"
-            oasdiff changelog "$BASE_SPEC" "$HEAD_SPEC" --format text >> "$GITHUB_STEP_SUMMARY" || true
+            oasdiff changelog "$BASE_SPEC" "$HEAD_SPEC" --format text >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning::Could not find OpenAPI specs to compare"
+            echo "::error::Could not find OpenAPI specs to compare"
+            exit 1
           fi
-        continue-on-error: true
 
   # ============================================================================
   # Dependency Review — GitHub-native license + vuln check for new deps in PRs
@@ -302,11 +333,21 @@ jobs:
   dependency-review:
     name: Dependency review (PR only)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write     # comment-summary-in-pr
     steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
           submodules: true
 
       - name: Dependency Review
@@ -321,19 +362,25 @@ jobs:
   scorecard:
     name: OpenSSF Scorecard
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       security-events: write
       id-token: write
       contents: read
     steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
       - name: Run Scorecard
-        uses: ossf/scorecard-action@62b2cac7ed8198b15735ed49ab1e5cf35480ba46 # v2
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2
         with:
           results_file: scorecard-results.sarif
           results_format: sarif
@@ -350,7 +397,8 @@ jobs:
   analysis-summary:
     name: Analysis Summary
     runs-on: ubuntu-latest
-    needs: [detekt, pmd, bearer, osv-scanner, trivy-fs, grype, sbom]
+    timeout-minutes: 5
+    needs: [detekt, pmd, bearer, osv-scanner, grype, sbom]
     if: always()
     steps:
       - name: Generate summary
@@ -359,7 +407,6 @@ jobs:
           PMD: ${{ needs.pmd.result }}
           BEARER: ${{ needs.bearer.result }}
           OSV: ${{ needs.osv-scanner.result }}
-          TRIVY: ${{ needs.trivy-fs.result }}
           GRYPE: ${{ needs.grype.result }}
           SBOM: ${{ needs.sbom.result }}
         run: |
@@ -371,6 +418,5 @@ jobs:
           echo "| PMD | Bug patterns | $PMD |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Bearer | Data flow | $BEARER |" >> "$GITHUB_STEP_SUMMARY"
           echo "| OSV-Scanner | Google vuln DB | $OSV |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Trivy FS | Config + secrets | $TRIVY |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Grype | Anchore vuln DB | $GRYPE |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Syft | SBOM generation | $SBOM |" >> "$GITHUB_STEP_SUMMARY"

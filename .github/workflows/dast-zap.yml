@@ -1,0 +1,84 @@
+name: dast-zap
+
+# OWASP ZAP baseline DAST scan against a stack-up backend. Nightly + dispatch.
+# Complements Schemathesis (which is contract-fuzzing); ZAP catches OWASP-Top-10
+# class issues (XSS, injection, broken auth, mistrusted CORS, etc.).
+
+on:
+  schedule:
+    - cron: '0 4 * * *'   # daily 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target URL (default: locally booted backend)'
+        required: false
+        default: 'http://localhost:40320'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  zap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
+
+      - name: Build chronicle-server
+        run: ./gradlew :chronicle-server:bootJar -x test
+
+      - name: Boot Docker stack (postgres + backend)
+        run: |
+          docker compose --env-file docker/.env.example -f docker/docker-compose.traefik.yml up -d postgres chronicle-backend
+          healthy=false
+          for i in {1..60}; do
+            if curl -sf http://localhost:40320/actuator/health >/dev/null 2>&1; then
+              echo "Backend healthy"
+              healthy=true
+              break
+            fi
+            echo "Waiting for backend... ($i/60)"
+            sleep 5
+          done
+          if [ "$healthy" != "true" ]; then
+            echo "::error::Backend never became healthy after 5 minutes"
+            exit 1
+          fi
+
+      - name: Run ZAP baseline scan
+        uses: zaproxy/action-baseline@2b5fc7f98d837319798ab7f128ea50b7d40563b6 # v0.14.0
+        with:
+          target: ${{ inputs.target || 'http://localhost:40320' }}
+          fail_action: false
+          allow_issue_writing: false
+
+      - name: Upload ZAP report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: zap-baseline-report
+          path: |
+            report_html.html
+            report_md.md
+            report_json.json
+          retention-days: 30
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker/docker-compose.traefik.yml down -v --remove-orphans

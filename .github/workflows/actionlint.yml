@@ -1,0 +1,45 @@
+name: actionlint
+
+# Lints workflow YAML for syntax errors, invalid action versions, and shellcheck-able
+# bugs in `run:` blocks. The pr-hygiene `--no-index` bug from session 2026-05-05
+# would have been caught here at PR time instead of post-merge.
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - '.github/actionlint.yaml'
+  push:
+    branches: [develop, main]
+    paths:
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Install actionlint
+        run: |
+          ACTIONLINT_VERSION=1.7.7
+          curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            | sudo tar xz -C /usr/local/bin actionlint
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Run actionlint with shellcheck integration
+        # SC2129 (style: "use a brace group for redirects") is a pure cosmetic
+        # preference, not a correctness issue — exclude it. Every real shellcheck
+        # warning/error and every actionlint-native check stays enforced.
+        env:
+          SHELLCHECK_OPTS: --exclude=SC2129
+        run: actionlint -color

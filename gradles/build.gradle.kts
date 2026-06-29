@@ -1,1 +1,1 @@
-apply("./methodic.gradle")
+apply("./chronicle.gradle")

@@ -28,33 +28,37 @@ KEYRING_FILE="${KEYRING_DIR}/chronicle-keyring.per"
 PROVIDER_NAME="chronicle-file-vault"
 KEY_NAME="chronicle-principal-key"
 
-# Sensitive tables to encrypt (HIGH + MEDIUM priority)
-SENSITIVE_TABLES=(
-    # HIGH: Contains PII or research data
-    candidates
-    study_participants
-    devices
-    sensor_data
-    android_sensor_data
-    chronicle_usage_events
-    chronicle_usage_stats
-    preprocessed_usage_events
-    questionnaire_submissions
-    time_use_diary_submissions
-    app_usage_survey
-    upload_buffer
-    # MEDIUM: Audit trails
-    audit
-    audit_buffer
-    participant_stats
-)
+# Public application tables to encrypt. Populated dynamically after pg_tde is ready
+# so the inventory cannot drift when schema migrations add tables.
+SENSITIVE_TABLES=()
 
 run_psql() {
-    docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -t -A -c "$1" 2>/dev/null
+    docker exec "$CONTAINER" bash -lc \
+        "PGPASSWORD=\"\$POSTGRES_PASSWORD\" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U \"\${POSTGRES_USER:-$DB_USER}\" -d \"\${POSTGRES_DB:-$DB_NAME}\" -t -A -c \"$1\""
 }
 
 run_psql_verbose() {
-    docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -c "$1" 2>&1
+    docker exec "$CONTAINER" bash -lc \
+        "PGPASSWORD=\"\$POSTGRES_PASSWORD\" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U \"\${POSTGRES_USER:-$DB_USER}\" -d \"\${POSTGRES_DB:-$DB_NAME}\" -c \"$1\"" \
+        2>&1
+}
+
+discover_sensitive_tables() {
+    SENSITIVE_TABLES=()
+    local table_output
+    table_output=$(run_psql "
+        SELECT c.relname
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relkind = 'r'
+        AND n.nspname = 'public'
+        ORDER BY c.relname;
+    ")
+    while IFS= read -r TABLE; do
+        if [ -n "$TABLE" ]; then
+            SENSITIVE_TABLES+=("$TABLE")
+        fi
+    done <<< "$table_output"
 }
 
 echo "=========================================="
@@ -116,19 +120,36 @@ echo ""
 # Step 6: Create and set principal key if not exists
 # pg_tde 2.0.0: try to create key; if it already exists, just ensure it's set
 echo "6. Setting principal key..."
-CREATE_OUTPUT=$(run_psql_verbose "SELECT pg_tde_create_key_using_database_key_provider('${KEY_NAME}', '${PROVIDER_NAME}');" 2>&1) || true
-if echo "$CREATE_OUTPUT" | grep -q "already exists"; then
+# Idempotent by construction: a key can exist in the keyring without
+# pg_tde_key_info() listing it as the active principal, so the old
+# COUNT(*)-based existence check produced a false negative, fell through to
+# create, and `set -e` aborted on "already exists" BEFORE any table was
+# encrypted. Instead: attempt the create, treat "already exists" as success,
+# fail only on a genuine error, then always (re)assert the principal key —
+# pg_tde_set_key is idempotent.
+CREATE_OUT=$(run_psql_verbose "SELECT pg_tde_create_key_using_database_key_provider('${KEY_NAME}', '${PROVIDER_NAME}');" || true)
+if echo "$CREATE_OUT" | grep -qi "already exists"; then
     echo -e "   ${GREEN}Principal key '${KEY_NAME}' already exists${NC}"
+elif echo "$CREATE_OUT" | grep -qi "error"; then
+    echo -e "   ${RED}Failed to create principal key:${NC}"
+    echo "$CREATE_OUT"
+    exit 1
 else
     echo -e "   ${GREEN}Principal key created${NC}"
 fi
-run_psql_verbose "SELECT pg_tde_set_key_using_database_key_provider('${KEY_NAME}', '${PROVIDER_NAME}');" >/dev/null 2>&1 || true
+run_psql_verbose "SELECT pg_tde_set_key_using_database_key_provider('${KEY_NAME}', '${PROVIDER_NAME}');" >/dev/null
 echo -e "   ${GREEN}Principal key set${NC}"
 echo ""
 
-# Step 7: Convert sensitive tables to tde_heap
-echo "7. Converting sensitive tables to tde_heap..."
+# Step 7: Convert public application tables to tde_heap
+echo "7. Discovering and converting public application tables to tde_heap..."
 echo ""
+discover_sensitive_tables
+if [ "${#SENSITIVE_TABLES[@]}" -eq 0 ]; then
+    echo -e "   ${RED}ABORT${NC} No public application tables found; table discovery failed or migrations have not run"
+    exit 1
+fi
+
 CONVERTED=0
 SKIPPED=0
 FAILED=0
@@ -151,7 +172,7 @@ for TABLE in "${SENSITIVE_TABLES[@]}"; do
     fi
 
     # Convert table
-    OUTPUT=$(run_psql_verbose "ALTER TABLE $TABLE SET ACCESS METHOD tde_heap;" 2>&1)
+    OUTPUT=$(run_psql_verbose "ALTER TABLE public.\"$TABLE\" SET ACCESS METHOD tde_heap;" 2>&1)
     if echo "$OUTPUT" | grep -q "ALTER TABLE"; then
         echo -e "   ${GREEN}DONE${NC} $TABLE (heap -> tde_heap)"
         CONVERTED=$((CONVERTED + 1))
@@ -168,7 +189,7 @@ echo ""
 # Step 8: Verification summary
 echo "8. Verification summary:"
 echo ""
-echo "   Sensitive tables encryption status:"
+echo "   Public application table encryption status:"
 run_psql_verbose "
 SELECT c.relname AS table_name,
        am.amname AS access_method,
@@ -177,7 +198,6 @@ FROM pg_class c
 JOIN pg_am am ON c.relam = am.oid
 WHERE c.relkind = 'r'
 AND c.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')
-AND c.relname IN ($(printf "'%s'," "${SENSITIVE_TABLES[@]}" | sed 's/,$//'))
 ORDER BY c.relname;
 "
 

@@ -22,7 +22,7 @@ hazelcast-clients:
 postgres:
   citus: false
   hikari:
-    jdbcUrl: "jdbc:postgresql://postgres:5432/${POSTGRES_DB}?sslmode=${POSTGRES_SSL_MODE}&sslrootcert=/app/ssl/ca.crt"
+    jdbcUrl: "jdbc:postgresql://postgres:5432/${POSTGRES_DB}?sslmode=verify-full&sslrootcert=/app/ssl/ca.crt"
     username: "${POSTGRES_USER}"
     password: "${POSTGRES_PASSWORD}"
     maximumPoolSize: 20
@@ -37,7 +37,7 @@ datasources:
     citus: false
     initialize-tables: true
     hikari:
-      jdbcUrl: "jdbc:postgresql://postgres:5432/${POSTGRES_DB}?sslmode=${POSTGRES_SSL_MODE}&sslrootcert=/app/ssl/ca.crt"
+      jdbcUrl: "jdbc:postgresql://postgres:5432/${POSTGRES_DB}?sslmode=verify-full&sslrootcert=/app/ssl/ca.crt"
       username: "${POSTGRES_USER}"
       password: "${POSTGRES_PASSWORD}"
       maximumPoolSize: 20

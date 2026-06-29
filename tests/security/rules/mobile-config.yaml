@@ -1,0 +1,28 @@
+rules:
+  - id: chronicle-mobile-security-template-no-shell-defaults
+    languages:
+      - generic
+    severity: ERROR
+    message: >
+      envsubst does not expand shell default expressions like ${VAR:-false}.
+      Use compose-provided environment defaults and plain ${VAR} placeholders so
+      mobile signing booleans render to real YAML values.
+    pattern-regex: '\$\{MOBILE_SIGNING_(ENABLED|REQUIRED):-'
+    paths:
+      include:
+        - docker/mobile-security.yaml.template
+        - docker/docker-compose*.yml
+
+  - id: chronicle-compose-must-reject-unresolved-config-vars
+    languages:
+      - generic
+    severity: ERROR
+    message: >
+      The backend entrypoint must fail closed if envsubst leaves unresolved
+      variables in generated runtime config.
+    patterns:
+      - pattern-regex: 'envsubst < /server/config/mobile-security\.yaml\.template > /tmp/chronicle-config/mobile-security\.yaml'
+      - pattern-not-regex: "grep -qF \"\\$\\$\\(printf '%b' '\\\\044\\\\173'\\)\" \"/tmp/chronicle-config/\\$\\$f\""
+    paths:
+      include:
+        - docker/docker-compose*.yml

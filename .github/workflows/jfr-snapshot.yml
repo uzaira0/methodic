@@ -1,0 +1,46 @@
+name: jfr-snapshot
+
+# Captures a Java Flight Recorder profile during the chronicle-server test
+# suite. Weekly + dispatch. The .jfr artifact is opened in JDK Mission Control
+# or VisualVM for analyzing memory allocation, GC, lock contention, etc.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # Monday 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  jfr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Harden runner (egress audit)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
+
+      - name: Run chronicle-server tests with JFR capture
+        run: ./gradlew :chronicle-server:test -PcaptureJfr
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: chronicle-server-jfr-${{ github.run_id }}
+          path: chronicle-server/build/test.jfr
+          retention-days: 90
+          if-no-files-found: warn

@@ -9,12 +9,12 @@
 
 ## Executive Summary
 
-Chronicle's dependency posture is **generally well-maintained** with recent library versions and proactive CVE remediation (forced transitive overrides in `gradles/methodic.gradle`). Key findings:
+Chronicle's dependency posture is **generally well-maintained** with recent library versions and proactive CVE remediation (forced transitive overrides in `gradles/chronicle.gradle`). Key findings:
 
 - **4 HIGH frontend vulnerabilities** (lodash, node-fetch, path-to-regexp, validator)
 - **SnakeYAML pinned to 2.2** but Gradle resolves it to 2.5 via transitive override (acceptable)
 - **commons-collections 3.2.2** present transitively (deserialization gadget chain risk)
-- **Docker images run as root** in both Dockerfiles (trivy DS-0002)
+- **Docker images run as root** in both Dockerfiles (Hadolint DL3002)
 - **Private key committed** in `docker/postgres-ssl/server/server.key`
 - **No critical CVEs** in backend JVM dependencies
 
@@ -31,7 +31,7 @@ Chronicle's dependency posture is **generally well-maintained** with recent libr
 | Spring Framework | 6.2.16 | 6.2.16 | SAFE (current patch) |
 | Spring Security | 6.5.8 | 6.5.8 | SAFE (current patch) |
 | SnakeYAML | 2.2 (declared) | 2.5 (resolved) | SAFE -- CVE-2022-1471 affects <2.0 |
-| Netty | 4.1.128.Final | 4.1.128.Final | SAFE (forced in methodic.gradle) |
+| Netty | 4.1.128.Final | 4.1.128.Final | SAFE (forced in chronicle.gradle) |
 | Guava | 33.4.8-jre | 33.4.8-jre | SAFE (current) |
 | Kotlin | 2.3.10 | 2.3.10 | SAFE (current) |
 | Jetty | 12.0.32 | 12.0.32 | SAFE (current) |
@@ -43,10 +43,10 @@ Chronicle's dependency posture is **generally well-maintained** with recent libr
 
 | Library | Version | Issue | Severity | Recommendation |
 |---------|---------|-------|----------|----------------|
-| commons-collections (v3) | 3.2.2 | Transitive via AWS SDK. Deserialization gadget chain (CVE-2015-6420, CVE-2017-15708). Not directly exploitable unless untrusted deserialization is used, but widens attack surface. | MEDIUM | Exclude or force upgrade to commons-collections 3.2.3+ or ensure no Java serialization of untrusted input. |
-| commons-collections4 | 4.1 (declared) -> 4.4 (resolved) | Declared at 4.1 in methodic.gradle but resolved to 4.4 via POI transitive. The declaration should be updated to match. | LOW | Update `ext.commons_collections4_version` to `4.4` in methodic.gradle. |
+| commons-collections (v3) | 3.2.2 | Historical transitive dependency. Deserialization gadget chain (CVE-2015-6420, CVE-2017-15708). Not directly exploitable unless untrusted deserialization is used, but widens attack surface. | MEDIUM | Exclude or force upgrade to commons-collections 3.2.3+ or ensure no Java serialization of untrusted input. |
+| commons-collections4 | 4.1 (declared) -> 4.4 (resolved) | Declared at 4.1 in chronicle.gradle but resolved to 4.4 via POI transitive. The declaration should be updated to match. | LOW | Update `ext.commons_collections4_version` to `4.4` in chronicle.gradle. |
 | commons-beanutils | forced 1.11.0 | Already force-overridden (good). | OK | No action needed. |
-| Twilio SDK | 9.6.1 (resolved) vs 7.34.1 (declared) | The `ext.twilio_version` in methodic.gradle says `7.34.1` but the resolved tree shows `9.6.1`. Version declaration is stale. | LOW | Update `ext.twilio_version` to `9.6.1` in methodic.gradle. |
+| Twilio SDK | 9.6.1 (resolved) vs 7.34.1 (declared) | The `ext.twilio_version` in chronicle.gradle says `7.34.1` but the resolved tree shows `9.6.1`. Version declaration is stale. | LOW | Update `ext.twilio_version` to `9.6.1` in chronicle.gradle. |
 | Kryo-shaded | 4.0.0 | Old version; Kryo 5.x is current. Kryo 4 has known deserialization risks if exposed to untrusted data. | LOW | Upgrade to Kryo 5.x if feasible; ensure Kryo is never used to deserialize untrusted input. |
 | spring-vault-core | 3.1.2 | Pins Spring to 6.1.12 transitively (resolved up to 6.2.16 via force). Vault integration may have incompatibilities. | LOW | Test with Spring 6.2.x; upgrade spring-vault-core to 3.2.x when available. |
 | jjwt (via Twilio) | 0.11.2 | Outdated; current is 0.12.x. No critical CVEs but missing security improvements. | LOW | Upgrade Twilio SDK or exclude and provide jjwt 0.12.x. |
@@ -58,7 +58,7 @@ The `dependencyCheckAnalyze` task failed -- likely needs an NVD API key configur
 
 ### 1.4 Forced Transitive Overrides (Positive Finding)
 
-The project proactively forces secure versions of transitive dependencies in `gradles/methodic.gradle` (lines 48-61):
+The project proactively forces secure versions of transitive dependencies in `gradles/chronicle.gradle` (lines 48-61):
 - protobuf-java 3.25.5
 - commons-beanutils 1.11.0
 - grpc-netty-shaded 1.71.0
@@ -74,7 +74,7 @@ The JVM argument `-Dlog4j2.formatMsgNoLookups=true` is set in `chronicle-server/
 
 ## 2. Frontend Dependencies (Bun)
 
-### 2.1 Trivy Scan Results (HIGH severity)
+### 2.1 Grype Scan Results (HIGH severity)
 
 | Library | Installed | Fixed | CVE | Description |
 |---------|-----------|-------|-----|-------------|
@@ -100,7 +100,7 @@ The JVM argument `-Dlog4j2.formatMsgNoLookups=true` is set in `chronicle-server/
 
 ## 3. Docker Image Security
 
-### 3.1 Trivy Config Scan
+### 3.1 Checkov / Hadolint Config Scan
 
 | Dockerfile | Finding | Severity | Details |
 |------------|---------|----------|---------|
@@ -117,7 +117,7 @@ The JVM argument `-Dlog4j2.formatMsgNoLookups=true` is set in `chronicle-server/
 
 ### 3.3 Secret in Docker Directory
 
-**CRITICAL**: Trivy detected a private key at `docker/postgres-ssl/server/server.key`. If this is a production key, it must be removed from the repository immediately and rotated. If it is a development-only key, it should be documented as such and excluded from production builds.
+**CRITICAL**: Gitleaks detected a private key at `docker/postgres-ssl/server/server.key`. If this is a production key, it must be removed from the repository immediately and rotated. If it is a development-only key, it should be documented as such and excluded from production builds.
 
 ### 3.4 Base Image Assessment
 
@@ -160,7 +160,7 @@ The project has `com.github.jk1.dependency-license-report` plugin v1.16 configur
 1. **Upgrade lodash to 4.18.0** in chronicle-web -- arbitrary code execution CVE.
 2. **Upgrade node-fetch to >=2.6.7** -- information disclosure CVE.
 3. **Verify docker/postgres-ssl/server/server.key** is not a production key. If it is, rotate immediately.
-4. **Force commons-compress to >=1.26.0** in methodic.gradle resolution strategy to remediate DoS CVEs.
+4. **Force commons-compress to >=1.26.0** in chronicle.gradle resolution strategy to remediate DoS CVEs.
 
 ### 5.2 Short-term Actions (P1)
 
@@ -168,13 +168,13 @@ The project has `com.github.jk1.dependency-license-report` plugin v1.16 configur
 6. **Upgrade path-to-regexp** (complete migration to react-router-dom v7).
 7. **Upgrade validator to >=13.15.22** in chronicle-web.
 8. **Configure NVD API key** for OWASP dependency-check to enable automated CVE scanning in CI.
-9. **Update stale version declarations** in methodic.gradle (commons_collections4_version, twilio_version).
+9. **Update stale version declarations** in chronicle.gradle (commons_collections4_version, twilio_version).
 
 ### 5.3 Medium-term Actions (P2)
 
 10. **Add Gradle dependency-updates plugin** (ben-manes) to track outdated dependencies.
 11. **Pin Dockerfile base image digests** (e.g., `alpine:3.21@sha256:...`) to prevent supply chain attacks via tag mutation.
-12. **Add SBOM generation** to CI pipeline (e.g., `trivy sbom` or Gradle CycloneDX plugin).
+12. **Add SBOM generation** to CI pipeline (e.g., `syft` or Gradle CycloneDX plugin).
 13. **Evaluate Kryo upgrade** from 4.x to 5.x.
 14. **Upgrade spring-vault-core** to align with Spring 6.2.x.
 

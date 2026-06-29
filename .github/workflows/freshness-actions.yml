@@ -1,0 +1,31 @@
+name: freshness-actions
+
+# Compares each pinned `uses: <action>@<sha-or-tag>` in our workflows
+# against the latest release tag of that action's repo. Reports drift
+# in a 'freshness:actions' issue.
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Run actions freshness audit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          chmod +x ./scripts/freshness-actions.sh
+          ./scripts/freshness-actions.sh

@@ -6,50 +6,112 @@ permissions:
 jobs:
   build-chronicle-platform:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - name: Check out repository code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      # Egress containment: this job runs untrusted Gradle build code while holding
+      # packages:write and PUBLISHES chronicle-api/rhizome JARs to GitHub Packages
+      # (consumed downstream by the Android app) — same propagation risk as cd.yml's
+      # build-images. block-mode denies any callout outside the allowlist. If a
+      # legitimate endpoint is blocked on first run, read the StepSecurity report
+      # and add it here.
+      - name: Harden runner (egress firewall)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
+          disable-sudo: true
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            codeload.github.com:443
+            objects.githubusercontent.com:443
+            raw.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            uploads.github.com:443
+            maven.pkg.github.com:443
+            actions-results-receiver-production.githubapp.com:443
+            *.actions.githubusercontent.com:443
+            api.adoptium.net:443
+            services.gradle.org:443
+            plugins.gradle.org:443
+            plugins-artifacts.gradle.org:443
+            repo.maven.apache.org:443
+            repo1.maven.org:443
+            repository.apache.org:443
+            repo.spring.io:443
+            oss.sonatype.org:443
+
+      - name: Check out repository code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
           fetch-depth: 0
           submodules: true
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
-      - name: Validate Gradle wrapper
-        uses: gradle/actions/wrapper-validation@d9c87d481d55275bb5441eef3fe0e46805f9ef70 # v3
+      - name: Validate Gradle wrapper (offline checksum)
+        # gradle/actions/wrapper-validation makes a network call to an endpoint that
+        # isn't in this job's harden-runner block-mode allowlist (observed:
+        # ECONNREFUSED to an AWS us-west-2 host, distinct from the Cloudflare-fronted
+        # services.gradle.org). The wrapper-jar integrity check is fully deterministic
+        # offline, so verify the committed jar against the official Gradle 9.5.0 wrapper
+        # checksum directly — no network, block-safe.
+        # On a Gradle bump: update EXPECTED from
+        #   https://services.gradle.org/distributions/gradle-<version>-wrapper.jar.sha256
+        run: |
+          set -euo pipefail
+          EXPECTED=497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7
+          echo "${EXPECTED}  gradle/wrapper/gradle-wrapper.jar" | sha256sum -c -
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@d9c87d481d55275bb5441eef3fe0e46805f9ef70 # v3
+        uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/main' }}
+      - name: Detect signing availability
+        # Signing + publish to GitHub Packages only happen when the GPG signing key
+        # is configured. When it isn't (e.g. this repo builds/deploys locally on the
+        # box), build unsigned and skip publish instead of hard-failing.
+        id: signing
+        env:
+          GPG_SECRET: ${{ secrets.GPG_SECRET }}
+        run: |
+          if [ -n "${GPG_SECRET:-}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::GPG_SECRET not set — building unsigned, skipping publish."
+          fi
       - name: Prepare environment
-        if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
+        if: (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') && steps.signing.outputs.enabled == 'true'
         run: ./scripts/decrypt_signing_key.sh
         env:
           GPG_SECRET: ${{ secrets.GPG_SECRET }}
           SIGNING_KEY_PASSPHRASE: ${{ secrets.SIGNING_KEY_PASSPHRASE }}
       - name: Build
-        if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
-        uses: gradle/actions/setup-gradle@d9c87d481d55275bb5441eef3fe0e46805f9ef70 # v3
-        with:
-          arguments: build -x :chronicle-server:spotbugsMain -x :chronicle-server:spotbugsTest -x :chronicle-server:test
+        if: (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') && steps.signing.outputs.enabled == 'true'
+        run: ./gradlew build -x :chronicle-server:spotbugsMain -x :chronicle-server:spotbugsTest -x :chronicle-server:spotbugsJmh -x :chronicle-server:test --no-daemon
         env:
           GPG_SECRET: ${{ secrets.GPG_SECRET }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SIGNING_KEY_PASSPHRASE: ${{ secrets.SIGNING_KEY_PASSPHRASE }}
       - name: Publish to Github Packages
-        if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
-        uses: gradle/actions/setup-gradle@d9c87d481d55275bb5441eef3fe0e46805f9ef70 # v3
-        with:
-          arguments: :chronicle-api:publish :rhizome-client:publish :rhizome:publish
+        if: (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') && steps.signing.outputs.enabled == 'true'
+        run: ./gradlew :chronicle-api:publish :rhizome-client:publish :rhizome:publish --no-daemon
         env:
           GPG_SECRET: ${{ secrets.GPG_SECRET }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SIGNING_KEY_PASSPHRASE: ${{ secrets.SIGNING_KEY_PASSPHRASE }}
-      - name: Build (PR validation)
-        if: github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/main'
-        run: ./gradlew build -x :chronicle-server:spotbugsMain -x :chronicle-server:spotbugsTest -x :chronicle-server:test --no-daemon
+      - name: Build (unsigned)
+        # Runs on PRs, and on develop/main when signing isn't configured — so the
+        # backend is always compile-validated even without the GPG key. gradle/actions
+        # v6 removed the `arguments:` input, so invoke ./gradlew directly (the Setup
+        # Gradle step above already configured caching/env). The wrapper's distribution
+        # download resolves via release-assets.githubusercontent.com (now allowlisted).
+        if: ${{ !((github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') && steps.signing.outputs.enabled == 'true') }}
+        run: ./gradlew build -x :chronicle-server:spotbugsMain -x :chronicle-server:spotbugsTest -x :chronicle-server:spotbugsJmh -x :chronicle-server:test --no-daemon
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

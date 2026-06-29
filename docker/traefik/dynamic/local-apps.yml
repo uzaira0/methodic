@@ -1,0 +1,424 @@
+http:
+  middlewares:
+    # Restricts the non-Chronicle intranet apps to genuinely-local sources.
+    # Keys on the real TCP source (RemoteAddr). Verified against access logs: real
+    # public traffic transits the F5, which preserves the client's public source IP
+    # (ClientHost = public IP, no X-Forwarded-For), so public clients are denied here
+    # AND the sibling routers are Host-gated to intranet names (never the public
+    # DOMAIN) — two independent gates keep public traffic off the sibling apps.
+    # NOTE: do NOT add ipStrategy/excludedIPs here — intranet-direct traffic carries
+    # no XFF, so an XFF-based strategy 403s legitimate local access (verified).
+    local-only:
+      ipAllowList:
+        sourceRange:
+          - 127.0.0.1/32
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+
+    wasm-ss-strip:
+      stripPrefix:
+        prefixes: ["/wasm-ss"]
+    accelerometer-tracking-strip:
+      stripPrefix:
+        prefixes: ["/accelerometer-tracking"]
+    ess-strip:
+      stripPrefix:
+        prefixes: ["/ess"]
+    sleepscoring-api-strip:
+      stripPrefix:
+        prefixes: ["/sleep-scoring"]
+    sleepscoring-fe-strip:
+      stripPrefix:
+        prefixes: ["/sleep-scoring"]
+    flash-fe-strip:
+      stripPrefix:
+        prefixes: ["/flash"]
+    flash-api-strip:
+      stripPrefix:
+        prefixes: ["/flash"]
+    flash-ws-strip:
+      stripPrefix:
+        prefixes: ["/flash"]
+    temporal-strip:
+      stripPrefix:
+        prefixes: ["/temporal"]
+    minio-strip:
+      stripPrefix:
+        prefixes: ["/minio"]
+    chronicle-fe-strip:
+      stripPrefix:
+        prefixes: ["/chronicle"]
+    chronicle-preprocessing-strip:
+      stripPrefix:
+        prefixes: ["/chronicle/preprocessing-gui"]
+    chronicle-preprocessing-slash:
+      redirectRegex:
+        regex: "^http://([^/]+)/chronicle/preprocessing-gui$"
+        replacement: "http://${1}/chronicle/preprocessing-gui/"
+    chronicle-keycloak-ratelimit:
+      rateLimit:
+        average: 10
+        burst: 20
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+    chronicle-keycloak-headers:
+      headers:
+        browserXssFilter: true
+        contentTypeNosniff: true
+        frameDeny: true
+        referrerPolicy: strict-origin-when-cross-origin
+    chronicle-keycloak-forwarded-https:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Host: chronicle-screentime-app.research.bcm.edu
+          X-Forwarded-Port: "443"
+          X-Forwarded-Proto: https
+    chronicle-keycloak-block-response:
+      replacePathRegex:
+        regex: ".*"
+        replacement: "/keycloak/blocked-route-not-found"
+    chronicle-body-limit:
+      buffering:
+        maxRequestBodyBytes: 10485760
+    chronicle-mobile-ratelimit:
+      rateLimit:
+        average: 5
+        burst: 10
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+    chronicle-mobile-headers:
+      headers:
+        contentTypeNosniff: true
+        browserXssFilter: true
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+    chronicle-mobile-cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        accessControlAllowHeaders:
+          - X-Chronicle-App-Key
+          - Content-Type
+          - Accept
+          - X-Chronicle-Signature
+          - X-Chronicle-Timestamp
+          - X-Chronicle-Nonce
+        accessControlAllowOriginList:
+          - https://chronicle-screentime-app.research.bcm.edu
+          - http://10.23.4.137
+          - http://cnrc-deni-p001
+          - http://cnrc-deni-p001.cnrc.bcm.edu
+        accessControlMaxAge: 86400
+    chronicle-web-strip:
+      replacePathRegex:
+        regex: "^/chronicle/api/web/?(.*)"
+        replacement: "/chronicle/v3/${1}"
+    chronicle-web-internal-header:
+      headers:
+        customRequestHeaders:
+          X-Chronicle-Internal-Web: "true"
+    chronicle-web-ratelimit:
+      rateLimit:
+        average: 20
+        burst: 30
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+    chronicle-web-headers:
+      headers:
+        frameDeny: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        referrerPolicy: strict-origin-when-cross-origin
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        contentSecurityPolicy: "default-src 'none'; frame-ancestors 'none'"
+    chronicle-web-cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - PATCH
+          - OPTIONS
+        accessControlAllowHeaders:
+          - Authorization
+          - Content-Type
+          - X-Requested-With
+          - Accept
+          - Origin
+        accessControlAllowOriginList:
+          - https://chronicle-screentime-app.research.bcm.edu
+          - http://10.23.4.137
+          - http://cnrc-deni-p001
+          - http://cnrc-deni-p001.cnrc.bcm.edu
+        accessControlAllowCredentials: true
+        accessControlMaxAge: 86400
+    chronicle-block-response:
+      replacePathRegex:
+        regex: ".*"
+        replacement: "/blocked-route-not-found"
+
+  routers:
+    chronicle-keycloak-semicolon-block-f5-fallback:
+      rule: "PathPrefix(`/keycloak`) && PathRegexp(`.*;.*`)"
+      entryPoints: [web]
+      middlewares: [chronicle-keycloak-block-response]
+      service: chronicle-keycloak-svc
+      priority: 100
+
+    chronicle-keycloak-admin-block-f5-fallback:
+      rule: "Path(`/keycloak`) || Path(`/keycloak/`) || PathPrefix(`/keycloak/admin`) || PathPrefix(`/keycloak/health`) || PathPrefix(`/keycloak/metrics`)"
+      entryPoints: [web]
+      middlewares: [chronicle-keycloak-ratelimit, chronicle-keycloak-headers, chronicle-keycloak-block-response]
+      service: chronicle-keycloak-svc
+      priority: 99
+
+    chronicle-keycloak-f5-fallback:
+      rule: "PathPrefix(`/keycloak`)"
+      entryPoints: [web]
+      middlewares: [chronicle-keycloak-ratelimit, chronicle-keycloak-headers, chronicle-keycloak-forwarded-https]
+      service: chronicle-keycloak-svc
+      priority: 30
+
+    chronicle-mobile-secure-f5-fallback:
+      rule: "PathPrefix(`/chronicle/v4/`) || PathPrefix(`/chronicle/v3/`) || PathPrefix(`/chronicle/v2/`) || PathPrefix(`/chronicle/study/`) || PathPrefix(`/chronicle/limits/`)"
+      entryPoints: [web]
+      middlewares: [chronicle-mobile-ratelimit, chronicle-mobile-headers, chronicle-mobile-cors, chronicle-body-limit]
+      service: chronicle-backend-svc
+      priority: 19
+      tls: {}
+
+    chronicle-web-secure-f5-fallback:
+      rule: "PathPrefix(`/chronicle/api/web/`)"
+      entryPoints: [web]
+      middlewares: [chronicle-web-strip, chronicle-web-ratelimit, chronicle-web-headers, chronicle-web-cors, chronicle-body-limit]
+      service: chronicle-backend-svc
+      priority: 20
+      tls: {}
+
+    chronicle-block-secure-f5-fallback:
+      rule: "PathPrefix(`/chronicle/datastore/`) || PathPrefix(`/chronicle/principal/`) || PathPrefix(`/chronicle/compliance/`) || PathPrefix(`/chronicle/import/`) || PathPrefix(`/prometheus/`)"
+      entryPoints: [web]
+      middlewares: [chronicle-web-headers, chronicle-block-response]
+      service: chronicle-backend-svc
+      priority: 15
+      tls: {}
+
+    chronicle-keycloak-semicolon-block-secure-f5-fallback:
+      rule: "PathPrefix(`/keycloak`) && PathRegexp(`.*;.*`)"
+      entryPoints: [web]
+      middlewares: [chronicle-keycloak-block-response]
+      service: chronicle-keycloak-svc
+      priority: 100
+      tls: {}
+
+    chronicle-keycloak-admin-block-secure-f5-fallback:
+      rule: "Path(`/keycloak`) || Path(`/keycloak/`) || PathPrefix(`/keycloak/admin`) || PathPrefix(`/keycloak/health`) || PathPrefix(`/keycloak/metrics`)"
+      entryPoints: [web]
+      middlewares: [chronicle-keycloak-ratelimit, chronicle-keycloak-headers, chronicle-keycloak-block-response]
+      service: chronicle-keycloak-svc
+      priority: 99
+      tls: {}
+
+    chronicle-keycloak-secure-f5-fallback:
+      rule: "PathPrefix(`/keycloak`)"
+      entryPoints: [web]
+      middlewares: [chronicle-keycloak-ratelimit, chronicle-keycloak-headers, chronicle-keycloak-forwarded-https]
+      service: chronicle-keycloak-svc
+      priority: 30
+      tls: {}
+
+    accelerometer-tracking-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/accelerometer-tracking`)"
+      entryPoints: [web]
+      middlewares: [local-only, accelerometer-tracking-strip]
+      service: accelerometer-tracking-svc
+      priority: 110
+
+    ess-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/ess`)"
+      entryPoints: [web]
+      middlewares: [local-only, ess-strip]
+      service: ess-svc
+      priority: 110
+
+    actobridge-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && (PathPrefix(`/actobridge`) || Path(`/health`))"
+      entryPoints: [web]
+      middlewares: [local-only]
+      service: actobridge-svc
+      priority: 110
+
+    wasm-ss-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/wasm-ss`)"
+      entryPoints: [web]
+      middlewares: [local-only, wasm-ss-strip]
+      service: wasm-ss-svc
+      priority: 100
+
+    sleepscoring-api-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/sleep-scoring/api`)"
+      entryPoints: [web]
+      middlewares: [local-only, sleepscoring-api-strip]
+      service: sleepscoring-api-svc
+      priority: 100
+
+    sleepscoring-fe-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/sleep-scoring`)"
+      entryPoints: [web]
+      middlewares: [local-only, sleepscoring-fe-strip]
+      service: sleepscoring-fe-svc
+      priority: 99
+
+    flash-ws-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/flash/ws`)"
+      entryPoints: [web]
+      middlewares: [local-only, flash-ws-strip]
+      service: flash-ws-svc
+      priority: 102
+
+    flash-api-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/flash/api`)"
+      entryPoints: [web]
+      middlewares: [local-only, flash-api-strip]
+      service: flash-api-svc
+      priority: 101
+
+    flash-fe-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/flash`)"
+      entryPoints: [web]
+      middlewares: [local-only, flash-fe-strip]
+      service: flash-fe-svc
+      priority: 99
+
+    temporal-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/temporal`)"
+      entryPoints: [web]
+      middlewares: [local-only, temporal-strip]
+      service: temporal-svc
+      priority: 100
+
+    minio-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/minio`)"
+      entryPoints: [web]
+      middlewares: [local-only, minio-strip]
+      service: minio-svc
+      priority: 100
+
+    grafana-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/grafana`)"
+      entryPoints: [web]
+      middlewares: [local-only]
+      service: grafana-svc
+      priority: 100
+
+    chronicle-frontend-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/chronicle`)"
+      entryPoints: [web]
+      middlewares: [local-only, chronicle-fe-strip]
+      service: chronicle-fe-svc
+      priority: 1
+
+    chronicle-preprocessing-gui-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/chronicle/preprocessing-gui`)"
+      entryPoints: [web]
+      middlewares: [local-only, chronicle-preprocessing-strip]
+      service: chronicle-preprocessing-gui-svc
+      priority: 30
+
+    chronicle-preprocessing-gui-slash-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && Path(`/chronicle/preprocessing-gui`)"
+      entryPoints: [web]
+      middlewares: [local-only, chronicle-preprocessing-slash]
+      service: chronicle-preprocessing-gui-svc
+      priority: 31
+
+    chronicle-web-api-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && PathPrefix(`/chronicle/api/web`)"
+      entryPoints: [web]
+      middlewares: [local-only, chronicle-web-strip, chronicle-web-internal-header, chronicle-web-ratelimit, chronicle-web-headers, chronicle-web-cors, chronicle-body-limit]
+      service: chronicle-backend-svc
+      priority: 10
+
+    chronicle-mobile-local:
+      rule: "(Host(`10.23.4.137`) || Host(`cnrc-deni-p001`) || Host(`cnrc-deni-p001.cnrc.bcm.edu`)) && (PathPrefix(`/chronicle/v4/`) || PathPrefix(`/chronicle/v3/`) || PathPrefix(`/chronicle/v2/`) || PathPrefix(`/chronicle/study/`) || PathPrefix(`/chronicle/limits/`))"
+      entryPoints: [web]
+      middlewares: [local-only, crowdsec-waf@file, chronicle-mobile-ratelimit, chronicle-mobile-headers, chronicle-mobile-cors, chronicle-body-limit]
+      service: chronicle-backend-svc
+      priority: 20
+
+
+  services:
+    accelerometer-tracking-svc:
+      loadBalancer:
+        servers:
+          - url: "http://accelogtracker-dashboard:8088"
+    actobridge-svc:
+      loadBalancer:
+        servers:
+          - url: "http://actobridge-upload-server:9321"
+    ess-svc:
+      loadBalancer:
+        servers:
+          - url: "http://ess-scoring-upload-server:8000"
+    chronicle-fe-svc:
+      loadBalancer:
+        servers:
+          - url: "http://chronicle-frontend:8080"
+    chronicle-preprocessing-gui-svc:
+      loadBalancer:
+        servers:
+          - url: "http://chronicle-preprocessing-frontend:8080"
+    chronicle-backend-svc:
+      loadBalancer:
+        servers:
+          - url: "http://chronicle-backend:40320"
+    chronicle-keycloak-svc:
+      loadBalancer:
+        servers:
+          - url: "http://chronicle-keycloak:8080"
+    grafana-svc:
+      loadBalancer:
+        servers:
+          - url: "http://chronicle-grafana:3000"
+    wasm-ss-svc:
+      loadBalancer:
+        servers:
+          - url: "http://sleep-scoring-frontend-wasm:8080"
+    sleepscoring-api-svc:
+      loadBalancer:
+        servers:
+          - url: "http://sleep-scoring-backend:8000"
+    sleepscoring-fe-svc:
+      loadBalancer:
+        servers:
+          - url: "http://sleep-scoring-frontend:8080"
+    flash-fe-svc:
+      loadBalancer:
+        servers:
+          - url: "http://flash-processing-frontend:80"
+    flash-api-svc:
+      loadBalancer:
+        servers:
+          - url: "http://flash-processing-backend:8001"
+    flash-ws-svc:
+      loadBalancer:
+        servers:
+          - url: "http://flash-processing-backend:8001"
+    temporal-svc:
+      loadBalancer:
+        servers:
+          - url: "http://sleep-scoring-temporal-ui:8080"
+    minio-svc:
+      loadBalancer:
+        servers:
+          - url: "http://sleep-scoring-minio:9001"

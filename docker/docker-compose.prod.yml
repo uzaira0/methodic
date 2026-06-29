@@ -32,6 +32,9 @@ services:
       - postgres_data:/var/lib/postgresql/data
       # TDE keyring storage (for file-based provider - development only)
       - postgres_tde_keyring:/var/lib/postgresql/tde-keyring
+      # RLS roles (chronicle_app / chronicle_admin) — MUST run first: the backend's
+      # request-path RLS wrapper does SET ROLE chronicle_app on every authenticated request.
+      - ./init-db-roles.sql:/docker-entrypoint-initdb.d/10-init-db-roles.sql:ro
       # Initialization script for TDE setup
       - ./init-db-encryption.sh:/docker-entrypoint-initdb.d/20-init-db-encryption.sh:ro
       # SSL/TLS certificates for encryption in transit
@@ -75,11 +78,27 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       # PostgreSQL SSL/TLS Configuration for HIPAA-compliant encryption in transit
       # Options: disable, allow, prefer, require, verify-ca, verify-full
-      # Production recommendation: verify-full (validates server certificate and hostname)
-      POSTGRES_SSL_MODE: ${POSTGRES_SSL_MODE:-require}
+      # Default verify-full (validates server certificate AND hostname). The backend JDBC URL
+      # (rhizome-docker.yaml.template) also hardcodes sslmode=verify-full; this requires the
+      # postgres server cert SAN to cover the 'postgres' hostname and be signed by the mounted
+      # CA (/app/ssl/ca.crt). See docs/security/compliance-evidence/W4-encryption-transport.md.
+      POSTGRES_SSL_MODE: ${POSTGRES_SSL_MODE:-verify-full}
       # Path to CA certificate for server certificate verification
       POSTGRES_SSL_ROOT_CERT: /app/ssl/ca.crt
       JWT_SECRET: ${JWT_SECRET}
+      # JWT algorithm and key configuration (RS256 opt-in, HS256 default)
+      CHRONICLE_SECURITY_JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      CHRONICLE_SECURITY_JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH:-}
+      CHRONICLE_SECURITY_JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH:-}
+      CHRONICLE_SECURITY_JWT_KEY_ID: ${JWT_KEY_ID:-}
+      # MFA enforcement via RFC 8176 amr claim. DEFAULT: disabled (false).
+      # Set true ONLY after the IdP enforces MFA and emits an amr claim containing
+      # mfa/otp/hwk — enabling it sooner 401s every OIDC login (lockout).
+      # See docs/security/compliance-evidence/W3-mfa-enforcement.md (HIPAA §164.312(d)).
+      CHRONICLE_SECURITY_REQUIRE_MFA: ${CHRONICLE_SECURITY_REQUIRE_MFA:-false}
+      # Token expiry configuration
+      CHRONICLE_SECURITY_JWT_ACCESS_TOKEN_EXPIRY_MINUTES: ${ACCESS_TOKEN_EXPIRY_MINUTES:-15}
+      CHRONICLE_SECURITY_JWT_REFRESH_TOKEN_EXPIRY_DAYS: ${REFRESH_TOKEN_EXPIRY_DAYS:-7}
       CORS_ORIGINS: ${CORS_ORIGINS:-"https://${DOMAIN}"}
       # Audit log directory for HIPAA compliance
       # Logs are written in JSON format for SIEM integration

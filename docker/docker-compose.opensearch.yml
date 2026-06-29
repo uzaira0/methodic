@@ -65,6 +65,7 @@ services:
       - ./siem/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
       - ./siem/parsers.conf:/fluent-bit/etc/parsers.conf:ro
       - audit_logs:/var/log/chronicle:ro
+      - ./postgres-ssl/ca/ca.crt:/app/ssl/ca.crt:ro,z
     networks:
       - chronicle-internal
     depends_on:

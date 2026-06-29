@@ -1,5 +1,5 @@
 # Backend build stage
-FROM eclipse-temurin:17-jdk@sha256:333df2aaa4d57b3c507029dbf12564f4fa1adcd16f4d9facd1f660782843500f AS builder
+FROM eclipse-temurin:25-jdk@sha256:bee2e23ab444ed60daf8123e36478bc4a286ba7835bec6f9daf9eba1d50a86a2 AS builder
 
 WORKDIR /app
 
@@ -33,7 +33,7 @@ RUN git config --global user.email "build@docker" && git config --global user.na
     git init && git add -A && git commit -m "docker build" --allow-empty && git tag v0.0.0
 
 # Pre-fetch dependencies (this layer is cached when only source code changes)
-ENV GRADLE_OPTS="-Xmx1g -Xms256m -Dorg.gradle.jvmargs='-Xmx1g -Xms256m'"
+ENV GRADLE_OPTS="-Xmx1g -Xms256m -Dorg.gradle.jvmargs='-Xmx1g -Xms256m' -Dorg.gradle.vfs.watch=false"
 RUN --mount=type=cache,target=/root/.gradle/caches \
     --mount=type=cache,target=/root/.gradle/wrapper \
     ./gradlew dependencies --no-daemon -PdevelopmentMode=true || true
@@ -59,7 +59,7 @@ RUN find /app/chronicle-server/build/install/chronicle-server/lib -name '*-test*
 
 # --- JLink stage: build a minimal custom JRE with only required modules ---
 # This cuts ~81MB compared to the full Alpine JRE (135MB -> 54MB)
-FROM eclipse-temurin:17-jdk-alpine@sha256:9a78c6372b1e52020dbebdbff7ff2c73ce0cc8600e21cf94b08691a3421a33ef AS jlinker
+FROM eclipse-temurin:25-jdk-alpine@sha256:da683f4f02f9427597d8fa162b73b8222fe08596dcebaf23e4399576ff8b037e AS jlinker
 
 # Create custom JRE with modules needed by Spring/Jetty/Hazelcast/JDBC stack
 # java.base: core classes; java.desktop: AWT (Hazelcast partition); java.logging: JUL
@@ -101,10 +101,12 @@ ENV CHRONICLE_SERVER_ARGS="local postgres medialocal"
 
 EXPOSE 40320
 
-# HEALTHCHECK is defined in docker-compose.traefik.yml (compose always overrides Dockerfile HEALTHCHECK)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=5 \
+    CMD wget --quiet --tries=1 -O /dev/null http://127.0.0.1:40320/prometheus/ || exit 1
 
 LABEL org.opencontainers.image.source="https://github.com/uzaira0/chronicle"
-LABEL org.opencontainers.image.vendor="Methodic Labs"
+LABEL org.opencontainers.image.vendor="Chronicle BCM"
 
-# User switching happens in docker-compose command (su-exec after envsubst renders config as root)
-CMD ["su-exec", "chronicle", "./bin/chronicle-server", "local", "postgres", "medialocal"]
+USER chronicle
+
+CMD ["./bin/chronicle-server", "local", "postgres", "medialocal"]

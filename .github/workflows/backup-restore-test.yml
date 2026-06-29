@@ -1,0 +1,108 @@
+name: backup-restore-test
+
+on:
+  schedule:
+    - cron: '0 10 * * 0'  # Weekly Sunday 10:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  restore-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: percona/percona-distribution-postgresql:17.5-3
+        env:
+          POSTGRES_USER: chronicle
+          POSTGRES_PASSWORD: test-restore-password
+          POSTGRES_DB: chronicle
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chronicle"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install PostgreSQL 17 client
+        run: |
+          # Runner ships pg-client-16; service is Percona PG 17 — version must match
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update && sudo apt-get install -y postgresql-client-17
+
+      - name: Create test backup
+        run: |
+          # Create a test database with sample data
+          PGPASSWORD=test-restore-password psql -h localhost -U chronicle -d chronicle -c "
+            CREATE TABLE IF NOT EXISTS test_data (id serial PRIMARY KEY, value text);
+            INSERT INTO test_data (value) VALUES ('backup-restore-canary');
+          "
+
+          # Generate encryption key and persist for subsequent steps
+          BACKUP_ENCRYPTION_KEY=$(openssl rand -hex 32)
+          echo "BACKUP_ENCRYPTION_KEY=$BACKUP_ENCRYPTION_KEY" >> "$GITHUB_ENV"
+
+          export BACKUP_DIR=/tmp/chronicle-backup-test
+          mkdir -p "$BACKUP_DIR"
+
+          # Create encrypted backup (mirrors docker/backup-chronicle.sh format:
+          # pg_dump -Fc -Z6 then openssl aes-256-cbc pbkdf2 iter 600000)
+          PGPASSWORD=test-restore-password pg_dump -h localhost -U chronicle -d chronicle -Fc -Z6 \
+            -f /tmp/backup-raw.dump
+
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 600000 \
+            -pass "pass:$BACKUP_ENCRYPTION_KEY" \
+            -in /tmp/backup-raw.dump \
+            -out "$BACKUP_DIR/chronicle-backup.dump.enc"
+
+      - name: Decrypt and restore
+        run: |
+          BACKUP_DIR=/tmp/chronicle-backup-test
+
+          # Decrypt
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 \
+            -pass "pass:$BACKUP_ENCRYPTION_KEY" \
+            -in "$BACKUP_DIR/chronicle-backup.dump.enc" \
+            -out /tmp/backup-restored.dump
+
+          # Drop canary table so restore must re-create it
+          PGPASSWORD=test-restore-password psql -h localhost -U chronicle -d chronicle \
+            -c "DROP TABLE IF EXISTS test_data;"
+
+          # Restore
+          PGPASSWORD=test-restore-password pg_restore -h localhost -U chronicle -d chronicle \
+            --clean --if-exists /tmp/backup-restored.dump
+
+          # Verify canary data survived round-trip
+          result=$(PGPASSWORD=test-restore-password psql -h localhost -U chronicle -d chronicle \
+            -t -c "SELECT value FROM test_data WHERE value = 'backup-restore-canary';")
+          if echo "$result" | grep -q "backup-restore-canary"; then
+            echo "RESTORE VERIFIED: canary data found"
+          else
+            echo "RESTORE FAILED: canary data missing"
+            exit 1
+          fi
+
+      - name: Open issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            -t "backup-restore-test: restore verification failed $(date -u +%F)" \
+            -b "Weekly backup restore test failed. Backups may not be restorable. See workflow run for details." \
+            -l "security,p0"
