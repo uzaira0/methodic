@@ -94,12 +94,19 @@ See [`docker/DEPLOYMENT-MATRIX.md`](docker/DEPLOYMENT-MATRIX.md) for which compo
 fits your situation, and [`docker/DEPLOYMENT.md`](docker/DEPLOYMENT.md) for the full
 instructions.
 
-## CI/CD Workflows
+## Continuous integration
 
-| Workflow | File | Purpose |
-|----------|------|---------|
-| Build | `.github/workflows/build.yaml` | Gradle build + publish on push to develop/main |
-| Security Scan | `.github/workflows/security-scan.yml` | OWASP dependency check, npm audit, Grype container scan |
+All checks run locally; there are no hosted workflows. `lefthook` runs the fast gates on
+commit and push, and `scripts/local-ci.sh` runs the full matrix on demand:
+
+```bash
+scripts/local-ci.sh fast        # preflight, web, JVM smoke, repo guardrails, schema drift
+scripts/local-ci.sh security    # dependency, SAST, secrets and container scans
+scripts/local-ci.sh --help      # every job and group
+```
+
+Public history is curated from the private repositories with `make publish-stage` and
+`make publish-push`; see [docs/GIT-WORKFLOW.md](docs/GIT-WORKFLOW.md) for the model.
 
 ## License
 
