@@ -67,3 +67,6 @@ echo "    - bun run check (full lint + typecheck for chronicle-web)"
 echo ""
 echo "To skip hooks in an emergency: git commit --no-verify"
 echo "To run manually:               lefthook run pre-commit"
+
+# ── Submodules carry their own lefthook.yml (staged-secrets scan) ─────────────
+git submodule foreach --quiet 'if [ -f lefthook.yml ]; then lefthook install >/dev/null && echo "hooks installed: $name"; fi'
