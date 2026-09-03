@@ -1,0 +1,14 @@
+# Historical/false-positive findings accepted 2026-07-11 (see local-ci gitleaks job).
+# All verified: deleted legacy files, test fixtures, age PUBLIC key, env-var template text.
+39d944c6d17e2ddc1443c92a5bdefc75960d2cfe:fixtures/payloads/encrypted-payloads/invalid-blank-key-id.json:generic-api-key:6
+39d944c6d17e2ddc1443c92a5bdefc75960d2cfe:fixtures/payloads/encrypted-payloads/invalid-unknown-payload-type.json:generic-api-key:6
+39d944c6d17e2ddc1443c92a5bdefc75960d2cfe:fixtures/payloads/encrypted-payloads/valid.json:generic-api-key:6
+# Accepted 2026-07-15: PEM header literal in the "private key material is rejected"
+# negative test (truncated MII... placeholder, not a real key).
+a9edb0ad97febaa413c11c102309e3de03640a5e:src/test/kotlin/com/openlattice/chronicle/study/StudyEncryptionSettingTest.kt:private-key:74
+f0231ab9c31ad7d7f51bde0f922c198f762da323:src/test/kotlin/com/openlattice/chronicle/study/StudyEncryptionSettingTest.kt:private-key:74
+# Accepted 2026-08-26: the same deterministic encrypted-payload fixture bytes were
+# regenerated at a new commit; they are schema examples, not encryption keys.
+62230180504713825cd7ee344783a13213e6ad72:fixtures/payloads/encrypted-payloads/invalid-blank-key-id.json:generic-api-key:6
+62230180504713825cd7ee344783a13213e6ad72:fixtures/payloads/encrypted-payloads/invalid-unknown-payload-type.json:generic-api-key:6
+62230180504713825cd7ee344783a13213e6ad72:fixtures/payloads/encrypted-payloads/valid.json:generic-api-key:6

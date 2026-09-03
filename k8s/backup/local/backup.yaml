@@ -1,0 +1,358 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: chronicle-local-backups
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: chronicle-local-backup
+    app.kubernetes.io/part-of: chronicle
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: chronicle-local-backup
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: chronicle-local-backup
+    app.kubernetes.io/part-of: chronicle
+spec:
+  schedule: "17 7 * * *"
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: chronicle-local-backup
+            app.kubernetes.io/part-of: chronicle
+        spec:
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          restartPolicy: Never
+          serviceAccountName: chronicle-local-backup
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 26
+            runAsGroup: 26
+            fsGroup: 26
+            fsGroupChangePolicy: OnRootMismatch
+            supplementalGroups:
+              - 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: backup
+              image: percona/percona-distribution-postgresql:18.4-5@sha256:40b133dec71f85dbc391bdf686bbc6b745517c2a9ffe49158ff77809f9bf28e4
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/bash
+                - /scripts/backup.sh
+              env:
+                - name: POSTGRES_HOST
+                  value: postgres.chronicle.svc.cluster.local
+                - name: POSTGRES_PORT
+                  value: "5432"
+                - name: POSTGRES_DB
+                  value: chronicle
+                - name: POSTGRES_USER
+                  value: chronicle
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: chronicle-app-secrets
+                      key: POSTGRES_PASSWORD
+                - name: BACKUP_ENCRYPTION_PASSPHRASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: chronicle-backup-secrets
+                      key: BACKUP_ENCRYPTION_PASSPHRASE
+                - name: BACKUP_PROFILE
+                  valueFrom:
+                    configMapKeyRef:
+                      name: chronicle-local-backup-evidence
+                      key: profile
+                - name: BACKUP_REQUIRED_ARTIFACTS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: chronicle-local-backup-evidence
+                      key: required_artifacts
+                - name: BACKUP_RPO_TIER
+                  valueFrom:
+                    configMapKeyRef:
+                      name: chronicle-local-backup-evidence
+                      key: rpo_tier
+                - name: BACKUP_MAX_DATA_LOSS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: chronicle-local-backup-evidence
+                      key: max_data_loss
+                - name: BACKUP_MAX_AGE_HOURS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: chronicle-local-backup-evidence
+                      key: max_backup_age_hours
+                - name: BACKUP_STORAGE_SCOPE
+                  valueFrom:
+                    configMapKeyRef:
+                      name: chronicle-local-backup-evidence
+                      key: storage_scope
+                - name: BACKUP_PRODUCTION_CUTOVER_REQUIREMENT
+                  valueFrom:
+                    configMapKeyRef:
+                      name: chronicle-local-backup-evidence
+                      key: production_cutover_requirement
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 192Mi
+                limits:
+                  cpu: 250m
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: evidence
+                  mountPath: /deployment-evidence
+                  readOnly: true
+                - name: backups
+                  mountPath: /backups
+                - name: tde-keyring
+                  mountPath: /source/tde-keyring
+                  readOnly: true
+                - name: audit-logs
+                  mountPath: /source/audit-logs
+                  readOnly: true
+                - name: work
+                  mountPath: /work
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: scripts
+              configMap:
+                name: chronicle-local-backup-scripts
+                defaultMode: 0550
+            - name: evidence
+              configMap:
+                name: chronicle-local-backup-evidence
+                defaultMode: 0440
+            - name: backups
+              persistentVolumeClaim:
+                claimName: chronicle-local-backups
+            - name: tde-keyring
+              persistentVolumeClaim:
+                claimName: postgres-tde-keyring-postgres-0
+                readOnly: true
+            - name: audit-logs
+              persistentVolumeClaim:
+                claimName: chronicle-audit-logs
+                readOnly: true
+            - name: work
+              emptyDir:
+                sizeLimit: 2Gi
+            - name: tmp
+              emptyDir:
+                sizeLimit: 64Mi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: chronicle-local-backup-verify
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: chronicle-local-backup-verify
+    app.kubernetes.io/part-of: chronicle
+spec:
+  schedule: "47 8 * * *"
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: chronicle-local-backup-verify
+            app.kubernetes.io/part-of: chronicle
+        spec:
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          restartPolicy: Never
+          serviceAccountName: chronicle-local-backup
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 26
+            runAsGroup: 26
+            fsGroup: 26
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: verify
+              image: percona/percona-distribution-postgresql:18.4-5@sha256:40b133dec71f85dbc391bdf686bbc6b745517c2a9ffe49158ff77809f9bf28e4
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/bash
+                - /scripts/verify-latest.sh
+              env:
+                - name: BACKUP_ENCRYPTION_PASSPHRASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: chronicle-backup-secrets
+                      key: BACKUP_ENCRYPTION_PASSPHRASE
+                - name: BACKUP_MAX_AGE_HOURS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: chronicle-local-backup-evidence
+                      key: max_backup_age_hours
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 128Mi
+                limits:
+                  cpu: 250m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: backups
+                  mountPath: /backups
+                  readOnly: true
+                - name: work
+                  mountPath: /work
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: scripts
+              configMap:
+                name: chronicle-local-backup-scripts
+                defaultMode: 0550
+            - name: backups
+              persistentVolumeClaim:
+                claimName: chronicle-local-backups
+                readOnly: true
+            - name: work
+              emptyDir:
+                sizeLimit: 2Gi
+            - name: tmp
+              emptyDir:
+                sizeLimit: 64Mi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: chronicle-local-restore-drill
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: chronicle-local-restore-drill
+    app.kubernetes.io/part-of: chronicle
+spec:
+  schedule: "19 9 * * 0"
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: chronicle-local-restore-drill
+            app.kubernetes.io/part-of: chronicle
+        spec:
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          restartPolicy: Never
+          serviceAccountName: chronicle-local-backup
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 26
+            runAsGroup: 26
+            fsGroup: 26
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: restore-drill
+              image: percona/percona-distribution-postgresql:18.4-5@sha256:40b133dec71f85dbc391bdf686bbc6b745517c2a9ffe49158ff77809f9bf28e4
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/bash
+                - /scripts/restore-drill.sh
+              env:
+                - name: BACKUP_ENCRYPTION_PASSPHRASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: chronicle-backup-secrets
+                      key: BACKUP_ENCRYPTION_PASSPHRASE
+                - name: BACKUP_MAX_AGE_HOURS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: chronicle-local-backup-evidence
+                      key: max_backup_age_hours
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 256Mi
+                limits:
+                  cpu: 250m
+                  memory: 768Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: backups
+                  mountPath: /backups
+                  readOnly: true
+                - name: work
+                  mountPath: /work
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: scripts
+              configMap:
+                name: chronicle-local-backup-scripts
+                defaultMode: 0550
+            - name: backups
+              persistentVolumeClaim:
+                claimName: chronicle-local-backups
+                readOnly: true
+            - name: work
+              emptyDir:
+                sizeLimit: 3Gi
+            - name: tmp
+              emptyDir:
+                sizeLimit: 64Mi

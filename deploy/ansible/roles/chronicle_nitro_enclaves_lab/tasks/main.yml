@@ -1,0 +1,271 @@
+---
+- name: Require enclave-capable x86_64 host
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.architecture == "x86_64"
+      - ansible_facts.processor_vcpus | int >= chronicle_nitro_lab_cpu_count | int + 2
+      - ansible_facts.memtotal_mb | int >= chronicle_nitro_lab_memory_mib | int + 4096
+    fail_msg: >-
+      Nitro lab requires x86_64 plus enough spare CPU/RAM for the enclave and
+      parent Kubernetes host. Current architecture={{ ansible_facts.architecture }},
+      vCPUs={{ ansible_facts.processor_vcpus }}, memory={{ ansible_facts.memtotal_mb }} MiB.
+
+- name: Check Nitro Enclaves device
+  ansible.builtin.stat:
+    path: /dev/nitro_enclaves
+  register: chronicle_nitro_device
+
+- name: Check vsock device
+  ansible.builtin.stat:
+    path: /dev/vsock
+  register: chronicle_vsock_device
+
+- name: Require Nitro kernel devices
+  ansible.builtin.assert:
+    that:
+      - chronicle_nitro_device.stat.exists | bool
+      - chronicle_vsock_device.stat.exists | bool
+    fail_msg: "Missing /dev/nitro_enclaves or /dev/vsock; confirm EC2 EnclaveOptions and kernel modules first."
+
+- name: Check RHEL kernel Nitro driver config
+  ansible.builtin.shell: |
+    set -euo pipefail
+    grep -E '^CONFIG_NITRO_ENCLAVES=m$' "/boot/config-$(uname -r)"
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Install Nitro CLI source-build prerequisites
+  ansible.builtin.package:
+    name:
+      - git
+      - make
+      - gcc
+      - tar
+      - gzip
+    state: present
+
+- name: Require Docker daemon for AWS hello EIF build
+  ansible.builtin.command: docker info
+  changed_when: false
+
+- name: Create Nitro lab directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ chronicle_nitro_lab_root }}"
+      mode: "0750"
+    - path: "{{ chronicle_nitro_lab_source_dir | dirname }}"
+      mode: "0750"
+    - path: "{{ chronicle_nitro_lab_evidence_dir }}"
+      mode: "0750"
+
+- name: Checkout AWS Nitro Enclaves CLI source
+  ansible.builtin.git:
+    repo: "{{ chronicle_nitro_cli_repo }}"
+    dest: "{{ chronicle_nitro_lab_source_dir }}"
+    version: "{{ chronicle_nitro_cli_version }}"
+    force: false
+  register: chronicle_nitro_source
+
+- name: Check installed Nitro CLI marker
+  ansible.builtin.stat:
+    path: "{{ chronicle_nitro_lab_marker }}"
+  register: chronicle_nitro_marker
+
+- name: Read installed Nitro CLI marker
+  ansible.builtin.command: cat "{{ chronicle_nitro_lab_marker }}"
+  register: chronicle_nitro_marker_value
+  changed_when: false
+  failed_when: false
+  when: chronicle_nitro_marker.stat.exists | bool
+
+- name: Build Nitro CLI and vsock-proxy from pinned source
+  ansible.builtin.command: make nitro-cli vsock-proxy
+  args:
+    chdir: "{{ chronicle_nitro_lab_source_dir }}"
+  when: >-
+    (not chronicle_nitro_marker.stat.exists | bool)
+    or chronicle_nitro_marker_value.stdout != chronicle_nitro_cli_version
+    or chronicle_nitro_source.changed
+
+- name: Install Nitro CLI tools without replacing the RHEL kernel driver
+  ansible.builtin.command: make NITRO_CLI_INSTALL_DIR=/ install-tools
+  args:
+    chdir: "{{ chronicle_nitro_lab_source_dir }}"
+  when: >-
+    (not chronicle_nitro_marker.stat.exists | bool)
+    or chronicle_nitro_marker_value.stdout != chronicle_nitro_cli_version
+    or chronicle_nitro_source.changed
+
+- name: Install Nitro CLI environment file
+  ansible.builtin.copy:
+    dest: /etc/profile.d/nitro-cli-env.sh
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Chronicle Ansible. RHEL uses the in-kernel Nitro Enclaves driver.
+      NITRO_CLI_INSTALL_DIR=/
+      export PATH="${PATH}:/usr/bin"
+      export NITRO_CLI_BLOBS=/usr/share/nitro_enclaves/blobs
+
+- name: Record installed Nitro CLI source version
+  ansible.builtin.copy:
+    dest: "{{ chronicle_nitro_lab_marker }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ chronicle_nitro_cli_version }}\n"
+
+- name: Remove Nitro CLI build artifacts after install
+  ansible.builtin.file:
+    path: "{{ chronicle_nitro_lab_source_dir }}/build"
+    state: absent
+  when: chronicle_nitro_lab_remove_build_artifacts | bool
+
+- name: Configure minimal Nitro allocator for the lab
+  ansible.builtin.copy:
+    dest: /etc/nitro_enclaves/allocator.yaml
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      ---
+      # Managed by Chronicle Ansible for the disposable Nitro hello-world lab.
+      memory_mib: {{ chronicle_nitro_lab_memory_mib }}
+      cpu_count: {{ chronicle_nitro_lab_cpu_count }}
+
+- name: Create Nitro CLI runtime and log directories for RHEL in-kernel driver
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - path: /run/nitro_enclaves
+      mode: "0755"
+    - path: /var/log/nitro_enclaves
+      mode: "0750"
+
+- name: Create Nitro CLI log file
+  ansible.builtin.file:
+    path: /var/log/nitro_enclaves/nitro_enclaves.log
+    state: touch
+    owner: root
+    group: root
+    mode: "0640"
+
+- name: Reload systemd after Nitro CLI install
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Run disposable Nitro hello-world enclave lab
+  block:
+    - name: Run Nitro hello-world enclave lab
+      ansible.builtin.shell: |
+        set -euo pipefail
+        export NITRO_CLI_BLOBS=/usr/share/nitro_enclaves/blobs
+        stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+        out_dir="{{ chronicle_nitro_lab_evidence_dir }}/${stamp}"
+        mkdir -p "${out_dir}"
+        chmod 0750 "${out_dir}"
+
+        {
+          echo "timestamp=${stamp}"
+          echo "source_repo={{ chronicle_nitro_cli_repo }}"
+          echo "source_version={{ chronicle_nitro_cli_version }}"
+          echo "cpu_count={{ chronicle_nitro_lab_cpu_count }}"
+          echo "memory_mib={{ chronicle_nitro_lab_memory_mib }}"
+          echo "enclave_cid={{ chronicle_nitro_lab_enclave_cid }}"
+          nitro-cli --version || true
+          uname -a
+          ls -l /dev/nitro_enclaves /dev/vsock
+        } >"${out_dir}/preflight.txt" 2>&1
+
+        systemctl enable --now nitro-enclaves-allocator.service
+        systemctl status --no-pager nitro-enclaves-allocator.service >"${out_dir}/allocator-status.txt" 2>&1 || true
+
+        nitro-cli terminate-enclave --all >"${out_dir}/terminate-preexisting.json" 2>&1 || true
+
+        rm -f "{{ chronicle_nitro_lab_hello_eif }}"
+        docker image rm "{{ chronicle_nitro_lab_hello_image }}" >/dev/null 2>&1 || true
+        docker build /usr/share/nitro_enclaves/examples/hello -t "{{ chronicle_nitro_lab_hello_image }}" \
+          >"${out_dir}/docker-build.log" 2>&1
+        nitro-cli build-enclave \
+          --docker-uri "{{ chronicle_nitro_lab_hello_image }}" \
+          --output-file "{{ chronicle_nitro_lab_hello_eif }}" \
+          >"${out_dir}/build-enclave.json" 2>&1
+
+        nitro-cli run-enclave \
+          --cpu-count "{{ chronicle_nitro_lab_cpu_count }}" \
+          --memory "{{ chronicle_nitro_lab_memory_mib }}" \
+          --enclave-cid "{{ chronicle_nitro_lab_enclave_cid }}" \
+          --eif-path "{{ chronicle_nitro_lab_hello_eif }}" \
+          --debug-mode \
+          >"${out_dir}/run-enclave.json" 2>&1
+
+        nitro-cli describe-enclaves >"${out_dir}/describe-running.json" 2>&1
+        enclave_id="$(
+          python3 - "${out_dir}/run-enclave.json" <<'PY'
+        import json
+        import re
+        import sys
+        text = open(sys.argv[1], encoding="utf-8").read()
+        match = re.search(r'\{.*\}', text, re.S)
+        if not match:
+            raise SystemExit("missing JSON object in run-enclave output")
+        print(json.loads(match.group(0))["EnclaveID"])
+        PY
+        )"
+
+        timeout "{{ chronicle_nitro_lab_console_seconds }}"s nitro-cli console --enclave-id "${enclave_id}" \
+          >"${out_dir}/console.log" 2>&1 || true
+        grep -q "Hello from the enclave side" "${out_dir}/console.log"
+
+        nitro-cli terminate-enclave --enclave-id "${enclave_id}" >"${out_dir}/terminate.json" 2>&1
+        nitro-cli describe-enclaves >"${out_dir}/describe-after-terminate.json" 2>&1
+        echo "${out_dir}"
+      args:
+        executable: /bin/bash
+      register: chronicle_nitro_lab_run
+      changed_when: true
+  always:
+    - name: Terminate any remaining disposable Nitro enclaves
+      ansible.builtin.command: nitro-cli terminate-enclave --all
+      failed_when: false
+      changed_when: false
+      when: chronicle_nitro_lab_stop_allocator_after_run | bool
+
+    - name: Stop Nitro allocator after disposable lab run
+      ansible.builtin.systemd_service:
+        name: nitro-enclaves-allocator.service
+        state: stopped
+        enabled: false
+      when: chronicle_nitro_lab_stop_allocator_after_run | bool
+
+    - name: Reset Nitro lab CPU and hugepage allocations after disposable run
+      ansible.builtin.shell: |
+        set -euo pipefail
+        if lsmod | grep -q '^nitro_enclaves'; then
+          modprobe -r nitro_enclaves
+          modprobe nitro_enclaves
+        fi
+        for path in /sys/devices/system/node/node*/hugepages/hugepages-2048kB/nr_hugepages; do
+          [ -e "${path}" ] && echo 0 > "${path}"
+        done
+      args:
+        executable: /bin/bash
+      changed_when: true
+      when: chronicle_nitro_lab_stop_allocator_after_run | bool
+
+- name: Report Nitro lab evidence path
+  ansible.builtin.debug:
+    msg:
+      - "Nitro hello-world enclave lab passed."
+      - "Evidence: {{ chronicle_nitro_lab_run.stdout_lines[-1] }}"

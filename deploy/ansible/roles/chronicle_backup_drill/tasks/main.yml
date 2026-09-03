@@ -1,0 +1,177 @@
+---
+- name: Validate stack before backup drill
+  ansible.builtin.include_role:
+    name: chronicle_k8s_validate
+
+- name: Ensure backup ExternalSecret is synced
+  ansible.builtin.command: >-
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+    -n {{ chronicle_namespace }} wait externalsecret/chronicle-backup
+    --for=condition=Ready=True --timeout=2m
+  changed_when: false
+
+- name: Ensure backup CronJobs exist
+  ansible.builtin.command: >-
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+    -n {{ chronicle_namespace }} get cronjob {{ item }}
+  loop:
+    - chronicle-local-backup
+    - chronicle-local-backup-verify
+    - chronicle-local-restore-drill
+  changed_when: false
+
+- name: Generate backup drill run suffix
+  ansible.builtin.command: date -u +%Y%m%d%H%M%S
+  register: chronicle_backup_drill_timestamp
+  changed_when: false
+
+- name: Delete stale Ansible-created drill Jobs
+  ansible.builtin.shell: |
+    set -o pipefail
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} -n {{ chronicle_namespace }} get jobs -o name |
+      { grep -E '^job.batch/chronicle-local-(backup|backup-verify|restore-drill)-ansible-' || true; } |
+      xargs -r {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} -n {{ chronicle_namespace }} delete
+  args:
+    executable: /bin/bash
+  register: chronicle_stale_drill_jobs
+  changed_when: chronicle_stale_drill_jobs.stdout | length > 0
+
+- name: Set backup drill job names
+  ansible.builtin.set_fact:
+    chronicle_backup_job_name: "chronicle-local-backup-ansible-{{ chronicle_backup_drill_timestamp.stdout }}"
+    chronicle_backup_verify_job_name: "chronicle-local-backup-verify-ansible-{{ chronicle_backup_drill_timestamp.stdout }}"
+    chronicle_restore_drill_job_name: "chronicle-local-restore-drill-ansible-{{ chronicle_backup_drill_timestamp.stdout }}"
+
+- name: Run backup drill jobs with constrained-host cleanup
+  block:
+    - name: Pause private observability deployments on constrained hosts
+      ansible.builtin.command: >-
+        {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+        -n {{ chronicle_observability_namespace }} scale deployment/{{ item }} --replicas=0
+      loop: "{{ chronicle_expected_observability_deployments }}"
+      when: chronicle_backup_drill_pause_observability | bool
+
+    - name: Wait for private observability Pods to stop on constrained hosts
+      ansible.builtin.shell: |
+        for _ in $(seq 1 60); do
+          count="$({{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} -n {{ chronicle_observability_namespace }} get pods -l app.kubernetes.io/name={{ item }} --no-headers 2>/dev/null | wc -l)"
+          [ "${count}" -eq 0 ] && exit 0
+          sleep 2
+        done
+        exit 1
+      args:
+        executable: /bin/bash
+      loop: "{{ chronicle_expected_observability_deployments }}"
+      changed_when: false
+      when: chronicle_backup_drill_pause_observability | bool
+
+    - name: Create backup Job from CronJob
+      ansible.builtin.command: >-
+        {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+        -n {{ chronicle_namespace }} create job
+        --from=cronjob/chronicle-local-backup {{ chronicle_backup_job_name }}
+
+    - name: Wait for backup Job completion
+      ansible.builtin.command: >-
+        {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+        -n {{ chronicle_namespace }} wait job/{{ chronicle_backup_job_name }}
+        --for=condition=complete --timeout={{ chronicle_backup_job_timeout }}
+      changed_when: false
+
+    - name: Capture backup Job logs
+      ansible.builtin.command: >-
+        {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+        -n {{ chronicle_namespace }} logs job/{{ chronicle_backup_job_name }}
+      register: chronicle_backup_job_logs
+      changed_when: false
+
+    - name: Require backup success marker
+      ansible.builtin.assert:
+        that:
+          - "'Chronicle Kubernetes backup complete:' in chronicle_backup_job_logs.stdout"
+        fail_msg: "Backup job did not report success: {{ chronicle_backup_job_logs.stdout }}"
+
+    - name: Create backup verifier Job from CronJob
+      ansible.builtin.command: >-
+        {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+        -n {{ chronicle_namespace }} create job
+        --from=cronjob/chronicle-local-backup-verify {{ chronicle_backup_verify_job_name }}
+
+    - name: Wait for backup verifier Job completion
+      ansible.builtin.command: >-
+        {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+        -n {{ chronicle_namespace }} wait job/{{ chronicle_backup_verify_job_name }}
+        --for=condition=complete --timeout={{ chronicle_backup_verify_timeout }}
+      changed_when: false
+
+    - name: Capture backup verifier Job logs
+      ansible.builtin.command: >-
+        {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+        -n {{ chronicle_namespace }} logs job/{{ chronicle_backup_verify_job_name }}
+      register: chronicle_backup_verify_job_logs
+      changed_when: false
+
+    - name: Require backup verifier success marker
+      ansible.builtin.assert:
+        that:
+          - "'Chronicle Kubernetes backup verification passed:' in chronicle_backup_verify_job_logs.stdout"
+        fail_msg: "Backup verifier did not report success: {{ chronicle_backup_verify_job_logs.stdout }}"
+
+    - name: Create restore drill Job from CronJob
+      ansible.builtin.command: >-
+        {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+        -n {{ chronicle_namespace }} create job
+        --from=cronjob/chronicle-local-restore-drill {{ chronicle_restore_drill_job_name }}
+
+    - name: Wait for restore drill Job completion
+      ansible.builtin.command: >-
+        {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+        -n {{ chronicle_namespace }} wait job/{{ chronicle_restore_drill_job_name }}
+        --for=condition=complete --timeout={{ chronicle_restore_drill_timeout }}
+      changed_when: false
+
+    - name: Capture restore drill Job logs
+      ansible.builtin.command: >-
+        {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+        -n {{ chronicle_namespace }} logs job/{{ chronicle_restore_drill_job_name }}
+      register: chronicle_restore_drill_job_logs
+      changed_when: false
+
+    - name: Require restore drill success marker
+      ansible.builtin.assert:
+        that:
+          - "'Chronicle Kubernetes restore drill passed:' in chronicle_restore_drill_job_logs.stdout"
+          - "'extensions=2' in chronicle_restore_drill_job_logs.stdout"
+        fail_msg: "Restore drill did not report success: {{ chronicle_restore_drill_job_logs.stdout }}"
+
+    - name: Report backup drill evidence
+      ansible.builtin.debug:
+        msg:
+          - "{{ chronicle_backup_job_logs.stdout_lines | last }}"
+          - "{{ chronicle_backup_verify_job_logs.stdout_lines | last }}"
+          - "{{ chronicle_restore_drill_job_logs.stdout_lines | last }}"
+
+    - name: Delete successful drill Jobs when requested
+      ansible.builtin.command: >-
+        {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+        -n {{ chronicle_namespace }} delete job {{ item }}
+      loop:
+        - "{{ chronicle_backup_job_name }}"
+        - "{{ chronicle_backup_verify_job_name }}"
+        - "{{ chronicle_restore_drill_job_name }}"
+      when: chronicle_delete_successful_drill_jobs | bool
+  always:
+    - name: Restore private observability deployments on constrained hosts
+      ansible.builtin.command: >-
+        {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+        -n {{ chronicle_observability_namespace }} scale deployment/{{ item }} --replicas=1
+      loop: "{{ chronicle_expected_observability_deployments }}"
+      when: chronicle_backup_drill_pause_observability | bool
+
+    - name: Wait for private observability deployments after constrained-host drill
+      ansible.builtin.command: >-
+        {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+        -n {{ chronicle_observability_namespace }} rollout status deployment/{{ item }} --timeout=5m
+      loop: "{{ chronicle_expected_observability_deployments }}"
+      changed_when: false
+      when: chronicle_backup_drill_pause_observability | bool

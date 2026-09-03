@@ -1,0 +1,48 @@
+# Temporal Server Dynamic Configuration
+# These values can be changed at runtime without restarting the server.
+# See: https://docs.temporal.io/references/dynamic-configuration
+
+# Limit concurrent workflow executions per namespace
+# Default is 0 (unlimited) — set reasonable limits for a single-node deployment
+limit.maxIDLength:
+  - value: 255
+    constraints: {}
+
+# Workflow execution limits
+limit.totalHistorySize:
+  - value: 52428800  # 50 MB per workflow history
+    constraints: {}
+
+limit.historyCount:
+  - value: 50000  # Max events per workflow history
+    constraints: {}
+
+# Retention period for closed workflows (searchable in visibility store)
+# Matches HIPAA audit log retention: keep workflow history for compliance
+system.retention:
+  - value: 2160h  # 90 days (rotate to audit logs before this)
+    constraints: {}
+
+# Rate limiting for frontend (SDK) requests
+frontend.rps:
+  - value: 2400
+    constraints: {}
+
+frontend.namespaceRPS:
+  - value: 400
+    constraints:
+      namespace: chronicle
+
+# Matching service tuning
+matching.numTaskqueueReadPartitions:
+  - value: 4
+    constraints: {}
+
+matching.numTaskqueueWritePartitions:
+  - value: 4
+    constraints: {}
+
+# History service tuning
+history.maximumBufferedEventsCount:
+  - value: 100
+    constraints: {}

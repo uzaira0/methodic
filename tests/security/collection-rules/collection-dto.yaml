@@ -1,0 +1,49 @@
+# Chronicle collection DTO secret-redaction guardrail (refactor Phase 12, subphase 12A).
+#
+# Implements design §4 catalog rule #8: the shared collection DTOs in chronicle-models
+# (CollectionModuleDiagnostics, AndroidDataCollectionSetting, CollectionModuleSetting,
+# and the policy/cadence DTOs) hold NO secret material. Per design §1B.3 a diagnostics
+# DTO must contain no `apiKey`, `MOBILE_SIGNING_SECRET`, raw `participantId`, or raw
+# request bodies — participant references are redacted into `redactedParticipantRef`.
+#
+# SCOPING: the `collection` layer of run-all-security.sh invokes this file with the
+# explicit target `chronicle-models/src/main/kotlin/com/openlattice/chronicle/collection`.
+# It is deliberately a SEPARATE file from collection-modularization.yaml so it can be
+# pointed at the chronicle-models DTO package only — the Android `collection/` package
+# legitimately carries an `apiKey` request field (SensorSettingsRefreshDelegate fetches
+# server settings) which is NOT a diagnostics/settings DTO and must not be flagged.
+#
+# Implemented as a regex (generic mode): Semgrep's Kotlin parser does not match
+# `val`/`var` property-declaration AST patterns. Because the scan scope is restricted
+# to the chronicle-models collection DTO package, a regex hit is unambiguous.
+rules:
+  - id: chronicle-collection-dto-no-secret-fields
+    languages: [generic]
+    severity: ERROR
+    message: >
+      Shared collection DTOs (chronicle-models) must not declare a secret-bearing
+      field (apiKey / signingSecret / mobileSigningSecret / MOBILE_SIGNING_SECRET /
+      raw participantId). Diagnostics are operational telemetry only; participant
+      references must be redacted via `redactedParticipantRef` (design §1B.3,
+      guardrail #8).
+    patterns:
+      - pattern-regex: '\b(val|var)\s+(apiKey|signingSecret|mobileSigningSecret|MOBILE_SIGNING_SECRET|participantId)\b\s*:'
+    paths:
+      include:
+        - "*.kt"
+      exclude:
+        # CollectionAcknowledgmentEntry is the SERVER-SIDE append-only consent TRAIL record —
+        # not a device-bound diagnostics/settings DTO. It is the authoritative "who consented to
+        # what, when" anchor (the DB participant_collection_acknowledgment.participant_id), so it
+        # MUST carry the real participantId — a redacted ref would defeat the consent audit. It
+        # lives in chronicle-models only because the web/researcher view reads it. Out of the
+        # §1B.3 diagnostics-redaction scope; the device-POSTed CollectionAcknowledgment payload
+        # (no participantId — it's in the request path) is still covered.
+        - "CollectionAcknowledgmentEntry.kt"
+    metadata:
+      cwe: CWE-200
+      owasp: "A01:2021"
+      category: security
+      confidence: HIGH
+      references:
+        - docs/DATA-COLLECTION-MODULARIZATION-DESIGN.md#1B.3

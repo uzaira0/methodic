@@ -1,0 +1,23 @@
+appId: ${APP_PACKAGE}
+tags:
+  - artifact
+  - unlock-identification
+  - permission-recovery
+---
+
+- launchApp:
+    clearState: false
+
+- tapOn:
+    id: "android:id/button2"
+    optional: true
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/nav_settings"
+
+- extendedWaitUntil:
+    visible: "Active: Chronicle will show the device-user prompt after unlock."
+    timeout: 15000
+
+- assertVisible:
+    id: "${APP_PACKAGE}:id/deviceUserGroup"

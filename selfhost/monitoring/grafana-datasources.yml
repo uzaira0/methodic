@@ -1,0 +1,21 @@
+apiVersion: 1
+
+datasources:
+  - name: Chronicle Operational Metrics
+    uid: chronicle-victoriametrics
+    type: prometheus
+    access: proxy
+    url: http://victoriametrics:8428
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      prometheusType: Prometheus
+      prometheusVersion: 3.0.0
+      timeInterval: 15s
+  - name: Chronicle Operational Logs
+    uid: chronicle-victorialogs
+    type: victoriametrics-logs-datasource
+    access: proxy
+    url: http://victorialogs:9428
+    editable: false

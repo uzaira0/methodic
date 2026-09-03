@@ -1,0 +1,72 @@
+
+# Development mode: Postgres (prod-matching Percona 17.5 image) + backend only.
+# Usage: docker-compose -f docker-compose.dev.yml up
+#
+# Frontend dev flow is `bun run dev:local` in chronicle-web (localhost-only HMR,
+# mocked auth) — there is no frontend container in dev; the old webpack/Node
+# hot-reload container was deleted with docker/Dockerfile.frontend.dev.
+
+services:
+  postgres:
+    image: percona/percona-distribution-postgresql:18.4-5
+    # -dev suffix: the prod stack (docker-compose.traefik.yml) owns the names
+    # chronicle-postgres / chronicle-backend on this host — an unsuffixed dev
+    # stack cannot start beside it and invites `docker rm -f` against prod.
+    container_name: chronicle-postgres-dev
+    environment:
+      POSTGRES_USER: oltest
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: chronicle
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      # A postgres_data volume initialized by the old postgres:16 image will NOT
+      # start under 17.x (PG major upgrades need pg_upgrade/dump-restore). Dev
+      # data is disposable: `docker volume rm docker_postgres_data` and re-up.
+      # /data/db, NOT /var/lib/postgresql/data: this image sets PGDATA=/data/db and declares
+      # it as a VOLUME, so the conventional path stored nothing -- the named volume stayed
+      # empty and the real cluster went into an anonymous volume, which does not survive the
+      # container being recreated. docker-compose.traefik.yml already mounts /data/db.
+      #
+      # MIGRATING AN EXISTING DEPLOYMENT: the current data is in that anonymous volume, not
+      # in postgres_data. Take a pg_dump BEFORE changing this, or the stack comes up on an
+      # empty database. `docker inspect <container> --format '{{range .Mounts}}{{.Name}} {{.Destination}}{{"\n"}}{{end}}'`
+      # names the anonymous volume holding it.
+      - postgres_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oltest -d chronicle"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: chronicle-backend-dev
+    environment:
+      CHRONICLE_SERVER_XMS: "-Xms512m"
+      CHRONICLE_SERVER_XMX: "-Xmx2g"
+      CHRONICLE_SERVER_ARGS: "local postgres medialocal"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: chronicle
+      POSTGRES_USER: oltest
+      POSTGRES_PASSWORD: test
+      CHRONICLE_EXPORT_DIR: /var/lib/chronicle/exports
+      CHRONICLE_EXPORT_MAX_ROWS: "1000000"
+      CHRONICLE_EXPORT_MAX_BYTES: "536870912"
+      CHRONICLE_EXPORT_MAX_RUNTIME_SECONDS: "1800"
+      CHRONICLE_EXPORT_MAX_TOTAL_BYTES: "8589934592"
+      CHRONICLE_EXPORT_MIN_FREE_BYTES: "1073741824"
+    volumes:
+      - export_artifacts:/var/lib/chronicle/exports
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "40320:40320"
+
+volumes:
+  postgres_data:
+  export_artifacts:

@@ -1,0 +1,340 @@
+name: chronicle-next
+
+# Backend-only Chronicle deployment for the German Hetzner dev-vps.
+# Ingress is loopback-only. Tailscale Serve/Funnel supplies HTTPS and PROXY v2.
+services:
+  postgres:
+    build:
+      context: ./percona
+    image: localhost/chronicle-percona:17.10-hardened
+    restart: unless-stopped
+    # Rootless Podman maps container root to the invoking host user. Start the
+    # image entrypoint as that mapped root only long enough to stage the
+    # host-private sops/TLS files for uid 26; the upstream entrypoint then
+    # permanently drops to postgres before starting the database.
+    user: "0:0"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    environment:
+      POSTGRES_USER: chronicle
+      POSTGRES_DB: chronicle
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      PGDATA: /data/db
+      PG_TDE_KEY_PROVIDER: file
+    volumes:
+      - postgres_data:/data/db
+      - postgres_tde_keyring:/var/lib/postgresql/tde-keyring
+      - ../init-db-roles.sql:/docker-entrypoint-initdb.d/10-init-db-roles.sql:ro
+      - ./postgres/set-app-role-password.sh:/docker-entrypoint-initdb.d/15-set-app-role-password.sh:ro
+      - ../init-db-encryption.sh:/docker-entrypoint-initdb.d/20-init-db-encryption.sh:ro
+      - ./postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ${CHRONICLE_TLS_DIR:?Set CHRONICLE_TLS_DIR}/postgres.crt:/run/chronicle-source/postgres.crt:ro
+      - ${CHRONICLE_TLS_DIR:?Set CHRONICLE_TLS_DIR}/postgres.key:/run/chronicle-source/postgres.key:ro
+      - ${CHRONICLE_TLS_DIR:?Set CHRONICLE_TLS_DIR}/ca.crt:/run/chronicle-source/ca.crt:ro
+      - ${CHRONICLE_SECRETS_DIR:?Set CHRONICLE_SECRETS_DIR}/chronicle-postgres-password:/run/chronicle-source/postgres_password:ro
+      - ${CHRONICLE_SECRETS_DIR:?Set CHRONICLE_SECRETS_DIR}/chronicle-postgres-app-password:/run/chronicle-source/postgres_app_password:ro
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=128m
+      - /run/postgresql:noexec,nosuid,nodev,size=16m,mode=0770
+      - /run/chronicle-tls:noexec,nosuid,nodev,size=4m,mode=0700
+      - /run/secrets:noexec,nosuid,nodev,size=1m,mode=0700
+    entrypoint:
+      - /bin/bash
+      - -euc
+      - |
+        chown 26:26 /run/postgresql /run/chronicle-tls /run/secrets
+        install -o 26 -g 26 -m 0600 /run/chronicle-source/postgres_password /run/secrets/postgres_password
+        install -o 26 -g 26 -m 0600 /run/chronicle-source/postgres_app_password /run/secrets/postgres_app_password
+        install -o 26 -g 26 -m 0600 /run/chronicle-source/postgres.key /run/chronicle-tls/postgres.key
+        install -o 26 -g 26 -m 0644 /run/chronicle-source/postgres.crt /run/chronicle-tls/postgres.crt
+        install -o 26 -g 26 -m 0644 /run/chronicle-source/ca.crt /run/chronicle-tls/ca.crt
+        mkdir -p /var/lib/postgresql/tde-keyring
+        chown 26:26 /var/lib/postgresql/tde-keyring
+        exec /entrypoint.sh "$${@}"
+      - --
+    command:
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/run/chronicle-tls/postgres.crt
+      - -c
+      - ssl_key_file=/run/chronicle-tls/postgres.key
+      - -c
+      - ssl_ca_file=/run/chronicle-tls/ca.crt
+      - -c
+      - ssl_min_protocol_version=TLSv1.2
+      - -c
+      - password_encryption=scram-sha-256
+      - -c
+      - shared_preload_libraries=pg_tde,pgaudit
+      - -c
+      - default_table_access_method=tde_heap
+      - -c
+      - pgaudit.log=ddl,role,write
+      - -c
+      - pgaudit.log_catalog=off
+      - -c
+      - pgaudit.log_client=on
+      - -c
+      - pgaudit.log_statement_once=on
+      - -c
+      - max_parallel_workers_per_gather=0
+      - -c
+      - shared_buffers=512MB
+    healthcheck:
+      test: ["CMD-SHELL", "PGPASSWORD=$$(cat /run/secrets/postgres_password) pg_isready -h 127.0.0.1 -U chronicle -d chronicle"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 12
+    mem_limit: 2g
+    pids_limit: 512
+    networks:
+      chronicle-db:
+        ipv4_address: 10.89.41.3
+
+  backend:
+    image: localhost/chronicle-backend:${CHRONICLE_BACKEND_TAG:?Set CHRONICLE_BACKEND_TAG}
+    restart: unless-stopped
+    user: "0:0"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - CHOWN
+      - DAC_OVERRIDE
+    environment:
+      DOMAIN: dev-vps.example.ts.net
+      POSTGRES_DB: chronicle
+      POSTGRES_USER: chronicle_app
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_SSL_MODE: verify-full
+      POSTGRES_SSL_ROOT_CERT: /app/ssl/ca.crt
+      CHRONICLE_SERVER_XMS: -Xms512m
+      CHRONICLE_SERVER_XMX: -Xmx2g
+      JAVA_TOOL_OPTIONS: -XX:+ExitOnOutOfMemoryError
+      # Only Traefik's fixed address may assert forwarded/internal-web
+      # metadata. CrowdSec shares the edge bridge but is not a trusted proxy.
+      CHRONICLE_TRUSTED_PROXY_CIDRS: 10.89.40.2/32
+      CHRONICLE_PUBLIC_BASE_URL: https://dev-vps.example.ts.net
+      MOBILE_SIGNING_ENABLED: "false"
+      MOBILE_SIGNING_REQUIRED: "false"
+      MOBILE_SIGNING_SECRET: ""
+      CHRONICLE_SECURITY_COOKIE_SECURE: "true"
+      CHRONICLE_SECURITY_REQUIRE_MFA: "true"
+      OIDC_ENABLED: "false"
+      OIDC_PROVIDER_LABEL: disabled
+      OIDC_PUBLIC_BASE_URL: https://dev-vps.example.ts.net
+      OIDC_REALM: chronicle
+      OIDC_ISSUER: https://disabled.invalid/
+      OIDC_AUTHORIZATION_URI: https://disabled.invalid/authorize
+      OIDC_TOKEN_URI: https://disabled.invalid/token
+      OIDC_JWKS_URI: https://disabled.invalid/jwks
+      OIDC_CLIENT_ID: disabled
+      OIDC_CLIENT_SECRET: disabled
+      OIDC_IDP_HINT: disabled
+      OIDC_COOKIE_TOKEN_CLAIM: id_token
+      TESTING_LOGIN_ENABLED: "false"
+      ALLOW_PRODUCTION_TESTING_LOGIN: "false"
+      SMTP_HOST: localhost
+      SMTP_PORT: "25"
+      SMTP_USERNAME: ""
+      SMTP_PASSWORD: ""
+      SMTP_FROM_EMAIL: noreply@invalid
+      SMTP_ENABLED: "false"
+      VAULT_ADDR: https://disabled.invalid
+      VAULT_TOKEN: ""
+      VAULT_ENABLED: "false"
+      LOG_FORMAT: json
+      AUDIT_LOG_DIR: /var/log/chronicle
+      LOG_DIR: /var/log/chronicle
+      CHRONICLE_EXPORT_DIR: /var/lib/chronicle/exports
+      CHRONICLE_EXPORT_MAX_ROWS: "1000000"
+      CHRONICLE_EXPORT_MAX_BYTES: "536870912"
+      CHRONICLE_EXPORT_MAX_RUNTIME_SECONDS: "1800"
+      CHRONICLE_EXPORT_MAX_TOTAL_BYTES: "8589934592"
+      CHRONICLE_EXPORT_MIN_FREE_BYTES: "1073741824"
+    volumes:
+      - ${CHRONICLE_STATE_DIR:?Set CHRONICLE_STATE_DIR}/audit-logs/backend:/var/log/chronicle
+      - ${CHRONICLE_STATE_DIR:?Set CHRONICLE_STATE_DIR}/export-artifacts:/var/lib/chronicle/exports
+      - ${CHRONICLE_TLS_DIR:?Set CHRONICLE_TLS_DIR}/ca.crt:/app/ssl/ca.crt:ro
+      - ./rhizome-runtime.yaml.template:/server/config/rhizome.yaml.template:ro
+      - ../chronicle-auth.yaml.template:/server/config/chronicle-auth.yaml.template:ro
+      - ../mail.yaml.template:/server/config/mail.yaml.template:ro
+      - ../mobile-security.yaml.template:/server/config/mobile-security.yaml.template:ro
+      - ../vault.yaml.template:/server/config/vault.yaml.template:ro
+      - ../cors.yaml.template:/server/config/cors.yaml.template:ro
+      - ${CHRONICLE_SECRETS_DIR:?Set CHRONICLE_SECRETS_DIR}/chronicle-postgres-app-password:/run/secrets/postgres_password:ro
+      - ${CHRONICLE_SECRETS_DIR:?Set CHRONICLE_SECRETS_DIR}/chronicle-jwt-secret:/run/secrets/jwt_secret:ro
+      - ${CHRONICLE_SECRETS_DIR:?Set CHRONICLE_SECRETS_DIR}/chronicle-hazelcast-server-password:/run/secrets/hazelcast_server_password:ro
+      - ${CHRONICLE_SECRETS_DIR:?Set CHRONICLE_SECRETS_DIR}/chronicle-hazelcast-client-password:/run/secrets/hazelcast_client_password:ro
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=256m
+    command:
+      - sh
+      - -euc
+      - |
+        export POSTGRES_PASSWORD="$$(cat /run/secrets/postgres_password)"
+        export JWT_SECRET="$$(cat /run/secrets/jwt_secret)"
+        export HAZELCAST_SERVER_PASSWORD="$$(cat /run/secrets/hazelcast_server_password)"
+        export HAZELCAST_CLIENT_PASSWORD="$$(cat /run/secrets/hazelcast_client_password)"
+        umask 077
+        mkdir -p /tmp/chronicle-config
+        for template in rhizome chronicle-auth mail mobile-security vault cors; do
+          envsubst < "/server/config/$${template}.yaml.template" > "/tmp/chronicle-config/$${template}.yaml"
+          test -s "/tmp/chronicle-config/$${template}.yaml"
+        done
+        if grep -R -qF '$${' /tmp/chronicle-config; then
+          echo "unresolved Chronicle configuration variable" >&2
+          exit 1
+        fi
+        test -d /var/lib/chronicle/exports
+        chown -R chronicle:chronicle /tmp/chronicle-config /var/log/chronicle /var/lib/chronicle/exports
+        exec su-exec chronicle java "$${CHRONICLE_SERVER_XMS}" "$${CHRONICLE_SERVER_XMX}" \
+          -Xss512k -XX:MetaspaceSize=128m -XX:MaxMetaspaceSize=256m \
+          -XX:+UseStringDeduplication -XX:MaxGCPauseMillis=200 \
+          -cp "/tmp/chronicle-config:/server/lib/*" \
+          com.openlattice.chronicle.ChronicleServer local postgres medialocal
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:40320/chronicle/internal/health/ready >/dev/null"]
+      interval: 15s
+      timeout: 10s
+      start_period: 90s
+      retries: 8
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 3g
+    pids_limit: 512
+    networks:
+      chronicle-edge:
+        ipv4_address: 10.89.40.3
+      chronicle-db:
+        ipv4_address: 10.89.41.2
+
+  crowdsec:
+    image: localhost/chronicle-crowdsec:v1.7.8-hardened
+    restart: unless-stopped
+    # The image defaults to uid/gid 65532. Start as container root only to
+    # reconcile existing named-volume ownership and read the host-private
+    # bouncer secret, then permanently drop before CrowdSec starts.
+    user: "0:0"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    environment:
+      NO_HUB_UPDATE: "true"
+      NO_HUB_UPGRADE: "true"
+      NO_HUB_MUTATION: "true"
+      DISABLE_ONLINE_API: "true"
+    volumes:
+      - crowdsec_config:/etc/crowdsec
+      - crowdsec_data:/var/lib/crowdsec/data
+      - ${CHRONICLE_STATE_DIR:?Set CHRONICLE_STATE_DIR}/audit-logs/traefik:/var/log/traefik:ro
+      - ./crowdsec/acquis.yaml:/etc/crowdsec/acquis.d/traefik.yaml:ro
+      - ./crowdsec/appsec.yaml:/etc/crowdsec/acquis.d/appsec.yaml:ro
+      - ${CHRONICLE_SECRETS_DIR:?Set CHRONICLE_SECRETS_DIR}/chronicle-crowdsec-bouncer-key:/run/secrets/crowdsec_bouncer_key:ro
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=64m
+    entrypoint:
+      - /bin/sh
+      - -euc
+      - |
+        find /etc/crowdsec -xdev \
+          ! -path /etc/crowdsec/acquis.d/traefik.yaml \
+          ! -path /etc/crowdsec/acquis.d/appsec.yaml \
+          -exec chown 65532:65532 {} +
+        find /var/lib/crowdsec/data -xdev -exec chown 65532:65532 {} +
+        export BOUNCER_KEY_traefik="$$(cat /run/secrets/crowdsec_bouncer_key)"
+        exec su-exec 65532:65532 /bin/bash /docker_start.sh
+    healthcheck:
+      test: ["CMD-SHELL", "cscli lapi status >/dev/null && nc -z 127.0.0.1 7422"]
+      interval: 15s
+      timeout: 5s
+      start_period: 45s
+      retries: 8
+    mem_limit: 512m
+    pids_limit: 384
+    logging:
+      driver: k8s-file
+      options:
+        path: ${CHRONICLE_STATE_DIR:?Set CHRONICLE_STATE_DIR}/audit-logs/crowdsec/crowdsec.log
+        max-size: 25mb
+    networks:
+      chronicle-edge:
+        ipv4_address: 10.89.40.4
+
+  traefik:
+    image: docker.io/library/traefik:v3.7.7@sha256:1cb3845d7a05e1473c9086351426597e911db49db382b6e4769f9b0744962ac8
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - 127.0.0.1:${CHRONICLE_BIND_PORT:-18082}:8080
+    volumes:
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/routes.yml:/etc/traefik/dynamic/routes.yml:ro
+      - ../traefik/plugins-local:/plugins-local:ro
+      - ${CHRONICLE_STATE_DIR:?Set CHRONICLE_STATE_DIR}/audit-logs/traefik:/var/log/traefik
+      - ${CHRONICLE_SECRETS_DIR:?Set CHRONICLE_SECRETS_DIR}/chronicle-crowdsec-bouncer-key:/run/secrets/crowdsec_bouncer_key:ro
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=64m
+    depends_on:
+      backend:
+        condition: service_healthy
+      crowdsec:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    mem_limit: 256m
+    pids_limit: 256
+    networks:
+      chronicle-edge:
+        ipv4_address: 10.89.40.2
+
+networks:
+  chronicle-edge:
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.89.40.0/24
+  chronicle-db:
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.89.41.0/24
+
+volumes:
+  postgres_data:
+  postgres_tde_keyring:
+  crowdsec_config:
+  crowdsec_data:

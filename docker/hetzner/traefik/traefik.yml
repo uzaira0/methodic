@@ -1,0 +1,41 @@
+global:
+  sendAnonymousUsage: false
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: false
+
+entryPoints:
+  chronicle:
+    address: :8080
+    proxyProtocol:
+      trustedIPs:
+        - 198.51.100.10/32
+    transport:
+      respondingTimeouts:
+        readTimeout: 60s
+        writeTimeout: 60s
+        idleTimeout: 180s
+  health:
+    address: :8081
+
+api:
+  dashboard: false
+
+ping:
+  entryPoint: health
+
+log:
+  level: INFO
+  format: json
+
+accessLog:
+  filePath: /var/log/traefik/access.log
+  format: json
+  bufferingSize: 1
+
+experimental:
+  localPlugins:
+    crowdsec-bouncer:
+      moduleName: github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin

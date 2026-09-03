@@ -1,0 +1,69 @@
+# lefthook.yml — Chronicle monorepo git hooks
+# Docs: https://github.com/evilmartians/lefthook
+#
+# Install:  ./scripts/setup-hooks.sh
+# Run manually:  lefthook run pre-commit
+# Skip (emergency):  git commit --no-verify
+#
+# To make typecheck run on pre-commit:
+#   lefthook run pre-commit --force  (runs all, including optional)
+#   Or remove the skip_tags line below.
+
+skip_tags:
+  - optional
+
+pre-commit:
+  parallel: true
+  commands:
+    biome-check:
+      root: "chronicle-web/"
+      glob: "src/**/*.{ts,tsx,js,jsx}"
+      run: bunx biome check --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+
+    gitleaks:
+      run: gitleaks protect --staged --verbose --redact
+      fail_text: |
+        Secrets detected! Remove them before committing.
+        If this is a false positive, add an inline '# gitleaks:allow' comment
+        or update tests/security/gitleaks.toml.
+
+    hadolint:
+      glob: "docker/Dockerfile*"
+      run: hadolint --failure-threshold error {staged_files}
+
+    typecheck:
+      root: "chronicle-web/"
+      glob: "src/**/*.{ts,tsx}"
+      run: bun run typecheck
+      tags: optional
+
+    detekt:
+      glob: "**/*.kt"
+      # Security guardrail fixtures are deliberately malformed (they exist to TRIGGER
+      # rules) and are not production source — never code-quality-lint them. Excluding
+      # them also sidesteps the {staged_files} space-vs-comma `--input` issue when
+      # several fixture .kt files are staged together.
+      exclude:
+        - "tests/security/fixtures/**"
+      run: detekt-cli --input {staged_files} --config detekt.yml --baseline detekt-baseline.xml --build-upon-default-config
+
+pre-push:
+  parallel: true
+  commands:
+    i18n-lint:
+      glob: "**/*.{ts,tsx,kt,swift}"
+      run: scripts/i18n-lint.sh
+      fail_text: |
+        Hardcoded English found where a translation must be able to override it.
+        See <repo>/lint/i18n/*.yml for the rule and its allowed suppression comment.
+
+    chronicle-web-check:
+      root: "chronicle-web/"
+      glob: "**/*.{ts,tsx,js,jsx}"
+      run: bun run check
+
+    kotlin-compile:
+      glob: "**/*.kt"
+      run: ./gradlew :chronicle-server:compileKotlin --no-daemon -q
+      tags: optional

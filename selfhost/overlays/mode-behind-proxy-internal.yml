@@ -1,0 +1,27 @@
+# Deployment mode: your load balancer / reverse proxy terminates TLS, and the dashboard is
+# served only on a private interface. Phones still upload from the internet.
+#
+# This is the recommended mode, and the one .env.example ships with.
+#
+# Two listeners, from Caddyfile.split. The public one carries the mobile ingest paths only.
+# The dashboard and its API are on the internal one, behind three separate gates: the bind
+# address, DASHBOARD_ALLOWED_IPS, and a bcrypt password. It runs TLS with a certificate
+# cert-init generates, so the dashboard password never crosses the wire in clear.
+services:
+  config-guard:
+    environment:
+      TLS_MODE: behind-proxy
+      DASHBOARD_EXPOSURE: internal
+
+  cert-init:
+    environment:
+      TLS_MODE: behind-proxy
+      DASHBOARD_EXPOSURE: internal
+
+  web:
+    ports:
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8080}:80"
+      - "${INTERNAL_BIND:-127.0.0.1}:${INTERNAL_PORT:-8081}:8081"
+    volumes:
+      - ./Caddyfile.split:/etc/caddy/Caddyfile:ro
+      - "${CHRONICLE_STATE_DIR:-.}/tls:/etc/caddy/certs:ro"

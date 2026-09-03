@@ -1,0 +1,11 @@
+# Historical/false-positive findings accepted 2026-07-11 (see local-ci gitleaks job).
+# All verified: deleted legacy files, test fixtures, age PUBLIC key, env-var template text.
+f139760c1d2b4ceea27bc5e6a8a6acbeaa7871cd:src/test/resources/auth0.yaml:generic-api-key:7
+f139760c1d2b4ceea27bc5e6a8a6acbeaa7871cd:src/test/java/com/openlattice/authentication/AuthenticationTest.java:generic-api-key:40
+00d0c6d0cb4c82ec3b6bb5c666496e2e3ffb4f73:src/test/resources/auth0.yaml:generic-api-key:5
+226d2275e4b54d3ba1e59eda6e12c6b33354b2c1:src/test/resources/auth0.yaml:generic-api-key:4
+00d0c6d0cb4c82ec3b6bb5c666496e2e3ffb4f73:src/test/java/com/openlattice/authentication/AuthenticationTest.java:generic-api-key:39
+0438a1a1dfc79d03c7e059e101393f65ad3477ba:src/test/java/digital/loom/rhizome/authentication/AuthenticationTest.java:generic-api-key:43
+e9eb4d700113c5f7f325536a29b7521c04828373:src/test/java/digital/loom/rhizome/authentication/AuthenticationTest.java:generic-api-key:47
+24f7f99e1f827cb22487b980d25a45c145ad9d00:src/test/java/digital/loom/rhizome/authentication/AuthenticationTest.java:generic-api-key:45
+b9d9e710b370d7e9059a9b96834793aeab5decbd:src/test/java/digital/loom/rhizome/authentication/AuthenticationTest.java:generic-api-key:45

@@ -1,0 +1,36 @@
+appId: ${APP_PACKAGE}
+tags:
+  - artifact
+  - unlock-identification
+  - permission-denial
+---
+
+- launchApp:
+    clearState: false
+
+- tapOn:
+    id: "android:id/button2"
+    optional: true
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/nav_settings"
+
+- extendedWaitUntil:
+    visible: "Paused: notifications are disabled, so Chronicle cannot show the unlock prompt. Tap Identify device user to restore notification access."
+    timeout: 15000
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/identifyUserSwitch"
+
+- extendedWaitUntil:
+    visible: "Allow Chronicle to send you notifications?"
+    timeout: 15000
+
+- tapOn: "Don’t allow"
+
+- assertVisible: "Allow Chronicle notifications"
+
+- tapOn:
+    id: "android:id/button2"
+
+- assertVisible: "Paused: notifications are disabled, so Chronicle cannot show the unlock prompt. Tap Identify device user to restore notification access."

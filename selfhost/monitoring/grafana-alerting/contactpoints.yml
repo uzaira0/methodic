@@ -1,0 +1,21 @@
+{
+  "apiVersion": 1,
+  "contactPoints": [
+    {
+      "orgId": 1,
+      "name": "chronicle-dashboard-only",
+      "receivers": [
+        {
+          "uid": "chronicle-dashboard-only",
+          "type": "webhook",
+          "settings": {
+            "url": "http://127.0.0.1:9/dashboard-only",
+            "httpMethod": "POST",
+            "title": "Dashboard-only placeholder"
+          },
+          "disableResolveMessage": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+# Traefik Static Configuration
+# Managed by Chronicle deployment (replaces Dokploy default)
+# Location: /etc/dokploy/traefik/traefik.yml
+
+global:
+  sendAnonymousUsage: false
+
+providers:
+  swarm:
+    exposedByDefault: false
+    watch: true
+  docker:
+    exposedByDefault: false
+    watch: true
+    network: dokploy-network
+  file:
+    directory: /etc/dokploy/traefik/dynamic
+    watch: true
+
+entryPoints:
+  web:
+    address: :80
+  websecure:
+    address: :443
+    http3:
+      advertisedPort: 443
+
+# Dashboard disabled for production security
+api:
+  insecure: false

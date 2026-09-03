@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: chronicle
+
+resources:
+  - external-secrets.yaml
+  - rbac.yaml
+  - backup.yaml
+  - networkpolicies.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: chronicle
+
+configMapGenerator:
+  - name: chronicle-local-backup-scripts
+    files:
+      - backup.sh=scripts/backup.sh
+      - verify-latest.sh=scripts/verify-latest.sh
+      - restore-drill.sh=scripts/restore-drill.sh
+  - name: chronicle-local-backup-evidence
+    literals:
+      - profile=chronicle-k8s-local-backup-v1
+      - required_artifacts=database.dump.enc,tde-keyring.tar.gz.enc,audit-logs.tar.gz.enc,deployment-evidence.tar.gz.enc,artifact-sha256sums.txt,manifest.json,manifest.json.sha256
+      - encryption=openssl-aes-256-cbc-pbkdf2-600000
+      - rpo_tier=degraded-local
+      - max_data_loss=24h-if-latest-backup-verified
+      - max_backup_age_hours=25
+      - storage_scope=single-node-local-pvc
+      - production_cutover_requirement=off-host-or-operator-managed-pitr-evidence

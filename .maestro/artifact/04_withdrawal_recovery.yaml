@@ -1,0 +1,24 @@
+appId: ${APP_PACKAGE}
+tags:
+  - artifact
+  - withdrawal
+  - recovery
+---
+
+- launchApp:
+    clearState: false
+
+- tapOn:
+    text: "CANCEL"
+    optional: true
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/nav_settings"
+    optional: true
+
+- extendedWaitUntil:
+    visible: "Withdrawal complete. Local Chronicle research data was removed."
+    timeout: 45000
+
+- assertVisible:
+    id: "${APP_PACKAGE}:id/withdrawalStatus"

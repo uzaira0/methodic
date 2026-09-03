@@ -1,0 +1,734 @@
+{
+  "schemaVersion": "chronicle-domain-contracts/v1",
+  "generatedBy": "scripts/generate-chronicle-contracts.py",
+  "manualEdit": false,
+  "sourceRepo": "methodic",
+  "sourceFiles": {
+    "linkml": {
+      "path": "ontology/chronicle.linkml.yaml",
+      "sha256": "b58054ed39ff7530d98e10fac469488db33b4fea5725a90ff6efbb804ff6ed18"
+    }
+  },
+  "contracts": {
+    "collectionModules": [
+      {
+        "enumName": "USAGE_EVENTS",
+        "id": "usage_events",
+        "privacyClass": "BEHAVIORAL_METADATA",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": true,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": true
+      },
+      {
+        "enumName": "IN_APP_ACTIVITY_CLASS",
+        "id": "in_app_activity_class",
+        "privacyClass": "BEHAVIORAL_METADATA",
+        "active": true,
+        "defaultEnabledOverride": false,
+        "defaultEnabled": false,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "DEVICE_LIFECYCLE",
+        "id": "device_lifecycle",
+        "privacyClass": "DEVICE_STATE_METADATA",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": true,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": true
+      },
+      {
+        "enumName": "USER_IDENTIFICATION",
+        "id": "user_identification",
+        "privacyClass": "LOCAL_PARTICIPANT_LABEL",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "UPLOAD_TELEMETRY",
+        "id": "upload_telemetry",
+        "privacyClass": "OPERATIONAL_DIAGNOSTICS",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": true,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": true
+      },
+      {
+        "enumName": "SENSOR_AVAILABILITY",
+        "id": "sensor_availability",
+        "privacyClass": "DEVICE_CAPABILITY",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": true,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": true
+      },
+      {
+        "enumName": "QUESTIONNAIRE",
+        "id": "questionnaire",
+        "privacyClass": "BEHAVIORAL_METADATA",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": true,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": true
+      },
+      {
+        "enumName": "BATTERY_TELEMETRY",
+        "id": "battery_telemetry",
+        "privacyClass": "DEVICE_STATE_METADATA",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": true,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": true
+      },
+      {
+        "enumName": "SENSOR_ACCELEROMETER",
+        "id": "sensor_accelerometer",
+        "privacyClass": "PHYSICAL_TELEMETRY",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": true,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "SENSOR_GYROSCOPE",
+        "id": "sensor_gyroscope",
+        "privacyClass": "PHYSICAL_TELEMETRY",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": true,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "SENSOR_MAGNETOMETER",
+        "id": "sensor_magnetometer",
+        "privacyClass": "PHYSICAL_TELEMETRY",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": true,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "SENSOR_GRAVITY",
+        "id": "sensor_gravity",
+        "privacyClass": "PHYSICAL_TELEMETRY",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": true,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "SENSOR_LINEAR_ACCELERATION",
+        "id": "sensor_linear_acceleration",
+        "privacyClass": "PHYSICAL_TELEMETRY",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": true,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "SENSOR_ROTATION_VECTOR",
+        "id": "sensor_rotation_vector",
+        "privacyClass": "PHYSICAL_TELEMETRY",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": true,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "SENSOR_STEP_COUNTER",
+        "id": "sensor_step_counter",
+        "privacyClass": "PHYSICAL_TELEMETRY",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": true,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "SENSOR_LIGHT",
+        "id": "sensor_light",
+        "privacyClass": "PHYSICAL_TELEMETRY",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": true,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "SENSOR_PROXIMITY",
+        "id": "sensor_proximity",
+        "privacyClass": "PHYSICAL_TELEMETRY",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": true,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "SENSOR_SIGNIFICANT_MOTION",
+        "id": "sensor_significant_motion",
+        "privacyClass": "PHYSICAL_TELEMETRY",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": true,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "SENSOR_TILT_DETECTOR",
+        "id": "sensor_tilt_detector",
+        "privacyClass": "PHYSICAL_TELEMETRY",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": true,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "SENSOR_SCREEN_ORIENTATION",
+        "id": "sensor_screen_orientation",
+        "privacyClass": "PHYSICAL_TELEMETRY",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": true,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "SENSOR_SAMSUNG_GRIP_WIFI",
+        "id": "sensor_samsung_grip_wifi",
+        "privacyClass": "PHYSICAL_TELEMETRY",
+        "active": false,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": true,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "SENSOR_SAMSUNG_MOTION",
+        "id": "sensor_samsung_motion",
+        "privacyClass": "PHYSICAL_TELEMETRY",
+        "active": false,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": true,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "INTERACTION_EVENTS",
+        "id": "interaction_events",
+        "privacyClass": "INTERACTION_METADATA",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "AUDIO_ACTIVITY",
+        "id": "audio_activity",
+        "privacyClass": "BEHAVIORAL_METADATA",
+        "active": true,
+        "defaultEnabledOverride": false,
+        "defaultEnabled": false,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "AUDIO_CONTENT",
+        "id": "audio_content",
+        "privacyClass": "MEDIA_CONTENT",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "NOTIFICATION_ACTIVITY",
+        "id": "notification_activity",
+        "privacyClass": "BEHAVIORAL_METADATA",
+        "active": true,
+        "defaultEnabledOverride": false,
+        "defaultEnabled": false,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "AMBIENT_AUDIO",
+        "id": "ambient_audio",
+        "privacyClass": "AMBIENT_AUDIO_CONTEXT",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "SLEEP",
+        "id": "sleep",
+        "privacyClass": "HEALTH_METRICS",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "ACTIVITY_RECOGNITION",
+        "id": "activity_recognition",
+        "privacyClass": "BEHAVIORAL_METADATA",
+        "active": true,
+        "defaultEnabledOverride": false,
+        "defaultEnabled": false,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "HEALTH_CONNECT",
+        "id": "health_connect",
+        "privacyClass": "HEALTH_METRICS",
+        "active": true,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "CONNECTIVITY_STATE",
+        "id": "connectivity_state",
+        "privacyClass": "DEVICE_STATE_METADATA",
+        "active": true,
+        "defaultEnabledOverride": false,
+        "defaultEnabled": false,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "APP_NETWORK_USAGE",
+        "id": "app_network_usage",
+        "privacyClass": "BEHAVIORAL_METADATA",
+        "active": true,
+        "defaultEnabledOverride": false,
+        "defaultEnabled": false,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "DEVICE_SETTINGS",
+        "id": "device_settings",
+        "privacyClass": "DEVICE_STATE_METADATA",
+        "active": true,
+        "defaultEnabledOverride": false,
+        "defaultEnabled": false,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "TIME_USE_DIARY",
+        "id": "time_use_diary",
+        "privacyClass": "BEHAVIORAL_METADATA",
+        "active": false,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": true,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "APP_INVENTORY",
+        "id": "app_inventory",
+        "privacyClass": "DEVICE_CAPABILITY",
+        "active": false,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": true,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "GAZE_TRACKING",
+        "id": "gaze_tracking",
+        "privacyClass": "GAZE_TELEMETRY",
+        "active": false,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "INTERACTION_CONTENT",
+        "id": "interaction_content",
+        "privacyClass": "SCREEN_CONTENT",
+        "active": false,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "LOCATION",
+        "id": "location",
+        "privacyClass": "PRECISE_LOCATION",
+        "active": false,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "COMMUNICATION_LOG",
+        "id": "communication_log",
+        "privacyClass": "COMMUNICATION_METADATA",
+        "active": false,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      },
+      {
+        "enumName": "HARDWARE_SENSORS",
+        "id": "hardware_sensors",
+        "privacyClass": "PHYSICAL_TELEMETRY",
+        "active": false,
+        "defaultEnabledOverride": null,
+        "defaultEnabled": false,
+        "androidSensorModule": false,
+        "activeDefaultEnabled": false
+      }
+    ],
+    "activeCollectionModuleIds": [
+      "usage_events",
+      "in_app_activity_class",
+      "device_lifecycle",
+      "user_identification",
+      "upload_telemetry",
+      "sensor_availability",
+      "questionnaire",
+      "battery_telemetry",
+      "sensor_accelerometer",
+      "sensor_gyroscope",
+      "sensor_magnetometer",
+      "sensor_gravity",
+      "sensor_linear_acceleration",
+      "sensor_rotation_vector",
+      "sensor_step_counter",
+      "sensor_light",
+      "sensor_proximity",
+      "sensor_significant_motion",
+      "sensor_tilt_detector",
+      "sensor_screen_orientation",
+      "interaction_events",
+      "audio_activity",
+      "audio_content",
+      "notification_activity",
+      "ambient_audio",
+      "sleep",
+      "activity_recognition",
+      "health_connect",
+      "connectivity_state",
+      "app_network_usage",
+      "device_settings"
+    ],
+    "activeDefaultEnabledCollectionModuleIds": [
+      "usage_events",
+      "device_lifecycle",
+      "upload_telemetry",
+      "sensor_availability",
+      "questionnaire",
+      "battery_telemetry"
+    ],
+    "inactiveCollectionModuleIds": [
+      "sensor_samsung_grip_wifi",
+      "sensor_samsung_motion",
+      "time_use_diary",
+      "app_inventory",
+      "gaze_tracking",
+      "interaction_content",
+      "location",
+      "communication_log",
+      "hardware_sensors"
+    ],
+    "androidSensorModuleIds": [
+      "sensor_accelerometer",
+      "sensor_gyroscope",
+      "sensor_magnetometer",
+      "sensor_gravity",
+      "sensor_linear_acceleration",
+      "sensor_rotation_vector",
+      "sensor_step_counter",
+      "sensor_light",
+      "sensor_proximity",
+      "sensor_significant_motion",
+      "sensor_tilt_detector",
+      "sensor_screen_orientation",
+      "sensor_samsung_grip_wifi",
+      "sensor_samsung_motion"
+    ],
+    "privacyClasses": [
+      {
+        "name": "BEHAVIORAL_METADATA",
+        "defaultEnabled": true
+      },
+      {
+        "name": "DEVICE_STATE_METADATA",
+        "defaultEnabled": true
+      },
+      {
+        "name": "PHYSICAL_TELEMETRY",
+        "defaultEnabled": false
+      },
+      {
+        "name": "LOCAL_PARTICIPANT_LABEL",
+        "defaultEnabled": false
+      },
+      {
+        "name": "OPERATIONAL_DIAGNOSTICS",
+        "defaultEnabled": true
+      },
+      {
+        "name": "DEVICE_CAPABILITY",
+        "defaultEnabled": true
+      },
+      {
+        "name": "MEDIA_CONTENT",
+        "defaultEnabled": false
+      },
+      {
+        "name": "INTERACTION_METADATA",
+        "defaultEnabled": false
+      },
+      {
+        "name": "GAZE_TELEMETRY",
+        "defaultEnabled": false
+      },
+      {
+        "name": "SCREEN_CONTENT",
+        "defaultEnabled": false
+      },
+      {
+        "name": "PRECISE_LOCATION",
+        "defaultEnabled": false
+      },
+      {
+        "name": "HEALTH_METRICS",
+        "defaultEnabled": false
+      },
+      {
+        "name": "AMBIENT_AUDIO_CONTEXT",
+        "defaultEnabled": false
+      },
+      {
+        "name": "COMMUNICATION_METADATA",
+        "defaultEnabled": false
+      }
+    ],
+    "androidSensorTypes": [
+      "accelerometer",
+      "gyroscope",
+      "magnetometer",
+      "gravity",
+      "linearAcceleration",
+      "rotationVector",
+      "stepCounter",
+      "light",
+      "proximity",
+      "significantMotion",
+      "tiltDetector",
+      "screenOrientation",
+      "samsungGripWifi",
+      "samsungMotion"
+    ],
+    "androidSensorMappings": [
+      {
+        "androidSensorType": "accelerometer",
+        "collectionModuleId": "sensor_accelerometer",
+        "collectionModuleEnum": "SENSOR_ACCELEROMETER",
+        "active": true,
+        "displayOrder": 0
+      },
+      {
+        "androidSensorType": "light",
+        "collectionModuleId": "sensor_light",
+        "collectionModuleEnum": "SENSOR_LIGHT",
+        "active": true,
+        "displayOrder": 1
+      },
+      {
+        "androidSensorType": "proximity",
+        "collectionModuleId": "sensor_proximity",
+        "collectionModuleEnum": "SENSOR_PROXIMITY",
+        "active": true,
+        "displayOrder": 2
+      },
+      {
+        "androidSensorType": "screenOrientation",
+        "collectionModuleId": "sensor_screen_orientation",
+        "collectionModuleEnum": "SENSOR_SCREEN_ORIENTATION",
+        "active": true,
+        "displayOrder": 3
+      },
+      {
+        "androidSensorType": "stepCounter",
+        "collectionModuleId": "sensor_step_counter",
+        "collectionModuleEnum": "SENSOR_STEP_COUNTER",
+        "active": true,
+        "displayOrder": 4
+      },
+      {
+        "androidSensorType": "gyroscope",
+        "collectionModuleId": "sensor_gyroscope",
+        "collectionModuleEnum": "SENSOR_GYROSCOPE",
+        "active": true,
+        "displayOrder": 5
+      },
+      {
+        "androidSensorType": "magnetometer",
+        "collectionModuleId": "sensor_magnetometer",
+        "collectionModuleEnum": "SENSOR_MAGNETOMETER",
+        "active": true,
+        "displayOrder": 6
+      },
+      {
+        "androidSensorType": "gravity",
+        "collectionModuleId": "sensor_gravity",
+        "collectionModuleEnum": "SENSOR_GRAVITY",
+        "active": true,
+        "displayOrder": 7
+      },
+      {
+        "androidSensorType": "linearAcceleration",
+        "collectionModuleId": "sensor_linear_acceleration",
+        "collectionModuleEnum": "SENSOR_LINEAR_ACCELERATION",
+        "active": true,
+        "displayOrder": 8
+      },
+      {
+        "androidSensorType": "rotationVector",
+        "collectionModuleId": "sensor_rotation_vector",
+        "collectionModuleEnum": "SENSOR_ROTATION_VECTOR",
+        "active": true,
+        "displayOrder": 9
+      },
+      {
+        "androidSensorType": "significantMotion",
+        "collectionModuleId": "sensor_significant_motion",
+        "collectionModuleEnum": "SENSOR_SIGNIFICANT_MOTION",
+        "active": true,
+        "displayOrder": 10
+      },
+      {
+        "androidSensorType": "tiltDetector",
+        "collectionModuleId": "sensor_tilt_detector",
+        "collectionModuleEnum": "SENSOR_TILT_DETECTOR",
+        "active": true,
+        "displayOrder": 11
+      },
+      {
+        "androidSensorType": "samsungGripWifi",
+        "collectionModuleId": "sensor_samsung_grip_wifi",
+        "collectionModuleEnum": "SENSOR_SAMSUNG_GRIP_WIFI",
+        "active": false,
+        "displayOrder": 12
+      },
+      {
+        "androidSensorType": "samsungMotion",
+        "collectionModuleId": "sensor_samsung_motion",
+        "collectionModuleEnum": "SENSOR_SAMSUNG_MOTION",
+        "active": false,
+        "displayOrder": 13
+      }
+    ],
+    "iosSensorTypes": [
+      "deviceUsage",
+      "keyboardMetrics",
+      "messagesUsage",
+      "phoneUsage",
+      "accelerometer",
+      "pedometer",
+      "motionActivity"
+    ],
+    "studyFeatures": [
+      "APP_USAGE",
+      "APP_USAGE_SURVEY",
+      "TIME_USE_DIARY",
+      "ARCHIVE",
+      "IOS_SENSOR",
+      "ANDROID_SENSOR",
+      "CHRONICLE_SURVEYS",
+      "CHRONICLE",
+      "CHRONICLE_DATA_COLLECTION"
+    ],
+    "participantDataTypes": [
+      "UsageEvents",
+      "Preprocessed",
+      "AppUsageSurvey",
+      "IOSSensor",
+      "AndroidSensor",
+      "SensorAvailability",
+      "BatteryTelemetry",
+      "InteractionEvents",
+      "AudioActivity",
+      "AudioContent",
+      "NotificationActivity",
+      "SleepEvents",
+      "ActivityRecognition",
+      "HealthMetrics",
+      "ConnectivityState",
+      "AppNetworkUsage",
+      "DeviceSettings"
+    ],
+    "participationStatuses": [
+      "ENROLLED",
+      "NOT_ENROLLED",
+      "PAUSED",
+      "COLLECTION_COMPLETED",
+      "UNKNOWN"
+    ],
+    "studyLifecycleStatuses": [
+      "ACTIVE",
+      "ARCHIVED",
+      "SCHEDULED_FOR_DELETION"
+    ],
+    "consentTriggers": [
+      "ENROLLMENT",
+      "PARTICIPANT_TOGGLE",
+      "SETTINGS_CHANGE",
+      "WITHDRAWAL"
+    ],
+    "collectionDataDispositions": [
+      {
+        "enumName": "FLUSH_THEN_STOP",
+        "id": "flush_then_stop"
+      },
+      {
+        "enumName": "DISCARD_AND_STOP",
+        "id": "discard_and_stop"
+      },
+      {
+        "enumName": "HOLD_PENDING",
+        "id": "hold_pending"
+      }
+    ]
+  },
+  "compatibility": {
+    "unknownCollectionModuleIds": "Consumers that support tolerant settings decode should ignore unknown module ids.",
+    "inactiveCollectionModuleIds": "Inactive ids are decode-compatible and must not be offered as active collection modules.",
+    "generatedConsumers": "Generated consumers must preserve unknown-value handling appropriate to their platform boundary."
+  }
+}

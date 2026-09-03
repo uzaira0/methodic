@@ -1,0 +1,965 @@
+---
+- name: Assert RHEL 9 host
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.os_family == "RedHat"
+      - ansible_facts.distribution_major_version | int == 9
+    fail_msg: "Chronicle Kubernetes platform automation is currently scoped to RHEL 9."
+
+- name: Install base operator packages
+  ansible.builtin.package:
+    name:
+      - chrony
+      - container-selinux
+      - aide
+      - audit
+      - bash-completion
+      - bind-utils
+      - dnf-plugins-core
+      - dnf-automatic
+      - firewalld
+      - git
+      - at
+      - authselect
+      - cronie
+      - jq
+      - logrotate
+      - lsof
+      - openscap-scanner
+      - openssl
+      - policycoreutils-python-utils
+      - procps-ng
+      - rsync
+      - scap-security-guide
+      - sos
+      - tar
+      - tmux
+      - unzip
+      - vim-minimal
+    state: present
+
+- name: Install journald remote package for CIS evidence readiness
+  ansible.builtin.package:
+    name: systemd-journal-remote
+    state: present
+  when: chronicle_manage_journal_remote_package | bool
+
+- name: Keep unused journald remote listener disabled
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+    masked: true
+  loop:
+    - systemd-journal-remote.socket
+    - systemd-journal-remote.service
+  when: chronicle_manage_journal_remote_package | bool
+
+- name: Remove legacy network service packages
+  ansible.builtin.package:
+    name: "{{ chronicle_legacy_packages_absent }}"
+    state: absent
+  when: chronicle_manage_legacy_package_removal | bool
+
+- name: Gather service state for legacy service hardening
+  ansible.builtin.service_facts:
+  when: chronicle_manage_legacy_service_hardening | bool
+
+- name: Disable and mask legacy network services
+  ansible.builtin.systemd:
+    name: "{{ item }}.service"
+    state: stopped
+    enabled: false
+    masked: true
+  loop: "{{ chronicle_legacy_services_disabled }}"
+  when:
+    - chronicle_manage_legacy_service_hardening | bool
+    - (item ~ '.service') in ansible_facts.services
+
+- name: Ensure login banners exist before SSH daemon validation
+  ansible.builtin.copy:
+    dest: "{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ chronicle_login_banner }}"
+  loop:
+    - /etc/issue
+    - /etc/issue.net
+  when: chronicle_manage_login_banners | bool
+
+- name: Configure Chronicle SSH daemon hardening
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/40-chronicle-hardening.conf
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      Banner /etc/issue.net
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      ChallengeResponseAuthentication no
+      X11Forwarding no
+      AllowAgentForwarding no
+      HostbasedAuthentication no
+      IgnoreRhosts yes
+      LogLevel VERBOSE
+      MaxAuthTries 3
+      MaxSessions 10
+      MaxStartups 10:30:60
+      PermitEmptyPasswords no
+      PermitUserEnvironment no
+      LoginGraceTime 30
+      ClientAliveInterval {{ chronicle_ssh_client_alive_interval }}
+      ClientAliveCountMax {{ chronicle_ssh_client_alive_count_max }}
+      {% if chronicle_ssh_allow_users | length > 0 %}
+      AllowUsers {{ chronicle_ssh_allow_users | join(' ') }}
+      {% endif %}
+  register: chronicle_sshd_hardening
+  when: chronicle_manage_ssh_hardening | bool
+
+- name: Remove superseded Chronicle SSH daemon hardening drop-in
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config.d/90-chronicle-hardening.conf
+    state: absent
+  register: chronicle_old_sshd_hardening
+  when: chronicle_manage_ssh_hardening | bool
+
+- name: Validate SSH daemon configuration
+  ansible.builtin.command: sshd -t
+  changed_when: false
+  when:
+    - chronicle_manage_ssh_hardening | bool
+    - chronicle_sshd_hardening.changed or chronicle_old_sshd_hardening.changed
+
+- name: Restart SSH daemon after hardening changes
+  ansible.builtin.service:
+    name: sshd
+    state: restarted
+  when:
+    - chronicle_manage_ssh_hardening | bool
+    - chronicle_sshd_hardening.changed or chronicle_old_sshd_hardening.changed
+
+- name: Configure local login banner
+  ansible.builtin.copy:
+    dest: /etc/issue
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ chronicle_login_banner }}"
+  when: chronicle_manage_login_banners | bool
+
+- name: Configure remote login banner
+  ansible.builtin.copy:
+    dest: /etc/issue.net
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ chronicle_login_banner }}"
+  when: chronicle_manage_login_banners | bool
+
+- name: Configure interactive shell session timeout and umask
+  ansible.builtin.copy:
+    dest: /etc/profile.d/90-chronicle-session-defaults.sh
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Chronicle Ansible baseline.
+      typeset -xr TMOUT={{ chronicle_session_timeout_seconds }}
+      umask {{ chronicle_shell_umask }}
+  when: chronicle_manage_session_defaults | bool
+
+- name: Expose default shell umask in bashrc for CIS scanners
+  ansible.builtin.blockinfile:
+    path: /etc/bashrc
+    owner: root
+    group: root
+    mode: "0644"
+    marker: "# {mark} CHRONICLE CIS UMASK"
+    block: |
+      umask {{ chronicle_shell_umask }}
+  when: chronicle_manage_session_defaults | bool
+
+- name: Align bashrc fallback umask with Chronicle baseline
+  ansible.builtin.replace:
+    path: /etc/bashrc
+    regexp: 'umask 022'
+    replace: "umask {{ chronicle_shell_umask }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: chronicle_manage_session_defaults | bool
+
+- name: Configure login.defs account defaults
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { regexp: '^PASS_MAX_DAYS\s+', line: "PASS_MAX_DAYS   {{ chronicle_password_max_days }}" }
+    - { regexp: '^PASS_MIN_DAYS\s+', line: "PASS_MIN_DAYS   {{ chronicle_password_min_days }}" }
+    - { regexp: '^PASS_WARN_AGE\s+', line: "PASS_WARN_AGE   {{ chronicle_password_warn_age }}" }
+    - { regexp: '^UMASK\s+', line: "UMASK           {{ chronicle_shell_umask }}" }
+    - { regexp: '^ENCRYPT_METHOD\s+', line: "ENCRYPT_METHOD {{ chronicle_password_hashing_algorithm }}" }
+  when: chronicle_manage_account_policy | bool
+
+- name: Configure default inactive lock for new accounts
+  ansible.builtin.lineinfile:
+    path: /etc/default/useradd
+    regexp: '^INACTIVE='
+    line: "INACTIVE={{ chronicle_inactive_account_lock_days }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: chronicle_manage_account_policy | bool
+
+- name: Select Chronicle authselect profile and security features
+  ansible.builtin.shell: |
+    set -euo pipefail
+    if ! authselect check >/dev/null 2>&1; then
+      echo "authselect integrity check failed; refusing to change profile" >&2
+      exit 1
+    fi
+
+    current_profile="$(authselect current -r 2>/dev/null | awk 'NR == 1 { print $1 }' || true)"
+    target_profile="$current_profile"
+    changed=0
+
+    if [ "{{ chronicle_manage_authselect_custom_profile | bool | lower }}" = "true" ]; then
+      target_profile="custom/{{ chronicle_authselect_custom_profile_name }}"
+      if [ ! -d "/etc/authselect/custom/{{ chronicle_authselect_custom_profile_name }}" ]; then
+        authselect create-profile "{{ chronicle_authselect_custom_profile_name }}" -b sssd
+        changed=1
+      fi
+    fi
+
+    if [ "$current_profile" != "$target_profile" ]; then
+      authselect select "$target_profile" {{ chronicle_authselect_features | join(' ') }} --force
+      changed=1
+    fi
+
+    current="$(authselect current || true)"
+    for feature in {{ chronicle_authselect_features | join(' ') }}; do
+      if ! printf '%s\n' "$current" | grep -Fqx "Enabled features: $feature" \
+         && ! printf '%s\n' "$current" | grep -Fqx -- "- $feature" \
+         && ! printf '%s\n' "$current" | grep -Fqx -- "$feature"; then
+        authselect enable-feature "$feature"
+        changed=1
+      fi
+    done
+    if [ "$changed" = "1" ]; then
+      authselect apply-changes
+    fi
+    echo "changed=$changed"
+  args:
+    executable: /bin/bash
+  register: chronicle_authselect_features_result
+  changed_when: "'changed=1' in chronicle_authselect_features_result.stdout"
+  when: chronicle_manage_pam_hardening | bool
+
+- name: Restore SELinux labels after authselect profile changes
+  ansible.builtin.command: >
+    restorecon -RFv
+    /etc/authselect/custom/{{ chronicle_authselect_custom_profile_name }}
+    /etc/dconf/db/distro.d
+    /etc/nsswitch.conf
+    /etc/pam.d
+  register: chronicle_authselect_restorecon
+  changed_when: chronicle_authselect_restorecon.stdout | length > 0
+  when:
+    - chronicle_manage_pam_hardening | bool
+    - chronicle_manage_authselect_custom_profile | bool
+
+- name: Configure faillock policy
+  ansible.builtin.lineinfile:
+    path: /etc/security/faillock.conf
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { regexp: '^deny\s*=', line: "deny = {{ chronicle_faillock_deny }}" }
+    - { regexp: '^fail_interval\s*=', line: "fail_interval = {{ chronicle_faillock_fail_interval }}" }
+    - { regexp: '^unlock_time\s*=', line: "unlock_time = {{ chronicle_faillock_unlock_time }}" }
+    - { regexp: '^root_unlock_time\s*=', line: "root_unlock_time = {{ chronicle_faillock_root_unlock_time }}" }
+    - { regexp: '^even_deny_root\s*$', line: "even_deny_root" }
+  when: chronicle_manage_pam_hardening | bool
+
+- name: Configure password quality policy directory
+  ansible.builtin.file:
+    path: /etc/security/pwquality.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: chronicle_manage_pam_hardening | bool
+
+- name: Configure password quality policy
+  ansible.builtin.copy:
+    dest: /etc/security/pwquality.conf.d/90-chronicle.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      minlen = {{ chronicle_pwquality_minlen }}
+      maxrepeat = {{ chronicle_pwquality_maxrepeat }}
+      difok = {{ chronicle_pwquality_difok }}
+      minclass = {{ chronicle_pwquality_minclass }}
+      maxsequence = {{ chronicle_pwquality_maxsequence }}
+      dcredit = -1
+      ucredit = -1
+      lcredit = -1
+      ocredit = -1
+      dictcheck = 1
+      enforce_for_root
+  when: chronicle_manage_pam_hardening | bool
+
+- name: Configure password history policy
+  ansible.builtin.copy:
+    dest: /etc/security/pwhistory.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      remember = {{ chronicle_pwhistory_remember }}
+      enforce_for_root
+  when: chronicle_manage_pam_hardening | bool
+
+- name: Ensure su wheel group exists
+  ansible.builtin.group:
+    name: "{{ chronicle_su_wheel_group }}"
+    state: present
+  when:
+    - chronicle_manage_pam_hardening | bool
+    - chronicle_manage_su_wheel_hardening | bool
+
+- name: Keep su wheel group empty
+  ansible.builtin.command: "gpasswd -M '' {{ chronicle_su_wheel_group }}"
+  register: chronicle_su_wheel_empty
+  changed_when: "'Members' in chronicle_su_wheel_empty.stdout"
+  when:
+    - chronicle_manage_pam_hardening | bool
+    - chronicle_manage_su_wheel_hardening | bool
+
+- name: Require pam_wheel for su
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/su
+    regexp: '^#?auth\s+required\s+pam_wheel\.so.*'
+    line: "auth required pam_wheel.so use_uid group={{ chronicle_su_wheel_group }}"
+    insertafter: '^#%PAM-1\.0'
+    owner: root
+    group: root
+    mode: "0644"
+  when:
+    - chronicle_manage_pam_hardening | bool
+    - chronicle_manage_su_wheel_hardening | bool
+
+- name: Restrict user initialization file permissions
+  ansible.builtin.shell: |
+    set -o pipefail
+    changed=0
+    while IFS= read -r -d '' path; do
+      mode="$(stat -c %a "$path")"
+      if [ $(( 8#$mode & 037 )) -ne 0 ]; then
+        chmod go-rwx "$path"
+        changed=1
+      fi
+    done < <(find /root /home -xdev -type f -name '.*' -perm /037 -print0 2>/dev/null)
+    echo "changed=${changed}"
+  args:
+    executable: /bin/bash
+  register: chronicle_user_init_permissions
+  changed_when: "'changed=1' in chronicle_user_init_permissions.stdout"
+  when: chronicle_manage_user_init_file_permissions | bool
+
+- name: Configure Chronicle sudo defaults
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/40-chronicle-defaults
+    owner: root
+    group: root
+    mode: "0440"
+    content: |
+      Defaults use_pty
+      Defaults timestamp_timeout=5
+      Defaults logfile="/var/log/sudo.log"
+  register: chronicle_sudo_hardening
+  when: chronicle_manage_sudo_hardening | bool
+
+- name: Validate sudoers configuration
+  ansible.builtin.command: visudo -cf /etc/sudoers
+  changed_when: false
+  when:
+    - chronicle_manage_sudo_hardening | bool
+    - chronicle_sudo_hardening.changed
+
+- name: Configure kernel hardening sysctls
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/90-chronicle-rhel9.conf
+    state: present
+    reload: true
+  loop: "{{ chronicle_kernel_sysctl | dict2items }}"
+  when: chronicle_manage_kernel_sysctl | bool
+
+- name: Disable unused kernel modules
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/90-chronicle-disabled-filesystems.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {% for module in chronicle_disabled_kernel_modules %}
+      install {{ module }} /bin/false
+      blacklist {{ module }}
+      {% endfor %}
+  when: chronicle_manage_kernel_module_hardening | bool
+
+- name: Harden /dev/shm mount options
+  ansible.posix.mount:
+    path: /dev/shm
+    src: tmpfs
+    fstype: tmpfs
+    opts: "{{ chronicle_dev_shm_opts }}"
+    state: mounted
+  when: chronicle_manage_dev_shm_hardening | bool
+
+- name: Create systemd coredump drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/coredump.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: chronicle_manage_coredump_hardening | bool
+
+- name: Disable persistent coredump storage
+  ansible.builtin.copy:
+    dest: /etc/systemd/coredump.conf.d/90-chronicle.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Coredump]
+      Storage=none
+      ProcessSizeMax=0
+  register: chronicle_coredump_config
+  when: chronicle_manage_coredump_hardening | bool
+
+- name: Restart systemd-coredump socket after hardening changes
+  ansible.builtin.service:
+    name: systemd-coredump.socket
+    state: restarted
+  when:
+    - chronicle_manage_coredump_hardening | bool
+    - chronicle_coredump_config.changed
+
+- name: Check Chronicle swap file
+  ansible.builtin.stat:
+    path: "{{ chronicle_swap_file_path }}"
+  register: chronicle_swap_file_stat
+  when: chronicle_swap_enabled | bool
+
+- name: Create Chronicle swap file
+  ansible.builtin.command: "fallocate -l {{ chronicle_swap_size_mib }}M {{ chronicle_swap_file_path }}"
+  args:
+    creates: "{{ chronicle_swap_file_path }}"
+  when: chronicle_swap_enabled | bool
+
+- name: Restrict Chronicle swap file permissions
+  ansible.builtin.file:
+    path: "{{ chronicle_swap_file_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  when: chronicle_swap_enabled | bool
+
+- name: Format Chronicle swap file
+  ansible.builtin.command: "mkswap {{ chronicle_swap_file_path }}"
+  when:
+    - chronicle_swap_enabled | bool
+    - not chronicle_swap_file_stat.stat.exists
+
+- name: Persist Chronicle swap file
+  ansible.posix.mount:
+    name: none
+    src: "{{ chronicle_swap_file_path }}"
+    fstype: swap
+    opts: sw
+    passno: "0"
+    dump: "0"
+    state: present
+  when: chronicle_swap_enabled | bool
+
+- name: Enable Chronicle swap file
+  ansible.builtin.shell: |
+    set -o pipefail
+    if ! swapon --noheadings --show=NAME | grep -Fxq "{{ chronicle_swap_file_path }}"; then
+      swapon "{{ chronicle_swap_file_path }}"
+      echo enabled
+    fi
+  args:
+    executable: /bin/bash
+  register: chronicle_swapon
+  changed_when: chronicle_swapon.stdout != ""
+  when: chronicle_swap_enabled | bool
+
+- name: Configure conservative swap tendency
+  ansible.posix.sysctl:
+    name: vm.swappiness
+    value: "{{ chronicle_swap_swappiness }}"
+    sysctl_file: /etc/sysctl.d/90-chronicle-rhel9.conf
+    state: present
+    reload: true
+  when: chronicle_swap_enabled | bool
+
+- name: Create persistent journal directory
+  ansible.builtin.file:
+    path: /var/log/journal
+    state: directory
+    owner: root
+    group: systemd-journal
+    mode: "2755"
+  when: chronicle_manage_journald | bool
+
+- name: Create journald drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: chronicle_manage_journald | bool
+
+- name: Configure bounded persistent journald storage
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/90-chronicle.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Journal]
+      Storage=persistent
+      Compress=yes
+      SystemMaxUse={{ chronicle_journald_system_max_use }}
+      RuntimeMaxUse={{ chronicle_journald_runtime_max_use }}
+      MaxRetentionSec={{ chronicle_journald_max_retention_sec }}
+      RateLimitIntervalSec={{ chronicle_journald_rate_limit_interval_sec }}
+      RateLimitBurst={{ chronicle_journald_rate_limit_burst }}
+      Seal={{ 'yes' if chronicle_journald_seal | bool else 'no' }}
+  register: chronicle_journald_config
+  when: chronicle_manage_journald | bool
+
+- name: Restart systemd-journald after config changes
+  ansible.builtin.service:
+    name: systemd-journald
+    state: restarted
+  when:
+    - chronicle_manage_journald | bool
+    - chronicle_journald_config.changed
+
+- name: Configure dnf-automatic security update policy
+  community.general.ini_file:
+    path: /etc/dnf/automatic.conf
+    section: "{{ item.section }}"
+    option: "{{ item.option }}"
+    value: "{{ item.value }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { section: commands, option: upgrade_type, value: security }
+    - { section: commands, option: download_updates, value: "yes" }
+    - { section: commands, option: apply_updates, value: "{{ 'yes' if chronicle_dnf_automatic_apply_updates | bool else 'no' }}" }
+    - { section: emitters, option: emit_via, value: stdio }
+  when: chronicle_manage_dnf_automatic | bool
+
+- name: Enable dnf-automatic timer
+  ansible.builtin.service:
+    name: dnf-automatic.timer
+    state: started
+    enabled: true
+  when: chronicle_manage_dnf_automatic | bool
+
+- name: Configure auditd retention
+  community.general.ini_file:
+    path: /etc/audit/auditd.conf
+    section: null
+    option: "{{ item.option }}"
+    value: "{{ item.value }}"
+    owner: root
+    group: root
+    mode: "0640"
+    no_extra_spaces: false
+  loop:
+    - { option: max_log_file, value: "{{ chronicle_auditd_max_log_file_mb }}" }
+    - { option: num_logs, value: "{{ chronicle_auditd_num_logs }}" }
+    - { option: max_log_file_action, value: ROTATE }
+    - { option: space_left_action, value: SYSLOG }
+    - { option: admin_space_left_action, value: SUSPEND }
+    - { option: disk_full_action, value: SUSPEND }
+    - { option: disk_error_action, value: SUSPEND }
+    - { option: name_format, value: "{{ chronicle_auditd_name_format }}" }
+  when: chronicle_manage_auditd_retention | bool
+
+- name: Configure Chronicle audit rules
+  ansible.builtin.copy:
+    dest: /etc/audit/rules.d/90-chronicle.rules
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      -w /etc/passwd -p wa -k identity
+      -w /etc/group -p wa -k identity
+      -w /etc/shadow -p wa -k identity
+      -w /etc/gshadow -p wa -k identity
+      -w /etc/sudoers -p wa -k scope
+      -w /etc/sudoers.d/ -p wa -k scope
+      -w /etc/ssh/sshd_config -p wa -k sshd
+      -w /etc/ssh/sshd_config.d/ -p wa -k sshd
+      -w /etc/issue -p wa -k login-banner
+      -w /etc/issue.net -p wa -k login-banner
+      -w /etc/login.defs -p wa -k account-policy
+      -w /etc/default/useradd -p wa -k account-policy
+      -w /etc/pam.d/ -p wa -k pam
+      -w /etc/authselect/ -p wa -k pam
+      -w /etc/security/faillock.conf -p wa -k pam
+      -w /etc/security/pwquality.conf.d/ -p wa -k pam
+      -w /etc/security/pwhistory.conf -p wa -k pam
+      -w /etc/crontab -p wa -k cron
+      -w /etc/cron.d/ -p wa -k cron
+      -w /etc/cron.daily/ -p wa -k cron
+      -w /etc/cron.hourly/ -p wa -k cron
+      -w /etc/cron.monthly/ -p wa -k cron
+      -w /etc/cron.weekly/ -p wa -k cron
+      -w /etc/cron.allow -p wa -k cron
+      -w /etc/at.allow -p wa -k cron
+      -w /etc/modprobe.d/ -p wa -k kernel-modules
+      -w /etc/systemd/coredump.conf.d/ -p wa -k coredump
+      -w /etc/rancher/rke2/ -p wa -k rke2
+      -w /var/lib/rancher/rke2/server/tls/ -p wa -k rke2-tls
+      -w /etc/systemd/system/ -p wa -k systemd
+      -w /usr/lib/systemd/system/ -p wa -k systemd
+      -w /etc/sysctl.d/ -p wa -k sysctl
+      -w /etc/audit/ -p wa -k auditconfig
+      -a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -k time-change
+      -a always,exit -F arch=b32 -S adjtimex,settimeofday,clock_settime -k time-change
+      -a always,exit -F arch=b64 -S sethostname,setdomainname -k system-locale
+      -a always,exit -F arch=b32 -S sethostname,setdomainname -k system-locale
+      -a always,exit -F arch=b64 -S execve -C uid!=euid -F euid=0 -k privileged-command
+      -a always,exit -F arch=b32 -S execve -C uid!=euid -F euid=0 -k privileged-command
+      -a always,exit -F arch=b64 -S setuid,setgid,setreuid,setregid,setresuid,setresgid -k identity-change
+      -a always,exit -F arch=b32 -S setuid,setgid,setreuid,setregid,setresuid,setresgid -k identity-change
+      -a always,exit -F arch=b64 -S init_module,finit_module,delete_module -k kernel-modules
+      -a always,exit -F arch=b32 -S init_module,delete_module -k kernel-modules
+  register: chronicle_audit_rules
+  when: chronicle_manage_auditd | bool
+
+- name: Enable auditd
+  ansible.builtin.service:
+    name: auditd
+    state: started
+    enabled: true
+  when: chronicle_manage_auditd | bool
+
+- name: Load Chronicle audit rules
+  ansible.builtin.command: augenrules --load
+  changed_when: chronicle_audit_rules.changed
+  when:
+    - chronicle_manage_auditd | bool
+    - chronicle_audit_rules.changed
+
+- name: Configure Chronicle logrotate policy
+  ansible.builtin.copy:
+    dest: /etc/logrotate.d/chronicle
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      /var/log/chronicle/*.log {
+          daily
+          rotate 30
+          missingok
+          notifempty
+          compress
+          delaycompress
+          copytruncate
+          create 0640 root root
+      }
+  when: chronicle_manage_logrotate | bool
+
+- name: Create Chronicle log directory
+  ansible.builtin.file:
+    path: /var/log/chronicle
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  when: chronicle_manage_logrotate | bool
+
+- name: Configure sudo log rotation
+  ansible.builtin.copy:
+    dest: /etc/logrotate.d/chronicle-sudo
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      /var/log/sudo.log {
+          weekly
+          rotate 12
+          missingok
+          notifempty
+          compress
+          delaycompress
+          create 0600 root root
+      }
+  when: chronicle_manage_sudo_hardening | bool
+
+- name: Harden identity file permissions
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop: "{{ chronicle_identity_file_permissions }}"
+  when:
+    - chronicle_manage_identity_file_permissions | bool
+
+- name: Stat bootloader config files
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ chronicle_boot_config_files }}"
+  register: chronicle_boot_config_stats
+  when: chronicle_manage_boot_config_permissions | bool
+
+- name: Harden bootloader config file permissions
+  ansible.builtin.file:
+    path: "{{ item.stat.path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  loop: "{{ chronicle_boot_config_stats.results | default([]) }}"
+  when:
+    - chronicle_manage_boot_config_permissions | bool
+    - item.stat.exists
+    - item.stat.isreg
+
+- name: Restrict cron and at system files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+    state: "{{ item.state | default('file') }}"
+  loop:
+    - { path: /etc/crontab, mode: "0600" }
+    - { path: /etc/cron.hourly, mode: "0700", state: directory }
+    - { path: /etc/cron.daily, mode: "0700", state: directory }
+    - { path: /etc/cron.weekly, mode: "0700", state: directory }
+    - { path: /etc/cron.monthly, mode: "0700", state: directory }
+    - { path: /etc/cron.d, mode: "0700", state: directory }
+  when: chronicle_manage_cron_at_hardening | bool
+
+- name: Configure cron allowlist
+  ansible.builtin.copy:
+    dest: /etc/cron.allow
+    owner: root
+    group: root
+    mode: "0600"
+    content: "{{ chronicle_cron_allowed_users | join('\n') }}\n"
+  when: chronicle_manage_cron_at_hardening | bool
+
+- name: Configure at allowlist
+  ansible.builtin.copy:
+    dest: /etc/at.allow
+    owner: root
+    group: root
+    mode: "0600"
+    content: "{{ chronicle_at_allowed_users | join('\n') }}\n"
+  when: chronicle_manage_cron_at_hardening | bool
+
+- name: Remove cron and at deny files when allowlists are managed
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/cron.deny
+    - /etc/at.deny
+  when: chronicle_manage_cron_at_hardening | bool
+
+- name: Check active AIDE database
+  ansible.builtin.stat:
+    path: /var/lib/aide/aide.db.gz
+  register: chronicle_aide_db
+  when: chronicle_manage_aide | bool
+
+- name: Initialize AIDE database
+  ansible.builtin.command: aide --init
+  when:
+    - chronicle_manage_aide | bool
+    - not chronicle_aide_db.stat.exists
+
+- name: Activate initialized AIDE database
+  ansible.builtin.copy:
+    src: /var/lib/aide/aide.db.new.gz
+    dest: /var/lib/aide/aide.db.gz
+    owner: root
+    group: root
+    mode: "0600"
+    remote_src: true
+  when:
+    - chronicle_manage_aide | bool
+    - not chronicle_aide_db.stat.exists
+
+- name: Configure AIDE periodic check service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/chronicle-aide-check.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Chronicle AIDE integrity check
+      Documentation=man:aide(1)
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/sbin/aide --check
+      StandardOutput=append:/var/log/chronicle/aide-check.log
+      StandardError=append:/var/log/chronicle/aide-check.log
+      Nice=10
+      IOSchedulingClass=best-effort
+      IOSchedulingPriority=7
+  register: chronicle_aide_check_service
+  when:
+    - chronicle_manage_aide | bool
+    - chronicle_manage_aide_timer | bool
+
+- name: Configure AIDE periodic check timer
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/chronicle-aide-check.timer
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Run Chronicle AIDE integrity check daily
+
+      [Timer]
+      OnCalendar={{ chronicle_aide_timer_on_calendar }}
+      Persistent=true
+      RandomizedDelaySec=20m
+
+      [Install]
+      WantedBy=timers.target
+  register: chronicle_aide_check_timer
+  when:
+    - chronicle_manage_aide | bool
+    - chronicle_manage_aide_timer | bool
+
+- name: Reload systemd after AIDE timer changes
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when:
+    - chronicle_manage_aide | bool
+    - chronicle_manage_aide_timer | bool
+    - chronicle_aide_check_service.changed or chronicle_aide_check_timer.changed
+
+- name: Enable AIDE periodic check timer
+  ansible.builtin.service:
+    name: chronicle-aide-check.timer
+    state: started
+    enabled: true
+  when:
+    - chronicle_manage_aide | bool
+    - chronicle_manage_aide_timer | bool
+
+- name: Configure AIDE cron wrapper for OpenSCAP compatibility
+  ansible.builtin.copy:
+    dest: /etc/cron.d/chronicle-aide-openscap
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      {{ chronicle_aide_cron_minute }} {{ chronicle_aide_cron_hour }} * * * root /usr/sbin/aide --check
+  when:
+    - chronicle_manage_aide | bool
+    - chronicle_manage_aide_cron_for_openscap | bool
+
+- name: Configure AIDE coverage for audit tooling
+  ansible.builtin.blockinfile:
+    path: /etc/aide.conf
+    owner: root
+    group: root
+    mode: "0600"
+    marker: "# {mark} CHRONICLE AUDIT TOOL INTEGRITY"
+    insertbefore: '^# Now everything else'
+    block: |
+      /usr/sbin/auditctl p+i+n+u+g+s+b+acl+xattrs+sha512
+      /usr/sbin/auditd p+i+n+u+g+s+b+acl+xattrs+sha512
+      /usr/sbin/ausearch p+i+n+u+g+s+b+acl+xattrs+sha512
+      /usr/sbin/aureport p+i+n+u+g+s+b+acl+xattrs+sha512
+      /usr/sbin/autrace p+i+n+u+g+s+b+acl+xattrs+sha512
+      /usr/sbin/augenrules p+i+n+u+g+s+b+acl+xattrs+sha512
+      /usr/sbin/rsyslogd p+i+n+u+g+s+b+acl+xattrs+sha512
+  when: chronicle_manage_aide | bool
+
+- name: Keep chrony enabled
+  ansible.builtin.service:
+    name: chronyd
+    state: started
+    enabled: true
+
+- name: Keep SELinux enforcing
+  ansible.posix.selinux:
+    policy: targeted
+    state: enforcing
+
+- name: Enable firewalld unless single-node CNI compatibility requires otherwise
+  ansible.builtin.service:
+    name: firewalld
+    state: "{{ 'stopped' if chronicle_disable_firewalld_for_single_node_cni | default(false) | bool else 'started' }}"
+    enabled: "{{ false if chronicle_disable_firewalld_for_single_node_cni | default(false) | bool else true }}"
+
+- name: Open SSH when firewalld is enabled
+  ansible.posix.firewalld:
+    service: ssh
+    permanent: true
+    immediate: true
+    state: enabled
+  when: not (chronicle_disable_firewalld_for_single_node_cni | default(false) | bool)
+
+- name: Open HTTP/HTTPS when firewalld is enabled
+  ansible.posix.firewalld:
+    port: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop:
+    - 80/tcp
+    - 443/tcp
+  when: not (chronicle_disable_firewalld_for_single_node_cni | default(false) | bool)
+
+- name: Create Chronicle local storage root
+  ansible.builtin.file:
+    path: "{{ chronicle_local_path_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0770"
+
+- name: Label Chronicle local storage root for containers
+  community.general.sefcontext:
+    target: "{{ chronicle_local_path_root }}(/.*)?"
+    setype: container_file_t
+    state: present
+
+- name: Apply SELinux context to Chronicle local storage root
+  ansible.builtin.command: "restorecon -Rv {{ chronicle_local_path_root }}"
+  changed_when: false

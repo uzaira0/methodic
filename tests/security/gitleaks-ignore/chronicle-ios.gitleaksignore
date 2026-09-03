@@ -1,0 +1,3 @@
+# Historical/false-positive findings accepted 2026-07-11 (see local-ci gitleaks job).
+# All verified: deleted legacy files, test fixtures, age PUBLIC key, env-var template text.
+6a06b580f68986e9dbfa294b50ce3a707f7698be:secrets/recipients.txt:generic-api-key:12

@@ -1,0 +1,56 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: chronicle
+
+resources:
+  - namespace.yaml
+  - limits.yaml
+  - serviceaccounts.yaml
+  - external-secrets.yaml
+  - postgres.yaml
+  - keycloak.yaml
+  - backend.yaml
+  - frontend.yaml
+  - preprocessing-frontend.yaml
+  - apk-download.yaml
+  - gateway.yaml
+  - networkpolicies.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: chronicle
+
+configMapGenerator:
+  - name: chronicle-backend-config-templates
+    files:
+      - config-templates/rhizome.yaml.template
+      - config-templates/chronicle-auth.yaml.template
+      - config-templates/mail.yaml.template
+      - config-templates/mobile-security.yaml.template
+      - config-templates/vault.yaml.template
+      - config-templates/cors.yaml.template
+  - name: chronicle-postgres-init
+    files:
+      - postgres-init/10-init-db-roles.sql
+      - postgres-init/20-init-db-encryption.sh
+      - postgres-init/25-init-replication.sh
+      - postgres-init/30-init-audit-immutability.sh
+  - name: chronicle-apk-download-config
+    files:
+      - apk-download/nginx.apk-download.conf
+  - name: chronicle-preprocessing-frontend-config
+    files:
+      - preprocessing-frontend/nginx.preprocessing.conf
+  - name: keycloak-realm-template
+    files:
+      - realm-chronicle.json.template=keycloak/realm-chronicle.json.template
+
+images:
+  - name: ghcr.io/uzaira0/chronicle/chronicle-backend
+    newTag: sha-000000000000
+  - name: ghcr.io/uzaira0/chronicle/chronicle-frontend
+    newTag: sha-000000000000
+  - name: ghcr.io/uzaira0/chronicle/chronicle-keycloak
+    newTag: sha-000000000000

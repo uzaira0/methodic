@@ -1,0 +1,27 @@
+profile: "{{ chronicle_rke2_profile }}"
+secrets-encryption: true
+write-kubeconfig-mode: "0600"
+cni: "{{ chronicle_rke2_cni }}"
+ingress-controller: "{{ chronicle_rke2_ingress_controller }}"
+etcd-snapshot-dir: "{{ chronicle_rke2_etcd_snapshot_dir }}"
+etcd-snapshot-schedule-cron: "{{ chronicle_rke2_etcd_snapshot_schedule_cron }}"
+etcd-snapshot-retention: {{ chronicle_rke2_etcd_snapshot_retention }}
+disable:
+  - rke2-ingress-nginx
+tls-san:
+{% for san in chronicle_rke2_tls_sans %}
+  - "{{ san }}"
+{% endfor %}
+node-label:
+{% for label in chronicle_rke2_node_labels %}
+  - "{{ label }}"
+{% endfor %}
+kubelet-arg:
+{% set chronicle_effective_kubelet_args = chronicle_rke2_kubelet_args + (['fail-swap-on=false'] if chronicle_swap_enabled | default(false) | bool else []) %}
+{% for arg in chronicle_effective_kubelet_args | unique %}
+  - "{{ arg }}"
+{% endfor %}
+kube-apiserver-arg:
+{% for arg in chronicle_rke2_kube_apiserver_args %}
+  - "{{ arg }}"
+{% endfor %}

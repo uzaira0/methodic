@@ -1,0 +1,5 @@
+# Exact-artifact flows receive only the installed package identifier. One-time enrollment
+# capabilities are dispatched separately through the guarded adb stdin helper.
+appId: ${APP_PACKAGE}
+env:
+  APP_PACKAGE: "${APP_PACKAGE}"

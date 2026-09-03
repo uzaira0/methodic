@@ -1,0 +1,172 @@
+{
+  "uid": "chronicle-operational-events",
+  "title": "Chronicle Operational Events",
+  "tags": [
+    "chronicle",
+    "selfhost",
+    "operational"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": false,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Latest operator operations",
+      "type": "table",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "chronicle_operator_operation_timestamp_seconds",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsIso"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 101,
+      "title": "Latest configuration check",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "chronicle_configuration_check_timestamp_seconds",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsIso"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 109,
+      "title": "Operational probe freshness",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 10,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time()-chronicle_operational_probe_timestamp_seconds",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 117,
+      "title": "Release",
+      "type": "table",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 10,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "chronicle_release_info",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  }
+}

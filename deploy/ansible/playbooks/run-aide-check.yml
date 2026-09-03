@@ -1,0 +1,59 @@
+---
+- name: Run guarded Chronicle AIDE check
+  hosts: chronicle_k8s
+  gather_facts: true
+  become: true
+  vars:
+    chronicle_aide_allow_constrained_host: false
+    chronicle_aide_min_memory_mb: 12000
+    chronicle_aide_timeout_seconds: 600
+    chronicle_aide_evidence_dir: /var/log/chronicle/evidence
+  tasks:
+    - name: Refuse AIDE check on constrained hosts unless explicitly allowed
+      ansible.builtin.assert:
+        that:
+          - >-
+            ansible_facts.memtotal_mb | int >= chronicle_aide_min_memory_mb | int
+            or chronicle_aide_allow_constrained_host | bool
+        fail_msg: >-
+          This host has {{ ansible_facts.memtotal_mb }} MiB RAM. Run with
+          -e chronicle_aide_allow_constrained_host=true only during a quiet
+          maintenance window on constrained nodes.
+
+    - name: Create Chronicle evidence directory
+      ansible.builtin.file:
+        path: "{{ chronicle_aide_evidence_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0750"
+
+    - name: Run bounded AIDE check
+      ansible.builtin.shell: |
+        set -o pipefail
+        stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+        out="{{ chronicle_aide_evidence_dir }}/aide-check-${stamp}.log"
+        timeout "{{ chronicle_aide_timeout_seconds }}"s nice -n 10 ionice -c2 -n7 aide --check >"${out}" 2>&1
+        rc=$?
+        printf '%s\n' "${out}"
+        exit "${rc}"
+      args:
+        executable: /bin/bash
+      register: chronicle_aide_check
+      changed_when: false
+      failed_when: chronicle_aide_check.rc not in [0, 1, 2, 3, 4, 5, 6, 7]
+
+    - name: Report AIDE evidence path
+      ansible.builtin.debug:
+        msg: >-
+          AIDE check evidence written to {{ chronicle_aide_check.stdout_lines[-1] }}.
+          Exit code 0 means no changes; nonzero AIDE bitmask exit codes mean
+          differences were found and require review.
+
+    - name: Require AIDE check to be clean
+      ansible.builtin.assert:
+        that:
+          - chronicle_aide_check.rc == 0
+        fail_msg: >-
+          AIDE found differences. Review {{ chronicle_aide_check.stdout_lines[-1] }}
+          before treating integrity evidence as clean.

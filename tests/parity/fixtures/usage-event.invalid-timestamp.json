@@ -1,0 +1,7 @@
+{
+  "appPackageName": "com.example.app",
+  "interactionType": "MOVE_TO_FOREGROUND",
+  "timestamp": "not-a-timestamp",
+  "timezone": "America/New_York",
+  "users": ["participant-001"]
+}

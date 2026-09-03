@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+input_file=""
+output_file=""
+while (( $# > 0 )); do
+  if [[ "$1" == "-in" && $# -ge 2 ]]; then
+    input_file="$2"
+    shift 2
+  elif [[ "$1" == "-out" && $# -ge 2 ]]; then
+    output_file="$2"
+    shift 2
+  else
+    shift
+  fi
+done
+
+[[ -n "$output_file" ]] || exit 64
+if [[ "$input_file" == */database.dump.enc ]]; then
+  printf '%s\n' "$output_file" > "${LEGACY_RESTORE_TEST_DECRYPTED_PATH_MARKER:?}"
+fi
+printf 'fixture decrypted archive: %s\n' "${input_file##*/}" > "$output_file"

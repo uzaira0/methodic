@@ -1,0 +1,75 @@
+# Split exposure AND this stack terminates TLS.
+#
+# Selected automatically by `./chronicle up` when .env has
+#   TLS_MODE=own-tls
+#   DASHBOARD_EXPOSURE=internal
+#
+#   :443  PUBLIC   — mobile ingest, participant forms, static SPA (HTTPS, your cert)
+#   :80   PUBLIC   — redirects to HTTPS
+#   :8081 INTERNAL — the above PLUS the researcher dashboard API (plain HTTP on your
+#                    VPN/management interface; put TLS in front of it if that interface
+#                    is not already trusted)
+#
+# Routes come from caddy/snippets.caddy, identical to every other variant.
+
+{
+	auto_https off
+
+	# rate_limit ships as a plugin (see Dockerfile.caddy), so its place in the handler
+	# chain has to be declared explicitly.
+	order rate_limit before basic_auth
+
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+import snippets.caddy
+
+# ---------------------------------------------------------------------------
+# PUBLIC — internet-facing, TLS terminated here.
+# ---------------------------------------------------------------------------
+https://{$DOMAIN} {
+	import chronicle_tls
+	import chronicle_common
+
+	route {
+		import chronicle_health
+		import chronicle_public_entrypoints
+		import chronicle_deny_direct
+		# Deny rules first: `route` preserves order, so these win over the broad
+		# /chronicle/v3/* proxy below.
+		import chronicle_deny_auth
+		import chronicle_deny_researcher_v3
+		import chronicle_mobile
+		import chronicle_deny_dashboard_api
+		import chronicle_spa
+	}
+}
+
+http://{$DOMAIN} {
+	redir https://{$DOMAIN}{uri} permanent
+}
+
+# ---------------------------------------------------------------------------
+# INTERNAL — publish ONLY on a VPN/management interface.
+# ---------------------------------------------------------------------------
+:8081 {
+	# TLS so the dashboard password is never sent in the clear. `./chronicle up` generates
+	# this self-signed pair (with the right IP SANs) if it is absent; replace both files
+	# to use a real certificate. Browsers warn until the cert is trusted.
+	tls /etc/caddy/certs/internal-cert.pem /etc/caddy/certs/internal-key.pem
+
+	import chronicle_common
+
+	route {
+		import chronicle_health
+		import chronicle_public_entrypoints
+		# Allowlist + password first: everything below is researcher surface.
+		import chronicle_dashboard_guard
+		import chronicle_deny_direct
+		import chronicle_mobile
+		import chronicle_dashboard_api
+		import chronicle_spa
+	}
+}

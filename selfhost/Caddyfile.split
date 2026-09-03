@@ -1,0 +1,76 @@
+# Chronicle self-host — split exposure: public mobile ingest, internal-only dashboard.
+#
+# Used by overlays/internal-dashboard.yml, for when the researcher dashboard must only be
+# reachable from inside your network while participant phones keep uploading from the
+# public internet.
+#
+#   :80   PUBLIC   — mobile ingest, participant forms, static SPA.
+#   :8081 INTERNAL — the above PLUS the researcher dashboard API.
+#
+# The boundary is which port the request arrived on, not the client IP, so it keeps working
+# when an upstream load balancer rewrites the source address.
+#
+# The static SPA is public on purpose: participants open /chronicle/survey,
+# /chronicle/questionnaire and /chronicle/time-use-diary on their own phones, and those ship
+# in the SAME bundle as the researcher screens (src/modern/app/router.tsx). With the
+# dashboard API absent from :80 the researcher screens load and can fetch nothing. The
+# boundary is the API, not the assets.
+#
+# To also terminate TLS on the public listener, add `import chronicle_tls` to the :80 block
+# and change its address to https://{$DOMAIN} (see Caddyfile.tls).
+{
+	auto_https off
+
+	# rate_limit ships as a plugin (see Dockerfile.caddy), so its place in the handler
+	# chain has to be declared explicitly.
+	order rate_limit before basic_auth
+
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+import snippets.caddy
+
+# ---------------------------------------------------------------------------
+# PUBLIC — reachable from the internet through your proxy.
+# ---------------------------------------------------------------------------
+:80 {
+	import chronicle_common
+
+	route {
+		import chronicle_health
+		import chronicle_public_entrypoints
+		import chronicle_deny_direct
+		# Deny rules come first: `route` preserves this order, so these win over the
+		# broad /chronicle/v3/* proxy below.
+		import chronicle_deny_auth
+		import chronicle_deny_researcher_v3
+		import chronicle_mobile
+		import chronicle_deny_dashboard_api
+		import chronicle_spa
+	}
+}
+
+# ---------------------------------------------------------------------------
+# INTERNAL — publish this port ONLY on a VPN/management interface.
+# ---------------------------------------------------------------------------
+:8081 {
+	# TLS so the dashboard password is never sent in the clear. `./chronicle up` generates
+	# this self-signed pair (with the right IP SANs) if it is absent; replace both files
+	# to use a real certificate. Browsers warn until the cert is trusted.
+	tls /etc/caddy/certs/internal-cert.pem /etc/caddy/certs/internal-key.pem
+
+	import chronicle_common
+
+	route {
+		import chronicle_health
+		import chronicle_public_entrypoints
+		# Allowlist + password first: everything below is researcher surface.
+		import chronicle_dashboard_guard
+		import chronicle_deny_direct
+		import chronicle_mobile
+		import chronicle_dashboard_api
+		import chronicle_spa
+	}
+}

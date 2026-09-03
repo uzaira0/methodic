@@ -1,0 +1,213 @@
+{
+  "uid": "chronicle-containers",
+  "title": "Chronicle Containers",
+  "tags": [
+    "chronicle",
+    "selfhost",
+    "operational"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": false,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Container CPU",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (name)(rate(container_cpu_usage_seconds_total{name!=\"\"}[5m]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Container memory",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (name)(container_memory_working_set_bytes{name!=\"\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 81,
+      "title": "Network receive",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (name)(rate(container_network_receive_bytes_total{name!=\"\"}[5m]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ]
+    },
+    {
+      "id": 93,
+      "title": "Network transmit",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (name)(rate(container_network_transmit_bytes_total{name!=\"\"}[5m]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ]
+    },
+    {
+      "id": 161,
+      "title": "Container restarts in 1h",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "changes(container_start_time_seconds{name!=\"\"}[1h])",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ]
+    },
+    {
+      "id": 173,
+      "title": "OOM events",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "increase(container_memory_failures_total{failure_type=\"oom\"}[1h])",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ]
+    },
+    {
+      "id": 241,
+      "title": "Seconds since last seen",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time()-max by(name)(container_last_seen{name!=\"\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  }
+}

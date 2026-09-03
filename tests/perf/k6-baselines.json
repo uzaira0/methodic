@@ -1,0 +1,10 @@
+{
+  "metrics": {
+    "http_req_duration": {
+      "values": {
+        "p(95)": 500
+      }
+    }
+  },
+  "_comment": "Initial absolute CI budget matching the load-test SLO. Replace with a measured stable-build baseline only after recording its environment and fixture shape."
+}

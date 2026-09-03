@@ -1,0 +1,137 @@
+http:
+  routers:
+    chronicle-v4-enrollment:
+      entryPoints: [chronicle]
+      rule: "Host(`dev-vps.example.ts.net`) && Method(`POST`) && PathRegexp(`^/chronicle/v4/study/[^/]+/participant/[^/]+/enroll$`)"
+      priority: 100
+      service: chronicle-backend
+      middlewares: [chronicle-mobile-chain]
+    chronicle-v4-withdrawal:
+      entryPoints: [chronicle]
+      rule: "Host(`dev-vps.example.ts.net`) && Method(`DELETE`) && Path(`/chronicle/v4/mobile/enrollments/current`)"
+      priority: 100
+      service: chronicle-backend
+      middlewares: [chronicle-mobile-chain]
+    chronicle-v3-reads:
+      entryPoints: [chronicle]
+      rule: "Host(`dev-vps.example.ts.net`) && Method(`GET`) && (PathRegexp(`^/chronicle/v3/study/[^/]+/participant/[^/]+/verify$`) || PathRegexp(`^/chronicle/v3/study/[^/]+/settings/(sensors|type/(AndroidSensor|Encryption|DataCollection))$`))"
+      priority: 100
+      service: chronicle-backend
+      middlewares: [chronicle-mobile-chain]
+    chronicle-v4-android:
+      entryPoints: [chronicle]
+      rule: "Host(`dev-vps.example.ts.net`) && Method(`POST`) && PathRegexp(`^/chronicle/v4/study/[^/]+/participant/[^/]+/android(/(sensors|battery|interaction|audio-activity|audio-content|notification-activity|sleep|activity-recognition|health-connect|connectivity-state|app-network-usage|device-settings|encrypted|collection-ack|sensors/availability))?$`)"
+      priority: 100
+      service: chronicle-backend
+      middlewares: [chronicle-mobile-chain]
+    chronicle-v3-ios-enrollment:
+      entryPoints: [chronicle]
+      rule: "Host(`dev-vps.example.ts.net`) && Method(`POST`) && PathRegexp(`^/chronicle/v3/study/[^/]+/participant/[^/]+/[^/]+/enroll$`)"
+      priority: 100
+      service: chronicle-backend
+      middlewares: [chronicle-mobile-chain]
+    chronicle-v3-ios-upload:
+      entryPoints: [chronicle]
+      rule: "Host(`dev-vps.example.ts.net`) && Method(`POST`) && PathRegexp(`^/chronicle/v3/study/[^/]+/participant/[^/]+/ios/[^/]+(/(screen-time|user-identification))?$`)"
+      priority: 100
+      service: chronicle-backend
+      middlewares: [chronicle-mobile-chain]
+    chronicle-health:
+      entryPoints: [chronicle]
+      rule: "Host(`dev-vps.example.ts.net`) && Method(`GET`) && Path(`/health`)"
+      priority: 100
+      service: ping@internal
+      middlewares: [strip-untrusted-headers, security-headers]
+
+  services:
+    chronicle-backend:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: http://backend:40320
+
+  middlewares:
+    chronicle-mobile-chain:
+      chain:
+        middlewares:
+          - strip-untrusted-headers
+          - request-body-limit
+          - crowdsec-waf
+          - mobile-rate-limit
+          - fixed-https-forwarding
+          - security-headers
+    strip-untrusted-headers:
+      headers:
+        customRequestHeaders:
+          Forwarded: ""
+          X-Forwarded-For: ""
+          X-Forwarded-Host: ""
+          X-Forwarded-Port: ""
+          X-Forwarded-Proto: ""
+          X-Real-IP: ""
+          X-Chronicle-Internal-Web: ""
+          X-Crowdsec-Appsec-Api-Key: ""
+          X-Crowdsec-Appsec-Ip: ""
+          X-Crowdsec-Appsec-Uri: ""
+          X-Crowdsec-Appsec-Host: ""
+          X-Crowdsec-Appsec-Verb: ""
+          X-Crowdsec-Appsec-User-Agent: ""
+    request-body-limit:
+      buffering:
+        maxRequestBodyBytes: 10485760
+        memRequestBodyBytes: 1048576
+        maxResponseBodyBytes: 33554432
+        memResponseBodyBytes: 1048576
+    crowdsec-waf:
+      plugin:
+        crowdsec-bouncer:
+          enabled: true
+          logLevel: INFO
+          crowdsecMode: live
+          crowdsecLapiScheme: http
+          crowdsecLapiHost: crowdsec:8080
+          crowdsecLapiPath: /
+          crowdsecLapiKeyFile: /run/secrets/crowdsec_bouncer_key
+          crowdsecAppsecEnabled: true
+          crowdsecAppsecScheme: http
+          crowdsecAppsecHost: crowdsec:7422
+          crowdsecAppsecPath: /
+          crowdsecAppsecKeyFile: /run/secrets/crowdsec_bouncer_key
+          crowdsecAppsecFailureBlock: true
+          crowdsecAppsecUnreachableBlock: true
+          crowdsecAppsecBodyLimit: 10485760
+          remediationStatusCode: 403
+          httpTimeoutSeconds: 5
+          forwardedHeadersCustomName: X-Forwarded-For
+          forwardedHeadersInjectClientIp: true
+    mobile-rate-limit:
+      rateLimit:
+        average: 10
+        burst: 20
+        period: 1s
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+    fixed-https-forwarding:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Proto: https
+          X-Forwarded-Port: "443"
+          X-Forwarded-Host: dev-vps.example.ts.net
+    security-headers:
+      headers:
+        contentTypeNosniff: true
+        frameDeny: true
+        referrerPolicy: no-referrer
+        permissionsPolicy: "camera=(), geolocation=(), microphone=()"
+        contentSecurityPolicy: "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        # Funnel terminates TLS before forwarding PROXY-v2 plaintext to this
+        # loopback entrypoint. Force HSTS on that trusted edge path because
+        # Traefik cannot otherwise infer TLS from its local socket.
+        forceSTSHeader: true
+        customResponseHeaders:
+          Cache-Control: no-store
+          X-Robots-Tag: "noindex, nofollow, nosnippet"

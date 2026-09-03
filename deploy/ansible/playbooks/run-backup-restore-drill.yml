@@ -1,0 +1,7 @@
+---
+- name: Run Chronicle Kubernetes backup, verifier, and restore drill
+  hosts: chronicle_k8s
+  gather_facts: false
+  become: true
+  roles:
+    - chronicle_backup_drill

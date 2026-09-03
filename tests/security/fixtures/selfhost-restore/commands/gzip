@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "-t" ]]; then
+  exit 0
+fi
+
+/bin/cat
+exit "${SELFHOST_RESTORE_TEST_GZIP_PIPE_EXIT:-0}"

@@ -1,0 +1,8 @@
+# Rendered by ../backend-entrypoint.sh at container start.
+# Only needed if the study sends participant notification emails. Off by default.
+smtpHost: "${SMTP_HOST}"
+smtpPort: ${SMTP_PORT}
+username: "${SMTP_USERNAME}"
+password: "${SMTP_PASSWORD}"
+defaultFromEmail: "${SMTP_FROM_EMAIL}"
+enabled: ${SMTP_ENABLED}

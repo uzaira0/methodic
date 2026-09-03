@@ -1,0 +1,6 @@
+extends: recommended
+rules:
+  permissible_values_format:
+    level: disabled
+  standard_naming:
+    level: disabled

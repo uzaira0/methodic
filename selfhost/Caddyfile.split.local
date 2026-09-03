@@ -1,0 +1,119 @@
+# Split exposure, TLS terminated here with CADDY'S OWN internal CA.
+#
+# Mounted by overlays/mode-local-https.yml — the mode for trying Chronicle out on a
+# laptop or a lab machine, with real phones on the same wifi, before there is a domain
+# name or a purchased certificate anywhere.
+#
+#   :443  PUBLIC   — mobile ingest, participant forms, static SPA (HTTPS, internal CA)
+#   :80   PUBLIC   — the CA download, and a redirect to HTTPS for everything else
+#   :8081 INTERNAL — the above PLUS the researcher dashboard API
+#
+# Routes come from caddy/snippets.caddy, identical to every other variant.
+#
+# What makes this mode different from own-tls: nobody issues the certificate. Caddy runs a
+# small CA inside this container, mints a certificate for {$DOMAIN} -- which here is this
+# machine's LAN address, e.g. 192.168.1.50 -- and signs it with a root that lives in the
+# caddy_data volume. Devices reject it until that root is installed on them, which is what
+# the /local-ca.crt route below is for.
+{
+	# NOT `auto_https off`, unlike every other variant. That switch turns off certificate
+	# management as well as the redirects, and this mode has nothing else to get a
+	# certificate from -- the listener would come up with no TLS at all. `disable_redirects`
+	# keeps the internal CA working while leaving the :80 block below in charge, which it
+	# has to be: a blanket redirect would bounce the CA download to a URL the device cannot
+	# yet verify, which is the one request that must work before TLS can.
+	auto_https disable_redirects
+
+	# The setting this whole mode depends on. {$DOMAIN} here is an IP address, and RFC 6066
+	# forbids putting an IP literal in SNI -- so curl, browsers and OkHttp (the Android
+	# app's HTTP client) all send NO server name at all when the URL is https://192.168.1.50.
+	# Caddy then has no name with which to pick a certificate and aborts the handshake with
+	# "tlsv1 alert internal error", which surfaces as a TLS failure the operator cannot act
+	# on. default_sni tells it which site to serve when the client names none.
+	#
+	# Easy to miss while testing: `openssl s_client -servername 192.168.1.50` sends the SNI
+	# anyway, because it does not enforce the RFC, so a handshake tested that way succeeds
+	# while every real client fails.
+	default_sni {$DOMAIN}
+
+	# rate_limit ships as a plugin (see Dockerfile.caddy), so its place in the handler
+	# chain has to be declared explicitly.
+	order rate_limit before basic_auth
+
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+import snippets.caddy
+
+# ---------------------------------------------------------------------------
+# PUBLIC — reachable from the local network, TLS from the internal CA.
+# ---------------------------------------------------------------------------
+https://{$DOMAIN} {
+	tls internal
+
+	import chronicle_common
+
+	route {
+		import chronicle_health
+		import chronicle_public_entrypoints
+		import chronicle_deny_direct
+		# Deny rules first: `route` preserves order, so these win over the broad
+		# /chronicle/v3/* proxy below.
+		import chronicle_deny_auth
+		import chronicle_deny_researcher_v3
+		import chronicle_mobile
+		import chronicle_deny_dashboard_api
+		import chronicle_spa
+	}
+}
+
+# ---------------------------------------------------------------------------
+# PUBLIC, PLAIN HTTP — exists to hand out the CA, then redirect.
+# ---------------------------------------------------------------------------
+http://{$DOMAIN} {
+	# Served over plain HTTP on purpose, and it is not a weakness: this file is a PUBLIC
+	# certificate, the thing a device needs in order to start verifying anything. There is
+	# no private key here and nothing secret in it. Serving it over the HTTPS listener
+	# instead would be circular -- the device cannot trust that listener until it has this
+	# file. Anyone on the LAN who could tamper with this response could equally serve their
+	# own CA from their own machine, so it grants them nothing new.
+	#
+	# The path is Caddy's own PKI storage inside the caddy_data volume, so it is always the
+	# root currently in use rather than a copy that can go stale.
+	handle /local-ca.crt {
+		root * /data/caddy/pki/authorities/local
+		rewrite * /root.crt
+		header Content-Type application/x-x509-ca-cert
+		header Content-Disposition "attachment; filename=chronicle-local-ca.crt"
+		file_server
+	}
+
+	handle {
+		redir {$CHRONICLE_PUBLIC_BASE_URL}{uri} permanent
+	}
+}
+
+# ---------------------------------------------------------------------------
+# INTERNAL — publish ONLY on a VPN/management interface.
+# ---------------------------------------------------------------------------
+:8081 {
+	# A bare :PORT block reached by IP: Caddy's internal CA has no name to issue for here,
+	# so this one uses the self-signed pair cert-init generates (with the right IP SANs).
+	# Replace both files to use a real certificate.
+	tls /etc/caddy/certs/internal-cert.pem /etc/caddy/certs/internal-key.pem
+
+	import chronicle_common
+
+	route {
+		import chronicle_health
+		import chronicle_public_entrypoints
+		# Allowlist + password first: everything below is researcher surface.
+		import chronicle_dashboard_guard
+		import chronicle_deny_direct
+		import chronicle_mobile
+		import chronicle_dashboard_api
+		import chronicle_spa
+	}
+}

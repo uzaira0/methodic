@@ -1,0 +1,298 @@
+        tasks.withType(PublishToMavenRepository) { it.dependsOn test }
+
+//ext.snapshotUrl = "https://artifactory.openlattice.com/artifactory/libs-snapshot-local"
+//ext.releaseUrl = "https://artifactory.openlattice.com/artifactory/libs-release-local"
+ext.githubPackageUrl = "https://maven.pkg.github.com/uzaira0/chronicle"
+ext.sonatypeMasterUrl = "https://oss.sonatype.org/service/local/staging/deploy/maven2"
+ext.sonatypeSnapshotUrl = "https://oss.sonatype.org/content/repositories/snapshots"
+
+
+def jarname = ""
+def scmUrl = ""
+def connectionUrl = ""
+def developerConnectionUrl = ""
+
+// Check this project's OWN extra properties (ext.has), not the inherited
+// project property chain (project.hasProperty). In composite/multi-project
+// builds hasProperty sees the root project's scmUrl while ext.scmUrl reads
+// only this project's extension and throws, so subprojects that do not set
+// their own scmUrl must take the by-name fallback branch below.
+if (ext.has('projectName') && ext.has('scmUrl') && ext.has('connectionUrl') && ext.has('developerConnectionUrl')) {
+    scmUrl = ext.scmUrl
+    connectionUrl = ext.connectionUrl
+    developerConnectionUrl = ext.developerConnectionUrl
+    jarname = ext.projectName
+} else {
+    jarname = project.name
+    scmUrl = "scm:git:https://github.com/uzaira0/${project.name}.git"
+    connectionUrl = "scm:git:https://github.com/uzaira0/${project.name}.git"
+    developerConnectionUrl = "scm:git:https://github.com/uzaira0/${project.name}.git"
+}
+
+println "Basename for jars will be: " + jarname
+
+def maybeBranch = providers.exec {
+    workingDir rootProject.projectDir
+    commandLine 'git', 'rev-parse', '--abbrev-ref', 'HEAD'
+}.standardOutput.asText.get().trim()
+def ghBranch = System.getenv("GITHUB_REF")
+println "Branch from git: " + maybeBranch
+println "Github ref: " + ghBranch
+if( ghBranch != null ) {
+    ghBranch = ghBranch.substring(ghBranch.lastIndexOf('/') + 1)
+}
+
+if (maybeBranch == null && ghBranch == null) {
+    println "Unable to detect bamboo branch from git for ${jarname}. Publishing will likely not work."
+}
+
+def branch = ghBranch ?: maybeBranch
+
+// If git tag --contains has tags, then you're on-tag
+//   for each tag in ^, release -dev to SNAPSHOT and non-dev to MAIN
+// else (if git tag --contains has no tags), then off-tag
+//   assumed that the resolved tag will be a -dev tag (error msg if not)
+//   release -dev to SNAPSHOT
+
+class Tag {
+    String version
+    Boolean snapshot
+
+    String toString() {
+        def snp
+        if (snapshot) {
+            snp = "-SNAPSHOT"
+        } else {
+            snp = ""
+        }
+        return "${version}${snp}"
+    }
+}
+
+static def convertToTag(tagString, branchString) {
+    def semVer = (tagString =~ /v?([\d\.]+)/)[0][1]
+    if( branchString == "main" || branchString == "master" ) {
+        return new Tag(version: semVer, snapshot: false)
+    } else {
+        return new Tag(version: semVer, snapshot: true)
+    }
+}
+
+def runCommand(String... command) {
+    try {
+        return providers.exec {
+            workingDir rootProject.projectDir
+            commandLine command
+        }.standardOutput.asText.get()
+    } catch (Exception e) {
+        if (command.length >= 3 && command[0] == 'git' && command[1] == 'describe') {
+            logger.warn("Falling back to local version because git describe failed in ${rootProject.projectDir}: ${e.message}")
+            return "v0.0.0-0-g0000000"
+        }
+        throw e
+    }
+}
+
+def describeOutputTag = convertToTag(
+        runCommand('git', 'describe', '--tags', '--long').trim(),
+        branch
+)
+ext.describeOutputTag = describeOutputTag
+
+def getVersionName = { ->
+    return describeOutputTag.toString()
+}
+
+version = getVersionName()
+
+//This gets the version plus build number, no -SNAPSHOTs
+def getFullVersion = { ->
+    if (!describeOutputTag.snapshot) {
+        return describeOutputTag.toString()
+    }
+
+    ext.bambooBuild =".${System.getenv("bamboo_buildNumber")}"
+    if ( ext.bambooBuild == ".null" ) {
+        ext.bambooBuild = "-SNAPSHOT"
+        return describeOutputTag.toString()
+    }
+    return "${describeOutputTag.version}${ext.bambooBuild}"
+}
+ext.fullVersion = getFullVersion()
+
+println "Branch detected as: " + branch
+println "Version detected as: " + version
+println "Full version detected as: " + ext.fullVersion
+
+task sourcesJar(type: Jar) {
+    archiveClassifier.set('sources')
+    from sourceSets.main.allSource
+}
+
+task javadocJar(type: Jar, dependsOn: javadoc) {
+    archiveClassifier.set('javadoc')
+    from javadoc.destinationDir
+}
+
+task testJar(type: Jar, dependsOn: testClasses) {
+    archiveClassifier.set('tests')
+    from sourceSets.test.output
+}
+
+configurations {
+    tests
+    published.extendsFrom tests, archives
+}
+
+artifacts {
+    archives sourcesJar
+    // archives jar
+    archives javadocJar
+    tests testJar
+}
+
+
+base.archivesName.set(jarname)
+
+ext."signing.password" = System.getenv("SIGNING_KEY_PASSPHRASE")
+
+configurations {
+    pom
+}
+
+signing {
+    sign configurations.archives
+    sign configurations.pom
+}
+
+if (ext."signing.password" != null) {
+    println "Signing information detected..."
+    if (branch == "develop") {
+        println "Publishing snapshot to github packages."
+        publishing {
+            repositories {
+//                maven {
+//                    url sonatypeSnapshotUrl
+//                    credentials {
+//                        username = System.getenv("SONATYPE_USERNAME")
+//                        password = System.getenv("SONATYPE_PASSWORD")
+//                    }
+//                }
+                maven {
+                    url githubPackageUrl
+                    credentials {
+                        username = System.getenv("GITHUB_ACTOR")
+                        password = System.getenv("GITHUB_TOKEN")
+                    }
+                }
+            }
+            publications {
+                mavenJava(MavenPublication) {
+                    pom.withXml {
+                        asNode().children().last() + {
+                            resolveStrategy = Closure.DELEGATE_FIRST
+                            name jarname
+
+                            scm {
+                                url scmUrl
+                                connection connectionUrl
+                                developerConnection developerConnectionUrl
+                            }
+
+                            licenses {
+                                license {
+                                    name 'The Apache License, Version 2.0'
+                                    url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                                    distribution 'repo'
+                                }
+                            }
+
+                            developers {
+                                developer {
+                                    id 'chronicle'
+                                    name 'Chronicle Team'
+                                }
+                            }
+                        }
+                    }
+                    from components.java
+                    // artifact ('README.md') {
+                    //    classifier = 'README'
+                    //    extension  = 'md'
+                    // }
+
+                    artifact javadocJar
+                    artifact sourcesJar
+                    artifact testJar
+                }
+            }
+            signing {
+                sign publishing.publications.mavenJava
+            }
+        }
+    } else if ((branch.startsWith("release/") || branch == "main" || branch == "master") && !version.contains('-SNAPSHOT')) {
+        publishing {
+            repositories {
+                // maven {
+                //     url sonatypeMasterUrl
+                //     credentials {
+                //        username = System.getenv(SONATYPE_USERNAME)
+                //        password = System.getenv(SONATYPE_PASSWORD)
+                //     }
+                // }
+                maven {
+                    url githubPackageUrl
+                    credentials {
+                        username = System.getenv("GITHUB_ACTOR")
+                        password = System.getenv("GITHUB_TOKEN")
+                    }
+                }
+            }
+            publications {
+                mavenJava(MavenPublication) {
+                    pom.withXml {
+                        asNode().children().last() + {
+                            resolveStrategy = Closure.DELEGATE_FIRST
+                            name jarname
+
+                            scm {
+                                url scmUrl
+                                connection connectionUrl
+                                developerConnection developerConnectionUrl
+                            }
+
+                            licenses {
+                                license {
+                                    name 'The Apache License, Version 2.0'
+                                    url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                                    distribution 'repo'
+                                }
+                            }
+
+                            developers {
+                                developer {
+                                    id 'chronicle'
+                                    name 'Chronicle Team'
+                                }
+                            }
+                        }
+                    }
+                    from components.java
+                    //artifact ('README.md') {
+                    //classifier = 'README'
+                    //extension  = 'md'
+                    //}
+
+                    artifact javadocJar
+                    artifact sourcesJar
+                    artifact testJar
+
+                }
+            }
+        }
+        signing {
+            sign publishing.publications.mavenJava
+        }
+    }
+
+}

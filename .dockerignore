@@ -1,0 +1,67 @@
+# Git
+.git
+.gitmodules
+**/.git
+
+# Environment and secrets
+.env
+docker/.env
+**/.env
+**/.env.*
+docker/chronicle-config.json
+docker/postgres-ssl/
+docker/tls/
+chronicle-ios/chronicle/Config/Chronicle.local.xcconfig
+chronicle-ios/secrets/
+*.pem
+*.p12
+*.jks
+*.keystore
+*.gpg
+*.gpg-key.gpg
+
+# Build artifacts
+**/node_modules
+**/build
+**/dist
+!chronicle-web/vendor/
+!chronicle-web/vendor/equal/
+!chronicle-web/vendor/equal/packages/
+!chronicle-web/vendor/equal/packages/*/
+!chronicle-web/vendor/equal/packages/*/dist/
+!chronicle-web/vendor/equal/packages/*/dist
+!chronicle-web/vendor/equal/packages/*/dist/**
+**/.gradle
+**/build/
+**/logging/
+*.log
+*.log.gz
+
+# IDE
+.idea
+.vscode
+*.iml
+
+# Backups. Each file here is a full database dump, so they must never enter a build
+# context: they would bloat every build and bake the entire database into an image layer.
+# `backups/` alone only matches the context root -- selfhost/backups is 0700 root-owned
+# (that is what keeps the dumps unreadable), and the context sender fails outright on it
+# with "permission denied" rather than skipping it. The ** form covers both.
+backups/
+**/backups
+selfhost/backups
+
+# Documentation
+*.md
+!README.md
+LICENSE
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# CI
+.github/
+
+# MCP config
+.mcp.json

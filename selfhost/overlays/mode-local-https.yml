@@ -1,0 +1,74 @@
+# Deployment mode: no domain name, no purchased certificate, no proxy — a laptop or lab
+# machine on the same wifi as the phones.
+#
+# This is the mode for finding out whether Chronicle suits you before anyone buys a
+# hostname. It is a TRIAL mode, not a deployment mode: the certificate is signed by a CA
+# that exists only inside this stack, so every device that talks to it has to install that
+# CA first. That is fine for your own test phones and wrong for participants.
+#
+# Set DOMAIN to this machine's address on the wifi, e.g. DOMAIN=192.168.1.50. Not
+# `localhost` — a phone cannot reach that. `./chronicle setup` also chooses free host
+# ports and writes the exact participant-facing HTTPS origin. Then:
+#
+#   docker compose up -d
+#   docker compose logs ca-export     # scan the QR code with the phone
+#
+# For a real study, move to overlays/mode-behind-proxy-internal.yml (your institution's
+# load balancer) or overlays/mode-own-tls-internal.yml (your own certificate). Nothing
+# else in .env has to change.
+services:
+  config-guard:
+    environment:
+      TLS_MODE: local-https
+      DASHBOARD_EXPOSURE: internal
+
+  cert-init:
+    environment:
+      # Not own-tls: there is no cert.pem for cert-init to find or protect. Its job here is
+      # only the internal dashboard listener's certificate, same as the behind-proxy modes.
+      TLS_MODE: local-https
+      DASHBOARD_EXPOSURE: internal
+
+  web:
+    environment:
+      # Production modes reject private participant origins. This trial-only flag lets the
+      # dashboard issue links for the operator-owned LAN devices this overlay is designed for.
+      CHRONICLE_ALLOW_PRIVATE_ENROLLMENT_ORIGIN: "true"
+    # Prefer 443/80, but setup can select other free host ports when a VPN or management
+    # service already owns them. Caddy still listens on its standard container ports.
+    ports:
+      - "${LOCAL_HTTPS_PORT:-443}:443"
+      - "${LOCAL_HTTP_PORT:-80}:80"
+      - "${INTERNAL_BIND:-127.0.0.1}:${INTERNAL_PORT:-8081}:8081"
+    volumes:
+      - ./Caddyfile.split.local:/etc/caddy/Caddyfile:ro
+      - "${CHRONICLE_STATE_DIR:-.}/tls:/etc/caddy/certs:ro"
+
+  # Prints the CA-install QR code, and drops a copy of the CA next to the compose file for
+  # the researcher's own laptop. Only exists in this mode; every other mode uses a
+  # certificate the devices already trust.
+  ca-export:
+    image: ${CADDY_IMAGE:?set CADDY_IMAGE to the digest-pinned release image from .env.example}
+    restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILES:-5}"
+    entrypoint: ["/bin/sh", "/selfhost/ca-export.sh"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env to this machine's LAN address}
+      LOCAL_HTTP_PORT: ${LOCAL_HTTP_PORT:-80}
+    volumes:
+      - .:/selfhost:ro
+      - "${CHRONICLE_STATE_DIR:-.}/tls:/out"
+      - caddy_data:/data:ro
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 64m
+    pids_limit: 32
+    depends_on:
+      # Caddy creates the CA when it first provisions a certificate, which is at startup.
+      # Waiting for healthy rather than started is what guarantees root.crt exists.
+      web:
+        condition: service_healthy

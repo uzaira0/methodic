@@ -1,0 +1,1146 @@
+---
+- name: Gather service state
+  ansible.builtin.service_facts:
+
+- name: Gather package state
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Assert RHEL 9 baseline
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.os_family == "RedHat"
+      - ansible_facts.distribution_major_version | int == 9
+    fail_msg: "Chronicle platform validation is scoped to RHEL 9 hosts."
+
+- name: Check SELinux mode
+  ansible.builtin.command: getenforce
+  register: chronicle_selinux_mode
+  changed_when: false
+
+- name: Read active swap devices
+  ansible.builtin.command: swapon --noheadings --show=NAME
+  register: chronicle_active_swap
+  changed_when: false
+  failed_when: false
+
+- name: Read swappiness
+  ansible.builtin.command: sysctl -n vm.swappiness
+  register: chronicle_swappiness
+  changed_when: false
+
+- name: Stat Chronicle swap file
+  ansible.builtin.stat:
+    path: "{{ chronicle_swap_file_path }}"
+  register: chronicle_swap_file_validate
+  when: chronicle_swap_enabled | bool
+
+- name: Require Chronicle swap baseline when enabled
+  ansible.builtin.assert:
+    that:
+      - chronicle_swap_file_validate.stat.exists
+      - chronicle_swap_file_validate.stat.pw_name == "root"
+      - chronicle_swap_file_validate.stat.gr_name == "root"
+      - chronicle_swap_file_validate.stat.mode == "0600"
+      - chronicle_swap_file_path in chronicle_active_swap.stdout_lines
+      - chronicle_swappiness.stdout | int == chronicle_swap_swappiness | int
+    fail_msg: "Chronicle swap is enabled in inventory but the host swap baseline is not active."
+  when: chronicle_swap_enabled | bool
+
+- name: Require swap to be disabled when not enabled in inventory
+  ansible.builtin.assert:
+    that:
+      - chronicle_active_swap.stdout_lines | length == 0
+    fail_msg: "Swap is active but chronicle_swap_enabled is false."
+  when: not (chronicle_swap_enabled | bool)
+
+- name: Require SELinux enforcing
+  ansible.builtin.assert:
+    that:
+      - chronicle_selinux_mode.stdout == "Enforcing"
+    fail_msg: "SELinux must be Enforcing; current mode is {{ chronicle_selinux_mode.stdout }}."
+
+- name: Require chronyd to be active
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.services['chronyd.service'].state == "running"
+      - ansible_facts.services['chronyd.service'].status == "enabled"
+    fail_msg: "chronyd must be running and enabled."
+
+- name: Check reboot-required state
+  ansible.builtin.command: needs-restarting -r
+  register: chronicle_needs_restarting
+  changed_when: false
+  failed_when: false
+  when: chronicle_manage_reboot_required_check | bool
+
+- name: Report reboot-required state
+  ansible.builtin.debug:
+    msg: "{{ chronicle_needs_restarting.stdout | default('needs-restarting check did not run') }}"
+  when:
+    - chronicle_manage_reboot_required_check | bool
+    - chronicle_needs_restarting.rc | default(0) != 0
+
+- name: Require no pending reboot when strict reboot validation is enabled
+  ansible.builtin.assert:
+    that:
+      - chronicle_needs_restarting.rc == 0
+    fail_msg: "A maintenance reboot is required: {{ chronicle_needs_restarting.stdout }}"
+  when:
+    - chronicle_manage_reboot_required_check | bool
+    - chronicle_reboot_required_strict | bool
+
+- name: Require legacy packages to be absent
+  ansible.builtin.assert:
+    that:
+      - item not in ansible_facts.packages
+    fail_msg: "Legacy package {{ item }} must not be installed on the Chronicle RHEL 9 host."
+  loop: "{{ chronicle_legacy_packages_absent }}"
+  when: chronicle_manage_legacy_package_removal | bool
+
+- name: Require legacy services to be disabled or absent
+  ansible.builtin.assert:
+    that:
+      - >-
+        (item ~ '.service') not in ansible_facts.services
+        or ansible_facts.services[item ~ '.service'].status in ['disabled', 'masked', 'not-found']
+    fail_msg: "Legacy service {{ item }} must be disabled/masked or absent."
+  loop: "{{ chronicle_legacy_services_disabled }}"
+  when: chronicle_manage_legacy_service_hardening | bool
+
+- name: Validate host TCP/UDP listener allowlist
+  ansible.builtin.shell: |
+    set -euo pipefail
+    python3 - <<'PY'
+    import json
+    import subprocess
+    import sys
+
+    expected_tcp = set({{ chronicle_expected_tcp_listeners | to_json }})
+    expected_udp = set({{ chronicle_expected_udp_listeners | to_json }})
+    expected_tcp_prefixes = tuple({{ chronicle_expected_tcp_listener_prefixes | to_json }})
+    dynamic_loopback_processes = tuple({{ chronicle_allowed_dynamic_loopback_listener_processes | default([]) | to_json }})
+    allowed = {"tcp": expected_tcp, "udp": expected_udp}
+    unexpected = []
+
+    def is_dynamic_loopback_listener(local, process):
+        if not dynamic_loopback_processes:
+            return False
+        if not local.startswith("127.0.0.1:") and not local.startswith("[::1]:"):
+            return False
+        port_text = local.rsplit(":", 1)[-1]
+        try:
+            port = int(port_text)
+        except ValueError:
+            return False
+        if port < 1024:
+            return False
+        return any(name in process for name in dynamic_loopback_processes)
+
+    out = subprocess.check_output(["ss", "-H", "-lntup"], text=True)
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        proto = parts[0]
+        local = parts[4]
+        if proto not in allowed:
+            continue
+        ok = local in allowed[proto]
+        if proto == "tcp" and not ok:
+            ok = any(local.startswith(prefix) for prefix in expected_tcp_prefixes)
+        process = parts[6] if len(parts) > 6 else ""
+        if not ok:
+            ok = is_dynamic_loopback_listener(local, process)
+        if not ok:
+            unexpected.append(f"{proto} {local} {process}".strip())
+
+    if unexpected:
+        print("Unexpected host listeners:\n" + "\n".join(sorted(unexpected)), file=sys.stderr)
+        sys.exit(1)
+    print("host listener allowlist validated")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when: chronicle_manage_host_listener_validation | bool
+
+- name: Validate host resource pressure thresholds
+  ansible.builtin.shell: |
+    set -euo pipefail
+    python3 - <<'PY'
+    import os
+    import shutil
+    import subprocess
+    import sys
+
+    min_mem_available_mib = int({{ chronicle_min_mem_available_mib }})
+    max_swap_used_percent = float({{ chronicle_max_swap_used_percent }})
+    max_root_used_percent = float({{ chronicle_max_root_used_percent }})
+    max_local_path_used_percent = float({{ chronicle_max_local_path_used_percent }})
+    local_path = {{ chronicle_local_path_root | to_json }}
+
+    meminfo = {}
+    with open("/proc/meminfo", encoding="utf-8") as handle:
+        for line in handle:
+            key, rest = line.split(":", 1)
+            meminfo[key] = int(rest.strip().split()[0])
+
+    mem_available_mib = meminfo.get("MemAvailable", 0) // 1024
+    swap_total = meminfo.get("SwapTotal", 0)
+    swap_free = meminfo.get("SwapFree", 0)
+    swap_used_percent = 0.0 if swap_total == 0 else (swap_total - swap_free) / swap_total * 100
+
+    def used_percent(path):
+        usage = shutil.disk_usage(path)
+        return (usage.used / usage.total) * 100
+
+    failures = []
+    if mem_available_mib < min_mem_available_mib:
+        failures.append(f"MemAvailable {mem_available_mib} MiB < {min_mem_available_mib} MiB")
+    if swap_used_percent > max_swap_used_percent:
+        failures.append(f"swap used {swap_used_percent:.1f}% > {max_swap_used_percent:.1f}%")
+    root_used = used_percent("/")
+    if root_used > max_root_used_percent:
+        failures.append(f"root filesystem used {root_used:.1f}% > {max_root_used_percent:.1f}%")
+    if os.path.exists(local_path):
+        local_used = used_percent(local_path)
+        if local_used > max_local_path_used_percent:
+            failures.append(f"{local_path} filesystem used {local_used:.1f}% > {max_local_path_used_percent:.1f}%")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print(
+        f"resource pressure ok: MemAvailable={mem_available_mib}MiB, "
+        f"swap={swap_used_percent:.1f}%, root={root_used:.1f}%"
+    )
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when: chronicle_manage_resource_pressure_validation | bool
+
+- name: Validate host filesystem privilege drift
+  ansible.builtin.shell: |
+    set -euo pipefail
+    python3 - <<'PY'
+    import os
+    import stat
+    import sys
+
+    prune_paths = set({{ chronicle_filesystem_privilege_prune_paths | default([]) | to_json }})
+    allowed_privileged = set({{ chronicle_allowed_privileged_files | default([]) | to_json }})
+    root_device = os.lstat("/").st_dev
+    privileged = []
+    world_writable_without_sticky = []
+    unowned = []
+
+    def should_prune(path):
+        return path in prune_paths
+
+    for root, dirs, files in os.walk("/", topdown=True, onerror=lambda exc: None):
+        if should_prune(root):
+            dirs[:] = []
+            continue
+        kept_dirs = []
+        for dirname in dirs:
+            path = os.path.join(root, dirname)
+            if should_prune(path):
+                continue
+            try:
+                if os.lstat(path).st_dev != root_device:
+                    continue
+            except OSError:
+                continue
+            kept_dirs.append(dirname)
+        dirs[:] = kept_dirs
+
+        try:
+            root_stat = os.lstat(root)
+        except OSError:
+            continue
+        if root_stat.st_dev != root_device:
+            dirs[:] = []
+            continue
+        root_mode = stat.S_IMODE(root_stat.st_mode)
+        if stat.S_ISDIR(root_stat.st_mode) and root_mode & stat.S_IWOTH and not root_mode & stat.S_ISVTX:
+            world_writable_without_sticky.append(f"{root_mode:o} {root}")
+
+        for name in files:
+            path = os.path.join(root, name)
+            try:
+                st = os.lstat(path)
+            except OSError:
+                continue
+            try:
+                import grp
+                import pwd
+                user = pwd.getpwuid(st.st_uid).pw_name
+                group = grp.getgrgid(st.st_gid).gr_name
+            except KeyError:
+                unowned.append(path)
+                continue
+            if not stat.S_ISREG(st.st_mode):
+                continue
+            mode = stat.S_IMODE(st.st_mode)
+            if mode & (stat.S_ISUID | stat.S_ISGID):
+                privileged.append(f"{mode:o} {user} {group} {path}")
+
+    unexpected_privileged = sorted(set(privileged) - allowed_privileged)
+    missing_privileged = sorted(allowed_privileged - set(privileged))
+    failures = []
+    if unexpected_privileged:
+        failures.append("unexpected setuid/setgid files:\n" + "\n".join(unexpected_privileged))
+    if missing_privileged:
+        failures.append("expected setuid/setgid files missing or changed:\n" + "\n".join(missing_privileged))
+    if world_writable_without_sticky:
+        failures.append("world-writable directories without sticky bit:\n" + "\n".join(sorted(world_writable_without_sticky)))
+    if unowned:
+        failures.append("unowned or ungrouped host files:\n" + "\n".join(sorted(unowned[:100])))
+
+    if failures:
+        print("\n\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print(f"filesystem privilege drift ok: {len(privileged)} setuid/setgid files")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when: chronicle_manage_host_filesystem_privilege_validation | bool
+
+- name: Validate public certificate expiry window
+  ansible.builtin.shell: |
+    set -euo pipefail
+    python3 - <<'PY'
+    import datetime as dt
+    import os
+    import socket
+    import ssl
+    import sys
+    import tempfile
+
+    host = {{ chronicle_certificate_expiry_host | to_json }}
+    port = int({{ chronicle_certificate_expiry_port }})
+    min_days = int({{ chronicle_certificate_expiry_min_days }})
+    previous_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(10)
+    try:
+        pem = ssl.get_server_certificate((host, port))
+    finally:
+        socket.setdefaulttimeout(previous_timeout)
+    cert_file = None
+    try:
+        with tempfile.NamedTemporaryFile("w", delete=False) as handle:
+            cert_file = handle.name
+            handle.write(pem)
+        cert = ssl._ssl._test_decode_cert(cert_file)
+    finally:
+        if cert_file:
+            os.unlink(cert_file)
+
+    not_after = cert.get("notAfter")
+    if not not_after:
+        print("certificate has no notAfter value", file=sys.stderr)
+        sys.exit(1)
+    expires = dt.datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=dt.timezone.utc)
+    remaining = expires - dt.datetime.now(dt.timezone.utc)
+    remaining_days = remaining.total_seconds() / 86400
+    if remaining_days < min_days:
+        print(f"certificate expires in {remaining_days:.1f} days, below {min_days}", file=sys.stderr)
+        sys.exit(1)
+    print(f"certificate expiry ok: {remaining_days:.1f} days remaining")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when: chronicle_manage_certificate_expiry_validation | bool
+
+- name: Check dnf-automatic timer active state
+  ansible.builtin.command: systemctl is-active dnf-automatic.timer
+  register: chronicle_dnf_automatic_timer_active
+  changed_when: false
+  when: chronicle_manage_dnf_automatic | bool
+
+- name: Check dnf-automatic timer enabled state
+  ansible.builtin.command: systemctl is-enabled dnf-automatic.timer
+  register: chronicle_dnf_automatic_timer_enabled
+  changed_when: false
+  when: chronicle_manage_dnf_automatic | bool
+
+- name: Require dnf-automatic timer when managed
+  ansible.builtin.assert:
+    that:
+      - chronicle_dnf_automatic_timer_active.stdout == "active"
+      - chronicle_dnf_automatic_timer_enabled.stdout == "enabled"
+    fail_msg: "dnf-automatic.timer must be running and enabled."
+  when: chronicle_manage_dnf_automatic | bool
+
+- name: Validate dnf-automatic security update policy
+  ansible.builtin.shell: |
+    set -euo pipefail
+    python3 - <<'PY'
+    import configparser
+    import sys
+
+    expected = {
+        ("commands", "upgrade_type"): "security",
+        ("commands", "download_updates"): "yes",
+        ("commands", "apply_updates"): "{{ 'yes' if chronicle_dnf_automatic_apply_updates | bool else 'no' }}",
+        ("emitters", "emit_via"): "stdio",
+    }
+
+    config = configparser.ConfigParser()
+    read_files = config.read("/etc/dnf/automatic.conf")
+    failures = []
+    if not read_files:
+        failures.append("/etc/dnf/automatic.conf could not be read")
+    for (section, option), expected_value in expected.items():
+        actual = config.get(section, option, fallback=None)
+        if actual != expected_value:
+            failures.append(f"{section}.{option}: expected {expected_value!r}, got {actual!r}")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print("dnf-automatic policy validated: security updates downloaded, apply_updates={{ 'yes' if chronicle_dnf_automatic_apply_updates | bool else 'no' }}")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when: chronicle_manage_dnf_automatic | bool
+
+- name: Require auditd when managed
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.services['auditd.service'].state == "running"
+      - ansible_facts.services['auditd.service'].status == "enabled"
+    fail_msg: "auditd must be running and enabled."
+  when: chronicle_manage_auditd | bool
+
+- name: Validate SSH daemon config
+  ansible.builtin.command: sshd -t
+  changed_when: false
+  when: chronicle_manage_ssh_hardening | bool
+
+- name: Validate sudoers config
+  ansible.builtin.command: visudo -cf /etc/sudoers
+  changed_when: false
+  when: chronicle_manage_sudo_hardening | bool
+
+- name: Read effective sudo defaults
+  ansible.builtin.command: sudo -V
+  register: chronicle_sudo_effective_config
+  changed_when: false
+  when: chronicle_manage_sudo_hardening | bool
+
+- name: Require sudo hardening
+  ansible.builtin.assert:
+    that:
+      - "'Always run commands in a pseudo-tty' in chronicle_sudo_effective_config.stdout"
+      - "'Authentication timestamp timeout: 5.0 minutes' in chronicle_sudo_effective_config.stdout"
+      - "'Path to log file: /var/log/sudo.log' in chronicle_sudo_effective_config.stdout"
+    fail_msg: "sudo effective config does not match Chronicle hardening baseline."
+  when: chronicle_manage_sudo_hardening | bool
+
+- name: Read effective SSH daemon config
+  ansible.builtin.command: sshd -T
+  register: chronicle_sshd_effective_config
+  changed_when: false
+  when: chronicle_manage_ssh_hardening | bool
+
+- name: Require SSH daemon hardening
+  ansible.builtin.assert:
+    that:
+      - "'banner /etc/issue.net' in chronicle_sshd_effective_config.stdout"
+      - "'permitrootlogin no' in chronicle_sshd_effective_config.stdout"
+      - "'passwordauthentication no' in chronicle_sshd_effective_config.stdout"
+      - "'kbdinteractiveauthentication no' in chronicle_sshd_effective_config.stdout"
+      - "'x11forwarding no' in chronicle_sshd_effective_config.stdout"
+      - "'allowagentforwarding no' in chronicle_sshd_effective_config.stdout"
+      - "'hostbasedauthentication no' in chronicle_sshd_effective_config.stdout"
+      - "'ignorerhosts yes' in chronicle_sshd_effective_config.stdout"
+      - "'loglevel VERBOSE' in chronicle_sshd_effective_config.stdout"
+      - "'maxauthtries 3' in chronicle_sshd_effective_config.stdout"
+      - "'maxsessions 10' in chronicle_sshd_effective_config.stdout"
+      - "'maxstartups 10:30:60' in chronicle_sshd_effective_config.stdout"
+      - "'permitemptypasswords no' in chronicle_sshd_effective_config.stdout"
+      - "'permituserenvironment no' in chronicle_sshd_effective_config.stdout"
+      - ('clientaliveinterval ' ~ chronicle_ssh_client_alive_interval) in chronicle_sshd_effective_config.stdout
+      - ('clientalivecountmax ' ~ chronicle_ssh_client_alive_count_max) in chronicle_sshd_effective_config.stdout
+      - (chronicle_ssh_allow_users | length == 0) or ('allowusers ' ~ (chronicle_ssh_allow_users | join(' '))) in chronicle_sshd_effective_config.stdout
+    fail_msg: "SSHD effective config does not match Chronicle hardening baseline."
+  when: chronicle_manage_ssh_hardening | bool
+
+- name: Validate SSH authorized key file permissions
+  ansible.builtin.shell: |
+    set -euo pipefail
+    python3 - <<'PY'
+    import os
+    import stat
+    import sys
+
+    failures = []
+
+    def validate_home(home: str) -> None:
+        try:
+            home_stat = os.stat(home)
+        except FileNotFoundError:
+            return
+        ssh_dir = os.path.join(home, ".ssh")
+        if not os.path.lexists(ssh_dir):
+            return
+        if os.path.islink(ssh_dir):
+            failures.append(f"{ssh_dir}: must not be a symlink")
+            return
+        try:
+            ssh_stat = os.stat(ssh_dir)
+        except OSError as exc:
+            failures.append(f"{ssh_dir}: cannot stat: {exc}")
+            return
+        if not stat.S_ISDIR(ssh_stat.st_mode):
+            failures.append(f"{ssh_dir}: must be a directory")
+            return
+        if ssh_stat.st_uid not in (0, home_stat.st_uid):
+            failures.append(f"{ssh_dir}: owner uid {ssh_stat.st_uid} is not root or home owner {home_stat.st_uid}")
+        if stat.S_IMODE(ssh_stat.st_mode) & 0o077:
+            failures.append(f"{ssh_dir}: mode {stat.S_IMODE(ssh_stat.st_mode):04o} grants group/other access")
+
+        authorized_keys = os.path.join(ssh_dir, "authorized_keys")
+        if not os.path.lexists(authorized_keys):
+            return
+        if os.path.islink(authorized_keys):
+            failures.append(f"{authorized_keys}: must not be a symlink")
+            return
+        try:
+            keys_stat = os.stat(authorized_keys)
+        except OSError as exc:
+            failures.append(f"{authorized_keys}: cannot stat: {exc}")
+            return
+        if not stat.S_ISREG(keys_stat.st_mode):
+            failures.append(f"{authorized_keys}: must be a regular file")
+        if keys_stat.st_uid not in (0, home_stat.st_uid):
+            failures.append(f"{authorized_keys}: owner uid {keys_stat.st_uid} is not root or home owner {home_stat.st_uid}")
+        if stat.S_IMODE(keys_stat.st_mode) & 0o077:
+            failures.append(f"{authorized_keys}: mode {stat.S_IMODE(keys_stat.st_mode):04o} grants group/other access")
+
+    validate_home("/root")
+    home_root = "/home"
+    if os.path.isdir(home_root):
+        for entry in sorted(os.listdir(home_root)):
+            path = os.path.join(home_root, entry)
+            if os.path.isdir(path) and not os.path.islink(path):
+                validate_home(path)
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print("SSH authorized key file permissions validated")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when: chronicle_manage_ssh_hardening | bool
+
+- name: Stat login banners
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /etc/issue
+    - /etc/issue.net
+  register: chronicle_login_banner_stats
+  when: chronicle_manage_login_banners | bool
+
+- name: Require login banners
+  ansible.builtin.assert:
+    that:
+      - chronicle_login_banner_stats.results | map(attribute='stat.exists') | min
+      - chronicle_login_banner_stats.results | map(attribute='stat.mode') | list | difference(['0644']) | length == 0
+    fail_msg: "Login banners are missing or have unexpected permissions."
+  when: chronicle_manage_login_banners | bool
+
+- name: Validate managed kernel sysctls
+  ansible.builtin.command: "sysctl -n {{ item.key }}"
+  register: chronicle_sysctl_values
+  changed_when: false
+  loop: "{{ chronicle_kernel_sysctl | dict2items }}"
+  when: chronicle_manage_kernel_sysctl | bool
+
+- name: Require managed kernel sysctls
+  ansible.builtin.assert:
+    that:
+      - item.stdout | int == item.item.value | int
+    fail_msg: "Sysctl {{ item.item.key }} is {{ item.stdout }}, expected {{ item.item.value }}."
+  loop: "{{ chronicle_sysctl_values.results | default([]) }}"
+  when: chronicle_manage_kernel_sysctl | bool
+
+- name: Read coredump config
+  ansible.builtin.command: systemd-analyze cat-config systemd/coredump.conf
+  register: chronicle_coredump_effective_config
+  changed_when: false
+  when: chronicle_manage_coredump_hardening | bool
+
+- name: Require coredump hardening
+  ansible.builtin.assert:
+    that:
+      - "'Storage=none' in chronicle_coredump_effective_config.stdout"
+      - "'ProcessSizeMax=0' in chronicle_coredump_effective_config.stdout"
+    fail_msg: "systemd-coredump effective config does not match Chronicle hardening baseline."
+  when: chronicle_manage_coredump_hardening | bool
+
+- name: Read journald config
+  ansible.builtin.command: systemd-analyze cat-config systemd/journald.conf
+  register: chronicle_journald_effective_config
+  changed_when: false
+  when: chronicle_manage_journald | bool
+
+- name: Require journald hardening
+  ansible.builtin.assert:
+    that:
+      - "'Storage=persistent' in chronicle_journald_effective_config.stdout"
+      - "'Compress=yes' in chronicle_journald_effective_config.stdout"
+      - not (chronicle_journald_seal | bool) or 'Seal=yes' in chronicle_journald_effective_config.stdout
+      - (chronicle_journald_seal | bool) or 'Seal=no' in chronicle_journald_effective_config.stdout
+    fail_msg: "journald effective config does not match Chronicle hardening baseline."
+  when: chronicle_manage_journald | bool
+
+- name: Validate /dev/shm mount options
+  ansible.builtin.command: findmnt -no OPTIONS /dev/shm
+  register: chronicle_dev_shm_mount_opts
+  changed_when: false
+  when: chronicle_manage_dev_shm_hardening | bool
+
+- name: Require /dev/shm hardening
+  ansible.builtin.assert:
+    that:
+      - "'nodev' in chronicle_dev_shm_mount_opts.stdout"
+      - "'nosuid' in chronicle_dev_shm_mount_opts.stdout"
+      - "'noexec' in chronicle_dev_shm_mount_opts.stdout"
+    fail_msg: "/dev/shm is missing nodev/nosuid/noexec."
+  when: chronicle_manage_dev_shm_hardening | bool
+
+- name: Read session defaults
+  ansible.builtin.slurp:
+    path: /etc/profile.d/90-chronicle-session-defaults.sh
+  register: chronicle_session_defaults
+  when: chronicle_manage_session_defaults | bool
+
+- name: Require session timeout and umask defaults
+  ansible.builtin.assert:
+    that:
+      - ('typeset -xr TMOUT=' ~ chronicle_session_timeout_seconds) in (chronicle_session_defaults.content | b64decode)
+      - ('umask ' ~ chronicle_shell_umask) in (chronicle_session_defaults.content | b64decode)
+    fail_msg: "Chronicle shell session defaults are missing."
+  when: chronicle_manage_session_defaults | bool
+
+- name: Read bashrc defaults
+  ansible.builtin.slurp:
+    path: /etc/bashrc
+  register: chronicle_bashrc_defaults
+  when: chronicle_manage_session_defaults | bool
+
+- name: Require bashrc umask default
+  ansible.builtin.assert:
+    that:
+      - ('umask ' ~ chronicle_shell_umask) in (chronicle_bashrc_defaults.content | b64decode)
+      - "'umask 022' not in (chronicle_bashrc_defaults.content | b64decode)"
+    fail_msg: "/etc/bashrc is missing Chronicle umask default."
+  when: chronicle_manage_session_defaults | bool
+
+- name: Read login.defs account policy
+  ansible.builtin.command: grep -E '^(PASS_MAX_DAYS|PASS_MIN_DAYS|PASS_WARN_AGE|UMASK|ENCRYPT_METHOD)' /etc/login.defs
+  register: chronicle_login_defs_policy
+  changed_when: false
+  when: chronicle_manage_account_policy | bool
+
+- name: Read useradd defaults
+  ansible.builtin.command: grep -E '^INACTIVE=' /etc/default/useradd
+  register: chronicle_useradd_defaults
+  changed_when: false
+  when: chronicle_manage_account_policy | bool
+
+- name: Require account policy defaults
+  ansible.builtin.assert:
+    that:
+      - ('PASS_MAX_DAYS   ' ~ chronicle_password_max_days) in chronicle_login_defs_policy.stdout
+      - ('PASS_MIN_DAYS   ' ~ chronicle_password_min_days) in chronicle_login_defs_policy.stdout
+      - ('PASS_WARN_AGE   ' ~ chronicle_password_warn_age) in chronicle_login_defs_policy.stdout
+      - ('UMASK           ' ~ chronicle_shell_umask) in chronicle_login_defs_policy.stdout
+      - ('ENCRYPT_METHOD ' ~ chronicle_password_hashing_algorithm) in chronicle_login_defs_policy.stdout
+      - ('INACTIVE=' ~ chronicle_inactive_account_lock_days) in chronicle_useradd_defaults.stdout
+    fail_msg: "Account policy defaults do not match Chronicle baseline."
+  when: chronicle_manage_account_policy | bool
+
+- name: Read authselect profile
+  ansible.builtin.command: authselect current
+  register: chronicle_authselect_current
+  changed_when: false
+  when: chronicle_manage_pam_hardening | bool
+
+- name: Read authselect raw profile id
+  ansible.builtin.command: authselect current -r
+  register: chronicle_authselect_raw_profile
+  changed_when: false
+  when: chronicle_manage_pam_hardening | bool
+
+- name: Require authselect security features
+  ansible.builtin.assert:
+    that:
+      - item in chronicle_authselect_current.stdout
+    fail_msg: "authselect feature {{ item }} is not enabled."
+  loop: "{{ chronicle_authselect_features }}"
+  when: chronicle_manage_pam_hardening | bool
+
+- name: Require Chronicle custom authselect profile when managed
+  ansible.builtin.assert:
+    that:
+      - not (chronicle_manage_authselect_custom_profile | bool) or ('custom/' ~ chronicle_authselect_custom_profile_name) in chronicle_authselect_raw_profile.stdout
+    fail_msg: "authselect is not using the Chronicle custom profile."
+  when: chronicle_manage_pam_hardening | bool
+
+- name: Read faillock policy
+  ansible.builtin.command: grep -E '^(deny|fail_interval|unlock_time|root_unlock_time|even_deny_root)' /etc/security/faillock.conf
+  register: chronicle_faillock_policy
+  changed_when: false
+  when: chronicle_manage_pam_hardening | bool
+
+- name: Read password quality policy
+  ansible.builtin.slurp:
+    path: /etc/security/pwquality.conf.d/90-chronicle.conf
+  register: chronicle_pwquality_policy
+  when: chronicle_manage_pam_hardening | bool
+
+- name: Read password history policy
+  ansible.builtin.slurp:
+    path: /etc/security/pwhistory.conf
+  register: chronicle_pwhistory_policy
+  when: chronicle_manage_pam_hardening | bool
+
+- name: Read su PAM policy
+  ansible.builtin.slurp:
+    path: /etc/pam.d/su
+  register: chronicle_su_pam_policy
+  when:
+    - chronicle_manage_pam_hardening | bool
+    - chronicle_manage_su_wheel_hardening | bool
+
+- name: Read su wheel group
+  ansible.builtin.command: "getent group {{ chronicle_su_wheel_group }}"
+  register: chronicle_su_wheel_group_entry
+  changed_when: false
+  when:
+    - chronicle_manage_pam_hardening | bool
+    - chronicle_manage_su_wheel_hardening | bool
+
+- name: Require PAM password and lockout policies
+  ansible.builtin.assert:
+    that:
+      - ('deny = ' ~ chronicle_faillock_deny) in chronicle_faillock_policy.stdout
+      - ('fail_interval = ' ~ chronicle_faillock_fail_interval) in chronicle_faillock_policy.stdout
+      - ('unlock_time = ' ~ chronicle_faillock_unlock_time) in chronicle_faillock_policy.stdout
+      - ('root_unlock_time = ' ~ chronicle_faillock_root_unlock_time) in chronicle_faillock_policy.stdout
+      - "'even_deny_root' in chronicle_faillock_policy.stdout"
+      - ('minlen = ' ~ chronicle_pwquality_minlen) in (chronicle_pwquality_policy.content | b64decode)
+      - ('maxrepeat = ' ~ chronicle_pwquality_maxrepeat) in (chronicle_pwquality_policy.content | b64decode)
+      - ('difok = ' ~ chronicle_pwquality_difok) in (chronicle_pwquality_policy.content | b64decode)
+      - ('minclass = ' ~ chronicle_pwquality_minclass) in (chronicle_pwquality_policy.content | b64decode)
+      - ('maxsequence = ' ~ chronicle_pwquality_maxsequence) in (chronicle_pwquality_policy.content | b64decode)
+      - ('remember = ' ~ chronicle_pwhistory_remember) in (chronicle_pwhistory_policy.content | b64decode)
+      - not (chronicle_manage_su_wheel_hardening | bool) or ('auth required pam_wheel.so use_uid group=' ~ chronicle_su_wheel_group) in (chronicle_su_pam_policy.content | b64decode)
+      - not (chronicle_manage_su_wheel_hardening | bool) or chronicle_su_wheel_group_entry.stdout.split(':')[3] == ''
+    fail_msg: "PAM password quality/history/lockout policy does not match Chronicle baseline."
+  when: chronicle_manage_pam_hardening | bool
+
+- name: Validate user initialization file permissions
+  ansible.builtin.shell: |
+    set -o pipefail
+    find /root /home -xdev -type f -name '.*' -perm /037 -print 2>/dev/null | head -20
+  args:
+    executable: /bin/bash
+  register: chronicle_user_init_permission_drift
+  changed_when: false
+  when: chronicle_manage_user_init_file_permissions | bool
+
+- name: Require restricted user initialization file permissions
+  ansible.builtin.assert:
+    that:
+      - chronicle_user_init_permission_drift.stdout == ""
+    fail_msg: "User initialization files are more permissive than 0740: {{ chronicle_user_init_permission_drift.stdout }}"
+  when: chronicle_manage_user_init_file_permissions | bool
+
+- name: Read auditd retention config
+  ansible.builtin.command: grep -E '^(max_log_file|num_logs|max_log_file_action|disk_full_action|disk_error_action|name_format)' /etc/audit/auditd.conf
+  register: chronicle_auditd_retention
+  changed_when: false
+  when: chronicle_manage_auditd_retention | bool
+
+- name: Require auditd retention config
+  ansible.builtin.assert:
+    that:
+      - ('max_log_file = ' ~ chronicle_auditd_max_log_file_mb) in chronicle_auditd_retention.stdout
+      - ('num_logs = ' ~ chronicle_auditd_num_logs) in chronicle_auditd_retention.stdout
+      - "'max_log_file_action = ROTATE' in chronicle_auditd_retention.stdout"
+      - "'disk_full_action = SUSPEND' in chronicle_auditd_retention.stdout"
+      - "'disk_error_action = SUSPEND' in chronicle_auditd_retention.stdout"
+      - ('name_format = ' ~ chronicle_auditd_name_format) in chronicle_auditd_retention.stdout
+    fail_msg: "auditd retention config does not match Chronicle baseline."
+  when: chronicle_manage_auditd_retention | bool
+
+- name: Validate OpenSCAP packages are installed
+  ansible.builtin.command: rpm -q openscap-scanner scap-security-guide
+  changed_when: false
+  when: chronicle_manage_openscap | bool
+
+- name: Validate journald remote package is installed
+  ansible.builtin.command: rpm -q systemd-journal-remote
+  changed_when: false
+  when: chronicle_manage_journal_remote_package | bool
+
+- name: Validate journald remote listener state
+  ansible.builtin.command: "systemctl {{ item.action }} {{ item.unit }}"
+  register: chronicle_journal_remote_units
+  changed_when: false
+  failed_when: false
+  loop:
+    - { action: "is-active", unit: "systemd-journal-remote.socket" }
+    - { action: "is-active", unit: "systemd-journal-remote.service" }
+    - { action: "is-enabled", unit: "systemd-journal-remote.socket" }
+    - { action: "is-enabled", unit: "systemd-journal-remote.service" }
+  when: chronicle_manage_journal_remote_package | bool
+
+- name: Require journald remote listener to be masked and inactive
+  ansible.builtin.assert:
+    that:
+      - chronicle_journal_remote_units.results[0].stdout == "inactive"
+      - chronicle_journal_remote_units.results[1].stdout == "inactive"
+      - chronicle_journal_remote_units.results[2].stdout == "masked"
+      - chronicle_journal_remote_units.results[3].stdout == "masked"
+    fail_msg: "systemd-journal-remote package is installed, but the remote listener is not masked/inactive."
+  when: chronicle_manage_journal_remote_package | bool
+
+- name: Stat identity files
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+  loop: "{{ chronicle_identity_file_permissions }}"
+  register: chronicle_identity_file_stats
+  when: chronicle_manage_identity_file_permissions | bool
+
+- name: Require identity file permissions
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.pw_name == "root"
+      - item.stat.gr_name == "root"
+      - item.stat.mode == item.item.mode
+    fail_msg: "Identity file {{ item.item.path }} permissions drifted from Chronicle baseline."
+  loop: "{{ chronicle_identity_file_stats.results | default([]) }}"
+  when: chronicle_manage_identity_file_permissions | bool
+
+- name: Stat bootloader config files
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ chronicle_boot_config_files }}"
+  register: chronicle_boot_config_file_stats
+  when: chronicle_manage_boot_config_permissions | bool
+
+- name: Require bootloader config permissions for present files
+  ansible.builtin.assert:
+    that:
+      - not item.stat.exists or item.stat.pw_name == "root"
+      - not item.stat.exists or item.stat.gr_name == "root"
+      - not item.stat.exists or item.stat.wusr
+      - not item.stat.exists or item.stat.rusr
+      - not item.stat.exists or not item.stat.rgrp
+      - not item.stat.exists or not item.stat.wgrp
+      - not item.stat.exists or not item.stat.xgrp
+      - not item.stat.exists or not item.stat.roth
+      - not item.stat.exists or not item.stat.woth
+      - not item.stat.exists or not item.stat.xoth
+    fail_msg: "Bootloader config {{ item.item }} permissions drifted from Chronicle baseline."
+  loop: "{{ chronicle_boot_config_file_stats.results | default([]) }}"
+  when: chronicle_manage_boot_config_permissions | bool
+
+- name: Stat disabled kernel module policy
+  ansible.builtin.stat:
+    path: /etc/modprobe.d/90-chronicle-disabled-filesystems.conf
+  register: chronicle_disabled_modules_stat
+  when: chronicle_manage_kernel_module_hardening | bool
+
+- name: Require disabled kernel module policy
+  ansible.builtin.assert:
+    that:
+      - chronicle_disabled_modules_stat.stat.exists
+      - chronicle_disabled_modules_stat.stat.pw_name == "root"
+      - chronicle_disabled_modules_stat.stat.gr_name == "root"
+      - chronicle_disabled_modules_stat.stat.mode == "0644"
+    fail_msg: "Disabled kernel module policy is missing."
+  when: chronicle_manage_kernel_module_hardening | bool
+
+- name: Stat Chronicle audit rules
+  ansible.builtin.stat:
+    path: /etc/audit/rules.d/90-chronicle.rules
+  register: chronicle_audit_rules_stat
+  when: chronicle_manage_auditd | bool
+
+- name: Read Chronicle audit rules
+  ansible.builtin.slurp:
+    path: /etc/audit/rules.d/90-chronicle.rules
+  register: chronicle_audit_rules_content
+  when: chronicle_manage_auditd | bool
+
+- name: Stat Chronicle logrotate policy
+  ansible.builtin.stat:
+    path: /etc/logrotate.d/chronicle
+  register: chronicle_logrotate_stat
+  when: chronicle_manage_logrotate | bool
+
+- name: Stat AIDE database
+  ansible.builtin.stat:
+    path: /var/lib/aide/aide.db.gz
+  register: chronicle_aide_db_stat
+  when: chronicle_manage_aide | bool
+
+- name: Read AIDE config
+  ansible.builtin.slurp:
+    path: /etc/aide.conf
+  register: chronicle_aide_config
+  when: chronicle_manage_aide | bool
+
+- name: Check AIDE timer active state
+  ansible.builtin.command: systemctl is-active chronicle-aide-check.timer
+  register: chronicle_aide_timer_active
+  changed_when: false
+  when:
+    - chronicle_manage_aide | bool
+    - chronicle_manage_aide_timer | bool
+
+- name: Check AIDE timer enabled state
+  ansible.builtin.command: systemctl is-enabled chronicle-aide-check.timer
+  register: chronicle_aide_timer_enabled
+  changed_when: false
+  when:
+    - chronicle_manage_aide | bool
+    - chronicle_manage_aide_timer | bool
+
+- name: Stat AIDE OpenSCAP cron wrapper
+  ansible.builtin.stat:
+    path: /etc/cron.d/chronicle-aide-openscap
+  register: chronicle_aide_openscap_cron
+  when:
+    - chronicle_manage_aide | bool
+    - chronicle_manage_aide_cron_for_openscap | bool
+
+- name: Read AIDE OpenSCAP cron wrapper
+  ansible.builtin.slurp:
+    path: /etc/cron.d/chronicle-aide-openscap
+  register: chronicle_aide_openscap_cron_content
+  when:
+    - chronicle_manage_aide | bool
+    - chronicle_manage_aide_cron_for_openscap | bool
+
+- name: Require host integrity and log policies
+  ansible.builtin.assert:
+    that:
+      - not (chronicle_manage_auditd | bool) or chronicle_audit_rules_stat.stat.exists
+      - not (chronicle_manage_auditd | bool) or ('-w /etc/pam.d/ -p wa -k pam' in (chronicle_audit_rules_content.content | b64decode))
+      - not (chronicle_manage_auditd | bool) or ('-w /etc/modprobe.d/ -p wa -k kernel-modules' in (chronicle_audit_rules_content.content | b64decode))
+      - not (chronicle_manage_auditd | bool) or ('-w /etc/cron.allow -p wa -k cron' in (chronicle_audit_rules_content.content | b64decode))
+      - not (chronicle_manage_auditd | bool) or ('-k privileged-command' in (chronicle_audit_rules_content.content | b64decode))
+      - not (chronicle_manage_auditd | bool) or ('-k identity-change' in (chronicle_audit_rules_content.content | b64decode))
+      - not (chronicle_manage_logrotate | bool) or chronicle_logrotate_stat.stat.exists
+      - not (chronicle_manage_aide | bool) or chronicle_aide_db_stat.stat.exists
+      - not (chronicle_manage_aide | bool) or '/usr/sbin/auditctl p+i+n+u+g+s+b+acl+xattrs+sha512' in (chronicle_aide_config.content | b64decode)
+      - not (chronicle_manage_aide | bool) or '/usr/sbin/auditd p+i+n+u+g+s+b+acl+xattrs+sha512' in (chronicle_aide_config.content | b64decode)
+      - not (chronicle_manage_aide | bool) or '/usr/sbin/ausearch p+i+n+u+g+s+b+acl+xattrs+sha512' in (chronicle_aide_config.content | b64decode)
+      - not (chronicle_manage_aide | bool) or '/usr/sbin/aureport p+i+n+u+g+s+b+acl+xattrs+sha512' in (chronicle_aide_config.content | b64decode)
+      - not (chronicle_manage_aide | bool) or '/usr/sbin/autrace p+i+n+u+g+s+b+acl+xattrs+sha512' in (chronicle_aide_config.content | b64decode)
+      - not (chronicle_manage_aide | bool) or '/usr/sbin/augenrules p+i+n+u+g+s+b+acl+xattrs+sha512' in (chronicle_aide_config.content | b64decode)
+      - not (chronicle_manage_aide | bool) or '/usr/sbin/rsyslogd p+i+n+u+g+s+b+acl+xattrs+sha512' in (chronicle_aide_config.content | b64decode)
+      - not (chronicle_manage_aide | bool and chronicle_manage_aide_timer | bool) or chronicle_aide_timer_active.stdout == "active"
+      - not (chronicle_manage_aide | bool and chronicle_manage_aide_timer | bool) or chronicle_aide_timer_enabled.stdout == "enabled"
+      - not (chronicle_manage_aide | bool and chronicle_manage_aide_cron_for_openscap | bool) or chronicle_aide_openscap_cron.stat.exists
+      - not (chronicle_manage_aide | bool and chronicle_manage_aide_cron_for_openscap | bool) or ('root /usr/sbin/aide --check' in (chronicle_aide_openscap_cron_content.content | b64decode))
+    fail_msg: "Audit, logrotate, or AIDE host baseline file is missing."
+
+- name: Stat cron and at hardening files
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /etc/crontab
+    - /etc/cron.hourly
+    - /etc/cron.daily
+    - /etc/cron.weekly
+    - /etc/cron.monthly
+    - /etc/cron.d
+    - /etc/cron.allow
+    - /etc/at.allow
+  register: chronicle_cron_at_stats
+  when: chronicle_manage_cron_at_hardening | bool
+
+- name: Stat cron and at deny files
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /etc/cron.deny
+    - /etc/at.deny
+  register: chronicle_cron_at_deny_stats
+  when: chronicle_manage_cron_at_hardening | bool
+
+- name: Require cron and at hardening
+  ansible.builtin.assert:
+    that:
+      - chronicle_cron_at_stats.results | map(attribute='stat.exists') | min
+      - chronicle_cron_at_deny_stats.results | map(attribute='stat.exists') | select('equalto', true) | list | length == 0
+    fail_msg: "cron/at hardening baseline is missing."
+  when: chronicle_manage_cron_at_hardening | bool
+
+- name: Require RKE2 server to be active
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.services['rke2-server.service'].state == "running"
+      - ansible_facts.services['rke2-server.service'].status == "enabled"
+    fail_msg: "rke2-server must be running and enabled."
+
+- name: Require firewalld state to match inventory policy
+  ansible.builtin.assert:
+    that:
+      - >-
+        (
+          chronicle_disable_firewalld_for_single_node_cni | default(false) | bool
+          and ansible_facts.services['firewalld.service'].state != "running"
+          and ansible_facts.services['firewalld.service'].status != "enabled"
+        )
+        or
+        (
+          not (chronicle_disable_firewalld_for_single_node_cni | default(false) | bool)
+          and ansible_facts.services['firewalld.service'].state == "running"
+          and ansible_facts.services['firewalld.service'].status == "enabled"
+        )
+    fail_msg: "firewalld state does not match chronicle_disable_firewalld_for_single_node_cni."
+
+- name: Stat RKE2 config file
+  ansible.builtin.stat:
+    path: /etc/rancher/rke2/config.yaml
+  register: chronicle_rke2_config_stat
+
+- name: Stat RKE2 audit policy file
+  ansible.builtin.stat:
+    path: "{{ chronicle_rke2_audit_policy_path }}"
+  register: chronicle_rke2_audit_policy_stat
+
+- name: Stat RKE2 audit log directory
+  ansible.builtin.stat:
+    path: "{{ chronicle_rke2_audit_log_path | dirname }}"
+  register: chronicle_rke2_audit_log_dir_stat
+
+- name: Stat RKE2 etcd snapshot directory
+  ansible.builtin.stat:
+    path: "{{ chronicle_rke2_etcd_snapshot_dir }}"
+  register: chronicle_rke2_etcd_snapshot_dir_stat
+
+- name: Stat RKE2 kubeconfig
+  ansible.builtin.stat:
+    path: "{{ chronicle_kubeconfig }}"
+  register: chronicle_rke2_kubeconfig_stat
+
+- name: Stat Chronicle local storage root
+  ansible.builtin.stat:
+    path: "{{ chronicle_local_path_root }}"
+  register: chronicle_local_path_stat
+
+- name: Require sensitive platform file permissions
+  ansible.builtin.assert:
+    that:
+      - chronicle_rke2_config_stat.stat.exists
+      - chronicle_rke2_config_stat.stat.pw_name == "root"
+      - chronicle_rke2_config_stat.stat.gr_name == "root"
+      - chronicle_rke2_config_stat.stat.mode == "0600"
+      - chronicle_rke2_audit_policy_stat.stat.exists
+      - chronicle_rke2_audit_policy_stat.stat.pw_name == "root"
+      - chronicle_rke2_audit_policy_stat.stat.gr_name == "root"
+      - chronicle_rke2_audit_policy_stat.stat.mode == "0600"
+      - chronicle_rke2_audit_log_dir_stat.stat.exists
+      - chronicle_rke2_audit_log_dir_stat.stat.isdir
+      - chronicle_rke2_etcd_snapshot_dir_stat.stat.exists
+      - chronicle_rke2_etcd_snapshot_dir_stat.stat.isdir
+      - chronicle_rke2_kubeconfig_stat.stat.exists
+      - chronicle_rke2_kubeconfig_stat.stat.pw_name == "root"
+      - chronicle_rke2_kubeconfig_stat.stat.gr_name == "root"
+      - chronicle_rke2_kubeconfig_stat.stat.mode == "0600"
+      - chronicle_local_path_stat.stat.exists
+      - chronicle_local_path_stat.stat.isdir
+      - chronicle_local_path_stat.stat.pw_name == "root"
+      - chronicle_local_path_stat.stat.gr_name == "root"
+      - chronicle_local_path_stat.stat.mode == "0770"
+    fail_msg: "RKE2 config, kubeconfig, or local storage permissions drifted from the hardened baseline."
+
+- name: Check Chronicle local storage SELinux label
+  ansible.builtin.command: "ls -Zd {{ chronicle_local_path_root }}"
+  register: chronicle_local_path_label
+  changed_when: false
+
+- name: Require Chronicle local storage to be container-labeled
+  ansible.builtin.assert:
+    that:
+      - "'container_file_t' in chronicle_local_path_label.stdout"
+    fail_msg: "Chronicle local storage root is not labeled container_file_t: {{ chronicle_local_path_label.stdout }}"
+
+- name: Read RKE2 server config
+  ansible.builtin.slurp:
+    path: /etc/rancher/rke2/config.yaml
+  register: chronicle_rke2_config_raw
+
+- name: Parse RKE2 server config
+  ansible.builtin.set_fact:
+    chronicle_rke2_config: "{{ chronicle_rke2_config_raw.content | b64decode | from_yaml }}"
+
+- name: Require RKE2 hardened config settings
+  ansible.builtin.assert:
+    that:
+      - chronicle_rke2_config.profile == chronicle_rke2_profile
+      - chronicle_rke2_config['secrets-encryption'] | bool
+      - chronicle_rke2_config['write-kubeconfig-mode'] == "0600"
+      - chronicle_rke2_config.cni == chronicle_rke2_cni
+      - chronicle_rke2_config['ingress-controller'] == chronicle_rke2_ingress_controller
+      - "'rke2-ingress-nginx' in chronicle_rke2_config.disable"
+      - chronicle_rke2_config['etcd-snapshot-dir'] == chronicle_rke2_etcd_snapshot_dir
+      - chronicle_rke2_config['etcd-snapshot-schedule-cron'] == chronicle_rke2_etcd_snapshot_schedule_cron
+      - chronicle_rke2_config['etcd-snapshot-retention'] | int == chronicle_rke2_etcd_snapshot_retention | int
+      - chronicle_rke2_tls_sans | difference(chronicle_rke2_config['tls-san'] | default([])) | length == 0
+      - chronicle_rke2_node_labels | difference(chronicle_rke2_config['node-label'] | default([])) | length == 0
+      - chronicle_rke2_kubelet_args | difference(chronicle_rke2_config['kubelet-arg'] | default([])) | length == 0
+      - chronicle_rke2_kube_apiserver_args | difference(chronicle_rke2_config['kube-apiserver-arg'] | default([])) | length == 0
+      - not (chronicle_swap_enabled | bool) or 'fail-swap-on=false' in (chronicle_rke2_config['kubelet-arg'] | default([]))
+    fail_msg: "RKE2 server config does not match the Chronicle hardened platform baseline."
+
+- name: Validate Kubernetes node labels
+  ansible.builtin.shell: |
+    set -o pipefail
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} get nodes -o json |
+      python3 -c '
+    import json
+    import sys
+
+    data = json.load(sys.stdin)
+    expected_labels = dict(label.split("=", 1) for label in {{ chronicle_rke2_node_labels | to_json }})
+    failures = []
+    for node in data.get("items", []):
+        name = node.get("metadata", {}).get("name", "<unknown>")
+        labels = node.get("metadata", {}).get("labels", {})
+        for key, value in expected_labels.items():
+            if labels.get(key) != value:
+                failures.append(name + ": " + key + " label mismatch")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    '
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate Kubernetes API health
+  ansible.builtin.command: >-
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+    get --raw=/readyz
+  changed_when: false

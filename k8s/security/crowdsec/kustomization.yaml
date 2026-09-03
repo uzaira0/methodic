@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../crowdsec-baseline
+  - external-secrets.yaml
+  - crowdsec.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: chronicle
+
+configMapGenerator:
+  - name: chronicle-crowdsec-config
+    namespace: chronicle-security
+    files:
+      - acquis.yaml=config/acquis.yaml
+      - appsec.yaml=config/appsec.yaml
+      - geo-block.yaml=config/geo-block.yaml

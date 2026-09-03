@@ -1,0 +1,54 @@
+# Values fragment for the RKE2 Traefik chart. Apply through a HelmChartConfig
+# only after the CrowdSec service is Ready and the vendored bouncer plugin
+# source is available to the Traefik chart as an inline local plugin or a
+# Chronicle-built Traefik image.
+#
+# This enables plugin enforcement and JSON access logs. It does not by itself
+# solve cross-namespace log sharing: the stock RKE2 Traefik DaemonSet runs in
+# kube-system, while the restricted CrowdSec package runs in chronicle-security.
+# This privacy-safe stream intentionally cannot drive IP decisions: the bouncer
+# may enforce existing LAPI decisions, while any raw network telemetry requires
+# a separate explicitly approved restricted collector and retention boundary.
+experimental:
+  abortOnPluginFailure: true
+  localPlugins:
+    crowdsec-bouncer:
+      moduleName: github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin
+
+logs:
+  access:
+    enabled: true
+    format: json
+    bufferingSize: 100
+    filePath: /var/log/traefik/access.log
+    # RKE2's packaged chart uses the legacy logs.access fields shape. Request
+    # paths and client addresses can carry durable identifiers, so retain only
+    # bounded operational fields and drop all headers at the source.
+    fields:
+      general:
+        defaultmode: drop
+        names:
+          DownstreamStatus: keep
+          Duration: keep
+          RequestMethod: keep
+          RouterName: keep
+          ServiceName: keep
+          StartUTC: keep
+          entryPointName: keep
+      headers:
+        defaultmode: drop
+        names: {}
+
+additionalArguments:
+  - --accesslog.filepath=/var/log/traefik/access.log
+  - --accesslog.format=json
+  - --accesslog.bufferingsize=100
+  - --accesslog.fields.defaultmode=drop
+  - --accesslog.fields.headers.defaultmode=drop
+  - --accesslog.fields.names.DownstreamStatus=keep
+  - --accesslog.fields.names.Duration=keep
+  - --accesslog.fields.names.RequestMethod=keep
+  - --accesslog.fields.names.RouterName=keep
+  - --accesslog.fields.names.ServiceName=keep
+  - --accesslog.fields.names.StartUTC=keep
+  - --accesslog.fields.names.entryPointName=keep

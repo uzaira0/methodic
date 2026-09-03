@@ -1,0 +1,6 @@
+address: "${VAULT_ADDR}"
+token: "${VAULT_TOKEN}"
+secretBasePath: "chronicle"
+enabled: ${VAULT_ENABLED}
+connectionTimeoutMs: 5000
+readTimeoutMs: 5000

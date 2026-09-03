@@ -1,0 +1,34 @@
+appId: ${APP_PACKAGE}
+tags:
+  - artifact
+  - unlock-identification
+---
+
+- launchApp:
+    clearState: false
+
+- tapOn:
+    text: "CANCEL"
+    optional: true
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/nav_settings"
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/identifyUserSwitch"
+    timeout: 15000
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/identifyUserSwitch"
+
+- assertVisible: "Identify the device user after unlock?"
+
+- tapOn: "Continue"
+
+- extendedWaitUntil:
+    visible: "Active: Chronicle will show the device-user prompt after unlock."
+    timeout: 15000
+
+- assertVisible:
+    id: "${APP_PACKAGE}:id/deviceUserGroup"

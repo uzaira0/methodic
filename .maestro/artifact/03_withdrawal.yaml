@@ -1,0 +1,33 @@
+appId: ${APP_PACKAGE}
+tags:
+  - artifact
+  - withdrawal
+---
+
+- launchApp:
+    clearState: false
+
+- tapOn:
+    text: "CANCEL"
+    optional: true
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/nav_settings"
+
+- scrollUntilVisible:
+    element:
+      id: "${APP_PACKAGE}:id/withdrawFromStudyButton"
+    direction: DOWN
+    timeout: 15000
+    speed: 40
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/withdrawFromStudyButton"
+
+- assertVisible: "Withdraw from this study?"
+
+- tapOn: "Withdraw"
+
+- extendedWaitUntil:
+    visible: "Withdrawal requested. Collection is stopped while deletion is confirmed."
+    timeout: 15000

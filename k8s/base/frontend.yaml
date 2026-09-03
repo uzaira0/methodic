@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: chronicle-frontend
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: chronicle-frontend
+    app.kubernetes.io/part-of: chronicle
+spec:
+  selector:
+    app.kubernetes.io/name: chronicle-frontend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chronicle-frontend
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: chronicle-frontend
+    app.kubernetes.io/part-of: chronicle
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chronicle-frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: chronicle-frontend
+        app.kubernetes.io/part-of: chronicle
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      serviceAccountName: chronicle-frontend
+      securityContext:
+        fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: frontend
+          image: ghcr.io/uzaira0/chronicle/chronicle-frontend:sha-000000000000
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: nginx-tmp
+              mountPath: /var/lib/nginx/tmp
+            - name: nginx-run
+              mountPath: /run/nginx
+            - name: nginx-logs
+              mountPath: /var/log/nginx
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: nginx-tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: nginx-run
+          emptyDir:
+            sizeLimit: 16Mi
+        - name: nginx-logs
+          emptyDir:
+            sizeLimit: 32Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi

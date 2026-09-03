@@ -1,0 +1,525 @@
+{
+  "uid": "chronicle-database-storage",
+  "title": "Chronicle Database and Storage",
+  "tags": [
+    "chronicle",
+    "selfhost",
+    "operational"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": false,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Database size",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "chronicle_postgres_database_bytes",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 9,
+      "title": "Connections",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "chronicle_postgres_connections",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 17,
+      "title": "Flyway version",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "chronicle_flyway_schema_version",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 51,
+      "title": "Transactions",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(chronicle_postgres_transactions_total[5m])",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ]
+    },
+    {
+      "id": 63,
+      "title": "Deadlocks",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "increase(chronicle_postgres_deadlocks_total[1h])",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ]
+    },
+    {
+      "id": 131,
+      "title": "Filesystem usage",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "container_fs_usage_bytes{id=\"/\"}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 143,
+      "title": "Predicted filesystem usage in 24h",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "predict_linear(container_fs_usage_bytes{id=\"/\"}[6h],86400)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 30,
+      "title": "Metrics budget usage",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "chronicle_observability_storage_bytes{store=\"metrics\"}/chronicle_observability_storage_budget_bytes{store=\"metrics\"}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 31,
+      "title": "Logs budget usage",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 21,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "chronicle_observability_storage_bytes{store=\"logs\"}/chronicle_observability_storage_budget_bytes{store=\"logs\"}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "text": "unhealthy"
+                },
+                "1": {
+                  "color": "green",
+                  "text": "healthy"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 29
+      },
+      "id": 32,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "chronicle_tde_expected == 0 or chronicle_tde_healthy",
+          "refId": "A"
+        }
+      ],
+      "title": "TDE health",
+      "type": "stat"
+    },
+    {
+      "id": 144,
+      "title": "Connection pressure",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 0,
+        "y": 34
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "chronicle_postgres_connections / chronicle_postgres_max_connections",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        }
+      }
+    },
+    {
+      "id": 145,
+      "title": "Export storage size",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 8,
+        "y": 34
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "chronicle_export_storage_bytes",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 146,
+      "title": "Backup storage size",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 34
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "chronicle_backup_storage_bytes",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  }
+}

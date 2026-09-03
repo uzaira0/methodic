@@ -1,0 +1,86 @@
+# Exact-AAB enrollment for the approved minimal-core study profile. A guarded helper dispatches
+# the one-time fragment invitation over adb stdin before this flow begins. The profile contains
+# four required modules, so every consent step is accepted explicitly before enrollment finishes.
+
+appId: ${APP_PACKAGE}
+tags:
+  - artifact
+  - enrollment
+  - minimal-core
+---
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/serverUrlText"
+    timeout: 10000
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/button"
+
+- scrollUntilVisible:
+    element:
+      id: "${APP_PACKAGE}:id/acceptStudyDisclosureButton"
+    direction: DOWN
+    timeout: 45000
+    speed: 40
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/acceptStudyDisclosureButton"
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/orientationAccept"
+    timeout: 15000
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/orientationAccept"
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/orientationAccept"
+    timeout: 15000
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/orientationAccept"
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/orientationAccept"
+    timeout: 15000
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/orientationAccept"
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/orientationAccept"
+    timeout: 15000
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/orientationAccept"
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/doneButton"
+    timeout: 45000
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/doneButton"
+
+- tapOn:
+    text: "CANCEL"
+    optional: true
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/overviewStudyId"
+    timeout: 15000
+
+- assertVisible:
+    id: "${APP_PACKAGE}:id/overviewParticipantId"
+
+- assertVisible:
+    id: "${APP_PACKAGE}:id/overviewLastUpload"
+
+- assertVisible:
+    id: "${APP_PACKAGE}:id/overviewServerHealth"

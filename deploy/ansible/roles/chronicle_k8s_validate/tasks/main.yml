@@ -1,0 +1,2730 @@
+---
+- name: Check Kubernetes node readiness
+  ansible.builtin.command: >-
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+    wait node --all --for=condition=Ready --timeout=2m
+  changed_when: false
+
+- name: Validate Cilium operator rollout
+  ansible.builtin.command: >-
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+    -n kube-system rollout status deploy/cilium-operator --timeout=2m
+  changed_when: false
+  when: chronicle_manage_single_node_cilium_operator | bool
+
+- name: Validate no active pods are stuck outside Running
+  ansible.builtin.shell: |
+    set -euo pipefail
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} get pods -A \
+      --field-selector=status.phase!=Running,status.phase!=Succeeded \
+      -o json | python3 -c '
+    import json
+    import sys
+
+    payload = json.load(sys.stdin)
+    offenders = []
+    for item in payload.get("items", []):
+        metadata = item.get("metadata", {})
+        status = item.get("status", {})
+        namespace = metadata.get("namespace", "")
+        name = metadata.get("name", "")
+        phase = status.get("phase", "")
+        reason = status.get("reason", "")
+        offenders.append(f"{namespace}/{name}: {phase} {reason}".strip())
+
+    if offenders:
+        print("\n".join(offenders), file=sys.stderr)
+        sys.exit(1)
+    print("no active pods stuck outside Running/Succeeded")
+    '
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate Chronicle deployment rollouts
+  ansible.builtin.command: >-
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+    -n {{ chronicle_namespace }} rollout status deploy/{{ item }} --timeout=3m
+  loop: "{{ chronicle_expected_deployments }}"
+  changed_when: false
+
+- name: Validate constrained deployments use zero-surge rollouts
+  ansible.builtin.shell: |
+    set -euo pipefail
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} \
+      -n {{ chronicle_namespace }} get deploy/{{ item }} -o json | python3 -c '
+    import json
+    import sys
+
+    deployment = json.load(sys.stdin)
+    name = deployment.get("metadata", {}).get("name", "{{ item }}")
+    strategy = deployment.get("spec", {}).get("strategy", {})
+    rolling = strategy.get("rollingUpdate", {})
+    failures = []
+    if strategy.get("type") != "RollingUpdate":
+        failures.append(f"{name}: strategy.type must be RollingUpdate")
+    if str(rolling.get("maxSurge")) != "0":
+        failures.append(f"{name}: rollingUpdate.maxSurge must be 0")
+    if str(rolling.get("maxUnavailable")) != "1":
+        failures.append(f"{name}: rollingUpdate.maxUnavailable must be 1")
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print(f"{name}: zero-surge rollout strategy validated")
+    '
+  args:
+    executable: /bin/bash
+  loop: "{{ chronicle_zero_surge_deployments }}"
+  changed_when: false
+
+- name: Validate process-local-cache deployments use Recreate and one replica
+  ansible.builtin.shell: |
+    set -euo pipefail
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} \
+      -n {{ chronicle_namespace }} get deploy/{{ item }} -o json | python3 -c '
+    import json
+    import sys
+
+    deployment = json.load(sys.stdin)
+    name = deployment.get("metadata", {}).get("name", "{{ item }}")
+    spec = deployment.get("spec", {})
+    failures = []
+    if int(spec.get("replicas", 0)) != 1:
+        failures.append(f"{name}: replicas must be exactly 1")
+    strategy = spec.get("strategy", {})
+    if strategy.get("type") != "Recreate":
+        failures.append(f"{name}: strategy.type must be Recreate")
+    if "rollingUpdate" in strategy:
+        failures.append(f"{name}: Recreate strategy must not include rollingUpdate settings")
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print(f"{name}: single-replica Recreate topology validated")
+    '
+  args:
+    executable: /bin/bash
+  loop: "{{ chronicle_recreate_deployments }}"
+  changed_when: false
+
+- name: Validate Chronicle statefulset rollouts
+  ansible.builtin.command: >-
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+    -n {{ chronicle_namespace }} rollout status statefulset/{{ item }} --timeout=3m
+  loop: "{{ chronicle_expected_statefulsets }}"
+  changed_when: false
+
+- name: Validate Chronicle ExternalSecrets are synced
+  ansible.builtin.command: >-
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+    -n {{ chronicle_namespace }} wait externalsecret/{{ item }}
+    --for=condition=Ready=True --timeout=2m
+  loop: "{{ chronicle_expected_external_secrets }}"
+  changed_when: false
+
+- name: Validate observability deployment rollouts
+  ansible.builtin.command: >-
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+    -n {{ chronicle_observability_namespace }} rollout status deploy/{{ item }} --timeout=3m
+  loop: "{{ chronicle_expected_observability_deployments }}"
+  changed_when: false
+
+- name: Validate Grafana ExternalSecret is synced
+  ansible.builtin.command: >-
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+    -n {{ chronicle_observability_namespace }} wait externalsecret/grafana-admin
+    --for=condition=Ready=True --timeout=2m
+  changed_when: false
+
+- name: Validate synced Kubernetes Secret keys are populated
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import base64
+    import json
+    import re
+    import subprocess
+    import sys
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    contracts = {{ (chronicle_required_secret_contracts + (chronicle_crowdsec_secret_contracts if chronicle_require_crowdsec_enforced | bool else [])) | to_json }}
+    equalities = {{ chronicle_secret_equalities | to_json }}
+    placeholder_pattern = re.compile({{ chronicle_secret_placeholder_pattern | to_json }})
+    failures = []
+    decoded = {}
+
+    def get_secret(namespace, name):
+        try:
+            raw = subprocess.check_output(
+                [kubectl, "--kubeconfig", kubeconfig, "-n", namespace, "get", "secret", name, "-o", "json"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            failures.append(f"{namespace}/{name}: secret missing")
+            return {}
+        return json.loads(raw).get("data", {})
+
+    def decode_key(namespace, name, key, encoded):
+        ref = f"{namespace}/{name}/{key}"
+        if key not in encoded:
+            failures.append(f"{ref}: key missing")
+            return b""
+        try:
+            value = base64.b64decode(encoded[key], validate=True)
+        except Exception:
+            failures.append(f"{ref}: value is not valid base64")
+            return b""
+        decoded[(namespace, name, key)] = value
+        return value
+
+    for contract in contracts:
+        namespace = contract["namespace"]
+        name = contract["name"]
+        data = get_secret(namespace, name)
+        for key, rules in contract.get("keys", {}).items():
+            value = decode_key(namespace, name, key, data)
+            ref = f"{namespace}/{name}/{key}"
+            min_bytes = int(rules.get("min_bytes", 1))
+            if len(value) < min_bytes:
+                failures.append(f"{ref}: decoded value shorter than {min_bytes} bytes")
+            try:
+                text = value.decode("utf-8")
+            except UnicodeDecodeError:
+                text = ""
+            if text and placeholder_pattern.search(text):
+                failures.append(f"{ref}: value matches placeholder pattern")
+            required_fragment = rules.get("contains")
+            if required_fragment and required_fragment not in text:
+                failures.append(f"{ref}: expected PEM/content marker missing")
+
+    for equality in equalities:
+        left = equality["left"]
+        right = equality["right"]
+        left_ref = (left["namespace"], left["name"], left["key"])
+        right_ref = (right["namespace"], right["name"], right["key"])
+        if decoded.get(left_ref, object()) != decoded.get(right_ref, object()):
+            failures.append(
+                f"{left['namespace']}/{left['name']}/{left['key']} does not match "
+                f"{right['namespace']}/{right['name']}/{right['key']}"
+            )
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print(f"validated {sum(len(contract.get('keys', {})) for contract in contracts)} secret keys without printing values")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate Kubernetes TLS secrets expire safely and keypairs match
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import base64
+    import json
+    import os
+    import shutil
+    import subprocess
+    import sys
+    import tempfile
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    contracts = {{ chronicle_tls_secret_contracts | to_json }}
+    failures = []
+    summaries = []
+
+    def get_secret(namespace, name):
+        try:
+            raw = subprocess.check_output(
+                [kubectl, "--kubeconfig", kubeconfig, "-n", namespace, "get", "secret", name, "-o", "json"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            failures.append(f"{namespace}/{name}: secret missing")
+            return {}
+        return json.loads(raw).get("data", {})
+
+    def write_secret_key(tempdir, namespace, name, key, encoded):
+        ref = f"{namespace}/{name}/{key}"
+        if key not in encoded:
+            failures.append(f"{ref}: key missing")
+            return ""
+        try:
+            value = base64.b64decode(encoded[key], validate=True)
+        except Exception:
+            failures.append(f"{ref}: value is not valid base64")
+            return ""
+        path = os.path.join(tempdir, key.replace("/", "_"))
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(value)
+        return path
+
+    def openssl(args):
+        return subprocess.run(
+            ["openssl", *args],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,
+        )
+
+    tempdir = tempfile.mkdtemp(prefix="chronicle-tls-")
+    os.chmod(tempdir, 0o700)
+    try:
+        for contract in contracts:
+            namespace = contract["namespace"]
+            name = contract["name"]
+            ca_key = contract["ca_cert_key"]
+            server_cert_key = contract["server_cert_key"]
+            server_key_key = contract["server_key_key"]
+            min_days = int(contract.get("min_days", 14))
+            checkend_seconds = min_days * 24 * 60 * 60
+            data = get_secret(namespace, name)
+            secret_dir = os.path.join(tempdir, f"{namespace}_{name}")
+            os.mkdir(secret_dir, 0o700)
+
+            ca_path = write_secret_key(secret_dir, namespace, name, ca_key, data)
+            server_cert_path = write_secret_key(secret_dir, namespace, name, server_cert_key, data)
+            server_key_path = write_secret_key(secret_dir, namespace, name, server_key_key, data)
+            if not (ca_path and server_cert_path and server_key_path):
+                continue
+
+            for key, path in ((ca_key, ca_path), (server_cert_key, server_cert_path)):
+                cert_ref = f"{namespace}/{name}/{key}"
+                expiry = openssl(["x509", "-in", path, "-checkend", str(checkend_seconds), "-noout"])
+                if expiry.returncode != 0:
+                    failures.append(f"{cert_ref}: certificate expires within {min_days} days or is invalid")
+                enddate = openssl(["x509", "-in", path, "-noout", "-enddate"])
+                if enddate.returncode != 0:
+                    failures.append(f"{cert_ref}: certificate end date is unreadable")
+
+            verify = openssl(["verify", "-CAfile", ca_path, server_cert_path])
+            if verify.returncode != 0:
+                failures.append(f"{namespace}/{name}: server certificate does not verify against configured CA")
+
+            cert_pubkey = openssl(["x509", "-in", server_cert_path, "-pubkey", "-noout"])
+            key_pubkey = openssl(["pkey", "-in", server_key_path, "-pubout"])
+            if cert_pubkey.returncode != 0 or key_pubkey.returncode != 0:
+                failures.append(f"{namespace}/{name}: server certificate or private key public material is unreadable")
+            elif cert_pubkey.stdout != key_pubkey.stdout:
+                failures.append(f"{namespace}/{name}: server certificate does not match server private key")
+
+            summaries.append(f"{namespace}/{name}: tls chain/keypair/min_days={min_days}")
+    finally:
+        shutil.rmtree(tempdir)
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print("validated Kubernetes TLS secrets without printing certificate or key material: " + "; ".join(summaries))
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate restricted Pod Security namespace labels
+  ansible.builtin.shell: >-
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+    get namespace {{ item }}
+    -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}'
+  args:
+    executable: /bin/bash
+  loop: "{{ chronicle_restricted_namespaces }}"
+  register: chronicle_restricted_namespace_labels
+  changed_when: false
+
+- name: Require Chronicle namespaces to enforce restricted Pod Security
+  ansible.builtin.assert:
+    that:
+      - chronicle_restricted_namespace_labels.results | length == chronicle_restricted_namespaces | length
+      - chronicle_restricted_namespace_labels.results | map(attribute='stdout') | select('equalto', 'restricted') | list | length == chronicle_restricted_namespaces | length
+    fail_msg: "A Chronicle namespace is not enforcing restricted Pod Security: {{ chronicle_restricted_namespace_labels.results | map(attribute='stdout') | list }}"
+
+- name: Validate default-deny NetworkPolicies
+  ansible.builtin.shell: |
+    set -euo pipefail
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} -n {{ item }} get networkpolicy default-deny -o json |
+      python3 -c '
+    import json
+    import sys
+
+    policy = json.load(sys.stdin)
+    namespace = policy.get("metadata", {}).get("namespace", "{{ item }}")
+    name = policy.get("metadata", {}).get("name", "default-deny")
+    spec = policy.get("spec", {})
+    failures = []
+
+    if spec.get("podSelector") != {}:
+        failures.append(f"{namespace}/{name}: podSelector must be empty to select all pods")
+
+    policy_types = set(spec.get("policyTypes", []))
+    expected_types = {"Ingress", "Egress"}
+    if policy_types != expected_types:
+        failures.append(f"{namespace}/{name}: policyTypes must be exactly {sorted(expected_types)}, got {sorted(policy_types)}")
+
+    if spec.get("ingress") not in (None, []):
+        failures.append(f"{namespace}/{name}: default-deny must not include ingress allow rules")
+    if spec.get("egress") not in (None, []):
+        failures.append(f"{namespace}/{name}: default-deny must not include egress allow rules")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print(f"{namespace}/{name}: default-deny selects all pods and denies ingress/egress")
+    '
+  args:
+    executable: /bin/bash
+  loop: "{{ chronicle_default_deny_namespaces }}"
+  changed_when: false
+
+- name: Validate Chronicle NetworkPolicies match the expected allowlist
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import json
+    import subprocess
+    import sys
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    expected = {
+        contract["namespace"]: sorted(contract.get("names", []))
+        for contract in {{ chronicle_expected_networkpolicies | to_json }}
+    }
+    failures = []
+
+    for namespace, expected_names in expected.items():
+        raw = subprocess.check_output(
+            [kubectl, "--kubeconfig", kubeconfig, "-n", namespace, "get", "networkpolicy", "-o", "json"],
+            text=True,
+        )
+        payload = json.loads(raw)
+        actual_names = sorted(
+            item.get("metadata", {}).get("name", "")
+            for item in payload.get("items", [])
+            if item.get("metadata", {}).get("name")
+        )
+        extra = sorted(set(actual_names) - set(expected_names))
+        missing = sorted(set(expected_names) - set(actual_names))
+        if extra:
+            failures.append(f"{namespace}: unexpected NetworkPolicies {extra}")
+        if missing:
+            failures.append(f"{namespace}: expected NetworkPolicies missing {missing}")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    total = sum(len(names) for names in expected.values())
+    print(f"validated {total} NetworkPolicies against namespace allowlists")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate Kubernetes services are not directly exposed
+  ansible.builtin.shell: |
+    set -euo pipefail
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} get services -A -o json |
+      python3 -c '
+    import json
+    import sys
+
+    payload = json.load(sys.stdin)
+    disallowed = set({{ chronicle_disallowed_service_types | to_json }})
+    failures = []
+    for service in payload.get("items", []):
+        metadata = service.get("metadata", {})
+        spec = service.get("spec", {})
+        service_type = spec.get("type", "ClusterIP")
+        if service_type in disallowed:
+            namespace = metadata.get("namespace", "<unknown>")
+            name = metadata.get("name", "<unknown>")
+            failures.append(f"{namespace}/{name}: service type {service_type} is not allowed")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print("no disallowed Kubernetes service exposure found")
+    '
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate Kubernetes Services do not use external address fields
+  ansible.builtin.shell: |
+    set -euo pipefail
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} get services -A -o json |
+      python3 -c '
+    import json
+    import sys
+
+    payload = json.load(sys.stdin)
+    failures = []
+    for service in payload.get("items", []):
+        metadata = service.get("metadata", {})
+        spec = service.get("spec", {})
+        namespace = metadata.get("namespace", "<unknown>")
+        name = metadata.get("name", "<unknown>")
+        ref = f"{namespace}/{name}"
+
+        if spec.get("externalIPs"):
+            failures.append(f"{ref}: externalIPs are not allowed")
+        if spec.get("loadBalancerIP"):
+            failures.append(f"{ref}: loadBalancerIP is not allowed")
+        if spec.get("externalName"):
+            failures.append(f"{ref}: externalName is not allowed")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print("no Kubernetes Service external address fields found")
+    '
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate managed workload templates do not use host networking
+  ansible.builtin.shell: |
+    set -euo pipefail
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} -n {{ item }} get deploy,statefulset,cronjob -o json |
+      python3 -c '
+    import json
+    import sys
+
+    payload = json.load(sys.stdin)
+    failures = []
+    for workload in payload.get("items", []):
+        kind = workload.get("kind")
+        name = workload.get("metadata", {}).get("name", "<unknown>")
+        spec = workload.get("spec", {})
+        if kind == "CronJob":
+            template = spec.get("jobTemplate", {}).get("spec", {}).get("template", {}).get("spec", {})
+        else:
+            template = spec.get("template", {}).get("spec", {})
+
+        ref = f"{{ item }}/{kind}/{name}"
+        if template.get("hostNetwork") is True:
+            failures.append(ref + ": hostNetwork must not be true")
+        containers = template.get("initContainers", []) + template.get("containers", [])
+        for container in containers:
+            container_name = container.get("name", "<container>")
+            for port in container.get("ports", []) or []:
+                if "hostPort" in port:
+                    host_port = port.get("hostPort")
+                    failures.append(f"{ref}/{container_name}: hostPort {host_port} must not be set")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print("{{ item }}: no hostNetwork or hostPort usage in managed workload templates")
+    '
+  args:
+    executable: /bin/bash
+  loop: "{{ chronicle_workload_template_namespaces }}"
+  changed_when: false
+
+- name: Validate managed workload templates do not override DNS resolution
+  ansible.builtin.shell: |
+    set -euo pipefail
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} -n {{ item }} get deploy,statefulset,cronjob -o json |
+      python3 -c '
+    import json
+    import sys
+
+    payload = json.load(sys.stdin)
+    failures = []
+    for workload in payload.get("items", []):
+        kind = workload.get("kind")
+        name = workload.get("metadata", {}).get("name", "<unknown>")
+        spec = workload.get("spec", {})
+        if kind == "CronJob":
+            template = spec.get("jobTemplate", {}).get("spec", {}).get("template", {}).get("spec", {})
+        else:
+            template = spec.get("template", {}).get("spec", {})
+
+        ref = f"{{ item }}/{kind}/{name}"
+        dns_policy = template.get("dnsPolicy", "ClusterFirst")
+        if dns_policy != "ClusterFirst":
+            failures.append(f"{ref}: dnsPolicy must be ClusterFirst, got {dns_policy!r}")
+        if template.get("dnsConfig"):
+            failures.append(ref + ": dnsConfig overrides are not allowed")
+        if template.get("hostAliases"):
+            failures.append(ref + ": hostAliases are not allowed")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print("{{ item }}: managed workload DNS settings use cluster defaults")
+    '
+  args:
+    executable: /bin/bash
+  loop: "{{ chronicle_workload_template_namespaces }}"
+  changed_when: false
+
+- name: Validate namespace ResourceQuota and LimitRange controls
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import json
+    import re
+    import subprocess
+    import sys
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    contracts = {{ chronicle_namespace_control_contracts | to_json }}
+    failures = []
+
+    def kjson(namespace, kind, name):
+        try:
+            raw = subprocess.check_output(
+                [kubectl, "--kubeconfig", kubeconfig, "-n", namespace, "get", kind, name, "-o", "json"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            failures.append(f"{namespace}/{kind}/{name}: resource missing")
+            return {}
+        return json.loads(raw)
+
+    def cpu_millis(value):
+        text = str(value)
+        if text.endswith("m"):
+            return int(text[:-1])
+        return int(float(text) * 1000)
+
+    def quantity_bytes(value):
+        text = str(value)
+        match = re.match(r"^([0-9.]+)([KMGTE]i?|[numkMGTPE])?$", text)
+        if not match:
+            raise ValueError("unsupported quantity " + text)
+        number = float(match.group(1))
+        unit = match.group(2) or ""
+        multipliers = {
+            "": 1,
+            "n": 1e-9,
+            "u": 1e-6,
+            "m": 1e-3,
+            "k": 1000,
+            "K": 1000,
+            "M": 1000 ** 2,
+            "G": 1000 ** 3,
+            "T": 1000 ** 4,
+            "P": 1000 ** 5,
+            "E": 1000 ** 6,
+            "Ki": 1024,
+            "Mi": 1024 ** 2,
+            "Gi": 1024 ** 3,
+            "Ti": 1024 ** 4,
+            "Pi": 1024 ** 5,
+            "Ei": 1024 ** 6,
+        }
+        return int(number * multipliers[unit])
+
+    def normalized(key, value):
+        if value is None:
+            return None
+        text = str(value)
+        if key.endswith(".cpu") or key == "cpu":
+            return ("cpu", cpu_millis(text))
+        if "memory" in key or "storage" in key:
+            return ("bytes", quantity_bytes(text))
+        return ("count", int(text))
+
+    def compare_quantity(ref, key, actual, expected):
+        if actual is None:
+            failures.append(f"{ref}/{key}: value missing")
+            return
+        try:
+            actual_normalized = normalized(key, actual)
+            expected_normalized = normalized(key, expected)
+        except Exception as exc:
+            failures.append(f"{ref}/{key}: unsupported quantity: {exc}")
+            return
+        if actual_normalized != expected_normalized:
+            failures.append(f"{ref}/{key}: {actual} does not match expected {expected}")
+
+    for contract in contracts:
+        namespace = contract["namespace"]
+        quota_contract = contract["resource_quota"]
+        quota_name = quota_contract["name"]
+        quota = kjson(namespace, "resourcequota", quota_name)
+        hard = quota.get("spec", {}).get("hard", {})
+        for key, expected in quota_contract.get("hard", {}).items():
+            compare_quantity(f"{namespace}/resourcequota/{quota_name}", key, hard.get(key), expected)
+
+        limit_contract = contract["limit_range"]
+        limit_name = limit_contract["name"]
+        limit_range = kjson(namespace, "limitrange", limit_name)
+        limits_by_type = {
+            item.get("type"): item
+            for item in limit_range.get("spec", {}).get("limits", [])
+        }
+        for limit_type, type_contract in (("Container", limit_contract.get("container", {})), ("Pod", limit_contract.get("pod", {}))):
+            if not type_contract:
+                continue
+            actual_limit = limits_by_type.get(limit_type)
+            if actual_limit is None:
+                failures.append(f"{namespace}/limitrange/{limit_name}: missing {limit_type} limit")
+                continue
+            for section, expected_values in type_contract.items():
+                actual_values = actual_limit.get(section, {})
+                for key, expected in expected_values.items():
+                    compare_quantity(f"{namespace}/limitrange/{limit_name}/{limit_type}/{section}", key, actual_values.get(key), expected)
+
+    print(f"validated namespace controls for {len(contracts)} namespaces")
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate workload template security invariants
+  ansible.builtin.shell: |
+    set -o pipefail
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} -n {{ item }} get deploy,statefulset,cronjob -o json |
+      python3 -c '
+    import json
+    import sys
+
+    data = json.load(sys.stdin)
+    failures = []
+
+    for workload in data.get("items", []):
+        kind = workload.get("kind")
+        name = workload.get("metadata", {}).get("name", "<unknown>")
+        spec = workload.get("spec", {})
+        if kind == "CronJob":
+            template = spec.get("jobTemplate", {}).get("spec", {}).get("template", {}).get("spec", {})
+        else:
+            template = spec.get("template", {}).get("spec", {})
+
+        ref = kind + "/" + name
+        if template.get("automountServiceAccountToken") is not False:
+            failures.append(ref + ": automountServiceAccountToken must be false")
+        if template.get("hostPID") is True:
+            failures.append(ref + ": hostPID must not be true")
+        if template.get("hostIPC") is True:
+            failures.append(ref + ": hostIPC must not be true")
+
+        service_account = template.get("serviceAccountName")
+        if not service_account or service_account == "default":
+            failures.append(ref + ": serviceAccountName must be explicit and not default")
+
+        containers = template.get("initContainers", []) + template.get("containers", [])
+        for container in containers:
+            container_name = container.get("name", "<container>")
+            container_ref = ref + "/" + container_name
+            pod_security = template.get("securityContext", {})
+            container_security = container.get("securityContext", {})
+
+            if container.get("envFrom"):
+                failures.append(container_ref + ": envFrom bulk environment imports are not allowed")
+
+            image = container.get("image", "")
+            image_tail = image.rsplit("/", 1)[-1]
+            if image_tail.endswith(":latest") or ("@" not in image and ":" not in image_tail):
+                failures.append(ref + ": mutable or untagged image " + image)
+
+            image_pull_policy = container.get("imagePullPolicy")
+            allowed_pull_policies = {{ chronicle_allowed_image_pull_policies | to_json }}
+            if image_pull_policy not in allowed_pull_policies:
+                failures.append(
+                    container_ref
+                    + ": imagePullPolicy must be one of "
+                    + ", ".join(allowed_pull_policies)
+                    + "; got "
+                    + repr(image_pull_policy)
+                )
+
+            if container_security.get("privileged") is True:
+                failures.append(container_ref + ": privileged must not be true")
+
+            if container_security.get("procMount") == "Unmasked":
+                failures.append(container_ref + ": procMount Unmasked is not allowed")
+
+            if container_security.get("allowPrivilegeEscalation") is not False:
+                failures.append(container_ref + ": allowPrivilegeEscalation must be false")
+
+            if "ALL" not in container_security.get("capabilities", {}).get("drop", []):
+                failures.append(container_ref + ": capabilities.drop must include ALL")
+
+            if not (container_security.get("runAsNonRoot") is True or pod_security.get("runAsNonRoot") is True):
+                failures.append(container_ref + ": runAsNonRoot must be true at pod or container level")
+
+            seccomp_type = container_security.get("seccompProfile", {}).get("type") or pod_security.get("seccompProfile", {}).get("type")
+            if seccomp_type != "RuntimeDefault":
+                failures.append(container_ref + ": seccompProfile.type must be RuntimeDefault at pod or container level")
+
+            readwrite_root_allowed = container_ref in {{ chronicle_readwrite_root_containers | to_json }}
+            if container_security.get("readOnlyRootFilesystem") is not True and not readwrite_root_allowed:
+                failures.append(container_ref + ": readOnlyRootFilesystem must be true")
+
+            resources = container.get("resources", {})
+            requests = resources.get("requests", {})
+            limits = resources.get("limits", {})
+            for key in ("cpu", "memory"):
+                if not requests.get(key):
+                    failures.append(container_ref + f": resources.requests.{key} is required")
+                if not limits.get(key):
+                    failures.append(container_ref + f": resources.limits.{key} is required")
+
+            if kind != "CronJob" and container in template.get("containers", []):
+                if not container.get("readinessProbe"):
+                    failures.append(container_ref + ": readinessProbe is required")
+                if not container.get("livenessProbe"):
+                    failures.append(container_ref + ": livenessProbe is required")
+
+        for volume in template.get("volumes", []):
+            volume_name = volume.get("name", "<volume>")
+            empty_dir = volume.get("emptyDir")
+            if empty_dir is not None and not empty_dir.get("sizeLimit"):
+                failures.append(ref + "/volume/" + volume_name + ": emptyDir.sizeLimit is required")
+
+            secret = volume.get("secret")
+            if secret is not None:
+                default_mode = secret.get("defaultMode")
+                max_secret_mode = {{ chronicle_secret_volume_max_default_mode | int }}
+                if default_mode is None or default_mode > max_secret_mode:
+                    failures.append(
+                        ref + "/volume/" + volume_name + ": secret.defaultMode must be set and no more permissive than 0440"
+                    )
+
+            projected = volume.get("projected")
+            if projected is not None:
+                has_secret_source = any("secret" in source for source in projected.get("sources", []))
+                default_mode = projected.get("defaultMode")
+                max_secret_mode = {{ chronicle_secret_volume_max_default_mode | int }}
+                if has_secret_source and (default_mode is None or default_mode > max_secret_mode):
+                    failures.append(
+                        ref + "/volume/" + volume_name + ": projected.defaultMode must be set and no more permissive than 0440 when projecting Secrets"
+                    )
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    '
+  args:
+    executable: /bin/bash
+  loop: "{{ chronicle_workload_template_namespaces }}"
+  changed_when: false
+
+- name: Validate sensitive environment variables are not literal values
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import json
+    import subprocess
+    import sys
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    namespaces = {{ chronicle_workload_template_namespaces | to_json }}
+    allowed_literal_envs = {
+        item["ref"]: str(item.get("value", ""))
+        for item in {{ chronicle_allowed_sensitive_literal_envs | to_json }}
+    }
+    failures = []
+
+    def is_sensitive_env(name):
+        upper = name.upper()
+        if upper.endswith(("_TOKEN_URI", "_TOKEN_URL", "_TOKEN_CLAIM", "_TOKEN_EXPIRY_MINUTES", "_TOKEN_EXPIRY_DAYS")):
+            return False
+        fragments = (
+            "PASSWORD",
+            "PASSWD",
+            "SECRET",
+            "CREDENTIAL",
+            "PASSPHRASE",
+            "PRIVATE_KEY",
+            "API_KEY",
+            "BOUNCER_KEY",
+        )
+        if any(fragment in upper for fragment in fragments):
+            return True
+        return upper.endswith("_TOKEN") or "_TOKEN_" in upper
+
+    def workload_template(workload):
+        spec = workload.get("spec", {})
+        if workload.get("kind") == "CronJob":
+            return spec.get("jobTemplate", {}).get("spec", {}).get("template", {}).get("spec", {})
+        return spec.get("template", {}).get("spec", {})
+
+    for namespace in namespaces:
+        raw = subprocess.check_output(
+            [kubectl, "--kubeconfig", kubeconfig, "-n", namespace, "get", "deploy,statefulset,cronjob", "-o", "json"],
+            text=True,
+        )
+        payload = json.loads(raw)
+        for workload in payload.get("items", []):
+            kind = workload.get("kind")
+            name = workload.get("metadata", {}).get("name", "<unknown>")
+            template = workload_template(workload)
+            containers = template.get("initContainers", []) + template.get("containers", [])
+            for container in containers:
+                container_name = container.get("name", "<container>")
+                for env in container.get("env", []) or []:
+                    env_name = env.get("name", "")
+                    if not is_sensitive_env(env_name):
+                        continue
+                    ref = f"{namespace}/{kind}/{name}/{container_name}/{env_name}"
+                    if "value" in env:
+                        value = str(env.get("value", ""))
+                        if allowed_literal_envs.get(ref) == value:
+                            continue
+                        failures.append(ref + ": sensitive environment variable must not use a literal value")
+                        continue
+                    secret_ref = env.get("valueFrom", {}).get("secretKeyRef")
+                    if not secret_ref:
+                        failures.append(ref + ": sensitive environment variable must come from secretKeyRef")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print("sensitive workload environment variables are secretKeyRef-backed or explicitly empty-disabled")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate ConfigMaps do not carry sensitive-looking keys
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import json
+    import subprocess
+    import sys
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    namespaces = {{ chronicle_configmap_sensitive_key_namespaces | to_json }}
+    failures = []
+
+    def is_sensitive_key(name):
+        upper = name.upper().replace("-", "_").replace(".", "_")
+        if upper.endswith(("_TOKEN_URI", "_TOKEN_URL", "_TOKEN_CLAIM", "_TOKEN_EXPIRY_MINUTES", "_TOKEN_EXPIRY_DAYS")):
+            return False
+        fragments = (
+            "PASSWORD",
+            "PASSWD",
+            "SECRET",
+            "CREDENTIAL",
+            "PASSPHRASE",
+            "PRIVATE_KEY",
+            "API_KEY",
+            "BOUNCER_KEY",
+        )
+        if any(fragment in upper for fragment in fragments):
+            return True
+        return upper.endswith("_TOKEN") or "_TOKEN_" in upper
+
+    for namespace in namespaces:
+        raw = subprocess.check_output(
+            [kubectl, "--kubeconfig", kubeconfig, "-n", namespace, "get", "configmaps", "-o", "json"],
+            text=True,
+        )
+        payload = json.loads(raw)
+        for configmap in payload.get("items", []):
+            name = configmap.get("metadata", {}).get("name", "<unknown>")
+            keys = set((configmap.get("data") or {}).keys()) | set((configmap.get("binaryData") or {}).keys())
+            for key in sorted(keys):
+                if is_sensitive_key(key):
+                    failures.append(f"{namespace}/ConfigMap/{name}/{key}: sensitive-looking key belongs in a Secret")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print(f"validated ConfigMap key names in {len(namespaces)} namespaces without printing values")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate active workload requests fit node capacity
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import json
+    import re
+    import subprocess
+    import sys
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    namespaces = {{ chronicle_capacity_namespaces | to_json }}
+    max_request_cpu = float({{ chronicle_capacity_max_request_cpu_percent }})
+    max_request_memory = float({{ chronicle_capacity_max_request_memory_percent }})
+    max_limit_memory = float({{ chronicle_capacity_max_limit_memory_percent }})
+
+    def kjson(args):
+        return json.loads(subprocess.check_output([kubectl, "--kubeconfig", kubeconfig, *args], text=True))
+
+    def cpu_millis(value):
+        text = str(value)
+        if text.endswith("m"):
+            return int(text[:-1])
+        return int(float(text) * 1000)
+
+    def memory_mib(value):
+        text = str(value)
+        match = re.match(r"^([0-9.]+)([KMGTE]i?)?$", text)
+        if not match:
+            raise ValueError("unsupported memory quantity " + text)
+        number = float(match.group(1))
+        unit = match.group(2) or ""
+        multipliers = {
+            "": 1 / 1024 / 1024,
+            "Ki": 1 / 1024,
+            "Mi": 1,
+            "Gi": 1024,
+            "Ti": 1024 * 1024,
+            "K": 1000 / 1024 / 1024,
+            "M": 1000 / 1024,
+            "G": 1000,
+            "T": 1000 * 1000,
+        }
+        return int(number * multipliers[unit])
+
+    nodes = kjson(["get", "nodes", "-o", "json"]).get("items", [])
+    alloc_cpu = sum(cpu_millis(node["status"]["allocatable"]["cpu"]) for node in nodes)
+    alloc_memory = sum(memory_mib(node["status"]["allocatable"]["memory"]) for node in nodes)
+
+    request_cpu = request_memory = limit_memory = 0
+    active_pods = 0
+    for namespace in namespaces:
+        pods = kjson(["-n", namespace, "get", "pods", "-o", "json"]).get("items", [])
+        for pod in pods:
+            phase = pod.get("status", {}).get("phase")
+            if phase in ("Succeeded", "Failed"):
+                continue
+            active_pods += 1
+            for container in pod.get("spec", {}).get("initContainers", []) + pod.get("spec", {}).get("containers", []):
+                resources = container.get("resources", {})
+                requests = resources.get("requests", {})
+                limits = resources.get("limits", {})
+                request_cpu += cpu_millis(requests.get("cpu", "0"))
+                request_memory += memory_mib(requests.get("memory", "0"))
+                limit_memory += memory_mib(limits.get("memory", "0"))
+
+    failures = []
+    request_cpu_percent = request_cpu / alloc_cpu * 100 if alloc_cpu else 100
+    request_memory_percent = request_memory / alloc_memory * 100 if alloc_memory else 100
+    limit_memory_percent = limit_memory / alloc_memory * 100 if alloc_memory else 100
+
+    if request_cpu_percent > max_request_cpu:
+        failures.append(f"active CPU requests {request_cpu_percent:.1f}% exceed {max_request_cpu:.1f}% of node allocatable")
+    if request_memory_percent > max_request_memory:
+        failures.append(f"active memory requests {request_memory_percent:.1f}% exceed {max_request_memory:.1f}% of node allocatable")
+    if limit_memory_percent > max_limit_memory:
+        failures.append(f"active memory limits {limit_memory_percent:.1f}% exceed {max_limit_memory:.1f}% of node allocatable")
+
+    print(
+        f"active_pods={active_pods} "
+        f"request_cpu={request_cpu}m/{alloc_cpu}m({request_cpu_percent:.1f}%) "
+        f"request_memory={request_memory}Mi/{alloc_memory}Mi({request_memory_percent:.1f}%) "
+        f"limit_memory={limit_memory}Mi/{alloc_memory}Mi({limit_memory_percent:.1f}%)"
+    )
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate active Chronicle pods are healthy
+  ansible.builtin.shell: |
+    set -o pipefail
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} get pods -n {{ item }} -o json |
+      python3 -c '
+    import json
+    import sys
+
+    data = json.load(sys.stdin)
+    failures = []
+    checked = 0
+
+    for pod in data.get("items", []):
+        metadata = pod.get("metadata", {})
+        name = metadata.get("name", "<unknown>")
+        namespace = metadata.get("namespace", "{{ item }}")
+        status = pod.get("status", {})
+        phase = status.get("phase")
+        ref = f"{namespace}/{name}"
+        if phase == "Succeeded":
+            continue
+        checked += 1
+        if phase != "Running":
+            failures.append(f"{ref}: pod phase is {phase}, expected Running")
+        for container_status in status.get("initContainerStatuses", []) + status.get("containerStatuses", []):
+            container_name = container_status.get("name", "<container>")
+            state = container_status.get("state", {})
+            waiting = state.get("waiting")
+            if waiting:
+                reason = waiting.get("reason", "<unknown>")
+                failures.append(f"{ref}/{container_name}: waiting reason is {reason}")
+                continue
+            if container_status in status.get("containerStatuses", []) and container_status.get("ready") is not True:
+                failures.append(f"{ref}/{container_name}: container is not ready")
+
+    print(f"{{ item }}: checked {checked} active pods")
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    '
+  args:
+    executable: /bin/bash
+  loop: "{{ chronicle_capacity_namespaces }}"
+  changed_when: false
+
+- name: Validate participant status values match the server enum contract
+  ansible.builtin.shell: |
+    set -euo pipefail
+    sql='WITH allowed(status) AS (VALUES {% for status in chronicle_valid_participation_statuses %}($tag${{ status }}$tag$){% if not loop.last %}, {% endif %}{% endfor %}) SELECT sp.participation_status || $tag$|$tag$ || count(*) FROM study_participants sp LEFT JOIN allowed a ON a.status = sp.participation_status WHERE a.status IS NULL GROUP BY sp.participation_status ORDER BY sp.participation_status;'
+    invalid="$(
+      printf '%s' "$sql" |
+        {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} \
+          -n {{ chronicle_namespace }} exec -i statefulset/postgres -- sh -lc \
+          'export PGPASSWORD="$POSTGRES_PASSWORD"; psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -At'
+    )"
+    if [ -n "$invalid" ]; then
+      printf 'Invalid study_participants.participation_status values found:\n%s\n' "$invalid" >&2
+      exit 1
+    fi
+    printf 'participant status enum contract validated: %s\n' "{{ chronicle_valid_participation_statuses | join(',') }}"
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate there are no unresolved recent Kubernetes warning events
+  ansible.builtin.shell: |
+    set -euo pipefail
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} get events -A \
+      --field-selector type=Warning -o json | python3 -c '
+    import datetime as dt
+    import json
+    import subprocess
+    import sys
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    namespace = "{{ chronicle_namespace }}"
+    observability_namespace = "{{ chronicle_observability_namespace }}"
+    expected_deployments = set({{ chronicle_expected_deployments | to_json }})
+    expected_observability_deployments = set({{ chronicle_expected_observability_deployments | to_json }})
+    deployment_namespaces = {
+        namespace: expected_deployments,
+        observability_namespace: expected_observability_deployments,
+    }
+    backup_cronjobs = set(
+        contract.get("name")
+        for contract in {{ chronicle_backup_cronjob_contracts | to_json }}
+        if contract.get("name")
+    )
+    lookback_minutes = int({{ chronicle_k8s_warning_event_lookback_minutes }})
+    reboot_grace_minutes = int({{ chronicle_k8s_warning_event_reboot_grace_minutes }})
+    cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=lookback_minutes)
+    payload = json.load(sys.stdin)
+    offenders = []
+    ignored = []
+
+    def parse_time(value):
+        if not value:
+            return None
+        text = value.replace("Z", "+00:00")
+        try:
+            return dt.datetime.fromisoformat(text)
+        except ValueError:
+            return None
+
+    def event_timestamp(item):
+        return (
+            parse_time(item.get("series", {}).get("lastObservedTime"))
+            or parse_time(item.get("eventTime"))
+            or parse_time(item.get("lastTimestamp"))
+            or parse_time(item.get("metadata", {}).get("creationTimestamp"))
+        )
+
+    def kjson(args):
+        return json.loads(
+            subprocess.check_output(
+                [kubectl, "--kubeconfig", kubeconfig, *args],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        )
+
+    deployment_status = {}
+    for deployment_namespace, deployments in deployment_namespaces.items():
+        for deployment in deployments:
+            key = (deployment_namespace, deployment)
+            try:
+                obj = kjson(["-n", deployment_namespace, "get", "deploy", deployment, "-o", "json"])
+            except subprocess.CalledProcessError:
+                deployment_status[key] = False
+                continue
+            spec_replicas = int(obj.get("spec", {}).get("replicas", 1))
+            status = obj.get("status", {})
+            conditions = {
+                condition.get("type"): condition.get("status")
+                for condition in status.get("conditions", [])
+            }
+            deployment_status[key] = (
+                status.get("observedGeneration") == obj.get("metadata", {}).get("generation")
+                and int(status.get("updatedReplicas", 0)) == spec_replicas
+                and int(status.get("availableReplicas", 0)) >= spec_replicas
+                and conditions.get("Available") == "True"
+            )
+
+    ready_pods = set()
+    for pod in kjson(["get", "pods", "-A", "-o", "json"]).get("items", []):
+        metadata = pod.get("metadata", {})
+        status = pod.get("status", {})
+        if status.get("phase") != "Running":
+            continue
+        container_statuses = status.get("containerStatuses", [])
+        if container_statuses and all(container.get("ready") is True for container in container_statuses):
+            ready_pods.add((metadata.get("namespace", ""), metadata.get("name", "")))
+
+    reboot_until = None
+    for item in payload.get("items", []):
+        involved = item.get("involvedObject", {}) or item.get("regarding", {})
+        if item.get("reason") != "Rebooted" or involved.get("kind") != "Node":
+            continue
+        timestamp = event_timestamp(item)
+        if timestamp is None:
+            continue
+        grace_until = timestamp + dt.timedelta(minutes=reboot_grace_minutes)
+        if reboot_until is None or grace_until > reboot_until:
+            reboot_until = grace_until
+
+    def owning_deployment(namespace_value, replica_set_name):
+        for deployment in deployment_namespaces.get(namespace_value, set()):
+            if replica_set_name.startswith(deployment + "-"):
+                return deployment
+        return None
+
+    for item in payload.get("items", []):
+        timestamp = event_timestamp(item)
+        if timestamp is None or timestamp < cutoff:
+            continue
+        metadata = item.get("metadata", {})
+        involved = item.get("involvedObject", {})
+        if not involved:
+            involved = item.get("regarding", {})
+        namespace_value = metadata.get("namespace", "")
+        kind = involved.get("kind", "")
+        name = involved.get("name", "")
+        reason = item.get("reason", "")
+        message = item.get("message", "")[:220]
+        line = (
+            f"{timestamp.isoformat()} {namespace_value}/{kind}/{name}: "
+            f"{reason} {message}"
+        )
+
+        if reason == "Rebooted" and kind == "Node":
+            ignored.append(line + " [node reboot event]")
+            continue
+        if reboot_until is not None and timestamp <= reboot_until:
+            ignored.append(line + " [within reboot grace]")
+            continue
+        if kind == "Pod" and reason in ("BackOff", "Unhealthy") and (namespace_value, name) in ready_pods:
+            ignored.append(line + " [pod is now running and ready]")
+            continue
+        if (
+            kind == "Pod"
+            and reason == "Failed"
+            and (namespace_value, name) in ready_pods
+            and (
+                "Failed to pull image" in message
+                or "ErrImagePull" in message
+                or "ImagePullBackOff" in message
+            )
+        ):
+            ignored.append(line + " [image pull failure remediated; pod is now running and ready]")
+            continue
+        if (
+            namespace_value == namespace
+            and kind == "CronJob"
+            and reason == "UnexpectedJob"
+            and name in backup_cronjobs
+            and any(
+                f"{name}-{operator_suffix}-" in message
+                for operator_suffix in ("ansible", "manual", "recovery")
+            )
+        ):
+            ignored.append(line + " [expected operator-created backup drill job]")
+            continue
+        owner = owning_deployment(namespace_value, name) if kind in ("Pod", "ReplicaSet") else None
+        owner_key = (namespace_value, owner) if owner else None
+        if reason == "Unhealthy" and owner and deployment_status.get(owner_key):
+            ignored.append(line + f" [deployment/{owner} is now rolled out]")
+            continue
+        if reason == "FailedCreate" and owner and deployment_status.get(owner_key):
+            ignored.append(line + f" [deployment/{owner} is now rolled out]")
+            continue
+
+        offenders.append(line)
+
+    if ignored:
+        print("ignored remediated warning events:\n" + "\n".join(ignored))
+    if offenders:
+        print("Unresolved recent Kubernetes warning events:\n" + "\n".join(offenders), file=sys.stderr)
+        sys.exit(1)
+    print(f"no unresolved warning events in the last {lookback_minutes} minutes")
+    '
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when: chronicle_manage_k8s_recent_warning_event_validation | bool
+
+- name: Validate Chronicle PVCs are bound to the expected storage class
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import json
+    import subprocess
+    import sys
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    namespaces = {{ chronicle_pvc_namespaces | to_json }}
+    expected_storage_class = "{{ chronicle_expected_storage_class }}"
+    failures = []
+    pvc_count = 0
+
+    for namespace in namespaces:
+        raw = subprocess.check_output(
+            [kubectl, "--kubeconfig", kubeconfig, "-n", namespace, "get", "pvc", "-o", "json"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+        for pvc in json.loads(raw).get("items", []):
+            pvc_count += 1
+            name = pvc.get("metadata", {}).get("name", "<unknown>")
+            ref = f"{namespace}/{name}"
+            phase = pvc.get("status", {}).get("phase")
+            if phase != "Bound":
+                failures.append(f"{ref}: PVC phase is {phase}, expected Bound")
+            storage_class = pvc.get("spec", {}).get("storageClassName")
+            if storage_class != expected_storage_class:
+                failures.append(f"{ref}: storageClassName is {storage_class}, expected {expected_storage_class}")
+            if not pvc.get("status", {}).get("capacity", {}).get("storage"):
+                failures.append(f"{ref}: PVC status capacity.storage is missing")
+
+    print(f"validated {pvc_count} Chronicle PVCs")
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate local-path backing filesystem has headroom
+  ansible.builtin.shell: |
+    set -o pipefail
+    used_percent="$(df -P {{ chronicle_local_path_root }} | awk 'NR==2 { gsub(/%/, "", $5); print $5 }')"
+    echo "local_path_used_percent=${used_percent}"
+    test "${used_percent}" -le "{{ chronicle_local_path_max_used_percent }}"
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate workload service accounts have no Kubernetes read privileges
+  ansible.builtin.shell: |
+    set -eu
+    failed=0
+    for account in {{ chronicle_unprivileged_service_accounts | join(' ') }}; do
+      namespace="${account%%/*}"
+      service_account="${account#*/}"
+      for check in \
+        "get secrets" \
+        "list secrets" \
+        "get configmaps" \
+        "list configmaps" \
+        "get pods" \
+        "list pods" \
+        "create pods"; do
+        set -- ${check}
+        result="$({{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} auth can-i "$1" "$2" --as="system:serviceaccount:${namespace}:${service_account}" -n "${namespace}" 2>/dev/null || true)"
+        if [ "${result}" = "yes" ]; then
+          echo "${account} can ${check}" >&2
+          failed=1
+        fi
+      done
+    done
+    exit "${failed}"
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate disposable External Secrets reader RBAC is narrow
+  ansible.builtin.shell: |
+    set -eu
+    namespace="{{ chronicle_secret_reader_service_account.split('/')[0] }}"
+    service_account="{{ chronicle_secret_reader_service_account.split('/')[1] }}"
+    failed=0
+
+    for verb in get list watch; do
+      result="$({{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} auth can-i "${verb}" secrets --as="system:serviceaccount:${namespace}:${service_account}" -n "${namespace}" 2>/dev/null || true)"
+      if [ "${result}" != "yes" ]; then
+        echo "${namespace}/${service_account} cannot ${verb} secrets in ${namespace}" >&2
+        failed=1
+      fi
+    done
+
+    for check in \
+      "create secrets" \
+      "update secrets" \
+      "delete secrets" \
+      "get pods" \
+      "list pods" \
+      "get secrets {{ chronicle_namespace }}"; do
+      set -- ${check}
+      target_namespace="${3:-${namespace}}"
+      result="$({{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} auth can-i "$1" "$2" --as="system:serviceaccount:${namespace}:${service_account}" -n "${target_namespace}" 2>/dev/null || true)"
+      if [ "${result}" = "yes" ]; then
+        echo "${namespace}/${service_account} can ${check}" >&2
+        failed=1
+      fi
+    done
+
+    exit "${failed}"
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate named ServiceAccounts disable token automount
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import json
+    import subprocess
+    import sys
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    accounts = sorted(set({{ (chronicle_unprivileged_service_accounts + [chronicle_secret_reader_service_account]) | to_json }}))
+    failures = []
+
+    for account in accounts:
+        namespace, name = account.split("/", 1)
+        try:
+            raw = subprocess.check_output(
+                [kubectl, "--kubeconfig", kubeconfig, "-n", namespace, "get", "serviceaccount", name, "-o", "json"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            failures.append(f"{account}: ServiceAccount missing")
+            continue
+
+        service_account = json.loads(raw)
+        automount = service_account.get("automountServiceAccountToken")
+        if automount is not False:
+            failures.append(f"{account}: automountServiceAccountToken must be false, got {automount!r}")
+        secrets = service_account.get("secrets", [])
+        if secrets:
+            failures.append(f"{account}: ServiceAccount must not reference mountable secrets")
+        image_pull_secrets = service_account.get("imagePullSecrets", [])
+        if image_pull_secrets:
+            failures.append(f"{account}: ServiceAccount must not define imagePullSecrets")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print(f"validated token automount and secret references on {len(accounts)} named ServiceAccounts")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate Chronicle RBAC bindings match the expected allowlist
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import json
+    import subprocess
+    import sys
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    namespaces = {{ chronicle_rbac_binding_namespaces | to_json }}
+    expected_rolebindings = {{ chronicle_expected_rolebindings | to_json }}
+    failures = []
+
+    def normalize_subjects(subjects):
+        return sorted(
+            {
+                (
+                    subject.get("kind", ""),
+                    subject.get("namespace", ""),
+                    subject.get("name", ""),
+                )
+                for subject in (subjects or [])
+            }
+        )
+
+    expected = {
+        (binding["namespace"], binding["name"]): {
+            "role_kind": binding["role_kind"],
+            "role_name": binding["role_name"],
+            "subjects": normalize_subjects(binding.get("subjects", [])),
+        }
+        for binding in expected_rolebindings
+    }
+    actual = {}
+
+    for namespace in namespaces:
+        raw = subprocess.check_output(
+            [kubectl, "--kubeconfig", kubeconfig, "-n", namespace, "get", "rolebindings", "-o", "json"],
+            text=True,
+        )
+        payload = json.loads(raw)
+        for binding in payload.get("items", []):
+            name = binding.get("metadata", {}).get("name", "<unknown>")
+            role_ref = binding.get("roleRef", {})
+            actual[(namespace, name)] = {
+                "role_kind": role_ref.get("kind", ""),
+                "role_name": role_ref.get("name", ""),
+                "subjects": normalize_subjects(binding.get("subjects", [])),
+            }
+
+    for key in sorted(set(actual) - set(expected)):
+        failures.append(f"{key[0]}/RoleBinding/{key[1]}: unexpected RoleBinding")
+    for key in sorted(set(expected) - set(actual)):
+        failures.append(f"{key[0]}/RoleBinding/{key[1]}: expected RoleBinding missing")
+    for key in sorted(set(expected) & set(actual)):
+        ref = f"{key[0]}/RoleBinding/{key[1]}"
+        for field in ("role_kind", "role_name", "subjects"):
+            if actual[key][field] != expected[key][field]:
+                failures.append(f"{ref}: {field} is {actual[key][field]!r}, expected {expected[key][field]!r}")
+
+    raw = subprocess.check_output(
+        [kubectl, "--kubeconfig", kubeconfig, "get", "clusterrolebindings", "-o", "json"],
+        text=True,
+    )
+    payload = json.loads(raw)
+    namespace_set = set(namespaces)
+    for binding in payload.get("items", []):
+        name = binding.get("metadata", {}).get("name", "<unknown>")
+        for subject in binding.get("subjects", []) or []:
+            if subject.get("kind") == "ServiceAccount" and subject.get("namespace") in namespace_set:
+                failures.append(
+                    f"ClusterRoleBinding/{name}: Chronicle ServiceAccount subject "
+                    f"{subject.get('namespace')}/{subject.get('name')} is not allowed"
+                )
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print(f"validated {len(actual)} RoleBindings and no Chronicle ServiceAccount ClusterRoleBindings")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate Chronicle RBAC Roles match the expected allowlist
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import json
+    import subprocess
+    import sys
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    namespaces = {{ chronicle_rbac_binding_namespaces | to_json }}
+    expected_roles = {{ chronicle_expected_roles | to_json }}
+    failures = []
+
+    def normalize_rule(rule):
+        return {
+            "api_groups": sorted(rule.get("api_groups", rule.get("apiGroups", [])) or []),
+            "resources": sorted(rule.get("resources", []) or []),
+            "verbs": sorted(rule.get("verbs", []) or []),
+            "resource_names": sorted(rule.get("resource_names", rule.get("resourceNames", [])) or []),
+            "non_resource_urls": sorted(rule.get("non_resource_urls", rule.get("nonResourceURLs", [])) or []),
+        }
+
+    expected = {
+        (role["namespace"], role["name"]): sorted(
+            [normalize_rule(rule) for rule in role.get("rules", [])],
+            key=lambda value: (
+                value["api_groups"],
+                value["resources"],
+                value["verbs"],
+                value["resource_names"],
+                value["non_resource_urls"],
+            ),
+        )
+        for role in expected_roles
+    }
+    actual = {}
+
+    for namespace in namespaces:
+        raw = subprocess.check_output(
+            [kubectl, "--kubeconfig", kubeconfig, "-n", namespace, "get", "roles", "-o", "json"],
+            text=True,
+        )
+        payload = json.loads(raw)
+        for role in payload.get("items", []):
+            name = role.get("metadata", {}).get("name", "<unknown>")
+            actual[(namespace, name)] = sorted(
+                [normalize_rule(rule) for rule in role.get("rules", [])],
+                key=lambda value: (
+                    value["api_groups"],
+                    value["resources"],
+                    value["verbs"],
+                    value["resource_names"],
+                    value["non_resource_urls"],
+                ),
+            )
+
+    for key in sorted(set(actual) - set(expected)):
+        failures.append(f"{key[0]}/Role/{key[1]}: unexpected Role")
+    for key in sorted(set(expected) - set(actual)):
+        failures.append(f"{key[0]}/Role/{key[1]}: expected Role missing")
+    for key in sorted(set(expected) & set(actual)):
+        if actual[key] != expected[key]:
+            failures.append(f"{key[0]}/Role/{key[1]}: rules are {actual[key]!r}, expected {expected[key]!r}")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print(f"validated {len(actual)} Roles against the Chronicle RBAC allowlist")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate Chronicle-owned Services are internal-only
+  ansible.builtin.shell: |
+    set -o pipefail
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} -n {{ item }} get service -o json |
+      python3 -c '
+    import json
+    import sys
+
+    data = json.load(sys.stdin)
+    failures = []
+
+    for service in data.get("items", []):
+        namespace = service.get("metadata", {}).get("namespace", "{{ item }}")
+        name = service.get("metadata", {}).get("name", "<unknown>")
+        service_type = service.get("spec", {}).get("type", "ClusterIP")
+        if service_type != "ClusterIP":
+            failures.append(f"{namespace}/{name}: service type {service_type} is not allowed")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    '
+  args:
+    executable: /bin/bash
+  loop: "{{ chronicle_internal_service_namespaces }}"
+  changed_when: false
+
+- name: Validate selector-backed Services have ready endpoints
+  ansible.builtin.shell: |
+    set -o pipefail
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} -n {{ item }} get service,endpointslice.discovery.k8s.io -o json |
+      python3 -c '
+    import json
+    import sys
+
+    data = json.load(sys.stdin)
+    services = [item for item in data.get("items", []) if item.get("kind") == "Service"]
+    endpoint_slices = [item for item in data.get("items", []) if item.get("kind") == "EndpointSlice"]
+    failures = []
+    checked = 0
+
+    for service in services:
+        metadata = service.get("metadata", {})
+        name = metadata.get("name", "<unknown>")
+        namespace = metadata.get("namespace", "{{ item }}")
+        if not service.get("spec", {}).get("selector"):
+            continue
+        checked += 1
+        ready_addresses = 0
+        for endpoint_slice in endpoint_slices:
+            labels = endpoint_slice.get("metadata", {}).get("labels", {})
+            if labels.get("kubernetes.io/service-name") != name:
+                continue
+            for endpoint in endpoint_slice.get("endpoints", []):
+                if endpoint.get("conditions", {}).get("ready", True) is True:
+                    ready_addresses += len(endpoint.get("addresses", []))
+        if ready_addresses < 1:
+            failures.append(f"{namespace}/{name}: selector-backed Service has no ready EndpointSlice addresses")
+
+    print(f"{{ item }}: checked {checked} selector-backed Services")
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    '
+  args:
+    executable: /bin/bash
+  loop: "{{ chronicle_internal_service_namespaces }}"
+  changed_when: false
+
+- name: Check private namespaces have no public route resources
+  ansible.builtin.shell: >-
+    set -o pipefail &&
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+    -n {{ item }}
+    get ingress,ingressroute,httproute 2>/dev/null | tail -n +2
+  args:
+    executable: /bin/bash
+  loop: "{{ chronicle_private_route_namespaces }}"
+  register: chronicle_private_namespace_routes
+  changed_when: false
+
+- name: Require private namespaces to remain route-free
+  ansible.builtin.assert:
+    that:
+      - chronicle_private_namespace_routes.results | map(attribute='stdout') | map('trim') | reject('equalto', '') | list | length == 0
+    fail_msg: "A private Chronicle namespace has public route resources: {{ chronicle_private_namespace_routes.results | map(attribute='stdout') | list }}"
+
+- name: Validate expected public route resources
+  ansible.builtin.shell: |
+    set -o pipefail
+    {
+      {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} -n {{ chronicle_namespace }} get ingressroute.traefik.io -o name 2>/dev/null || true
+      {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} -n {{ chronicle_namespace }} get httproute.gateway.networking.k8s.io -o name 2>/dev/null || true
+      {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} -n {{ chronicle_namespace }} get ingress -o name 2>/dev/null || true
+    } | sort
+  args:
+    executable: /bin/bash
+  register: chronicle_public_route_resources
+  changed_when: false
+
+- name: Require public routes to match the expected edge resources
+  ansible.builtin.assert:
+    that:
+      - chronicle_public_route_resources.stdout_lines | sort == chronicle_expected_public_route_resources | sort
+    fail_msg: "Unexpected public route resources in {{ chronicle_namespace }}: {{ chronicle_public_route_resources.stdout_lines }}"
+
+- name: Validate public Gateway API routes are host-scoped and pinned
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import json
+    import subprocess
+    import sys
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    namespace = "{{ chronicle_namespace }}"
+    gateway_contracts = {{ chronicle_expected_public_gateways | to_json }}
+    httproute_contracts = {{ chronicle_expected_public_httproutes | to_json }}
+    failures = []
+
+    def kjson(kind, name):
+        try:
+            raw = subprocess.check_output(
+                [kubectl, "--kubeconfig", kubeconfig, "-n", namespace, "get", kind, name, "-o", "json"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            failures.append(f"{kind}/{name}: route resource missing")
+            return {}
+        return json.loads(raw)
+
+    def normalize_addresses(addresses):
+        return sorted(
+            {
+                (
+                    address.get("type", ""),
+                    address.get("value", ""),
+                )
+                for address in (addresses or [])
+            }
+        )
+
+    def normalize_listeners(listeners):
+        return sorted(
+            {
+                (
+                    listener.get("name", ""),
+                    listener.get("protocol", ""),
+                    int(listener.get("port", 0)),
+                    listener.get("hostname", ""),
+                    listener.get("allowedRoutes", {}).get("namespaces", {}).get("from", ""),
+                )
+                for listener in (listeners or [])
+            }
+        )
+
+    def normalize_parent_refs(parent_refs):
+        return sorted(
+            {
+                (
+                    parent.get("group", "gateway.networking.k8s.io"),
+                    parent.get("kind", "Gateway"),
+                    parent.get("name", ""),
+                    parent.get("sectionName", parent.get("section_name", "")),
+                )
+                for parent in (parent_refs or [])
+            }
+        )
+
+    for contract in gateway_contracts:
+        name = contract["name"]
+        gateway = kjson("gateway.gateway.networking.k8s.io", name)
+        spec = gateway.get("spec", {})
+        ref = f"{namespace}/Gateway/{name}"
+
+        expected_class = contract.get("gateway_class_name")
+        if spec.get("gatewayClassName") != expected_class:
+            failures.append(f"{ref}: gatewayClassName {spec.get('gatewayClassName')!r} != {expected_class!r}")
+
+        expected_addresses = normalize_addresses(contract.get("addresses", []))
+        actual_addresses = normalize_addresses(spec.get("addresses", []))
+        if actual_addresses != expected_addresses:
+            failures.append(f"{ref}: addresses {actual_addresses!r} != {expected_addresses!r}")
+
+        expected_listeners = normalize_listeners(
+            [
+                {
+                    "name": listener.get("name"),
+                    "protocol": listener.get("protocol"),
+                    "port": listener.get("port"),
+                    "hostname": listener.get("hostname"),
+                    "allowedRoutes": {
+                        "namespaces": {
+                            "from": listener.get("allowed_routes_namespaces_from", "")
+                        }
+                    },
+                }
+                for listener in contract.get("listeners", [])
+            ]
+        )
+        actual_listeners = normalize_listeners(spec.get("listeners", []))
+        if actual_listeners != expected_listeners:
+            failures.append(f"{ref}: listeners {actual_listeners!r} != {expected_listeners!r}")
+        for listener in spec.get("listeners", []) or []:
+            hostname = listener.get("hostname", "")
+            if not hostname or "*" in hostname:
+                failures.append(f"{ref}/listener/{listener.get('name', '<unknown>')}: wildcard or missing hostname is not allowed")
+
+    for contract in httproute_contracts:
+        name = contract["name"]
+        httproute = kjson("httproute.gateway.networking.k8s.io", name)
+        spec = httproute.get("spec", {})
+        ref = f"{namespace}/HTTPRoute/{name}"
+
+        expected_hostnames = sorted(contract.get("hostnames", []))
+        actual_hostnames = sorted(spec.get("hostnames", []))
+        if actual_hostnames != expected_hostnames:
+            failures.append(f"{ref}: hostnames {actual_hostnames!r} != {expected_hostnames!r}")
+        if not actual_hostnames or any("*" in hostname for hostname in actual_hostnames):
+            failures.append(f"{ref}: wildcard or missing hostnames are not allowed")
+
+        expected_parent_refs = normalize_parent_refs(contract.get("parent_refs", []))
+        actual_parent_refs = normalize_parent_refs(spec.get("parentRefs", []))
+        if actual_parent_refs != expected_parent_refs:
+            failures.append(f"{ref}: parentRefs {actual_parent_refs!r} != {expected_parent_refs!r}")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print(f"validated {len(gateway_contracts)} Gateway and {len(httproute_contracts)} HTTPRoute public contracts")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate public Traefik IngressRoutes are HTTPS-only and hardened
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import json
+    import subprocess
+    import sys
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    namespace = "{{ chronicle_namespace }}"
+    contracts = {{ chronicle_expected_public_ingressroutes | to_json }}
+    failures = []
+
+    def kjson(kind, name):
+        try:
+            raw = subprocess.check_output(
+                [kubectl, "--kubeconfig", kubeconfig, "-n", namespace, "get", kind, name, "-o", "json"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            failures.append(f"{kind}/{name}: public route missing")
+            return {}
+        return json.loads(raw)
+
+    for contract in contracts:
+        name = contract["name"]
+        ingress_route = kjson("ingressroute.traefik.io", name)
+        spec = ingress_route.get("spec", {})
+        ref = f"{namespace}/IngressRoute/{name}"
+
+        expected_class = contract.get("ingress_class_name")
+        if expected_class and spec.get("ingressClassName") != expected_class:
+            failures.append(f"{ref}: ingressClassName {spec.get('ingressClassName')} != {expected_class}")
+
+        expected_entrypoints = sorted(contract.get("entrypoints", []))
+        actual_entrypoints = sorted(spec.get("entryPoints", []))
+        if actual_entrypoints != expected_entrypoints:
+            failures.append(f"{ref}: entryPoints {actual_entrypoints} != {expected_entrypoints}")
+        if "web" in actual_entrypoints:
+            failures.append(f"{ref}: plaintext web entryPoint is not allowed")
+        if "websecure" not in actual_entrypoints:
+            failures.append(f"{ref}: websecure entryPoint is required")
+        if "tls" not in spec or spec.get("tls") is None:
+            failures.append(f"{ref}: tls block is required")
+
+        required_middleware = contract.get("required_route_middleware")
+        if required_middleware:
+            for index, route in enumerate(spec.get("routes", [])):
+                middleware_names = {
+                    middleware.get("name")
+                    for middleware in route.get("middlewares", [])
+                    if middleware.get("name")
+                }
+                if required_middleware not in middleware_names:
+                    failures.append(f"{ref}/route[{index}]: middleware {required_middleware} is required")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print(f"validated {len(contracts)} public Traefik IngressRoute HTTPS/TLS/header contracts")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate public Traefik routes are bound to the expected hostname
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import json
+    import re
+    import subprocess
+    import sys
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    namespace = "{{ chronicle_namespace }}"
+    contracts = {{ chronicle_expected_public_ingressroutes | to_json }}
+    failures = []
+
+    def kjson(kind, name):
+        try:
+            raw = subprocess.check_output(
+                [kubectl, "--kubeconfig", kubeconfig, "-n", namespace, "get", kind, name, "-o", "json"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            failures.append(f"{kind}/{name}: public route missing")
+            return {}
+        return json.loads(raw)
+
+    def host_values(match):
+        return re.findall(r"Host\(`([^`]+)`\)", match or "")
+
+    for contract in contracts:
+        name = contract["name"]
+        expected_hostname = contract.get("hostname")
+        ingress_route = kjson("ingressroute.traefik.io", name)
+        ref = f"{namespace}/IngressRoute/{name}"
+
+        for index, route in enumerate(ingress_route.get("spec", {}).get("routes", [])):
+            route_ref = f"{ref}/route[{index}]"
+            match = route.get("match", "")
+            hosts = host_values(match)
+            if "HostRegexp(" in match:
+                failures.append(f"{route_ref}: HostRegexp is not allowed on public routes")
+            if not hosts:
+                failures.append(f"{route_ref}: explicit Host(`{expected_hostname}`) match is required")
+                continue
+            unexpected = [host for host in hosts if host != expected_hostname]
+            if unexpected:
+                failures.append(f"{route_ref}: unexpected Host match values {unexpected}")
+            if expected_hostname not in hosts:
+                failures.append(f"{route_ref}: Host(`{expected_hostname}`) match is required")
+            if any("*" in host for host in hosts):
+                failures.append(f"{route_ref}: wildcard Host values are not allowed")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print(f"validated public Traefik route Host matches for {len(contracts)} IngressRoute contracts")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate public Traefik security-header middleware contract
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import json
+    import subprocess
+    import sys
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    namespace = "{{ chronicle_namespace }}"
+    contracts = json.loads(r'''{{ chronicle_expected_traefik_header_middlewares | to_json }}''')
+    failures = []
+
+    def get_middleware(name):
+        try:
+            raw = subprocess.check_output(
+                [kubectl, "--kubeconfig", kubeconfig, "-n", namespace, "get", "middleware.traefik.io", name, "-o", "json"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            failures.append(f"{namespace}/Middleware/{name}: middleware missing")
+            return {}
+        return json.loads(raw)
+
+    for contract in contracts:
+        name = contract["name"]
+        headers = get_middleware(name).get("spec", {}).get("headers", {})
+        ref = f"{namespace}/Middleware/{name}"
+        for key, expected in contract.get("values", {}).items():
+            actual = headers.get(key)
+            if actual != expected:
+                failures.append(f"{ref}: headers.{key} is {actual!r}, expected {expected!r}")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print(f"validated {len(contracts)} public Traefik security-header middleware contracts")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate public Traefik rate-limit middleware contracts
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import json
+    import subprocess
+    import sys
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    namespace = "{{ chronicle_namespace }}"
+    contracts = json.loads(r'''{{ chronicle_expected_traefik_rate_limit_middlewares | to_json }}''')
+    failures = []
+
+    def get_middleware(name):
+        try:
+            raw = subprocess.check_output(
+                [kubectl, "--kubeconfig", kubeconfig, "-n", namespace, "get", "middleware.traefik.io", name, "-o", "json"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            failures.append(f"{namespace}/Middleware/{name}: middleware missing")
+            return {}
+        return json.loads(raw)
+
+    for contract in contracts:
+        name = contract["name"]
+        rate_limit = get_middleware(name).get("spec", {}).get("rateLimit", {})
+        ref = f"{namespace}/Middleware/{name}"
+        for key in ("average", "burst"):
+            actual = rate_limit.get(key)
+            expected = contract[key]
+            if actual != expected:
+                failures.append(f"{ref}: rateLimit.{key} is {actual!r}, expected {expected!r}")
+        depth = rate_limit.get("sourceCriterion", {}).get("ipStrategy", {}).get("depth")
+        if depth != contract["ip_strategy_depth"]:
+            failures.append(f"{ref}: rateLimit.sourceCriterion.ipStrategy.depth is {depth!r}, expected {contract['ip_strategy_depth']!r}")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print(f"validated {len(contracts)} public Traefik rate-limit middleware contracts")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate public Traefik routes attach required rate-limit middleware
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import json
+    import subprocess
+    import sys
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    namespace = "{{ chronicle_namespace }}"
+    ingressroutes = {{ chronicle_expected_public_ingressroutes | to_json }}
+    contracts = {{ chronicle_expected_public_route_rate_limits | to_json }}
+    failures = []
+    checked = 0
+
+    def get_ingressroute(name):
+        try:
+            raw = subprocess.check_output(
+                [kubectl, "--kubeconfig", kubeconfig, "-n", namespace, "get", "ingressroute.traefik.io", name, "-o", "json"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            failures.append(f"{namespace}/IngressRoute/{name}: public route missing")
+            return {}
+        return json.loads(raw)
+
+    for route_contract in ingressroutes:
+        name = route_contract["name"]
+        ingress_route = get_ingressroute(name)
+        ref = f"{namespace}/IngressRoute/{name}"
+        for index, route in enumerate(ingress_route.get("spec", {}).get("routes", [])):
+            match = route.get("match", "")
+            middleware_names = {
+                middleware.get("name")
+                for middleware in route.get("middlewares", [])
+                if middleware.get("name")
+            }
+            for contract in contracts:
+                if contract["match_contains"] not in match:
+                    continue
+                checked += 1
+                expected_middleware = contract["middleware"]
+                if expected_middleware not in middleware_names:
+                    failures.append(
+                        f"{ref}/route[{index}]: match containing {contract['match_contains']!r} "
+                        f"requires middleware {expected_middleware}"
+                    )
+
+    if checked < len(contracts):
+        failures.append(f"only matched {checked} rate-limited route rules for {len(contracts)} route contracts")
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print(f"validated required rate-limit middleware attachment on {checked} public Traefik route rules")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate public Traefik route priorities keep specific and blocking routes first
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import json
+    import subprocess
+    import sys
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    namespace = "{{ chronicle_namespace }}"
+    ingressroutes = {{ chronicle_expected_public_ingressroutes | to_json }}
+    priority_rules = {{ chronicle_expected_public_route_priority_rules | to_json }}
+    catchall_match = {{ chronicle_expected_public_catchall_match | to_json }}
+    failures = []
+    routes = []
+
+    def get_ingressroute(name):
+        try:
+            raw = subprocess.check_output(
+                [kubectl, "--kubeconfig", kubeconfig, "-n", namespace, "get", "ingressroute.traefik.io", name, "-o", "json"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            failures.append(f"{namespace}/IngressRoute/{name}: public route missing")
+            return {}
+        return json.loads(raw)
+
+    for route_contract in ingressroutes:
+        name = route_contract["name"]
+        ingress_route = get_ingressroute(name)
+        ref = f"{namespace}/IngressRoute/{name}"
+        for index, route in enumerate(ingress_route.get("spec", {}).get("routes", [])):
+            route_ref = f"{ref}/route[{index}]"
+            match = route.get("match", "")
+            priority = route.get("priority")
+            if not isinstance(priority, int):
+                failures.append(f"{route_ref}: integer priority is required, got {priority!r}")
+                continue
+            routes.append({
+                "ref": route_ref,
+                "match": match,
+                "priority": priority,
+            })
+
+    priorities = {}
+    for route in routes:
+        priorities.setdefault(route["priority"], []).append(route)
+    for priority, matching_routes in priorities.items():
+        if len(matching_routes) > 1:
+            refs = ", ".join(route["ref"] for route in matching_routes)
+            failures.append(f"public Traefik route priority {priority} is reused by {refs}")
+
+    def find_route(match_contains):
+        matches = [route for route in routes if match_contains in route["match"]]
+        if len(matches) != 1:
+            failures.append(f"expected exactly one public route match containing {match_contains!r}, found {len(matches)}")
+            return None
+        return matches[0]
+
+    catchall = find_route(catchall_match)
+    if catchall and routes:
+        lowest_priority = min(route["priority"] for route in routes)
+        if catchall["priority"] != lowest_priority:
+            failures.append(
+                f"{catchall['ref']}: catch-all priority {catchall['priority']} must be the lowest public route priority {lowest_priority}"
+            )
+
+    for rule in priority_rules:
+        higher = find_route(rule["higher_match_contains"])
+        lower = find_route(rule["lower_match_contains"])
+        if not higher or not lower:
+            continue
+        if higher["priority"] <= lower["priority"]:
+            failures.append(
+                f"{higher['ref']} priority {higher['priority']} must be greater than "
+                f"{lower['ref']} priority {lower['priority']} for {rule['higher_match_contains']!r}"
+            )
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print(f"validated public Traefik priorities for {len(routes)} routes and {len(priority_rules)} precedence rules")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate public routes resolve to existing Chronicle Service ports
+  ansible.builtin.shell: |
+    set -o pipefail
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} -n {{ chronicle_namespace }} get service,ingressroute.traefik.io,httproute.gateway.networking.k8s.io -o json |
+      python3 -c '
+    import json
+    import sys
+
+    namespace = "{{ chronicle_namespace }}"
+    data = json.load(sys.stdin)
+    services = {}
+    failures = []
+    route_refs = 0
+
+    for item in data.get("items", []):
+        if item.get("kind") != "Service":
+            continue
+        metadata = item.get("metadata", {})
+        name = metadata.get("name")
+        service_namespace = metadata.get("namespace", namespace)
+        if service_namespace != namespace or not name:
+            continue
+        ports = set()
+        for port in item.get("spec", {}).get("ports", []):
+            if "port" in port:
+                ports.add(str(port["port"]))
+            if port.get("name"):
+                ports.add(str(port["name"]))
+        services[name] = ports
+
+    def require_ref(route_kind, route_name, service_name, service_port, service_namespace=None):
+        global route_refs
+        route_refs += 1
+        ref = f"{route_kind}/{route_name} -> {service_name}:{service_port}"
+        if service_namespace and service_namespace != namespace:
+            failures.append(f"{ref}: cross-namespace route target {service_namespace} is not allowed")
+            return
+        if service_name not in services:
+            failures.append(f"{ref}: target Service does not exist")
+            return
+        if service_port is None:
+            failures.append(f"{ref}: target Service port is missing")
+            return
+        if str(service_port) not in services[service_name]:
+            failures.append(f"{ref}: target port is not exposed by Service/{service_name}")
+
+    for item in data.get("items", []):
+        kind = item.get("kind")
+        name = item.get("metadata", {}).get("name", "<unknown>")
+        if kind == "IngressRoute":
+            for route in item.get("spec", {}).get("routes", []):
+                for service in route.get("services", []):
+                    require_ref(
+                        kind,
+                        name,
+                        service.get("name"),
+                        service.get("port"),
+                        service.get("namespace"),
+                    )
+        elif kind == "HTTPRoute":
+            for rule in item.get("spec", {}).get("rules", []):
+                for backend in rule.get("backendRefs", []):
+                    require_ref(
+                        kind,
+                        name,
+                        backend.get("name"),
+                        backend.get("port"),
+                        backend.get("namespace"),
+                    )
+
+    print(f"validated {route_refs} public route backend references against {len(services)} Services")
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    '
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate backup CronJob safety contracts
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import json
+    import subprocess
+    import sys
+
+    kubectl = "{{ chronicle_kubectl }}"
+    kubeconfig = "{{ chronicle_kubeconfig }}"
+    namespace = "{{ chronicle_namespace }}"
+    contracts = {{ chronicle_backup_cronjob_contracts | to_json }}
+    expected_concurrency = "{{ chronicle_backup_cronjob_concurrency_policy }}"
+    expected_success_history = {{ chronicle_backup_cronjob_successful_history_limit | int }}
+    expected_failed_history = {{ chronicle_backup_cronjob_failed_history_limit | int }}
+    expected_backoff = {{ chronicle_backup_cronjob_backoff_limit | int }}
+    failures = []
+
+    for contract in contracts:
+        name = contract["name"]
+        ref = f"{namespace}/CronJob/{name}"
+        try:
+            raw = subprocess.check_output(
+                [kubectl, "--kubeconfig", kubeconfig, "-n", namespace, "get", "cronjob", name, "-o", "json"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            failures.append(f"{ref}: missing")
+            continue
+
+        cronjob = json.loads(raw)
+        spec = cronjob.get("spec", {})
+        job_spec = spec.get("jobTemplate", {}).get("spec", {})
+        pod_spec = job_spec.get("template", {}).get("spec", {})
+
+        checks = {
+            "suspend": (spec.get("suspend"), True),
+            "concurrencyPolicy": (spec.get("concurrencyPolicy"), expected_concurrency),
+            "successfulJobsHistoryLimit": (spec.get("successfulJobsHistoryLimit"), expected_success_history),
+            "failedJobsHistoryLimit": (spec.get("failedJobsHistoryLimit"), expected_failed_history),
+            "jobTemplate.spec.backoffLimit": (job_spec.get("backoffLimit"), expected_backoff),
+            "jobTemplate.spec.template.spec.restartPolicy": (pod_spec.get("restartPolicy"), "Never"),
+            "jobTemplate.spec.template.spec.automountServiceAccountToken": (pod_spec.get("automountServiceAccountToken"), False),
+            "jobTemplate.spec.template.spec.enableServiceLinks": (pod_spec.get("enableServiceLinks"), False),
+        }
+        for field, (actual, expected) in checks.items():
+            if actual != expected:
+                failures.append(f"{ref}: {field} is {actual!r}, expected {expected!r}")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print(f"validated backup CronJob safety contracts for {len(contracts)} jobs")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate local backup artifact permissions and encrypted-only contents
+  ansible.builtin.shell: |
+    set -euo pipefail
+    pv="$({{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} \
+      -n {{ chronicle_namespace }} get pvc chronicle-local-backups -o jsonpath='{.spec.volumeName}')"
+    backup_root="$({{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} \
+      get pv "$pv" -o jsonpath='{.spec.hostPath.path}')"
+    python3 - "$backup_root" <<'PY'
+    import os
+    import re
+    import stat
+    import sys
+
+    backup_root = sys.argv[1]
+    failures = []
+    timestamp_re = re.compile(r"^\d{8}T\d{6}Z$")
+    allowed_files = {
+        "database.dump.enc",
+        "tde-keyring.tar.gz.enc",
+        "audit-logs.tar.gz.enc",
+        "deployment-evidence.tar.gz.enc",
+        "artifact-sha256sums.txt",
+        "manifest.json",
+        "manifest.json.sha256",
+    }
+    plaintext_suffixes = (".dump", ".sql", ".tar", ".tar.gz", ".key", ".pem")
+
+    if not backup_root:
+        failures.append("backup PVC hostPath is empty")
+    elif not os.path.isdir(backup_root):
+        failures.append(f"{backup_root}: backup PVC hostPath is not a directory")
+    else:
+        latest = os.path.join(backup_root, "latest")
+        if not os.path.islink(latest):
+            failures.append(f"{latest}: latest backup symlink missing")
+        else:
+            resolved = os.path.realpath(latest)
+            if not resolved.startswith(os.path.realpath(backup_root) + os.sep):
+                failures.append(f"{latest}: symlink resolves outside backup root")
+            if not os.path.isdir(resolved):
+                failures.append(f"{latest}: symlink target is not a directory")
+
+        backup_dirs = []
+        for entry in sorted(os.listdir(backup_root)):
+            path = os.path.join(backup_root, entry)
+            if entry == "latest":
+                continue
+            if timestamp_re.match(entry):
+                if not os.path.isdir(path) or os.path.islink(path):
+                    failures.append(f"{path}: timestamped backup entry must be a directory")
+                    continue
+                backup_dirs.append(path)
+                mode = stat.S_IMODE(os.stat(path).st_mode)
+                if mode & 0o077:
+                    failures.append(f"{path}: mode {mode:04o} grants group/other access")
+            else:
+                failures.append(f"{path}: unexpected top-level backup entry")
+
+        if not backup_dirs:
+            failures.append(f"{backup_root}: no timestamped backup directories found")
+
+        for backup_dir in backup_dirs:
+            for root, dirs, files in os.walk(backup_dir):
+                for dirname in dirs:
+                    path = os.path.join(root, dirname)
+                    mode = stat.S_IMODE(os.stat(path).st_mode)
+                    if mode & 0o077:
+                        failures.append(f"{path}: mode {mode:04o} grants group/other access")
+                for filename in files:
+                    path = os.path.join(root, filename)
+                    rel = os.path.relpath(path, backup_dir)
+                    if os.path.islink(path):
+                        failures.append(f"{path}: backup files must not be symlinks")
+                        continue
+                    mode = stat.S_IMODE(os.stat(path).st_mode)
+                    if mode & 0o077:
+                        failures.append(f"{path}: mode {mode:04o} grants group/other access")
+                    if rel != filename:
+                        failures.append(f"{path}: nested backup files are not expected")
+                    if filename not in allowed_files:
+                        failures.append(f"{path}: unexpected backup artifact name")
+                    if filename.endswith(plaintext_suffixes) and not filename.endswith(".enc"):
+                        failures.append(f"{path}: plaintext backup-like artifact found")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print("local backup artifacts validated: encrypted-only names, private modes, valid latest symlink")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate local backup manifests and artifact hashes
+  ansible.builtin.shell: |
+    set -euo pipefail
+    pv="$({{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} \
+      -n {{ chronicle_namespace }} get pvc chronicle-local-backups -o jsonpath='{.spec.volumeName}')"
+    backup_root="$({{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} \
+      get pv "$pv" -o jsonpath='{.spec.hostPath.path}')"
+    python3 - "$backup_root" <<'PY'
+    import hashlib
+    import json
+    import os
+    import re
+    import sys
+
+    backup_root = sys.argv[1]
+    failures = []
+    timestamp_re = re.compile(r"^\d{8}T\d{6}Z$")
+    required_artifacts = {
+        "database.dump.enc",
+        "tde-keyring.tar.gz.enc",
+        "audit-logs.tar.gz.enc",
+        "deployment-evidence.tar.gz.enc",
+    }
+
+    def sha256(path):
+        digest = hashlib.sha256()
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    if not backup_root or not os.path.isdir(backup_root):
+        failures.append(f"{backup_root or '<empty>'}: backup root missing")
+    else:
+        backup_dirs = [
+            os.path.join(backup_root, entry)
+            for entry in sorted(os.listdir(backup_root))
+            if timestamp_re.match(entry) and os.path.isdir(os.path.join(backup_root, entry))
+        ]
+        if not backup_dirs:
+            failures.append(f"{backup_root}: no timestamped backup directories found")
+
+        for backup_dir in backup_dirs:
+            manifest_path = os.path.join(backup_dir, "manifest.json")
+            manifest_sum_path = os.path.join(backup_dir, "manifest.json.sha256")
+            if not os.path.isfile(manifest_path):
+                failures.append(f"{manifest_path}: missing")
+                continue
+            if not os.path.isfile(manifest_sum_path):
+                failures.append(f"{manifest_sum_path}: missing")
+                continue
+
+            try:
+                manifest = json.load(open(manifest_path, encoding="utf-8"))
+            except Exception as exc:
+                failures.append(f"{manifest_path}: invalid JSON: {exc}")
+                continue
+
+            expected_manifest_sum = open(manifest_sum_path, encoding="utf-8").read().split()[0]
+            actual_manifest_sum = sha256(manifest_path)
+            if expected_manifest_sum != actual_manifest_sum:
+                failures.append(f"{manifest_path}: sha256 mismatch")
+
+            encryption = manifest.get("encryption", {})
+            if encryption.get("algorithm") != "aes-256-cbc":
+                failures.append(f"{manifest_path}: unexpected encryption algorithm")
+            if encryption.get("kdf") != "pbkdf2":
+                failures.append(f"{manifest_path}: unexpected encryption KDF")
+            if int(encryption.get("iterations", 0)) < 600000:
+                failures.append(f"{manifest_path}: encryption iterations below 600000")
+
+            artifacts = manifest.get("artifacts", {})
+            missing = required_artifacts - set(artifacts)
+            extra = set(artifacts) - required_artifacts
+            if missing:
+                failures.append(f"{manifest_path}: missing artifact hashes {sorted(missing)}")
+            if extra:
+                failures.append(f"{manifest_path}: unexpected artifact hashes {sorted(extra)}")
+            for artifact, expected_hash in artifacts.items():
+                artifact_path = os.path.join(backup_dir, artifact)
+                if not os.path.isfile(artifact_path):
+                    failures.append(f"{artifact_path}: artifact missing")
+                    continue
+                if sha256(artifact_path) != expected_hash:
+                    failures.append(f"{artifact_path}: sha256 mismatch")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print("local backup manifests validated: manifest checksum, encryption metadata, artifact hashes")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate latest local backup freshness
+  ansible.builtin.shell: |
+    set -euo pipefail
+    pv="$({{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} \
+      -n {{ chronicle_namespace }} get pvc chronicle-local-backups -o jsonpath='{.spec.volumeName}')"
+    backup_root="$({{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} \
+      get pv "$pv" -o jsonpath='{.spec.hostPath.path}')"
+    python3 - "$backup_root" "{{ chronicle_backup_max_age_hours }}" <<'PY'
+    import os
+    import re
+    import sys
+    from datetime import datetime, timezone
+
+    backup_root = sys.argv[1]
+    max_age_hours = float(sys.argv[2])
+    timestamp_re = re.compile(r"^\d{8}T\d{6}Z$")
+    failures = []
+
+    if max_age_hours <= 0:
+        failures.append(f"invalid backup max age threshold: {max_age_hours}")
+
+    if not backup_root or not os.path.isdir(backup_root):
+        failures.append(f"{backup_root or '<empty>'}: backup root missing")
+    else:
+        latest = os.path.join(backup_root, "latest")
+        if not os.path.islink(latest):
+            failures.append(f"{latest}: latest backup symlink missing")
+        else:
+            root_real = os.path.realpath(backup_root)
+            latest_real = os.path.realpath(latest)
+            if not latest_real.startswith(root_real + os.sep):
+                failures.append(f"{latest}: symlink resolves outside backup root")
+            if not os.path.isdir(latest_real):
+                failures.append(f"{latest}: symlink target is not a directory")
+
+            timestamp = os.path.basename(latest_real)
+            if not timestamp_re.match(timestamp):
+                failures.append(f"{latest_real}: latest backup directory is not timestamped")
+            else:
+                backup_time = datetime.strptime(timestamp, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+                age_hours = (datetime.now(timezone.utc) - backup_time).total_seconds() / 3600
+                if age_hours < 0:
+                    failures.append(f"{latest_real}: latest backup timestamp is in the future")
+                if age_hours > max_age_hours:
+                    failures.append(
+                        f"{latest_real}: latest backup age {age_hours:.2f}h exceeds {max_age_hours:.2f}h"
+                    )
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print(f"latest local backup freshness validated: age_hours={age_hours:.2f} max_hours={max_age_hours:.2f}")
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Validate backend health through public hostname
+  ansible.builtin.uri:
+    url: "https://{{ chronicle_hostname }}/health"
+    validate_certs: false
+    status_code: 200
+    return_content: false
+  register: chronicle_backend_health_response
+
+- name: Validate public edge security headers on backend health
+  ansible.builtin.assert:
+    that:
+      - chronicle_backend_health_response.x_content_type_options | default('') == 'nosniff'
+      - chronicle_backend_health_response.x_frame_options | default('') == 'DENY'
+      - chronicle_backend_health_response.referrer_policy | default('') == 'no-referrer'
+      - "'max-age=31536000' in (chronicle_backend_health_response.strict_transport_security | default(''))"
+      - "'camera=()' in (chronicle_backend_health_response.permissions_policy | default(''))"
+    fail_msg: "Backend public edge security headers are missing or incomplete: {{ chronicle_backend_health_response }}"
+
+- name: Validate Keycloak OIDC discovery through public hostname
+  ansible.builtin.uri:
+    url: "https://{{ chronicle_hostname }}/keycloak/realms/chronicle/.well-known/openid-configuration"
+    validate_certs: false
+    status_code: 200
+    return_content: false
+
+- name: Validate Keycloak admin path is blocked
+  ansible.builtin.uri:
+    url: "https://{{ chronicle_hostname }}/keycloak/admin"
+    validate_certs: false
+    status_code: 404
+    return_content: false
+
+- name: Validate approved APK download path
+  ansible.builtin.uri:
+    url: "https://{{ chronicle_hostname }}/chronicle/downloads/Chronicle-2026-06-25-beta.2-debug.apk"
+    method: HEAD
+    validate_certs: false
+    status_code: 200
+    return_content: false
+  register: chronicle_apk_download_response
+
+- name: Validate public edge security headers on APK download
+  ansible.builtin.assert:
+    that:
+      - chronicle_apk_download_response.x_content_type_options | default('') == 'nosniff'
+      - chronicle_apk_download_response.x_frame_options | default('') == 'DENY'
+      - chronicle_apk_download_response.referrer_policy | default('') == 'no-referrer'
+      - "'max-age=31536000' in (chronicle_apk_download_response.strict_transport_security | default(''))"
+      - "'camera=()' in (chronicle_apk_download_response.permissions_policy | default(''))"
+    fail_msg: "APK public edge security headers are missing or incomplete: {{ chronicle_apk_download_response }}"
+
+- name: Validate unapproved APK download path is blocked
+  ansible.builtin.uri:
+    url: "https://{{ chronicle_hostname }}/chronicle/downloads/not-approved.apk"
+    validate_certs: false
+    status_code: 404
+    return_content: false
+
+- name: Validate preprocessing GUI trailing-slash path
+  ansible.builtin.uri:
+    url: "https://{{ chronicle_hostname }}/chronicle/preprocessing-gui/"
+    validate_certs: false
+    status_code: 200
+    return_content: false
+
+- name: Validate preprocessing GUI bare path redirects
+  ansible.builtin.uri:
+    url: "https://{{ chronicle_hostname }}/chronicle/preprocessing-gui"
+    validate_certs: false
+    status_code: 302
+    follow_redirects: none
+    return_content: false
+
+- name: Check CrowdSec deployment when enforcement is required
+  ansible.builtin.command: >-
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+    -n {{ chronicle_security_namespace }} rollout status deploy/chronicle-crowdsec --timeout=3m
+  changed_when: false
+  when: chronicle_require_crowdsec_enforced | bool
+
+- name: Check RKE2 Traefik arguments for CrowdSec plugin when enforcement is required
+  ansible.builtin.shell: >-
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+    -n kube-system get ds rke2-traefik
+    -o jsonpath='{.spec.template.spec.containers[0].args}'
+  args:
+    executable: /bin/bash
+  register: chronicle_traefik_args
+  changed_when: false
+  when: chronicle_require_crowdsec_enforced | bool
+
+- name: Require Traefik to fail closed on CrowdSec plugin failure
+  ansible.builtin.assert:
+    that:
+      - "'crowdsec-bouncer' in chronicle_traefik_args.stdout"
+      - "'abortOnPluginFailure=true' in chronicle_traefik_args.stdout"
+    fail_msg: "Traefik is not configured for fail-closed CrowdSec bouncer enforcement."
+  when: chronicle_require_crowdsec_enforced | bool
+
+- name: Validate public Traefik routes put CrowdSec bouncer first when enforcement is required
+  ansible.builtin.shell: |
+    set -o pipefail
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }} -n {{ chronicle_namespace }} get ingressroute.traefik.io -o json |
+      python3 -c '
+    import json
+    import sys
+
+    data = json.load(sys.stdin)
+    expected = "{{ chronicle_expected_waf_middleware }}"
+    failures = []
+    for ingressroute in data.get("items", []):
+        name = ingressroute.get("metadata", {}).get("name", "<unknown>")
+        for index, route in enumerate(ingressroute.get("spec", {}).get("routes", [])):
+            middlewares = route.get("middlewares", [])
+            if not middlewares:
+                failures.append(f"{name} route {index}: no middlewares")
+                continue
+            first_name = middlewares[0].get("name")
+            if first_name != expected:
+                failures.append(f"{name} route {index}: first middleware is {first_name!r}, expected {expected!r}")
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+    '
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when: chronicle_require_crowdsec_enforced | bool
+
+- name: Validate benign request still passes through WAF when enforcement is required
+  ansible.builtin.uri:
+    url: "https://{{ chronicle_hostname }}{{ chronicle_waf_benign_path }}"
+    validate_certs: false
+    status_code: 200
+    return_content: false
+  when: chronicle_require_crowdsec_enforced | bool
+
+- name: Validate WAF blocks common malicious probes when enforcement is required
+  ansible.builtin.uri:
+    url: "https://{{ chronicle_hostname }}{{ item }}"
+    validate_certs: false
+    status_code: 403
+    return_content: false
+  loop: "{{ chronicle_waf_block_probe_paths }}"
+  when: chronicle_require_crowdsec_enforced | bool
+
+- name: Record the approved WAF exception when enforcement is not required
+  ansible.builtin.debug:
+    msg: "CrowdSec enforcement is not required for this inventory; headers/rate limits are active, but WAF is a documented exception."
+  when: not (chronicle_require_crowdsec_enforced | bool)

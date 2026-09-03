@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: fluent-bit
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: fluent-bit
+    app.kubernetes.io/part-of: chronicle
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: fluent-bit
+  ports:
+    - name: http
+      port: 2020
+      targetPort: http
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fluent-bit
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: fluent-bit
+    app.kubernetes.io/part-of: chronicle
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fluent-bit
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: fluent-bit
+    app.kubernetes.io/part-of: chronicle
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fluent-bit
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fluent-bit
+        app.kubernetes.io/part-of: chronicle
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      serviceAccountName: fluent-bit
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: fluent-bit
+          image: fluent/fluent-bit:4.2.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 2020
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+          volumeMounts:
+            - name: config
+              mountPath: /fluent-bit/etc
+              readOnly: true
+            - name: audit-logs
+              mountPath: /var/log/chronicle
+              readOnly: true
+            - name: state
+              mountPath: /fluent-bit/state
+            - name: tmp
+              mountPath: /tmp
+            - name: run
+              mountPath: /run
+      volumes:
+        - name: config
+          configMap:
+            name: fluent-bit-config
+        - name: audit-logs
+          persistentVolumeClaim:
+            claimName: chronicle-audit-logs
+            readOnly: true
+        - name: state
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+        - name: run
+          emptyDir:
+            sizeLimit: 4Mi

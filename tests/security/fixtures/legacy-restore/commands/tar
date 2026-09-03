@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+archive="${2:-}"
+archive_kind=""
+if [[ -f "$archive" ]]; then
+  archive_contents="$(<"$archive")"
+  case "$archive_contents" in
+    *tde-keyring.tar.gz.enc*) archive_kind=keyring ;;
+    *config-secrets.tar.gz.enc*) archive_kind=config ;;
+    *deployment-manifest.tar.gz.enc*) archive_kind=deployment ;;
+    *audit-logs.tar.gz.enc*) archive_kind=audit ;;
+  esac
+fi
+
+case "$archive_kind" in
+  keyring) archive_exit="${LEGACY_RESTORE_TEST_KEYRING_TAR_EXIT:-0}" ;;
+  config) archive_exit="${LEGACY_RESTORE_TEST_CONFIG_TAR_EXIT:-0}" ;;
+  deployment) archive_exit="${LEGACY_RESTORE_TEST_DEPLOYMENT_TAR_EXIT:-0}" ;;
+  audit) archive_exit="${LEGACY_RESTORE_TEST_AUDIT_TAR_EXIT:-0}" ;;
+  *) archive_exit=64 ;;
+esac
+[[ "$archive_exit" == "0" ]] || exit "$archive_exit"
+
+print_names() {
+  case "$archive_kind" in
+    keyring)
+      printf '%s\n' './' './tde-keyring/' './tde-keyring/root.per'
+      ;;
+    config)
+      printf '%s\n' './' "./${LEGACY_RESTORE_TEST_CONFIG_ENV_NAME:-.env.production.local}" \
+        './rhizome-docker.yaml' './chronicle-auth.yaml' './postgres-ssl/' \
+        './postgres-ssl/server/' './postgres-ssl/server/server.crt' \
+        './postgres-ssl/server/server.key' './postgres-ssl/ca/' \
+        './postgres-ssl/ca/ca.crt' './postgres-ssl/pg_hba-ssl.conf'
+      case "${LEGACY_RESTORE_TEST_CONFIG_SHAPE:-valid}" in
+        unexpected) printf '%s\n' './unexpected-secret.txt' ;;
+        duplicate) printf '%s\n' './rhizome-docker.yaml' ;;
+        traversal) printf '%s\n' '../escape.txt' ;;
+      esac
+      ;;
+    deployment)
+      printf '%s\n' './' './deployment/' './deployment/deployment-manifest.json' \
+        './deployment/git-status.txt' './deployment/git-submodules.txt' \
+        './docker/' './docker/docker-compose.traefik.yml' \
+        './docker/docker-compose.production.yml' './deploy/' './deploy/cue/' \
+        './deploy/cue/profiles.cue'
+      ;;
+    audit)
+      printf '%s\n' 'chronicle/' 'chronicle/audit.log'
+      ;;
+  esac
+}
+
+print_verbose() {
+  while IFS= read -r member; do
+    if [[ "$member" == */ ]]; then
+      printf 'drwx------ root/root 0 2026-01-01 00:00 %s\n' "$member"
+    else
+      printf -- '-rw------- root/root 1 2026-01-01 00:00 %s\n' "$member"
+    fi
+  done < <(print_names)
+}
+
+case "${1:-}" in
+  -tzf)
+    print_names
+    ;;
+  -tvzf)
+    print_verbose
+    ;;
+  -xzf)
+    destination=""
+    while (( $# > 0 )); do
+      if [[ "$1" == "-C" && $# -ge 2 ]]; then
+        destination="$2"
+        break
+      fi
+      shift
+    done
+    [[ -n "$destination" ]] || exit 65
+    case "$archive_kind" in
+      keyring)
+        /bin/mkdir -p "${destination}/tde-keyring"
+        if [[ "${LEGACY_RESTORE_TEST_KEYRING_MATERIAL:-present}" == "present" ]]; then
+          printf 'fixture-key-material\n' > "${destination}/tde-keyring/root.per"
+        fi
+        ;;
+      config)
+        /bin/mkdir -p "${destination}/postgres-ssl/server" "${destination}/postgres-ssl/ca"
+        printf 'fixture-env\n' > "${destination}/${LEGACY_RESTORE_TEST_CONFIG_ENV_NAME:-.env.production.local}"
+        printf 'fixture-rhizome\n' > "${destination}/rhizome-docker.yaml"
+        printf 'fixture-auth\n' > "${destination}/chronicle-auth.yaml"
+        printf 'fixture-certificate\n' > "${destination}/postgres-ssl/server/server.crt"
+        printf 'fixture-private-key\n' > "${destination}/postgres-ssl/server/server.key"
+        printf 'fixture-ca\n' > "${destination}/postgres-ssl/ca/ca.crt"
+        printf 'fixture-hba\n' > "${destination}/postgres-ssl/pg_hba-ssl.conf"
+        if [[ "${LEGACY_RESTORE_TEST_CONFIG_SHAPE:-valid}" == "unexpected" ]]; then
+          printf 'unexpected\n' > "${destination}/unexpected-secret.txt"
+        fi
+        ;;
+      deployment)
+        /bin/mkdir -p "${destination}/deployment" "${destination}/docker" "${destination}/deploy/cue"
+        if [[ "${LEGACY_RESTORE_TEST_DEPLOYMENT_MANIFEST_VALID:-true}" == "true" ]]; then
+          printf '%s\n' \
+            '{' \
+            '  "schema_version": 1,' \
+            '  "timestamp": "2026-01-01T00:00:00Z",' \
+            '  "git_commit": "0000000000000000000000000000000000000000",' \
+            '  "git_branch": "fixture",' \
+            '  "git_dirty": false,' \
+            "  \"env_config_file\": \"${LEGACY_RESTORE_TEST_CONFIG_ENV_NAME:-.env.production.local}\"," \
+            '  "compose_files": ["docker/docker-compose.traefik.yml", "docker/docker-compose.production.yml"],' \
+            '  "kubernetes_profile_source": "deploy/cue/profiles.cue"' \
+            '}' > "${destination}/deployment/deployment-manifest.json"
+        else
+          printf '{invalid-json\n' > "${destination}/deployment/deployment-manifest.json"
+        fi
+        printf 'fixture-compose\n' > "${destination}/docker/docker-compose.traefik.yml"
+        printf 'fixture-production-compose\n' > "${destination}/docker/docker-compose.production.yml"
+        printf 'fixture-status\n' > "${destination}/deployment/git-status.txt"
+        printf 'fixture-submodules\n' > "${destination}/deployment/git-submodules.txt"
+        printf 'fixture-cue\n' > "${destination}/deploy/cue/profiles.cue"
+        ;;
+    esac
+    ;;
+  *)
+    exit 66
+    ;;
+esac

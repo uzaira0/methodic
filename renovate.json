@@ -1,0 +1,155 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Renovate config for Chronicle monorepo (bun + Gradle + Docker + GitHub Actions)",
+  "extends": [
+    "config:recommended",
+    "docker:pinDigests",
+    "helpers:pinGitHubActionDigestsToSemver"
+  ],
+
+  "labels": ["dependencies", "automated"],
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "timezone": "America/New_York",
+  "schedule": ["before 8am on weekday", "after 6pm on weekday"],
+
+  "automerge": false,
+  "platformAutomerge": true,
+
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/build/**",
+    "**/dist/**"
+  ],
+
+  "enabledManagers": [
+    "npm",
+    "gradle",
+    "dockerfile",
+    "docker-compose",
+    "github-actions"
+  ],
+
+  "npm": {
+    "fileMatch": ["chronicle-web/package\\.json$"]
+  },
+
+  "gradle": {
+    "fileMatch": [
+      "(^|/)build\\.gradle(\\.kts)?$",
+      "(^|/)settings\\.gradle(\\.kts)?$",
+      "(^|/)gradle\\.properties$"
+    ]
+  },
+
+  "dockerfile": {
+    "fileMatch": ["docker/Dockerfile[^/]*$"]
+  },
+
+  "docker-compose": {
+    "fileMatch": ["docker/docker-compose[^/]*\\.ya?ml$"]
+  },
+
+  "packageRules": [
+    {
+      "description": "Auto-merge patch updates (requires CI to pass)",
+      "matchUpdateTypes": ["patch", "pin", "digest"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Separate PRs for major updates",
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "separateMajorMinor": true
+    },
+
+    {
+      "description": "Group @radix-ui packages",
+      "matchPackagePrefixes": ["@radix-ui/"],
+      "groupName": "radix-ui"
+    },
+    {
+      "description": "Group @babel packages",
+      "matchPackagePrefixes": ["@babel/"],
+      "groupName": "babel"
+    },
+    {
+      "description": "Group @fortawesome packages",
+      "matchPackagePrefixes": ["@fortawesome/"],
+      "groupName": "fortawesome"
+    },
+    {
+      "description": "Group @nivo chart packages",
+      "matchPackagePrefixes": ["@nivo/"],
+      "groupName": "nivo"
+    },
+    {
+      "description": "Group Redux ecosystem",
+      "matchPackageNames": [
+        "@reduxjs/toolkit",
+        "@redux-saga/core",
+        "react-redux",
+        "redux",
+        "redux-immutable",
+        "redux-reqseq"
+      ],
+      "groupName": "redux"
+    },
+    {
+      "description": "Group i18next packages",
+      "matchPackagePrefixes": ["i18next"],
+      "matchPackageNames": ["react-i18next"],
+      "groupName": "i18next"
+    },
+    {
+      "description": "Group webpack packages",
+      "matchPackagePrefixes": ["webpack"],
+      "groupName": "webpack"
+    },
+    {
+      "description": "Group Grafana stack (Loki, Promtail, Grafana)",
+      "matchPackagePrefixes": ["grafana/"],
+      "groupName": "grafana-stack",
+      "matchManagers": ["docker-compose", "dockerfile"]
+    },
+    {
+      "description": "Group Prometheus stack",
+      "matchPackagePrefixes": ["prom/"],
+      "groupName": "prometheus-stack",
+      "matchManagers": ["docker-compose", "dockerfile"]
+    },
+    {
+      "description": "Group GitHub Actions (actions/*)",
+      "matchPackagePrefixes": ["actions/"],
+      "groupName": "github-actions-official",
+      "matchManagers": ["github-actions"]
+    },
+    {
+      "description": "Group Gradle Actions",
+      "matchPackagePrefixes": ["gradle/"],
+      "groupName": "gradle-actions",
+      "matchManagers": ["github-actions"]
+    },
+
+    {
+      "description": "Pin node-fetch at 2.7.0 (override in package.json for CJS compat)",
+      "matchPackageNames": ["node-fetch"],
+      "allowedVersions": "2.7.0",
+      "enabled": false
+    },
+    {
+      "description": "Pin path-to-regexp at 1.9.0 (override in package.json for react-router v5 compat)",
+      "matchPackageNames": ["path-to-regexp"],
+      "allowedVersions": "1.9.0",
+      "enabled": false
+    }
+  ],
+
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["dependencies", "security"],
+    "schedule": ["at any time"],
+    "prPriority": 10
+  }
+}

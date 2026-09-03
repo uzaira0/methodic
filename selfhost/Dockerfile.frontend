@@ -1,0 +1,40 @@
+# Build-only frontend image for the self-host stack.
+#
+# docker/Dockerfile.frontend.prod cannot be reused here: it is a *serving* image that
+# builds to /app/dist and then runs nginx on :8080 from /usr/share/nginx/html. This bundle
+# serves static files from Caddy instead, so it needs the build output published into a
+# shared volume rather than a second web server.
+#
+# This container is a one-shot job: it copies the built bundle into /out (the frontend_build
+# volume that Caddy mounts at /srv) and exits. It re-copies on every `docker compose up`, so
+# a rebuilt frontend actually reaches Caddy — a named volume is only auto-populated from an
+# image when it is empty, which would otherwise silently serve a stale dashboard forever.
+
+FROM oven/bun:1-alpine@sha256:7ed9f74c326d1c260abe247ac423ccbf5ac92af62bb442d515d1f92f21e8ea9b AS builder
+
+ARG GIT_SHA=selfhost
+
+SHELL ["/bin/ash", "-o", "pipefail", "-c"]
+
+WORKDIR /app
+
+COPY chronicle-web/package.json chronicle-web/bun.lock ./
+COPY chronicle-web/vendor ./vendor
+
+RUN bun install --frozen-lockfile
+
+COPY chronicle-web/ ./
+
+RUN bun run build
+
+# Source maps would expose readable application source to anyone who loads the dashboard.
+RUN find /app/dist -name '*.map' -delete 2>/dev/null; true
+RUN echo "{\"version\":\"${GIT_SHA}\",\"buildTime\":\"$(date -Iseconds)\"}" > /app/dist/version.json
+
+FROM alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+
+COPY --from=builder /app/dist /dist
+
+# Replace the volume's contents rather than merging, so files deleted between builds do
+# not linger. Then exit 0 — compose treats this as a completed job.
+CMD ["sh", "-c", "rm -rf /out/* /out/.[!.]* 2>/dev/null; cp -a /dist/. /out/ && echo \"published $(find /out -type f | wc -l) files to frontend_build\""]

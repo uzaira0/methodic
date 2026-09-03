@@ -1,0 +1,108 @@
+---
+# Example host variables for an operator production single-node Kubernetes host.
+# Copy to an untracked host_vars file that matches the real inventory hostname.
+
+chronicle_swap_enabled: true
+chronicle_swap_size_mib: 4096
+chronicle_swap_swappiness: 10
+
+chronicle_require_crowdsec_enforced: true
+chronicle_backup_drill_pause_observability: false
+
+chronicle_rke2_node_labels:
+  - chronicle.io/environment=operator-production
+  - chronicle.io/host-profile=single-node-8cpu-16gb
+  - chronicle.io/role=app-db-ingress
+
+chronicle_rke2_tls_sans:
+  - "{{ chronicle_hostname }}"
+  - "{{ chronicle_public_ip }}"
+  - "{{ chronicle_private_ip }}"
+
+chronicle_rke2_kubelet_args:
+  - system-reserved=cpu=300m,memory=768Mi
+  - kube-reserved=cpu=500m,memory=1024Mi
+  - eviction-hard=memory.available<750Mi,nodefs.available<10%,imagefs.available<10%
+  - eviction-minimum-reclaim=memory.available=250Mi,nodefs.available=2Gi,imagefs.available=2Gi
+  - fail-swap-on=false
+
+chronicle_recreate_deployments:
+  - chronicle-backend
+
+chronicle_k8s_overlays:
+  - name: production
+    path: k8s/overlays/production
+  - name: victoria-lite
+    path: k8s/observability/victoria-lite
+  - name: crowdsec-baseline
+    path: k8s/security/crowdsec-baseline
+  - name: local-backup
+    path: k8s/backup/local
+
+chronicle_namespace_control_contracts:
+  - namespace: "{{ chronicle_namespace }}"
+    resource_quota:
+      name: resource-quota
+      hard:
+        requests.cpu: "3"
+        requests.memory: 5Gi
+        limits.cpu: "9"
+        limits.memory: 11Gi
+        pods: "30"
+        requests.storage: 260Gi
+    limit_range:
+      name: default-limits
+      container:
+        default:
+          cpu: 250m
+          memory: 512Mi
+        defaultRequest:
+          cpu: 100m
+          memory: 256Mi
+        max:
+          cpu: "4"
+          memory: 4Gi
+      pod:
+        max:
+          cpu: "6"
+          memory: 6Gi
+  - namespace: "{{ chronicle_observability_namespace }}"
+    resource_quota:
+      name: observability-quota
+      hard:
+        requests.cpu: 275m
+        requests.memory: 384Mi
+        limits.cpu: 1500m
+        limits.memory: 1200Mi
+        pods: "7"
+        persistentvolumeclaims: "2"
+        requests.storage: 10Gi
+    limit_range:
+      name: observability-defaults
+      container:
+        default:
+          cpu: 250m
+          memory: 256Mi
+        defaultRequest:
+          cpu: 25m
+          memory: 64Mi
+  - namespace: "{{ chronicle_security_namespace }}"
+    resource_quota:
+      name: chronicle-security-quota
+      hard:
+        requests.cpu: 250m
+        requests.memory: 384Mi
+        limits.cpu: 1000m
+        limits.memory: 768Mi
+        pods: "4"
+        persistentvolumeclaims: "3"
+        requests.storage: 8Gi
+    limit_range:
+      name: chronicle-security-defaults
+      container:
+        default:
+          cpu: 500m
+          memory: 512Mi
+        defaultRequest:
+          cpu: 50m
+          memory: 128Mi

@@ -1,0 +1,11 @@
+# One continuous smoke journey. These steps share enrollment state and the exact APP_PACKAGE
+# binding; running them as separate top-level Flows makes Maestro 1.39 re-resolve the package
+# placeholder between flows and force-stop the application.
+appId: ${APP_PACKAGE}
+tags:
+  - smoke
+---
+- runFlow: flows/01_enrollment.yaml
+- runFlow: flows/02_settings.yaml
+- runFlow: flows/03_second_invitation_rejected.yaml
+- runFlow: flows/04_single_server.yaml

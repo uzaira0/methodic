@@ -1,0 +1,98 @@
+
+services:
+  postgres:
+    image: percona/percona-distribution-postgresql:18.4-5
+    container_name: chronicle-postgres
+    environment:
+      POSTGRES_USER: oltest
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: chronicle
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      # A postgres_data volume initialized by the old postgres:16 image will NOT
+      # start under 17.x (PG major upgrades need pg_upgrade/dump-restore) — wipe
+      # the volume or migrate it before re-upping an old checkout's data.
+      # /data/db, NOT /var/lib/postgresql/data: this image sets PGDATA=/data/db and declares
+      # it as a VOLUME, so the conventional path stored nothing -- the named volume stayed
+      # empty and the real cluster went into an anonymous volume, which does not survive the
+      # container being recreated. docker-compose.traefik.yml already mounts /data/db.
+      #
+      # MIGRATING AN EXISTING DEPLOYMENT: the current data is in that anonymous volume, not
+      # in postgres_data. Take a pg_dump BEFORE changing this, or the stack comes up on an
+      # empty database. `docker inspect <container> --format '{{range .Mounts}}{{.Name}} {{.Destination}}{{"\n"}}{{end}}'`
+      # names the anonymous volume holding it.
+      - postgres_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oltest -d chronicle"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: chronicle-backend
+    environment:
+      CHRONICLE_SERVER_XMS: "-Xms512m"
+      CHRONICLE_SERVER_XMX: "-Xmx2g"
+      CHRONICLE_SERVER_ARGS: "local postgres medialocal"
+      # Database connection (uses docker network hostname)
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: chronicle
+      POSTGRES_USER: oltest
+      POSTGRES_PASSWORD: test
+      CHRONICLE_EXPORT_DIR: /var/lib/chronicle/exports
+      CHRONICLE_EXPORT_MAX_ROWS: "1000000"
+      CHRONICLE_EXPORT_MAX_BYTES: "536870912"
+      CHRONICLE_EXPORT_MAX_RUNTIME_SECONDS: "1800"
+      CHRONICLE_EXPORT_MAX_TOTAL_BYTES: "8589934592"
+      CHRONICLE_EXPORT_MIN_FREE_BYTES: "1073741824"
+    volumes:
+      - export_artifacts:/var/lib/chronicle/exports
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "40320"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:40320/chronicle/v3/study > /dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend.prod
+      args:
+        AUTH_ENABLED: "false"
+        API_BASE_URL: ""
+    container_name: chronicle-frontend
+    volumes:
+      - frontend_build:/app/build
+
+  nginx:
+    image: nginx:alpine
+    container_name: chronicle-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - frontend_build:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+      - frontend
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+  frontend_build:
+  export_artifacts:

@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chronicle-security
+  labels:
+    app.kubernetes.io/name: chronicle-security
+    app.kubernetes.io/part-of: chronicle
+    chronicle.io/security-layer: crowdsec
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: chronicle-security-quota
+  namespace: chronicle-security
+  labels:
+    app.kubernetes.io/name: chronicle-security
+    app.kubernetes.io/part-of: chronicle
+spec:
+  hard:
+    requests.cpu: "250m"
+    requests.memory: 384Mi
+    limits.cpu: "1000m"
+    limits.memory: 768Mi
+    pods: "4"
+    persistentvolumeclaims: "3"
+    requests.storage: 8Gi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: chronicle-security-defaults
+  namespace: chronicle-security
+  labels:
+    app.kubernetes.io/name: chronicle-security
+    app.kubernetes.io/part-of: chronicle
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 128Mi

@@ -1,0 +1,81 @@
+---
+- name: Refresh Chronicle AIDE baseline after reviewed maintenance
+  hosts: chronicle_k8s
+  gather_facts: true
+  become: true
+  vars:
+    chronicle_aide_refresh_baseline: false
+    chronicle_aide_allow_constrained_host: false
+    chronicle_aide_min_memory_mb: 12000
+    chronicle_aide_timeout_seconds: 600
+    chronicle_aide_evidence_dir: /var/log/chronicle/evidence
+  tasks:
+    - name: Require explicit AIDE baseline refresh approval
+      ansible.builtin.assert:
+        that:
+          - chronicle_aide_refresh_baseline | bool
+          - >-
+            ansible_facts.memtotal_mb | int >= chronicle_aide_min_memory_mb | int
+            or chronicle_aide_allow_constrained_host | bool
+        fail_msg: >-
+          This playbook mutates the active AIDE baseline. Run only after
+          reviewing AIDE differences, with
+          -e chronicle_aide_refresh_baseline=true. Constrained hosts also
+          require -e chronicle_aide_allow_constrained_host=true.
+
+    - name: Create Chronicle evidence directory
+      ansible.builtin.file:
+        path: "{{ chronicle_aide_evidence_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0750"
+
+    - name: Check active AIDE database
+      ansible.builtin.stat:
+        path: /var/lib/aide/aide.db.gz
+      register: chronicle_aide_active_db
+
+    - name: Require existing active AIDE database
+      ansible.builtin.assert:
+        that:
+          - chronicle_aide_active_db.stat.exists
+        fail_msg: "Active AIDE database is missing; run the platform playbook first."
+
+    - name: Refresh and verify AIDE baseline
+      ansible.builtin.shell: |
+        set -o pipefail
+        stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+        update_log="{{ chronicle_aide_evidence_dir }}/aide-baseline-refresh-${stamp}.log"
+        post_log="/tmp/aide-post-refresh-${stamp}.log"
+        backup="/var/lib/aide/aide.db.gz.pre-refresh-${stamp}"
+
+        timeout "{{ chronicle_aide_timeout_seconds }}"s nice -n 10 ionice -c2 -n7 aide --update >"${update_log}" 2>&1
+        update_rc=$?
+        if [ "${update_rc}" -gt 7 ]; then
+          printf 'aide --update failed with rc=%s; see %s\n' "${update_rc}" "${update_log}"
+          exit "${update_rc}"
+        fi
+
+        test -s /var/lib/aide/aide.db.new.gz
+        cp -a /var/lib/aide/aide.db.gz "${backup}"
+        install -o root -g root -m 0600 /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
+
+        timeout "{{ chronicle_aide_timeout_seconds }}"s nice -n 10 ionice -c2 -n7 aide --check >"${post_log}" 2>&1
+        post_rc=$?
+        install -o root -g root -m 0640 "${post_log}" "{{ chronicle_aide_evidence_dir }}/aide-post-refresh-${stamp}.log"
+        rm -f "${post_log}"
+
+        printf 'AIDE baseline refresh log: %s\n' "${update_log}"
+        printf 'Previous AIDE database backup: %s\n' "${backup}"
+        printf 'Post-refresh AIDE check log: %s\n' "{{ chronicle_aide_evidence_dir }}/aide-post-refresh-${stamp}.log"
+        exit "${post_rc}"
+      args:
+        executable: /bin/bash
+      register: chronicle_aide_refresh
+      changed_when: true
+      failed_when: chronicle_aide_refresh.rc != 0
+
+    - name: Report AIDE baseline refresh evidence
+      ansible.builtin.debug:
+        var: chronicle_aide_refresh.stdout_lines

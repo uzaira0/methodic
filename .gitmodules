@@ -1,0 +1,26 @@
+[submodule "chronicle-api"]
+	path = chronicle-api
+	url = https://github.com/uzaira0/chronicle-api.git
+[submodule "chronicle-server"]
+	path = chronicle-server
+	url = https://github.com/uzaira0/chronicle-server.git
+[submodule "rhizome"]
+	path = rhizome
+	url = https://github.com/uzaira0/rhizome.git
+[submodule "rhizome-client"]
+	path = rhizome-client
+	url = https://github.com/uzaira0/rhizome-client.git
+[submodule "chronicle"]
+	path = chronicle
+	url = https://github.com/uzaira0/chronicle.git
+[submodule "chronicle-web"]
+	path = chronicle-web
+	url = https://github.com/uzaira0/chronicle-web.git
+[submodule "chronicle-models"]
+	path = chronicle-models
+	url = https://github.com/uzaira0/chronicle-models.git
+	branch = main
+[submodule "chronicle-ios"]
+	path = chronicle-ios
+	url = https://github.com/uzaira0/chronicle-ios.git
+	update = none

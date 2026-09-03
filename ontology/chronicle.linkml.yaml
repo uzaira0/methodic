@@ -1,0 +1,962 @@
+id: https://chronicle.internal/ontology/chronicle
+name: chronicle
+title: Chronicle Production Contract Ontology
+version: 0.1.0
+description: Seed LinkML source of truth for Chronicle's cross-platform contracts,
+  deployment profiles, collection modules, audit actions, and observability backend
+  choices. This schema is intentionally limited to stable shared concepts while the
+  repo migrates away from duplicated constants.
+license: GPL-3.0-or-later
+prefixes:
+  linkml: https://w3id.org/linkml/
+  chronicle: https://chronicle.internal/ontology/
+  xsd: http://www.w3.org/2001/XMLSchema#
+default_prefix: chronicle
+default_range: string
+imports:
+- linkml:types
+enums:
+  DeploymentProfile:
+    description: Supported production deployment profiles.
+    permissible_values:
+      compose_transition:
+        description: Current Docker Compose production-compatible path.
+      k8s_production:
+        description: Normal Kubernetes production overlay.
+      k8s_rhel9_small:
+        description: Constrained single-node RHEL 9 overlay for 4 vCPU / 8 GB.
+      k8s_rhel9_standard:
+        description: Preferred single-node RHEL 9 profile for 8 vCPU / 16 GB.
+      k8s_rhel9_observability_colocated:
+        description: Comfortable single-node profile for 8 vCPU / 32 GB with local
+          observability.
+  ObservabilityBackend:
+    description: Approved metrics/logging backends for production Chronicle.
+    permissible_values:
+      victoria_metrics:
+        description: VictoriaMetrics-compatible metrics store and scraper path.
+      victoria_logs:
+        description: VictoriaLogs-compatible log store.
+      external_institutional:
+        description: Institution-owned observability plane outside the dedicated host.
+  SourceDeviceType:
+    description: Source device platform values mirrored from chronicle-models.
+    permissible_values:
+      None:
+        description: Participant has not enrolled a device.
+      Android:
+        description: Android or Android-derived source device.
+      Ios:
+        description: iOS source device.
+  ParticipantDataType:
+    description: Participant data export/download categories mirrored from chronicle-models.
+    permissible_values:
+      UsageEvents: {}
+      Preprocessed: {}
+      AppUsageSurvey: {}
+      IOSSensor: {}
+      AndroidSensor: {}
+      SensorAvailability: {}
+      BatteryTelemetry: {}
+      InteractionEvents: {}
+      AudioActivity: {}
+      AudioContent: {}
+      NotificationActivity: {}
+      SleepEvents: {}
+      ActivityRecognition: {}
+      HealthMetrics: {}
+      ConnectivityState: {}
+      AppNetworkUsage: {}
+      DeviceSettings: {}
+  ParticipationStatus:
+    description: Participant enrollment/collection status values mirrored from chronicle-models.
+    permissible_values:
+      ENROLLED:
+        description: Participant is enrolled and may collect/upload enabled data.
+      NOT_ENROLLED:
+        description: Participant is known but not enrolled.
+      PAUSED:
+        description: Participant collection is temporarily paused.
+      COLLECTION_COMPLETED:
+        description: Participant completed collection for the study.
+      UNKNOWN:
+        description: Client fallback when status cannot be resolved.
+  StudyLifecycleStatus:
+    description: Study lifecycle values mirrored from chronicle-models.
+    permissible_values:
+      ACTIVE: {}
+      ARCHIVED: {}
+      SCHEDULED_FOR_DELETION: {}
+  ConsentTrigger:
+    description: What caused a participant collection-module consent decision.
+    permissible_values:
+      ENROLLMENT:
+        description: Decisions made during enrollment orientation.
+      PARTICIPANT_TOGGLE:
+        description: Participant changed an optional module after enrollment.
+      SETTINGS_CHANGE:
+        description: Participant re-decided after a study-setting change.
+      WITHDRAWAL:
+        description: Participant chose to leave rather than accept a newly required
+          module.
+  CollectionDataDisposition:
+    description: Stable wire IDs for handling pending local data when a module is
+      disabled.
+    permissible_values:
+      flush_then_stop:
+        description: Drain and upload pending data, then stop collecting.
+        annotations:
+          enumName:
+            value: FLUSH_THEN_STOP
+      discard_and_stop:
+        description: Drop pending data, then stop collecting.
+        annotations:
+          enumName:
+            value: DISCARD_AND_STOP
+      hold_pending:
+        description: Stop collecting while retaining pending data locally.
+        annotations:
+          enumName:
+            value: HOLD_PENDING
+  CollectionPrivacyClass:
+    description: Privacy tiers for mobile collection modules.
+    permissible_values:
+      BEHAVIORAL_METADATA:
+        annotations:
+          defaultEnabled:
+            value: 'true'
+      DEVICE_STATE_METADATA:
+        annotations:
+          defaultEnabled:
+            value: 'true'
+      PHYSICAL_TELEMETRY:
+        annotations:
+          defaultEnabled:
+            value: 'false'
+      LOCAL_PARTICIPANT_LABEL:
+        annotations:
+          defaultEnabled:
+            value: 'false'
+      OPERATIONAL_DIAGNOSTICS:
+        annotations:
+          defaultEnabled:
+            value: 'true'
+      DEVICE_CAPABILITY:
+        annotations:
+          defaultEnabled:
+            value: 'true'
+      MEDIA_CONTENT:
+        annotations:
+          defaultEnabled:
+            value: 'false'
+      INTERACTION_METADATA:
+        annotations:
+          defaultEnabled:
+            value: 'false'
+      GAZE_TELEMETRY:
+        annotations:
+          defaultEnabled:
+            value: 'false'
+      SCREEN_CONTENT:
+        annotations:
+          defaultEnabled:
+            value: 'false'
+      PRECISE_LOCATION:
+        annotations:
+          defaultEnabled:
+            value: 'false'
+      HEALTH_METRICS:
+        annotations:
+          defaultEnabled:
+            value: 'false'
+      AMBIENT_AUDIO_CONTEXT:
+        annotations:
+          defaultEnabled:
+            value: 'false'
+      COMMUNICATION_METADATA:
+        annotations:
+          defaultEnabled:
+            value: 'false'
+  CollectionModuleId:
+    description: Stable wire IDs for collection modules.
+    permissible_values:
+      usage_events:
+        annotations:
+          enumName:
+            value: USAGE_EVENTS
+          privacyClass:
+            value: BEHAVIORAL_METADATA
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'true'
+          activeDefaultEnabled:
+            value: 'true'
+          androidSensorModule:
+            value: 'false'
+      in_app_activity_class:
+        annotations:
+          enumName:
+            value: IN_APP_ACTIVITY_CLASS
+          privacyClass:
+            value: BEHAVIORAL_METADATA
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+          defaultEnabledOverride:
+            value: 'false'
+      device_lifecycle:
+        annotations:
+          enumName:
+            value: DEVICE_LIFECYCLE
+          privacyClass:
+            value: DEVICE_STATE_METADATA
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'true'
+          activeDefaultEnabled:
+            value: 'true'
+          androidSensorModule:
+            value: 'false'
+      user_identification:
+        annotations:
+          enumName:
+            value: USER_IDENTIFICATION
+          privacyClass:
+            value: LOCAL_PARTICIPANT_LABEL
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+      upload_telemetry:
+        annotations:
+          enumName:
+            value: UPLOAD_TELEMETRY
+          privacyClass:
+            value: OPERATIONAL_DIAGNOSTICS
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'true'
+          activeDefaultEnabled:
+            value: 'true'
+          androidSensorModule:
+            value: 'false'
+      sensor_availability:
+        annotations:
+          enumName:
+            value: SENSOR_AVAILABILITY
+          privacyClass:
+            value: DEVICE_CAPABILITY
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'true'
+          activeDefaultEnabled:
+            value: 'true'
+          androidSensorModule:
+            value: 'false'
+      questionnaire:
+        annotations:
+          enumName:
+            value: QUESTIONNAIRE
+          privacyClass:
+            value: BEHAVIORAL_METADATA
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'true'
+          activeDefaultEnabled:
+            value: 'true'
+          androidSensorModule:
+            value: 'false'
+      battery_telemetry:
+        annotations:
+          enumName:
+            value: BATTERY_TELEMETRY
+          privacyClass:
+            value: DEVICE_STATE_METADATA
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'true'
+          activeDefaultEnabled:
+            value: 'true'
+          androidSensorModule:
+            value: 'false'
+      sensor_accelerometer:
+        annotations:
+          enumName:
+            value: SENSOR_ACCELEROMETER
+          privacyClass:
+            value: PHYSICAL_TELEMETRY
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'true'
+          androidSensorType:
+            value: accelerometer
+          sensorDisplayOrder:
+            value: '0'
+      sensor_gyroscope:
+        annotations:
+          enumName:
+            value: SENSOR_GYROSCOPE
+          privacyClass:
+            value: PHYSICAL_TELEMETRY
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'true'
+          androidSensorType:
+            value: gyroscope
+          sensorDisplayOrder:
+            value: '5'
+      sensor_magnetometer:
+        annotations:
+          enumName:
+            value: SENSOR_MAGNETOMETER
+          privacyClass:
+            value: PHYSICAL_TELEMETRY
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'true'
+          androidSensorType:
+            value: magnetometer
+          sensorDisplayOrder:
+            value: '6'
+      sensor_gravity:
+        annotations:
+          enumName:
+            value: SENSOR_GRAVITY
+          privacyClass:
+            value: PHYSICAL_TELEMETRY
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'true'
+          androidSensorType:
+            value: gravity
+          sensorDisplayOrder:
+            value: '7'
+      sensor_linear_acceleration:
+        annotations:
+          enumName:
+            value: SENSOR_LINEAR_ACCELERATION
+          privacyClass:
+            value: PHYSICAL_TELEMETRY
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'true'
+          androidSensorType:
+            value: linearAcceleration
+          sensorDisplayOrder:
+            value: '8'
+      sensor_rotation_vector:
+        annotations:
+          enumName:
+            value: SENSOR_ROTATION_VECTOR
+          privacyClass:
+            value: PHYSICAL_TELEMETRY
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'true'
+          androidSensorType:
+            value: rotationVector
+          sensorDisplayOrder:
+            value: '9'
+      sensor_step_counter:
+        annotations:
+          enumName:
+            value: SENSOR_STEP_COUNTER
+          privacyClass:
+            value: PHYSICAL_TELEMETRY
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'true'
+          androidSensorType:
+            value: stepCounter
+          sensorDisplayOrder:
+            value: '4'
+      sensor_light:
+        annotations:
+          enumName:
+            value: SENSOR_LIGHT
+          privacyClass:
+            value: PHYSICAL_TELEMETRY
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'true'
+          androidSensorType:
+            value: light
+          sensorDisplayOrder:
+            value: '1'
+      sensor_proximity:
+        annotations:
+          enumName:
+            value: SENSOR_PROXIMITY
+          privacyClass:
+            value: PHYSICAL_TELEMETRY
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'true'
+          androidSensorType:
+            value: proximity
+          sensorDisplayOrder:
+            value: '2'
+      sensor_significant_motion:
+        annotations:
+          enumName:
+            value: SENSOR_SIGNIFICANT_MOTION
+          privacyClass:
+            value: PHYSICAL_TELEMETRY
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'true'
+          androidSensorType:
+            value: significantMotion
+          sensorDisplayOrder:
+            value: '10'
+      sensor_tilt_detector:
+        annotations:
+          enumName:
+            value: SENSOR_TILT_DETECTOR
+          privacyClass:
+            value: PHYSICAL_TELEMETRY
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'true'
+          androidSensorType:
+            value: tiltDetector
+          sensorDisplayOrder:
+            value: '11'
+      sensor_screen_orientation:
+        annotations:
+          enumName:
+            value: SENSOR_SCREEN_ORIENTATION
+          privacyClass:
+            value: PHYSICAL_TELEMETRY
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'true'
+          androidSensorType:
+            value: screenOrientation
+          sensorDisplayOrder:
+            value: '3'
+      sensor_samsung_grip_wifi:
+        annotations:
+          enumName:
+            value: SENSOR_SAMSUNG_GRIP_WIFI
+          privacyClass:
+            value: PHYSICAL_TELEMETRY
+          active:
+            value: 'false'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'true'
+          androidSensorType:
+            value: samsungGripWifi
+          sensorDisplayOrder:
+            value: '12'
+      sensor_samsung_motion:
+        annotations:
+          enumName:
+            value: SENSOR_SAMSUNG_MOTION
+          privacyClass:
+            value: PHYSICAL_TELEMETRY
+          active:
+            value: 'false'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'true'
+          androidSensorType:
+            value: samsungMotion
+          sensorDisplayOrder:
+            value: '13'
+      interaction_events:
+        annotations:
+          enumName:
+            value: INTERACTION_EVENTS
+          privacyClass:
+            value: INTERACTION_METADATA
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+      audio_activity:
+        annotations:
+          enumName:
+            value: AUDIO_ACTIVITY
+          privacyClass:
+            value: BEHAVIORAL_METADATA
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+          defaultEnabledOverride:
+            value: 'false'
+      audio_content:
+        annotations:
+          enumName:
+            value: AUDIO_CONTENT
+          privacyClass:
+            value: MEDIA_CONTENT
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+      notification_activity:
+        annotations:
+          enumName:
+            value: NOTIFICATION_ACTIVITY
+          privacyClass:
+            value: BEHAVIORAL_METADATA
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+          defaultEnabledOverride:
+            value: 'false'
+      ambient_audio:
+        annotations:
+          enumName:
+            value: AMBIENT_AUDIO
+          privacyClass:
+            value: AMBIENT_AUDIO_CONTEXT
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+      sleep:
+        annotations:
+          enumName:
+            value: SLEEP
+          privacyClass:
+            value: HEALTH_METRICS
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+      activity_recognition:
+        annotations:
+          enumName:
+            value: ACTIVITY_RECOGNITION
+          privacyClass:
+            value: BEHAVIORAL_METADATA
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+          defaultEnabledOverride:
+            value: 'false'
+      health_connect:
+        annotations:
+          enumName:
+            value: HEALTH_CONNECT
+          privacyClass:
+            value: HEALTH_METRICS
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+      connectivity_state:
+        annotations:
+          enumName:
+            value: CONNECTIVITY_STATE
+          privacyClass:
+            value: DEVICE_STATE_METADATA
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+          defaultEnabledOverride:
+            value: 'false'
+      app_network_usage:
+        annotations:
+          enumName:
+            value: APP_NETWORK_USAGE
+          privacyClass:
+            value: BEHAVIORAL_METADATA
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+          defaultEnabledOverride:
+            value: 'false'
+      device_settings:
+        annotations:
+          enumName:
+            value: DEVICE_SETTINGS
+          privacyClass:
+            value: DEVICE_STATE_METADATA
+          active:
+            value: 'true'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+          defaultEnabledOverride:
+            value: 'false'
+      time_use_diary:
+        annotations:
+          enumName:
+            value: TIME_USE_DIARY
+          privacyClass:
+            value: BEHAVIORAL_METADATA
+          active:
+            value: 'false'
+          defaultEnabled:
+            value: 'true'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+      app_inventory:
+        annotations:
+          enumName:
+            value: APP_INVENTORY
+          privacyClass:
+            value: DEVICE_CAPABILITY
+          active:
+            value: 'false'
+          defaultEnabled:
+            value: 'true'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+      gaze_tracking:
+        annotations:
+          enumName:
+            value: GAZE_TRACKING
+          privacyClass:
+            value: GAZE_TELEMETRY
+          active:
+            value: 'false'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+      interaction_content:
+        annotations:
+          enumName:
+            value: INTERACTION_CONTENT
+          privacyClass:
+            value: SCREEN_CONTENT
+          active:
+            value: 'false'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+      location:
+        annotations:
+          enumName:
+            value: LOCATION
+          privacyClass:
+            value: PRECISE_LOCATION
+          active:
+            value: 'false'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+      communication_log:
+        annotations:
+          enumName:
+            value: COMMUNICATION_LOG
+          privacyClass:
+            value: COMMUNICATION_METADATA
+          active:
+            value: 'false'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+      hardware_sensors:
+        annotations:
+          enumName:
+            value: HARDWARE_SENSORS
+          privacyClass:
+            value: PHYSICAL_TELEMETRY
+          active:
+            value: 'false'
+          defaultEnabled:
+            value: 'false'
+          activeDefaultEnabled:
+            value: 'false'
+          androidSensorModule:
+            value: 'false'
+  AuditAction:
+    description: HIPAA/security audit actions mirrored from chronicle-api.
+    permissible_values:
+      LOGIN: null
+      LOGOUT: null
+      LOGIN_FAILED: null
+      TOKEN_REFRESH: null
+      SESSION_EXPIRED: null
+      VIEW: null
+      SEARCH: null
+      LIST: null
+      EXPORT: null
+      DOWNLOAD: null
+      CREATE: null
+      UPDATE: null
+      DELETE: null
+      ARCHIVE: null
+      RESTORE: null
+      PERMISSION_CHANGE: null
+      PERMISSION_GRANT: null
+      PERMISSION_REVOKE: null
+      SETTINGS_CHANGE: null
+      CONFIGURATION_CHANGE: null
+      UNAUTHORIZED_ACCESS: null
+      ACCESS_DENIED: null
+      INVALID_REQUEST: null
+      RATE_LIMITED: null
+      SUSPICIOUS_ACTIVITY: null
+      DATA_SUBMISSION: null
+      DEVICE_ENROLLMENT: null
+      DEVICE_UNENROLLMENT: null
+      SENSOR_DATA_UPLOAD: null
+      USAGE_DATA_UPLOAD: null
+      BATTERY_TELEMETRY_UPLOAD: null
+      INTERACTION_EVENTS_UPLOAD: null
+      COLLECTION_ACKNOWLEDGMENT: null
+      STUDY_CREATE: null
+      STUDY_UPDATE: null
+      STUDY_DELETE: null
+      PARTICIPANT_ENROLL: null
+      PARTICIPANT_WITHDRAW: null
+      PARTICIPANT_DATA_ACCESS: null
+      NOTIFICATION_SENT: null
+      NOTIFICATION_FAILED: null
+      JOB_CREATED: null
+      JOB_COMPLETED: null
+      JOB_FAILED: null
+      DATA_DELETION: null
+  AndroidSensorType:
+    description: Android sensor type identifiers mirrored from chronicle-models.
+    permissible_values:
+      accelerometer: {}
+      gyroscope: {}
+      magnetometer: {}
+      gravity: {}
+      linearAcceleration: {}
+      rotationVector: {}
+      stepCounter: {}
+      light: {}
+      proximity: {}
+      significantMotion: {}
+      tiltDetector: {}
+      screenOrientation: {}
+      samsungGripWifi: {}
+      samsungMotion: {}
+  IosSensorType:
+    description: iOS sensor type identifiers mirrored from chronicle-models.
+    permissible_values:
+      deviceUsage: {}
+      keyboardMetrics: {}
+      messagesUsage: {}
+      phoneUsage: {}
+      accelerometer: {}
+      pedometer: {}
+      motionActivity: {}
+  StudyFeature:
+    description: Study feature flags mirrored from chronicle-models.
+    permissible_values:
+      APP_USAGE: {}
+      APP_USAGE_SURVEY: {}
+      TIME_USE_DIARY: {}
+      ARCHIVE: {}
+      IOS_SENSOR: {}
+      ANDROID_SENSOR: {}
+      CHRONICLE_SURVEYS: {}
+      CHRONICLE: {}
+      CHRONICLE_DATA_COLLECTION: {}
+classes:
+  ChronicleContractSnapshot:
+    tree_root: true
+    description: Container for generated or reviewed Chronicle production contract
+      state.
+    slots:
+    - deployment_profiles
+    - observability_backends
+    - source_device_types
+    - participant_data_types
+    - participation_statuses
+    - study_lifecycle_statuses
+    - consent_triggers
+    - collection_data_dispositions
+    - collection_privacy_classes
+    - collection_module_ids
+    - android_sensor_types
+    - ios_sensor_types
+    - study_features
+    - audit_actions
+slots:
+  deployment_profiles:
+    range: DeploymentProfile
+    multivalued: true
+  observability_backends:
+    range: ObservabilityBackend
+    multivalued: true
+  source_device_types:
+    range: SourceDeviceType
+    multivalued: true
+  participant_data_types:
+    range: ParticipantDataType
+    multivalued: true
+  participation_statuses:
+    range: ParticipationStatus
+    multivalued: true
+  study_lifecycle_statuses:
+    range: StudyLifecycleStatus
+    multivalued: true
+  consent_triggers:
+    range: ConsentTrigger
+    multivalued: true
+  collection_data_dispositions:
+    range: CollectionDataDisposition
+    multivalued: true
+  collection_privacy_classes:
+    range: CollectionPrivacyClass
+    multivalued: true
+  collection_module_ids:
+    range: CollectionModuleId
+    multivalued: true
+  audit_actions:
+    range: AuditAction
+    multivalued: true
+  android_sensor_types:
+    range: AndroidSensorType
+    multivalued: true
+  ios_sensor_types:
+    range: IosSensorType
+    multivalued: true
+  study_features:
+    range: StudyFeature
+    multivalued: true

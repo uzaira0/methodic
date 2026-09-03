@@ -1,0 +1,10 @@
+title = "Chronicle gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Synthetic self-host deletion fixture values"
+condition = "AND"
+paths = ['''^tests/security/selfhost-deletion-status\.sh$''']
+regexes = ['''^fixture-deletion-(?:internal|jwt|oidc)-secret-0123456789$''']

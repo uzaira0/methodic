@@ -1,0 +1,122 @@
+---
+- name: Assert Chronicle project root is present
+  ansible.builtin.stat:
+    path: "{{ chronicle_project_root }}/k8s"
+  register: chronicle_project_k8s_dir
+
+- name: Require synchronized Chronicle Kubernetes tree on target
+  ansible.builtin.assert:
+    that:
+      - chronicle_project_k8s_dir.stat.isdir | default(false)
+    fail_msg: "Missing {{ chronicle_project_root }}/k8s on target. Sync the deploy copy before rendering overlays."
+
+- name: Run Kubernetes guardrails before rendering overlays
+  ansible.builtin.command: >-
+    {{ chronicle_project_root }}/tests/security/kubernetes-guardrails.sh
+    /tmp/chronicle-k8s-guardrails
+  args:
+    chdir: "{{ chronicle_project_root }}"
+  changed_when: false
+  when: chronicle_run_k8s_guardrails | bool
+
+- name: Create render directory
+  ansible.builtin.file:
+    path: "{{ chronicle_k8s_render_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Recreate rendered Kubernetes source directory
+  ansible.builtin.file:
+    path: "{{ chronicle_k8s_render_source_dir }}"
+    state: absent
+
+- name: Create rendered Kubernetes source directory
+  ansible.builtin.file:
+    path: "{{ chronicle_k8s_render_source_dir }}/k8s"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Copy Kubernetes source tree for inventory-specific rendering
+  ansible.builtin.command: >-
+    cp -a {{ chronicle_project_root }}/k8s/. {{ chronicle_k8s_render_source_dir }}/k8s/
+  changed_when: false
+
+- name: Render inventory endpoint placeholders in Kubernetes source
+  ansible.builtin.command: >-
+    python3 - {{ chronicle_k8s_render_source_dir }}/k8s
+    {{ chronicle_public_ip }} {{ chronicle_hostname }}
+  args:
+    stdin: |
+      import pathlib
+      import sys
+
+      root = pathlib.Path(sys.argv[1])
+      public_ip = sys.argv[2]
+      hostname = sys.argv[3]
+      replacements = {
+          "__CHRONICLE_PUBLIC_IP__": public_ip,
+          "__CHRONICLE_HOSTNAME__": hostname,
+      }
+      unresolved = []
+      for path in root.rglob("*"):
+          if not path.is_file() or path.suffix not in {".yaml", ".yml"}:
+              continue
+          if path.name.startswith("._"):
+              continue
+          text = path.read_text(encoding="utf-8")
+          rendered = text
+          for placeholder, value in replacements.items():
+              rendered = rendered.replace(placeholder, value)
+          if "__CHRONICLE_" in rendered:
+              unresolved.append(str(path))
+          if rendered != text:
+              path.write_text(rendered, encoding="utf-8")
+      if unresolved:
+          print("Unresolved Chronicle Kubernetes placeholders:", file=sys.stderr)
+          print("\n".join(unresolved), file=sys.stderr)
+          sys.exit(1)
+  changed_when: false
+
+- name: Render configured Kubernetes overlays
+  ansible.builtin.shell: >-
+    set -o pipefail &&
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+    kustomize {{ item.path }}
+    > {{ chronicle_k8s_render_dir }}/{{ item.name }}.yaml
+  args:
+    chdir: "{{ chronicle_k8s_render_source_dir }}"
+    executable: /bin/bash
+  loop: "{{ chronicle_k8s_overlays }}"
+  changed_when: false
+
+- name: Reject rendered plaintext Kubernetes Secrets
+  ansible.builtin.shell: >-
+    if grep -REn 'kind:[[:space:]]*Secret|^[[:space:]]*stringData:' {{ chronicle_k8s_render_dir }}/{{ item.name }}.yaml;
+    then exit 1; fi
+  args:
+    executable: /bin/bash
+  loop: "{{ chronicle_k8s_overlays }}"
+  changed_when: false
+
+- name: Server-side dry-run configured overlays
+  ansible.builtin.command: >-
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+    apply --dry-run=server -f {{ chronicle_k8s_render_dir }}/{{ item.name }}.yaml
+  loop: "{{ chronicle_k8s_overlays }}"
+  changed_when: false
+
+- name: Apply configured overlays when explicitly enabled
+  ansible.builtin.command: >-
+    {{ chronicle_kubectl }} --kubeconfig {{ chronicle_kubeconfig }}
+    apply -f {{ chronicle_k8s_render_dir }}/{{ item.name }}.yaml
+  loop: "{{ chronicle_k8s_overlays }}"
+  when: chronicle_allow_k8s_apply | bool
+
+- name: Report dry-run-only mode
+  ansible.builtin.debug:
+    msg: "Rendered and server-side dry-ran Chronicle overlays; set chronicle_allow_k8s_apply=true to apply."
+  when: not (chronicle_allow_k8s_apply | bool)

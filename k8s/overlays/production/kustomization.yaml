@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+patches:
+  - path: production-settings.yaml
+
+images:
+  - name: ghcr.io/uzaira0/chronicle/chronicle-backend
+    newTag: sha-REPLACE_WITH_RELEASE_SHA
+  - name: ghcr.io/uzaira0/chronicle/chronicle-frontend
+    newTag: sha-REPLACE_WITH_RELEASE_SHA
+  - name: ghcr.io/uzaira0/chronicle/chronicle-keycloak
+    newTag: sha-REPLACE_WITH_RELEASE_SHA

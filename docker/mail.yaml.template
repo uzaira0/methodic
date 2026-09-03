@@ -1,0 +1,6 @@
+smtpHost: "${SMTP_HOST}"
+smtpPort: ${SMTP_PORT}
+username: "${SMTP_USERNAME}"
+password: "${SMTP_PASSWORD}"
+defaultFromEmail: "${SMTP_FROM_EMAIL}"
+enabled: ${SMTP_ENABLED}

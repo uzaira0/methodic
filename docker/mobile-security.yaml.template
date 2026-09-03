@@ -1,0 +1,15 @@
+# Public clients use enrollment-issued per-device API keys, so the deployment-wide HMAC
+# stays false/false/blank by default. Set both booleans true and generate a 32+ character
+# secret only as an explicit compatibility mode for a controlled legacy fleet.
+enabled: ${MOBILE_SIGNING_ENABLED}
+signing-secret: "${MOBILE_SIGNING_SECRET}"
+signing-required: ${MOBILE_SIGNING_REQUIRED}
+max-request-age-minutes: 5
+clock-skew-seconds: 30
+nonce-ttl-minutes: 10
+# Canonical public HTTPS root embedded in signed enrollment manifests.
+public-base-url: "${CHRONICLE_PUBLIC_BASE_URL}"
+# Proxy-injected secret authenticating the X-Chronicle-Internal-Web signing
+# bypass (CWE-290 hardening). Traefik injects this same value on /chronicle/api/web.
+# Blank => legacy "true" marker is honored for backward compatibility.
+internal-web-secret: "${CHRONICLE_INTERNAL_WEB_SECRET}"

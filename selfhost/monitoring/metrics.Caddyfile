@@ -1,0 +1,6 @@
+:9090 {
+	root * /metrics
+	file_server
+	@notMetrics not path /operational.prom /operations.prom /configuration.prom
+	respond @notMetrics 404
+}

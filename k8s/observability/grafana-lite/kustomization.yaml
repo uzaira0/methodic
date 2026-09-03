@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - external-secrets.yaml
+  - grafana.yaml
+  - policies.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: chronicle
+
+configMapGenerator:
+  - name: grafana-provisioning
+    namespace: chronicle-observability
+    files:
+      - datasources.yml=config/datasources.yml
+      - dashboards.yml=config/dashboards.yml
+      - alert-contactpoints.yml=config/alerting/contactpoints.yml
+      - alert-notification-policies.yml=config/alerting/notification-policies.yml
+      - alert-rules.yml=config/alerting/rules.yml
+  - name: grafana-dashboards
+    namespace: chronicle-observability
+    files:
+      - chronicle-audit.json=config/dashboards/chronicle-audit.json
+      - chronicle-backend.json=config/dashboards/chronicle-backend.json
+      - chronicle-observability.json=config/dashboards/chronicle-observability.json

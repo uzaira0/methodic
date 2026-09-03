@@ -1,0 +1,15 @@
+---
+chronicle_nitro_lab_root: /var/log/chronicle/evidence/nitro-enclaves
+chronicle_nitro_lab_evidence_dir: "{{ chronicle_nitro_lab_root }}/runs"
+chronicle_nitro_lab_source_dir: /opt/chronicle/nitro/aws-nitro-enclaves-cli
+chronicle_nitro_lab_marker: /opt/chronicle/nitro/aws-nitro-enclaves-cli.installed-revision
+chronicle_nitro_cli_repo: https://github.com/aws/aws-nitro-enclaves-cli.git
+chronicle_nitro_cli_version: 18a5f6f35f110c0f235f193ae3caff9434d64ee1
+chronicle_nitro_lab_cpu_count: 2
+chronicle_nitro_lab_memory_mib: 512
+chronicle_nitro_lab_enclave_cid: 16
+chronicle_nitro_lab_console_seconds: 15
+chronicle_nitro_lab_hello_image: chronicle-nitro-hello:latest
+chronicle_nitro_lab_hello_eif: /var/log/chronicle/evidence/nitro-enclaves/hello.eif
+chronicle_nitro_lab_stop_allocator_after_run: true
+chronicle_nitro_lab_remove_build_artifacts: true

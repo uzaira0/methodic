@@ -1,0 +1,38 @@
+# Catalog #11 (design §4) / Phase 4 — UsageMonitoringWorker (and any usage worker)
+# must not instantiate a ChronicleSensor directly.
+#
+# Design §1C / refactor plan §7.2 guardrail 1: after Phase 4 migration the usage
+# worker delegates polling to UsageEventsCollectionModule via the module manager and
+# may not `new` a collection sensor itself. A direct `UsageEventsChronicleSensor(...)`
+# constructor call in a worker is the regression this rule catches.
+#
+# EXCEPTIONS (documented, both in services/usage/):
+#   - UsageMonitoringWorker.kt        : the LEGACY worker still constructs
+#                                       UsageEventsChronicleSensor(context) directly to
+#                                       poll. Migration switch OFF — exception-listed
+#                                       until Phase 4B flips UsageWorkerMigration to the
+#                                       module-manager path, then the exception is
+#                                       removed and the worker must delegate.
+#   - UsageModuleCollectionDelegate.kt: the SANCTIONED Phase 4B module-manager path. It
+#                                       constructs UsageEventsChronicleSensor only as a
+#                                       `previousPollTimestampFallback` lambda to read
+#                                       the encrypted-prefs checkpoint default — it does
+#                                       NOT poll with it; polling is done by
+#                                       UsageEventsCollectionModule. Allowed wiring.
+#
+# Scoped to services/usage/ — the only place a usage worker lives. The positive fixture
+# demonstrates a NEW worker (AnotherUsageWorker) instantiating the sensor to poll.
+id: collection-worker-no-direct-sensor-instantiation
+language: Kotlin
+severity: error
+message: >
+  A usage worker must not instantiate a ChronicleSensor directly (design §1C,
+  guardrail #11). Delegate polling to UsageEventsCollectionModule via the collection
+  module manager.
+files:
+  - "chronicle/app/src/main/java/com/openlattice/chronicle/services/usage/*.kt"
+ignores:
+  - "**/services/usage/UsageMonitoringWorker.kt"
+  - "**/services/usage/UsageModuleCollectionDelegate.kt"
+rule:
+  pattern: UsageEventsChronicleSensor($$$ARGS)

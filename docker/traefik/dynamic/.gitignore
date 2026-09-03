@@ -1,0 +1,9 @@
+# Rendered from template (contains API key)
+crowdsec-waf.yml
+# Rendered from ../internal-web-header.yml.template at Traefik startup (contains the
+# CHRONICLE_INTERNAL_WEB_SECRET). Never commit it, and ignore the mktemp render temp.
+internal-web-header.yml
+internal-web-header.yml.*
+# Host-specific routing for whatever else runs on the same Docker host. Names
+# the host and the sibling projects, none of which are chronicle source.
+local-apps.yml

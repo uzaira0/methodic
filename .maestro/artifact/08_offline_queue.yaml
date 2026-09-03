@@ -1,0 +1,28 @@
+appId: ${APP_PACKAGE}
+tags:
+  - artifact
+  - offline-retry
+---
+
+- launchApp:
+    clearState: false
+
+- tapOn:
+    id: "android:id/button2"
+    optional: true
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/nav_uploads"
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/uploadNowButton"
+
+- extendedWaitUntil:
+    visible: "[1-9][0-9]*\\nremaining to upload"
+    timeout: 45000
+
+- assertVisible: "(?s).*Usage/lifecycle [1-9][0-9]*.*"
+
+- extendedWaitUntil:
+    visible: "(?s).*Failed attempts: usage/lifecycle [1-9][0-9]*, battery [0-9]+.*"
+    timeout: 45000

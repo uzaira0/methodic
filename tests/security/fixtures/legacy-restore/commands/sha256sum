@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+input_file="${!#}"
+digest=0000000000000000000000000000000000000000000000000000000000000000
+if [[ -f "$input_file" ]] && grep -Fq history-mismatch "$input_file"; then
+  digest=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+fi
+printf '%s  %s\n' "$digest" "$input_file"

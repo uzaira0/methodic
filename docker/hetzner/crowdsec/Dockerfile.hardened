@@ -1,0 +1,91 @@
+FROM docker.io/library/golang:1.26.5-alpine3.23@sha256:622e56dbc11a8cfe87cafa2331e9a201877271cbff918af53d3be315f3da88cc AS yq-build
+
+WORKDIR /src
+# yq-source is a BuildKit named build context supplied by build-crowdsec.sh.
+# hadolint ignore=DL3022
+COPY --from=yq-source . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/yq ./
+
+FROM docker.io/library/golang:1.26.5-alpine3.23@sha256:622e56dbc11a8cfe87cafa2331e9a201877271cbff918af53d3be315f3da88cc AS crowdsec-build
+
+ARG BUILD_VERSION=v1.7.8-chronicle.20260719
+WORKDIR /go/src/crowdsec
+
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
+
+ENV RE2_VERSION=2023-03-01
+ARG RE2_ARCHIVE_SHA256=7a9a4824958586980926a300b4717202485c4b4115ac031822e29aa4ef207e48
+RUN apk add --no-cache git g++ gcc libc-dev make bash gettext binutils-gold coreutils pkgconfig \
+    && wget -q "https://github.com/google/re2/archive/refs/tags/${RE2_VERSION}.tar.gz" \
+    && echo "${RE2_ARCHIVE_SHA256}  ${RE2_VERSION}.tar.gz" | sha256sum -c - \
+    && tar -xzf "${RE2_VERSION}.tar.gz" \
+    && make -C "re2-${RE2_VERSION}" install
+
+COPY . .
+RUN make clean crowdsec cscli \
+      BUILD_PROFILE=default \
+      EXCLUDE=datasource_cloudwatch,datasource_docker,datasource_http,datasource_k8saudit,datasource_kafka,datasource_journalctl,datasource_kinesis,datasource_loki,datasource_victorialogs,datasource_s3,datasource_syslog,datasource_wineventlog,cscli_setup,db_mysql,db_postgres \
+      BUILD_STATIC=1 \
+      DOCKER_BUILD=1 \
+      BUILD_VERSION="${BUILD_VERSION}" \
+      CGO_CFLAGS="-D_LARGEFILE64_SOURCE"
+
+FROM docker.io/crowdsecurity/crowdsec:v1.7.8-slim@sha256:6e64b36b49a48d415504e979a7cb76eeaba46749beba64bb939f9accfa34368d AS runtime-base
+
+RUN apk upgrade --no-cache \
+    && apk add --no-cache su-exec
+COPY --from=crowdsec-build /go/src/crowdsec/cmd/crowdsec/crowdsec /usr/local/bin/crowdsec
+COPY --from=crowdsec-build /go/src/crowdsec/cmd/crowdsec-cli/cscli /usr/local/bin/cscli
+COPY --from=yq-build /out/yq /usr/local/bin/yq
+COPY build/docker/docker_start.sh /docker_start.sh
+
+FROM runtime-base AS hub-config
+
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
+
+ARG HUB_INDEX_SHA256=ad8a40b8fda19375859ab1c118f0d00c020f22c8457c1389ae24a4295b4dc840
+RUN mkdir -p /etc/crowdsec /var/lib/crowdsec/data \
+    && cp -a /staging/etc/crowdsec/. /etc/crowdsec/ \
+    && cp -a /staging/var/lib/crowdsec/. /var/lib/crowdsec/ \
+    && cscli -c /etc/crowdsec/config.yaml hub update --with-content \
+    && echo "${HUB_INDEX_SHA256}  /etc/crowdsec/hub/.index.json" | sha256sum -c - \
+    && cscli -c /etc/crowdsec/config.yaml collections install crowdsecurity/traefik \
+    && cscli -c /etc/crowdsec/config.yaml collections install crowdsecurity/appsec-virtual-patching \
+    && cscli -c /etc/crowdsec/config.yaml collections install crowdsecurity/appsec-generic-rules \
+    && cscli -c /etc/crowdsec/config.yaml parsers install crowdsecurity/docker-logs \
+    && cscli -c /etc/crowdsec/config.yaml parsers install crowdsecurity/cri-logs \
+    && cscli -c /etc/crowdsec/config.yaml collections remove crowdsecurity/linux --force \
+    && cscli -c /etc/crowdsec/config.yaml collections remove crowdsecurity/sshd --force \
+    && cscli -c /etc/crowdsec/config.yaml collections remove crowdsecurity/whitelist-good-actors --force \
+    && yq -i 'del(.crowdsec_service.acquisition_path) | .crowdsec_service.acquisition_dir = "/etc/crowdsec/acquis.d"' /etc/crowdsec/config.yaml \
+    && cscli -c /etc/crowdsec/config.yaml hub list -o json > /etc/crowdsec/chronicle-hub-manifest.json
+
+FROM runtime-base
+
+RUN addgroup -S -g 65532 crowdsec \
+    && adduser -S -D -H -u 65532 -G crowdsec crowdsec \
+    && rm -rf /staging/etc/crowdsec /staging/var/lib/crowdsec
+COPY --from=hub-config /etc/crowdsec /staging/etc/crowdsec
+COPY --from=hub-config /var/lib/crowdsec /staging/var/lib/crowdsec
+
+RUN mkdir -p /etc/crowdsec /var/lib/crowdsec/data \
+    && chown -R crowdsec:crowdsec \
+        /etc/crowdsec \
+        /var/lib/crowdsec \
+        /staging/etc/crowdsec \
+        /staging/var/lib/crowdsec
+
+ENV NO_HUB_UPDATE=true \
+    NO_HUB_UPGRADE=true \
+    NO_HUB_MUTATION=true \
+    DISABLE_ONLINE_API=true \
+    HOME=/var/lib/crowdsec
+
+LABEL org.opencontainers.image.source="https://github.com/crowdsecurity/crowdsec" \
+      org.opencontainers.image.revision="632274597a88a6b01ed41c0e6affca0f87ff26df+chronicle-security-patches-20260719" \
+      org.opencontainers.image.version="v1.7.8-chronicle.20260719"
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=45s --retries=8 \
+    CMD cscli lapi status >/dev/null && nc -z 127.0.0.1 7422 || exit 1
+
+USER 65532:65532

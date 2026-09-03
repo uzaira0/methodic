@@ -1,0 +1,29 @@
+# Maestro configuration
+# https://maestro.mobile.dev/reference/configuration
+#
+# Set the Chronicle Android app package name.
+# Update this if your app uses a different package name.
+appId: ${APP_PACKAGE}
+
+# The smoke journey is one top-level Flow with nested steps. Keeping one Flow preserves the
+# command-line environment and app lifecycle across dependent enrollment/settings assertions.
+flows:
+  - "smoke.yaml"
+
+# Tags for organizing flows
+tags:
+  smoke: Smoke tests for basic enrollment and upload
+  enrollment: Device enrollment flow
+  upload: Data upload verification
+
+# Environment variables available to all flows.
+# CI binds this exact HTTPS root to the host with adb reverse. The emulator trusts only
+# the per-job CA installed by the workflow; production URL validation is not relaxed.
+env:
+  SERVER_URL: "https://127.0.0.1:8443"
+  # Synthetic values are generated at job runtime and overridden on the Maestro command line.
+  TEST_STUDY_ID: "${TEST_STUDY_ID}"
+  TEST_PARTICIPANT_ID: "${TEST_PARTICIPANT_ID}"
+  TEST_PARTICIPANT_ID_2: "${TEST_PARTICIPANT_ID_2}"
+  TEST_ENROLLMENT_ACCESS_CODE: "${TEST_ENROLLMENT_ACCESS_CODE}"
+  TEST_ENROLLMENT_ACCESS_CODE_2: "${TEST_ENROLLMENT_ACCESS_CODE_2}"

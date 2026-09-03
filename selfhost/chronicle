@@ -1,0 +1,2262 @@
+#!/usr/bin/env bash
+# Chronicle self-host operator interface. It is the supported entry point and is required
+# for a source clone because it initializes the needed submodules and resolves/builds the
+# local images before Compose can start them.
+#
+# What is left is what a container genuinely cannot do:
+#
+#   ./chronicle setup     answer a few questions, generate secrets, write .env
+#   ./chronicle check     the config checks (run in the same config-guard container that
+#                         `up` gates on) PLUS the host checks no container can make:
+#                         does this bind address exist here, is this port already taken,
+#                         would another Compose project of this name be adopted
+#   ./chronicle up        check, then `docker compose up -d`
+#   ./chronicle verify    prove from outside that the exposure boundary holds; add
+#                         --dashboard-password to read and verify it without shell history
+#   ./chronicle upgrade   upgrade from a previous release with a verified pre-upgrade dump
+#   ./chronicle restore   stop every database writer, restore a verified dump, then restart
+#   ./chronicle rotate-secret  rotate one credential with rollback and a mode-0600 receipt
+#   ./chronicle deletion-status STUDY_UUID [OPERATION_UUID]
+#                         inspect the live deletion ledger and proof state without subject IDs
+#   ./chronicle status    what is running and healthy
+#   ./chronicle doctor [--json] actionable single-host diagnosis
+#   ./chronicle monitoring status|add-viewer|remove-viewer|reset-viewer
+#   ./chronicle logs      follow logs
+#   ./chronicle down      stop
+#
+# .env is the single source of truth, and COMPOSE_FILE in it decides the shape of the
+# deployment -- which Caddy config is mounted and which ports are published. See
+# .env.example for the three supported modes.
+set -uo pipefail
+umask 077
+
+SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
+cd "$(dirname "$SCRIPT_PATH")" || exit 1
+
+RED=$'\033[31m'; GRN=$'\033[32m'; YEL=$'\033[33m'; BLD=$'\033[1m'; RST=$'\033[0m'
+die()  { printf '%s\n' "${RED}error:${RST} $1" >&2; exit 1; }
+warn() { printf '%s\n' "${YEL}warning:${RST} $1" >&2; }
+ok()   { printf '  %sok%s   %s\n' "$GRN" "$RST" "$1"; }
+bad()  { printf '  %sFAIL%s %s\n' "$RED" "$RST" "$1"; PREFLIGHT_FAILED=1; }
+
+# --------------------------------------------------------------------- host probes
+# The checks below inspect the host itself: which addresses it has, which ports are
+# already listening, and how a directory is owned. Every tool that answers those
+# questions differs between Linux and BSD/macOS, and the Linux-only spelling does not
+# merely degrade there -- `ip` missing made host_has_addr return nothing, so `check`
+# rejected 127.0.0.1 as "not an address on this host" and no deployment could start.
+# Each helper prefers the Linux tool and falls back, so a missing tool is visible as an
+# empty answer only when the host genuinely has none of them.
+
+# Every IPv4 address configured on this host, one per line.
+host_addrs() {
+  if command -v ip >/dev/null 2>&1; then
+    ip -4 -o addr show 2>/dev/null | awk '{split($4,a,"/"); print a[1]}'
+  elif command -v ifconfig >/dev/null 2>&1; then
+    ifconfig 2>/dev/null | awk '$1 == "inet" { print $2 }'
+  fi
+}
+
+# Every listening TCP socket as addr:port, one per line.
+host_listening() {
+  if command -v ss >/dev/null 2>&1; then
+    ss -lnt 2>/dev/null | awk 'NR > 1 { print $4 }'
+  elif command -v netstat >/dev/null 2>&1; then
+    # Preferred over lsof on macOS, and the ordering is load-bearing rather than stylistic.
+    # `lsof` without root shows only sockets owned by the CURRENT USER, so a port held by a
+    # system daemon or another account is invisible to it -- it reported nothing while
+    # Tailscale was listening on 100.x.x.x:443, and `./chronicle check` passed a
+    # configuration that could not bind. netstat lists every socket regardless of owner.
+    # BSD netstat writes addr.port; turn the final dot into a colon.
+    netstat -an -p tcp 2>/dev/null | awk '/LISTEN/ { print $4 }' | sed 's/\.\([0-9][0-9]*\)$/:\1/'
+  elif command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR > 1 { print $9 }'
+  fi
+}
+
+# GNU stat takes -c, BSD stat takes -f; neither accepts the other's flag.
+stat_field() { # <gnu-format> <bsd-format> <path>
+  stat -c "$1" "$3" 2>/dev/null || stat -f "$2" "$3" 2>/dev/null
+}
+# The address most likely to be the one a phone on the same wifi can reach: a private
+# range, not loopback. Docker and VPN interfaces also live in private ranges, so this is a
+# suggestion the operator confirms, never a silent choice.
+lan_addr() {
+  host_addrs | grep -vE '^127\.' | grep -E '^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)' | head -1
+}
+
+stat_mode() { stat_field '%a' '%Lp' "$1"; }
+stat_uid()  { stat_field '%u' '%u'  "$1"; }
+# Deliberately NOT "chronicle": Docker Compose keys everything -- containers, networks and
+# especially VOLUMES -- off the project name. A project named "chronicle" next to any other
+# "chronicle" stack on the same host makes Compose treat the two as one, tearing down the
+# other stack's containers and resolving this stack's postgres_data to the OTHER stack's
+# chronicle_postgres_data volume. Override only if you know nothing else shares the name.
+PROJECT="${COMPOSE_PROJECT_NAME:-chronicle-selfhost}"
+STATE_ROOT="$(pwd -P)"
+BACKUPS_HOST_DIR="${STATE_ROOT}/backups"
+RESTORE_LOCK_DIR=""
+RESTORE_LOCK_HELD=false
+RESTORE_LOCK_PRESERVE=false
+RESTORE_RESTART_ON_EXIT=false
+RESTORE_PREVIOUSLY_RUNNING_SERVICES=()
+ACTIVE_OPERATION=""
+ACTIVE_OPERATION_OUTCOME=failure
+ACTIVE_OPERATION_CATEGORY=command_failed
+
+validate_legacy_mobile_values() {
+  local enabled="$1" required="$2" current="$3" previous="$4"
+  case "$enabled" in
+    true|false) ;;
+    *) die "MOBILE_SIGNING_ENABLED must be exactly true or false" ;;
+  esac
+  case "$required" in
+    true|false) ;;
+    *) die "MOBILE_SIGNING_REQUIRED must be exactly true or false" ;;
+  esac
+  [[ "$enabled" == "$required" ]] ||
+    die "MOBILE_SIGNING_ENABLED and MOBILE_SIGNING_REQUIRED must either both be true or both be false"
+
+  if [[ "$enabled" == false ]]; then
+    [[ -z "$current" ]] ||
+      die "MOBILE_SIGNING_SECRET must stay blank unless controlled legacy compatibility is enabled"
+    [[ -z "$previous" ]] ||
+      die "MOBILE_SIGNING_SECRET_PREVIOUS must stay blank unless controlled legacy compatibility is enabled"
+    return 0
+  fi
+
+  case "$current" in
+    *CHANGE_ME*|'')
+      die "MOBILE_SIGNING_SECRET must be a generated 32+ character key when controlled legacy compatibility is enabled"
+      ;;
+  esac
+  [[ ${#current} -ge 32 ]] ||
+    die "MOBILE_SIGNING_SECRET must be a generated 32+ character key when controlled legacy compatibility is enabled"
+  if [[ -n "$previous" ]]; then
+    [[ ${#previous} -ge 32 ]] ||
+      die "MOBILE_SIGNING_SECRET_PREVIOUS must be at least 32 characters"
+    [[ "$previous" != "$current" ]] ||
+      die "MOBILE_SIGNING_SECRET_PREVIOUS must differ from MOBILE_SIGNING_SECRET"
+  fi
+}
+
+need_env() {
+  [[ -f .env && ! -L .env ]] ||
+    die ".env must be a regular file. Run ./chronicle setup, or copy .env.example and chmod 600 .env"
+  local env_mode
+  env_mode="$(stat_mode .env)"
+  [[ "$env_mode" == 600 ]] ||
+    die ".env is mode ${env_mode:-unknown}; run chmod 600 .env before using Chronicle"
+  # The CLI needs these values as shell variables, but its child processes do not need the
+  # entire deployment secret set in their environment. In particular, `verify` launches
+  # curl repeatedly; exporting .env here made database, JWT, mobile, and metrics secrets
+  # visible in every curl process even though curl never consumes them.
+  # shellcheck disable=SC1091
+  . ./.env
+  validate_legacy_mobile_values \
+    "${MOBILE_SIGNING_ENABLED:-false}" "${MOBILE_SIGNING_REQUIRED:-false}" \
+    "${MOBILE_SIGNING_SECRET:-}" "${MOBILE_SIGNING_SECRET_PREVIOUS:-}"
+  # A user may have written `export KEY=...` despite the example using plain assignments, or
+  # may already have exported an override. The CLI needs shell variables, but no host child
+  # process needs deployment credentials. Docker Compose reads them from .env itself.
+  for secret_name in POSTGRES_PASSWORD MOBILE_SIGNING_SECRET MOBILE_SIGNING_SECRET_PREVIOUS \
+      CHRONICLE_INTERNAL_WEB_SECRET CHRONICLE_REVIEWER_ACCESS_SECRET \
+      JWT_SECRET METRICS_PASSWORD GRAFANA_ADMIN_PASSWORD \
+      DASHBOARD_PASSWORD_HASH SMTP_PASSWORD OIDC_CLIENT_SECRET; do
+    export -n "${secret_name?}" 2>/dev/null || true
+  done
+  # Recomputed here, not at script start: .env is only sourced now, and the collision
+  # guard tells operators to set COMPOSE_PROJECT_NAME there.
+  PROJECT="${COMPOSE_PROJECT_NAME:-chronicle-selfhost}"
+  : "${HTTP_BIND:=127.0.0.1}"
+  : "${HTTP_PORT:=8080}"
+  : "${HTTPS_PORT:=443}"
+  : "${LOCAL_HTTPS_PORT:=443}"
+  : "${LOCAL_HTTP_PORT:=80}"
+  : "${INTERNAL_BIND:=127.0.0.1}"
+  : "${INTERNAL_PORT:=8081}"
+  : "${CHRONICLE_STATE_DIR:=.}"
+  if [[ "$CHRONICLE_STATE_DIR" == /* ]]; then
+    STATE_ROOT="$CHRONICLE_STATE_DIR"
+  else
+    STATE_ROOT="$(pwd -P)/${CHRONICLE_STATE_DIR#./}"
+  fi
+  STATE_ROOT="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$STATE_ROOT")"
+  BACKUPS_HOST_DIR="${STATE_ROOT}/backups"
+  derive_mode
+}
+
+# The deployment mode is not a setting any more -- it IS the mode overlay in COMPOSE_FILE,
+# which is what compose actually starts. Reading it back out of that one string is what
+# keeps `verify` probing the deployment that exists rather than one .env describes.
+derive_mode() {
+  local cf="${COMPOSE_FILE:-}"
+  case "$cf" in
+    *mode-behind-proxy-internal*) TLS_MODE=behind-proxy; DASHBOARD_EXPOSURE=internal ;;
+    *mode-own-tls-internal*)      TLS_MODE=own-tls;      DASHBOARD_EXPOSURE=internal ;;
+    *mode-local-https*)           TLS_MODE=local-https;  DASHBOARD_EXPOSURE=internal ;;
+    *) TLS_MODE=""; DASHBOARD_EXPOSURE="" ;;
+  esac
+}
+
+# Who is running this. db-backup uses these so the dumps it writes belong to the operator
+# rather than to root, which is what lets them be pruned, copied, and deleted without sudo
+# (overlays/backups.yml). Exported rather than written to .env: the answer is a property of
+# the account invoking the command, not of the deployment, and baking one operator's uid into
+# a config file is wrong the moment a colleague runs it.
+CHRONICLE_HOST_UID="$(id -u)"
+CHRONICLE_HOST_GID="$(id -g)"
+export CHRONICLE_HOST_UID CHRONICLE_HOST_GID
+
+# No -f arguments: COMPOSE_FILE in .env is what selects the overlays, and Compose reads it
+# from that file by itself. This is the whole reason `docker compose up -d` works without
+# this script -- there is nothing here for it to be missing.
+dc() { docker compose -p "$PROJECT" "$@"; }
+
+# Returns a secret-free state label for the operator-pinned Play reviewer scope. Inputs are
+# delivered over stdin and revalidated in the database container before entering SQL.
+reviewer_scope_state() {
+  local study_id="$1" participant_id="$2"
+  printf '%s\n%s\n' "$study_id" "$participant_id" | dc exec -T postgres /bin/bash -euc '
+    : "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is unavailable in the postgres container}"
+    IFS= read -r study_id
+    IFS= read -r participant_id
+    uuid_pattern="^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"
+    participant_pattern="^[a-zA-Z0-9_.-]{1,255}$"
+    [[ "$study_id" =~ $uuid_pattern ]]
+    [[ "$participant_id" =~ $participant_pattern ]]
+    export PGPASSWORD="$POSTGRES_PASSWORD"
+    exec psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 \
+      -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" <<SQL
+SELECT CASE
+  WHEN NOT EXISTS (
+    SELECT 1 FROM studies WHERE study_id = '\''${study_id}'\''::uuid
+  ) THEN '\''missing-study'\''
+  WHEN NOT EXISTS (
+    SELECT 1 FROM studies
+    WHERE study_id = '\''${study_id}'\''::uuid
+      AND lifecycle_status = '\''ACTIVE'\''
+      AND CURRENT_TIMESTAMP >= started_at
+      AND CURRENT_TIMESTAMP < ended_at
+  ) THEN '\''inactive-study'\''
+  WHEN NOT EXISTS (
+    SELECT 1 FROM study_participants
+    WHERE study_id = '\''${study_id}'\''::uuid
+      AND participant_id = '\''${participant_id}'\''
+  ) THEN '\''missing-participant'\''
+  WHEN NOT EXISTS (
+    SELECT 1 FROM study_participants
+    WHERE study_id = '\''${study_id}'\''::uuid
+      AND participant_id = '\''${participant_id}'\''
+      AND participation_status = '\''ENROLLED'\''
+  ) THEN '\''inactive-participant'\''
+  ELSE '\''ok'\''
+END;
+SQL
+  '
+}
+
+terminate_host_process_tree() {
+  local root_pid="$1" signal="$2" child_pid
+  while IFS= read -r child_pid; do
+    [[ -n "$child_pid" ]] || continue
+    terminate_host_process_tree "$child_pid" "$signal"
+  done < <(ps -eo pid=,ppid= 2>/dev/null | awk -v parent="$root_pid" '$2 == parent { print $1 }')
+  kill "-${signal}" "$root_pid" 2>/dev/null || true
+}
+
+record_operation() {
+  local operation="$1" outcome="$2" category="${3:-none}"
+  local record_pid watchdog_pid record_status=0
+  [[ "${COMPOSE_FILE:-}" == *overlays/monitoring.yml* ]] || return 0
+  dc ps --status running --services 2>/dev/null | grep -Fxq operational-probe || return 0
+  dc run --rm --no-deps --entrypoint /monitoring/record-operation.sh \
+    operational-probe "$operation" "$outcome" "$category" >/dev/null 2>&1 &
+  record_pid=$!
+  (
+    sleep 15
+    terminate_host_process_tree "$record_pid" TERM
+    sleep 1
+    terminate_host_process_tree "$record_pid" KILL
+  ) &
+  watchdog_pid=$!
+  wait "$record_pid" || record_status=$?
+  kill "$watchdog_pid" 2>/dev/null || true
+  wait "$watchdog_pid" 2>/dev/null || true
+  if (( record_status != 0 )); then
+    warn "the command completed, but its monitoring event could not be recorded within 15 seconds"
+  fi
+}
+
+write_operation_receipt() {
+  local operation="$1" outcome="$2" category="${3:-none}"
+  local receipt_root="${STATE_ROOT}/operator-receipts/operations" temporary receipt
+  [[ "$operation" =~ ^[a-z0-9-]{1,64}$ ]] || return 1
+  [[ "$outcome" =~ ^(success|failure)$ ]] || return 1
+  [[ "$category" =~ ^[a-z0-9_-]{1,48}$ ]] || return 1
+  if [[ -L "${STATE_ROOT}/operator-receipts" || -L "$receipt_root" ]]; then
+    return 1
+  fi
+  /bin/mkdir -p "$receipt_root" || return 1
+  /bin/chmod 0700 "${STATE_ROOT}/operator-receipts" "$receipt_root" || return 1
+  receipt="${receipt_root}/$(date -u +%Y%m%dT%H%M%SZ)-${operation}-$$.json"
+  temporary="${receipt}.tmp"
+  OPERATION_RECEIPT_OPERATION="$operation" \
+  OPERATION_RECEIPT_OUTCOME="$outcome" \
+  OPERATION_RECEIPT_CATEGORY="$category" \
+  OPERATION_RECEIPT_VERSION="${RELEASE_VERSION:-unknown}" \
+    python3 - "$temporary" <<'PY' || return 1
+import datetime
+import json
+import os
+import sys
+
+receipt = {
+    "operation": os.environ["OPERATION_RECEIPT_OPERATION"],
+    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+    "releaseVersion": os.environ["OPERATION_RECEIPT_VERSION"],
+    "outcome": os.environ["OPERATION_RECEIPT_OUTCOME"],
+    "failureCategory": os.environ["OPERATION_RECEIPT_CATEGORY"],
+}
+with open(sys.argv[1], "x", encoding="utf-8") as handle:
+    json.dump(receipt, handle, separators=(",", ":"), sort_keys=True)
+    handle.write("\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+os.chmod(sys.argv[1], 0o600)
+PY
+  /bin/mv -f "$temporary" "$receipt" || { /bin/rm -f "$temporary"; return 1; }
+}
+
+operation_exit() {
+  local status=$?
+  trap - EXIT
+  if [[ -n "$ACTIVE_OPERATION" ]]; then
+    if [[ $status -eq 0 && "$ACTIVE_OPERATION_OUTCOME" == success ]]; then
+      write_operation_receipt "$ACTIVE_OPERATION" success none ||
+        warn "the command completed, but its local operation receipt could not be written"
+      record_operation "$ACTIVE_OPERATION" success none
+    else
+      write_operation_receipt "$ACTIVE_OPERATION" failure "$ACTIVE_OPERATION_CATEGORY" ||
+        warn "the command failed, and its local operation receipt could not be written"
+      record_operation "$ACTIVE_OPERATION" failure "$ACTIVE_OPERATION_CATEGORY"
+    fi
+  fi
+  exit "$status"
+}
+
+begin_operation() {
+  ACTIVE_OPERATION="$1"
+  ACTIVE_OPERATION_OUTCOME=failure
+  ACTIVE_OPERATION_CATEGORY="${2:-command_failed}"
+  trap operation_exit EXIT
+  # Ctrl-C must record the same honest "this did not finish" receipt that any other failure
+  # does. Without these, bash can die on the signal without running the EXIT trap, and the
+  # operation log simply has no entry -- the one case where an operator most wants to know
+  # what state the stack was left in. cmd_restore already traps all four; up/setup/upgrade
+  # were relying on EXIT alone.
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+}
+
+operation_succeeded() { ACTIVE_OPERATION_OUTCOME=success; ACTIVE_OPERATION_CATEGORY=none; }
+
+# ---------------------------------------------------------------------------- preflight
+preflight() {
+  PREFLIGHT_FAILED=0
+
+  # Host checks run FIRST, before the config-guard container. They are pure local reads --
+  # addresses, listening sockets, other Compose projects -- so they cost milliseconds, while
+  # config-guard costs a container start. They are also what a first-time operator actually
+  # trips over (a port already held, a project name that collides), and failing on those
+  # after a wall of green configuration checks buries the one line that matters.
+  printf '%sChecking this host%s\n' "$BLD" "$RST"
+
+  # What follows cannot move into that container. A container has its own network namespace
+  # and its own /proc, so it can see neither this host's addresses nor its listening
+  # sockets, and it has no Docker socket to ask about other Compose projects. On the plain
+  # `docker compose up -d` path Docker's own bind error is the fallback for the first two --
+  # later and less specific, but not silent.
+
+  # A bind address the host does not actually have produces an opaque Docker error at
+  # `up` time, long after the operator has stopped looking at .env.
+  host_has_addr() {
+    [[ "$1" == "0.0.0.0" ]] && return 0
+    host_addrs | grep -qx "$1"
+  }
+  local -a bind_specs=("HTTP_BIND:${HTTP_BIND}" "INTERNAL_BIND:${INTERNAL_BIND}")
+  [[ "${COMPOSE_FILE:-}" == *overlays/monitoring.yml* ]] && bind_specs+=("GRAFANA_BIND:${GRAFANA_BIND:-127.0.0.1}")
+  for spec in "${bind_specs[@]}"; do
+    local name="${spec%%:*}" addr="${spec#*:}"
+    [[ "$name" == INTERNAL_BIND && "$DASHBOARD_EXPOSURE" != internal ]] && continue
+    # The own-tls and local-https modes bind 443/80 on every interface; HTTP_BIND is
+    # unused there.
+    [[ "$name" == HTTP_BIND && "$TLS_MODE" != behind-proxy ]] && continue
+    if host_has_addr "$addr"; then
+      # Loopback is an address on every host, so saying so proves nothing -- and printing a
+      # green line about a variable that guard-config has already warned is loopback-only
+      # reads as a contradiction. Only report the case that carried information.
+      [[ "$addr" == 127.0.0.1 || "$addr" == "0.0.0.0" ]] ||
+        ok "${name}=${addr} is an address on this host"
+    else
+      bad "${name}=${addr} is not an address on this host. Available: $(host_addrs | tr '\n' ' ')"
+    fi
+  done
+
+  # Ports held by THIS stack's own corresponding container are not a conflict -- otherwise
+  # `check` fails against a deployment that is already up.
+  # Scoped to the service that owns each listener, not to the whole project. A running web
+  # container must not hide a new Grafana/Fluent collision, and vice versa.
+  local port_specs=("INTERNAL_PORT:${INTERNAL_PORT}:${INTERNAL_BIND}:web")
+  if [[ "$TLS_MODE" == local-https ]]; then
+    port_specs+=("LOCAL_HTTPS_PORT:${LOCAL_HTTPS_PORT}:0.0.0.0:web" "LOCAL_HTTP_PORT:${LOCAL_HTTP_PORT}:0.0.0.0:web")
+  elif [[ "$TLS_MODE" == own-tls ]]; then
+    port_specs+=("HTTPS_PORT:${HTTPS_PORT}:0.0.0.0:web" "TLS_HTTP_PORT:${TLS_HTTP_PORT:-80}:0.0.0.0:web")
+  else
+    port_specs+=("HTTP_PORT:${HTTP_PORT}:${HTTP_BIND}:web")
+  fi
+  if [[ "${COMPOSE_FILE:-}" == *overlays/monitoring.yml* ]]; then
+    port_specs+=("GRAFANA_PORT:${GRAFANA_PORT:-3000}:${GRAFANA_BIND:-127.0.0.1}:grafana")
+    port_specs+=("FLUENT_BIT_FORWARD_PORT:${FLUENT_BIT_FORWARD_PORT:-24224}:127.0.0.1:fluent-bit")
+  fi
+  for spec in "${port_specs[@]}"; do
+    local pname="${spec%%:*}" rest="${spec#*:}" pservice="${spec##*:}"
+    rest="${rest%:*}"
+    local pport="${rest%%:*}" paddr="${rest#*:}"
+    [[ "$pname" == INTERNAL_PORT && "$DASHBOARD_EXPOSURE" != internal ]] && continue
+    if docker ps --filter "label=com.docker.compose.project=${PROJECT}" \
+         --filter "label=com.docker.compose.service=${pservice}" --format '{{.Names}}' 2>/dev/null |
+         grep -q .; then
+      continue
+    fi
+    # A bind on 0.0.0.0 collides with a listener on ANY address, not just 0.0.0.0 --
+    # macOS refuses the wildcard bind when a specific address already holds the port. Docker
+    # does not surface that: `docker compose ps` still prints 0.0.0.0:443->443 and the
+    # container is healthy, while every connection from the host times out. Observed here
+    # with Tailscale serving on 100.x.x.x:443 and the own-tls/local-https modes publishing
+    # 0.0.0.0:443 -- the old pattern below only matched the exact bind address or 0.0.0.0,
+    # so it reported nothing and the failure looked like a broken deployment.
+    local pattern="(^|:)(${paddr}|0\.0\.0\.0|\*):${pport}$"
+    [[ "$paddr" == "0.0.0.0" ]] && pattern=":${pport}$"
+    local holder; holder=$(host_listening | grep -E "$pattern" | head -1)
+    if [[ -n "$holder" ]]; then
+      bad "${pname}=${pport} is already in use (${holder}) by another process"
+      [[ "$paddr" == "0.0.0.0" ]] && \
+        printf '       This mode binds every interface, so a listener on ANY address holds\n' && \
+        printf '       the port. Stop that process or move it off %s.\n' "$pport"
+    fi
+  done
+
+  # Refuse to adopt somebody else's stack. If a Compose project of this name already
+  # exists and was not created from this directory, `up` would recreate ITS containers and
+  # mount ITS volumes -- data loss in another deployment, from a command that looks routine.
+  local foreign
+  foreign=$(docker compose ls --all --format json 2>/dev/null \
+    | PROJECT="$PROJECT" python3 -c 'import sys,json,os
+try: rows = json.load(sys.stdin)
+except Exception: sys.exit(0)
+here = os.path.realpath(".")
+for r in rows:
+    if r.get("Name") != os.environ["PROJECT"]: continue
+    cfgs = [c for c in (r.get("ConfigFiles") or "").split(",") if c]
+    if cfgs and not any(os.path.realpath(os.path.dirname(c)) == here for c in cfgs):
+        print(",".join(cfgs))
+' 2>/dev/null)
+  if [[ -n "$foreign" ]]; then
+    bad "a different Compose project named '${PROJECT}' already exists on this host (${foreign}). Starting would recreate its containers and mount its volumes. Set COMPOSE_PROJECT_NAME in .env to something unique."
+  else
+    ok "compose project '${PROJECT}' does not collide with another stack"
+  fi
+
+  if [[ -x ./verify-config.sh ]]; then
+    if ./verify-config.sh >/dev/null 2>&1; then ok "internal config contract intact"
+    else bad "verify-config.sh reports drift — run ./verify-config.sh for detail"; fi
+  fi
+
+  # Stop here rather than spending a container start on the configuration checks when the
+  # host already cannot host this deployment. The operator gets the failure in under a
+  # second, with nothing else on screen competing for attention.
+  [[ $PREFLIGHT_FAILED -eq 0 ]] || die "this host cannot run this deployment (see FAIL above)"
+
+  # Every configuration check lives in guard-config.sh and runs in the config-guard service,
+  # because that is what `docker compose up -d` enforces. Running the same container here
+  # rather than re-implementing the checks is what keeps `./chronicle check` and a plain
+  # `docker compose up -d` from ever disagreeing about what is safe.
+  #
+  # --no-deps because config-guard has no dependencies and must not drag the stack up.
+  printf '\n'
+  if ! dc run --rm --no-deps config-guard; then
+    PREFLIGHT_FAILED=1
+  fi
+
+  [[ $PREFLIGHT_FAILED -eq 0 ]] || die "configuration is not safe to deploy (see FAIL above)"
+}
+
+# Config files of a Compose project of this name that was created somewhere other than
+# this directory, or nothing. `up` refuses to adopt such a stack; setup uses the same
+# answer to pick a name that will not need refusing.
+foreign_project() {
+  docker compose ls --all --format json 2>/dev/null \
+    | PROJECT="$1" python3 -c 'import sys,json,os
+try: rows = json.load(sys.stdin)
+except Exception: sys.exit(0)
+here = os.path.realpath(".")
+for r in rows:
+    if r.get("Name") != os.environ["PROJECT"]: continue
+    cfgs = [c for c in (r.get("ConfigFiles") or "").split(",") if c]
+    if cfgs and not any(os.path.realpath(os.path.dirname(c)) == here for c in cfgs):
+        print(",".join(cfgs))
+' 2>/dev/null
+}
+
+# The first port at or above $1 that nothing on this host is already listening on for
+# address $2. Same reasoning as the project name below: on a host that already runs one
+# deployment, the defaults are taken, and preflight would only say so after setup ended.
+free_port() {
+  local port="$1" addr="$2" excluded_port="${3:-}" pattern tries=0
+  while ((tries < 100)); do
+    pattern="(^|:)(${addr//./\\.}|0\.0\.0\.0|\*):${port}\$"
+    [[ "$addr" == "0.0.0.0" ]] && pattern=":${port}\$"
+    if [[ "$port" != "$excluded_port" ]] && ! host_listening | grep -Eq "$pattern"; then
+      printf '%s\n' "$port"
+      return 0
+    fi
+    port=$((port + 1)); tries=$((tries + 1))
+  done
+  return 1
+}
+
+# ------------------------------------------------------------------------------- setup
+cmd_setup() {
+  begin_operation setup setup_failed
+  # Secrets carried over from an existing .env rather than regenerated. Two of them are not
+  # cosmetic to change:
+  #
+  #   POSTGRES_PASSWORD      the database was initialised with the old one. A new value does
+  #                          not reset it -- the stack simply cannot log in, and db-init dies
+  #                          with "password authentication failed for user chronicle".
+  #   MOBILE_SIGNING_SECRET  controlled legacy/research clients may still carry this
+  #                          compatibility key. Public clients do not: they use one-time
+  #                          enrollment links and per-device API keys.
+  #
+  # So re-running setup to change one answer must not quietly invalidate a running study.
+  local keep_pg="" keep_mob="" keep_mob_previous="" keep_jwt="" keep_metrics="" keep_internal=""
+  local keep_mob_enabled=false keep_mob_required=false
+  local keep_public_base_url=""
+  local keep_reviewer_enabled="false" keep_reviewer_secret="" keep_reviewer_study=""
+  local keep_reviewer_participant=""
+  local keep_grafana="" keep_dash_hash="" keep_state="."
+  if [[ -f .env ]]; then
+    read -rp "$(printf '%s.env already exists. Overwrite? [y/N] %s' "$YEL" "$RST")" a
+    [[ "$a" =~ ^[Yy]$ ]] || {
+      echo "Keeping existing .env."
+      need_env
+      operation_succeeded
+      return 0
+    }
+    cp .env ".env.backup.$(date +%Y%m%d%H%M%S)"
+    keep_pg=$(sed -n 's/^POSTGRES_PASSWORD=//p' .env | head -1 | tr -d "'\"")
+    keep_mob=$(sed -n 's/^MOBILE_SIGNING_SECRET=//p' .env | head -1 | tr -d "'\"")
+    keep_mob_previous=$(sed -n 's/^MOBILE_SIGNING_SECRET_PREVIOUS=//p' .env | head -1 | tr -d "'\"")
+    keep_mob_enabled=$(sed -n 's/^MOBILE_SIGNING_ENABLED=//p' .env | head -1 | tr -d "'\"")
+    keep_mob_required=$(sed -n 's/^MOBILE_SIGNING_REQUIRED=//p' .env | head -1 | tr -d "'\"")
+    keep_mob_enabled="${keep_mob_enabled:-false}"
+    keep_mob_required="${keep_mob_required:-false}"
+    keep_jwt=$(sed -n 's/^JWT_SECRET=//p' .env | head -1 | tr -d "'\"")
+    keep_metrics=$(sed -n 's/^METRICS_PASSWORD=//p' .env | head -1 | tr -d "'\"")
+    keep_internal=$(sed -n 's/^CHRONICLE_INTERNAL_WEB_SECRET=//p' .env | head -1 | tr -d "'\"")
+    keep_public_base_url=$(sed -n 's/^CHRONICLE_PUBLIC_BASE_URL=//p' .env | head -1 | tr -d "'\"")
+    keep_reviewer_enabled=$(sed -n 's/^CHRONICLE_REVIEWER_ACCESS_ENABLED=//p' .env | head -1 | tr -d "'\"")
+    keep_reviewer_secret=$(sed -n 's/^CHRONICLE_REVIEWER_ACCESS_SECRET=//p' .env | head -1 | tr -d "'\"")
+    keep_reviewer_study=$(sed -n 's/^CHRONICLE_REVIEWER_STUDY_ID=//p' .env | head -1 | tr -d "'\"")
+    keep_reviewer_participant=$(sed -n 's/^CHRONICLE_REVIEWER_PARTICIPANT_ID=//p' .env | head -1 | tr -d "'\"")
+    keep_grafana=$(sed -n 's/^GRAFANA_ADMIN_PASSWORD=//p' .env | head -1 | tr -d "'\"")
+    keep_dash_hash=$(sed -n 's/^DASHBOARD_PASSWORD_HASH=//p' .env | head -1 | tr -d "'\"")
+    keep_state=$(sed -n 's/^CHRONICLE_STATE_DIR=//p' .env | head -1 | tr -d "'\"")
+    case "$keep_pg" in *CHANGE_ME*|"") keep_pg="" ;; esac
+    validate_legacy_mobile_values \
+      "$keep_mob_enabled" "$keep_mob_required" "$keep_mob" "$keep_mob_previous"
+    case "$keep_jwt" in *CHANGE_ME*|"") keep_jwt="" ;; esac
+    case "$keep_metrics" in *CHANGE_ME*|"") keep_metrics="" ;; esac
+    case "$keep_internal" in *CHANGE_ME*|"") keep_internal="" ;; esac
+    [[ "$keep_reviewer_enabled" == true ]] || keep_reviewer_enabled=false
+    case "$keep_reviewer_secret" in *CHANGE_ME*) keep_reviewer_secret="" ;; esac
+    case "$keep_grafana" in *CHANGE_ME*|*changeme*|"") keep_grafana="" ;; esac
+    case "$keep_dash_hash" in \$2*) ;; *) keep_dash_hash="" ;; esac
+    [[ -n "$keep_state" ]] || keep_state="."
+    if [[ -n "$keep_pg" ]]; then
+      printf '%sKeeping existing deployment secrets and dashboard password hash.%s\n' "$GRN" "$RST"
+      printf '  Silent rotation could lock out the database, enrolled phones, monitoring, or\n'
+      printf '  researchers. Follow the documented rotation procedure to change one deliberately.\n\n'
+    fi
+  fi
+
+  printf '%sChronicle self-host setup%s\n\n' "$BLD" "$RST"
+
+  # Asked before the hostname, because the answer changes what a hostname even means: in
+  # the trial mode it is this machine's wifi address, not a name anyone resolves.
+  printf 'What is this deployment?\n'
+  printf '  1) A server behind my institution'\''s load balancer, which terminates TLS  (recommended)\n'
+  printf '  2) A server that terminates TLS itself, with a certificate I already have\n'
+  printf '  3) A trial on this machine, with test phones on the same wifi  (no domain needed)\n'
+  read -rp "Choice [1]: " tls_choice
+  local tls_mode=behind-proxy
+  case "${tls_choice:-1}" in
+    2) tls_mode=own-tls ;;
+    3) tls_mode=local-https ;;
+  esac
+
+  local domain http_bind=127.0.0.1 exposure=internal internal_bind=127.0.0.1
+
+  if [[ "$tls_mode" == local-https ]]; then
+    # The phones dial this address directly, so it must be one this machine really has on
+    # the network they are on. Offering the detected addresses is the difference between a
+    # working trial and twenty minutes of "connection refused" -- `localhost` is the
+    # intuitive answer here and the one that cannot work.
+    local suggested; suggested=$(lan_addr)
+    printf '\nThis machine'\''s addresses: %s\n' "$(host_addrs | tr '\n' ' ')"
+    printf 'Which one are the phones on the same network as?\n'
+    read -rp "Address [${suggested:-none detected}]: " domain
+    domain="${domain:-$suggested}"
+    [[ -n "$domain" ]] || die "an address is required — none could be detected automatically"
+    case "$domain" in
+      localhost|127.*) die "$domain is only reachable from this machine; a phone cannot use it" ;;
+    esac
+    host_addrs | grep -qx "$domain" ||
+      die "$domain is not an address on this machine; choose one of: $(host_addrs | tr '\n' ' ')"
+    # Everything else is forced: a trial mode whose CA nobody trusts has no public variant,
+    # and the dashboard has no reason to leave this machine.
+    printf '\nThe dashboard will be at https://127.0.0.1:%s on this machine only.\n' "${INTERNAL_PORT:-8081}"
+  else
+    read -rp "Hostname participants' phones and researchers will use (e.g. study.example.org): " domain
+    [[ -n "$domain" ]] || die "a hostname is required"
+
+    # Ask where the proxy will connect. Defaulting this to 127.0.0.1 is a trap when the load
+    # balancer lives on another host: the stack starts, `check` passes, and `verify` passes
+    # too -- it probes from inside the box, so it sees a perfectly healthy server -- while
+    # the proxy gets connection refused. Every local signal reads green and nothing works.
+    if [[ "$tls_mode" == behind-proxy ]]; then
+      printf '\nWhich address will your load balancer connect to?\n'
+      printf '  This host has: %s\n' "$(host_addrs | tr '\n' ' ')"
+      printf '  Use 127.0.0.1 ONLY if the proxy runs on this same machine.\n'
+      read -rp "Address [127.0.0.1]: " hb
+      http_bind="${hb:-127.0.0.1}"
+    fi
+
+    printf '\nThe supported release always keeps the researcher dashboard on a private listener.\n'
+    printf 'Which address should the dashboard listen on?\n'
+    printf '  Your VPN or management interface, e.g. 10.0.0.5.\n'
+    printf '  Leave blank for 127.0.0.1 (reach it over an SSH tunnel).\n'
+    read -rp "Address [127.0.0.1]: " ib
+    internal_bind="${ib:-127.0.0.1}"
+  fi
+
+  # With the dashboard internal-only, the built-in login is safe and saves them standing
+  # up an SSO server; otherwise it must stay off.
+  local testing_login=false
+  [[ "$exposure" == internal ]] && testing_login=true
+  # One decision, two settings: the built-in login mints tokens with no MFA claim, so leaving
+  # MFA enforcement on would sign researchers in and then 401 every dashboard API call. Choose
+  # both here rather than letting the operator discover the pairing from a failed check.
+  local require_mfa=true
+  [[ "$testing_login" == true ]] && require_mfa=false
+
+  gen() { openssl rand -base64 32 | tr -d '\n'; }
+  hash_pw() {
+    local image
+    image="${CADDY_SETUP_HASH_IMAGE:-$(sed -n 's/^CADDY_IMAGE=//p' .env.example | head -1)}"
+    case "$image" in
+      ""|__CHRONICLE_*)
+        # Source-checkout fallback. Published bundles use their own digest-pinned Caddy
+        # release image above, so setup never depends on a mutable tag.
+        image='caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d'
+        ;;
+    esac
+    docker run --rm -i --network none --read-only --entrypoint caddy \
+      "$image" hash-password | tr -d '\r\n'
+  }
+
+  local dash_pw="" dash_pw_confirm="" dash_hash="$keep_dash_hash"
+  if [[ "$exposure" == internal ]]; then
+    if [[ -z "$dash_hash" ]]; then
+      printf '\nChoose the dashboard password (at least 16 characters). It is read silently,\n'
+      printf 'sent to Caddy over stdin, and never stored or printed by this script.\n'
+      read -rsp "Dashboard password: " dash_pw; printf '\n'
+      read -rsp "Confirm dashboard password: " dash_pw_confirm; printf '\n'
+      [[ "$dash_pw" == "$dash_pw_confirm" ]] || die "dashboard passwords do not match"
+      [[ ${#dash_pw} -ge 16 ]] || die "dashboard password must be at least 16 characters"
+      printf 'Hashing the dashboard password...\n'
+      dash_hash=$(printf '%s\n' "$dash_pw" | hash_pw)
+      dash_pw=""; dash_pw_confirm=""
+    fi
+    [[ "$dash_hash" == \$2* ]] || die "could not bcrypt-hash the dashboard password (is docker working?)"
+  fi
+
+  # Public clients never need a deployment-wide HMAC key. Make the legacy path an explicit
+  # operator decision, and preserve an already-valid opt-in on setup reruns unless the
+  # operator deliberately turns it off.
+  local legacy_mobile_enabled="$keep_mob_enabled" legacy_mobile_required="$keep_mob_required"
+  local legacy_answer=""
+  if [[ "$legacy_mobile_enabled" == true ]]; then
+    printf '\nControlled legacy mobile HMAC compatibility is currently enabled.\n'
+    read -rp "Keep it enabled for the existing controlled legacy fleet? [Y/n] " legacy_answer
+    if [[ "$legacy_answer" =~ ^[Nn]$ ]]; then
+      legacy_mobile_enabled=false
+      legacy_mobile_required=false
+      keep_mob=""
+      keep_mob_previous=""
+    fi
+  else
+    printf '\nPublic apps use enrollment-issued per-device API keys and need no shared key.\n'
+    read -rp "Enable deployment-wide HMAC only for a controlled legacy/research-client fleet? [y/N] " legacy_answer
+    if [[ "$legacy_answer" =~ ^[Yy]$ ]]; then
+      legacy_mobile_enabled=true
+      legacy_mobile_required=true
+    fi
+  fi
+
+  # The mode is written as the COMPOSE_FILE line, not as two settings a later
+  # `docker compose up -d` would ignore. This is the same string .env.example ships; setup
+  # only swaps in the mode overlay the answers above chose.
+  local mode_file="overlays/mode-${tls_mode}-${exposure}.yml"
+  [[ "$tls_mode" == local-https ]] && mode_file="overlays/mode-local-https.yml"
+  local compose_file="docker-compose.yml:${mode_file}:overlays/backups.yml"
+  local monitoring_enabled=true grafana_bind=127.0.0.1 metrics_retention=30d logs_retention=14d
+  printf '\nEnable private Grafana monitoring with metrics and sanitized logs? [Y/n] '
+  read -r monitoring_answer
+  if [[ "$monitoring_answer" =~ ^[Nn]$ ]]; then
+    monitoring_enabled=false
+  else
+    compose_file+=":overlays/monitoring.yml"
+    printf 'Which private address should Grafana listen on?\n'
+    printf '  Use 127.0.0.1 for an SSH tunnel, or a VPN/management address for viewers.\n'
+    read -rp "Address [${internal_bind}]: " grafana_answer
+    grafana_bind="${grafana_answer:-$internal_bind}"
+    case "$grafana_bind" in 0.0.0.0|::|\[::\]) die "Grafana may not bind every interface" ;; esac
+    read -rp "Metrics retention [30d]: " metrics_answer
+    metrics_retention="${metrics_answer:-30d}"
+    [[ "$metrics_retention" =~ ^[1-9][0-9]*d$ ]] || die "metrics retention must be whole days, for example 30d"
+    read -rp "Sanitized log retention [14d]: " logs_answer
+    logs_retention="${logs_answer:-14d}"
+    [[ "$logs_retention" =~ ^[1-9][0-9]*d$ ]] || die "log retention must be whole days, for example 14d"
+  fi
+
+  # Compose keys volumes off the project name, so a second deployment that keeps the
+  # default would recreate the first one's containers and mount its database. `up` already
+  # refuses that, but refusing at `up` is too late to be useful: every question has been
+  # answered by then. Settle it here, while the operator is still being asked things.
+  local project="${COMPOSE_PROJECT_NAME:-chronicle-selfhost}"
+  if [[ -n "$(foreign_project "$project")" ]]; then
+    # Numbered rather than named after the directory: a clone usually sits in one called
+    # `chronicle`, and `chronicle` is the production deployment's own project name -- the
+    # one name that must never be suggested, because Compose would mount its database.
+    local suggested n=2
+    suggested="${project}-2"
+    while [[ -n "$(foreign_project "$suggested")" ]]; do
+      n=$((n + 1)); suggested="${project}-${n}"
+    done
+    printf '\n%sAnother Chronicle deployment named %s already exists on this host.%s\n' \
+      "$YEL" "$project" "$RST"
+    printf 'Docker keeps each deployment'\''s database under its project name, so this one\n'
+    printf 'needs a name of its own or it would take over the other.\n'
+    read -rp "Name for this deployment [${suggested}]: " project
+    project="${project:-$suggested}"
+    [[ "$project" =~ ^[a-z0-9][a-z0-9_-]*$ ]] ||
+      die "a deployment name must be lowercase letters, digits, dashes or underscores"
+    [[ -z "$(foreign_project "$project")" ]] ||
+      die "'$project' is also taken by another deployment — choose a name nothing else uses"
+  fi
+
+  # Only after the explicit opt-in may setup inspect, reuse, or generate a deployment-wide
+  # compatibility key. The normal public-client path never creates one.
+  if [[ "$legacy_mobile_enabled" == true && -z "$keep_mob" ]]; then
+    local adopt_src="" adopt_key="" reuse_answer=""
+    if [[ -n "${MOBILE_SIGNING_SECRET:-}" ]]; then
+      adopt_src="the MOBILE_SIGNING_SECRET in this environment"; adopt_key="$MOBILE_SIGNING_SECRET"
+    elif [[ -f ../docker/.env ]]; then
+      adopt_key=$(sed -n 's/^MOBILE_SIGNING_SECRET=//p' ../docker/.env | head -1 | tr -d "'\"")
+      case "$adopt_key" in *CHANGE_ME*|"") adopt_key="" ;; *) adopt_src="../docker/.env" ;; esac
+    fi
+    if [[ -n "$adopt_key" ]]; then
+      printf '\n%sA mobile signing key already exists in %s.%s\n' "$YEL" "$adopt_src" "$RST"
+      printf 'A controlled legacy/research build may still use it. Public app builds do not.\n'
+      printf 'Generating a new value would disconnect only those controlled legacy clients.\n'
+      # Answering no is the safe default for a genuinely separate deployment, which should
+      # not share a key with anything.
+      read -rp "Reuse that key so existing app builds keep working? [y/N] " reuse_answer
+      if [[ "$reuse_answer" =~ ^[Yy]$ ]]; then
+        keep_mob="$adopt_key"
+        printf 'Reusing it. Fingerprint %s.\n' \
+          "$(printf '%s' "$adopt_key" | sha256sum | cut -c1-12)"
+      fi
+    fi
+  fi
+
+  local mobile_secret=""
+  if [[ "$legacy_mobile_enabled" == true ]]; then
+    mobile_secret="${keep_mob:-$(gen)}"
+  else
+    keep_mob_previous=""
+  fi
+
+  local http_port internal_port local_https_port=443 local_http_port=80
+  http_port=$(free_port "${HTTP_PORT:-8080}" "$http_bind") ||
+    die "no free public listener port was found near ${HTTP_PORT:-8080}"
+  internal_port=$(free_port "${INTERNAL_PORT:-8081}" "$internal_bind" "$http_port") ||
+    die "no free internal listener port was found near ${INTERNAL_PORT:-8081}"
+  [[ "$http_port" == "${HTTP_PORT:-8080}" && "$internal_port" == "${INTERNAL_PORT:-8081}" ]] ||
+    printf '\nPorts %s and %s are free on this host; using those.\n' "$http_port" "$internal_port"
+
+  if [[ "$tls_mode" == local-https ]]; then
+    # A VPN or management service may legitimately own :443 on one of this host's other
+    # interfaces. Docker Desktop cannot safely publish another wildcard :443 in that case,
+    # so select the first free host ports and make the canonical app URL explicit.
+    local_https_port=$(free_port 443 0.0.0.0) ||
+      die "no free trial HTTPS port was found between 443 and 542"
+    local_http_port=$(free_port 80 0.0.0.0 "$local_https_port") ||
+      die "no free trial CA/redirect port was found between 80 and 179"
+    if [[ "$local_https_port" == 443 ]]; then
+      keep_public_base_url="https://${domain}"
+    else
+      keep_public_base_url="https://${domain}:${local_https_port}"
+    fi
+    [[ "$local_https_port" == 443 && "$local_http_port" == 80 ]] ||
+      printf 'Trial HTTPS/CA ports %s and %s are free; using those.\n' \
+        "$local_https_port" "$local_http_port"
+  fi
+
+  if ! printf '%s\0' \
+      "$domain" "$compose_file" "$exposure" "$internal_bind" "$testing_login" \
+      "${keep_pg:-$(gen)}" "$mobile_secret" "$legacy_mobile_enabled" \
+      "$legacy_mobile_required" "${keep_jwt:-$(gen)}" \
+      "${keep_metrics:-$(gen)}" "$dash_hash" "$http_bind" "$require_mfa" \
+      "${keep_internal:-$(gen)}" "$keep_state" "${keep_grafana:-$(gen)}" \
+      "$keep_mob_previous" "$grafana_bind" "$metrics_retention" "$logs_retention" \
+      "$project" "$http_port" "$internal_port" "$keep_reviewer_enabled" \
+      "$keep_reviewer_secret" "$keep_reviewer_study" "$keep_reviewer_participant" \
+      "$keep_public_base_url" "$local_https_port" "$local_http_port" \
+    | python3 /dev/fd/3 3<<'PY'
+import os
+import re
+import sys
+import tempfile
+
+raw = sys.stdin.buffer.read().split(b"\0")
+if raw and raw[-1] == b"":
+    raw.pop()
+if len(raw) != 31:
+    raise SystemExit(f"expected 31 setup values, received {len(raw)}")
+(domain, compose_file, exposure, internal_bind, testing_login, pg, mob, mob_enabled,
+ mob_required, jwt, metrics,
+ dash_hash, http_bind, require_mfa, internal_web, state_dir, grafana, mob_previous,
+ grafana_bind, metrics_retention, logs_retention, project, http_port,
+ internal_port, reviewer_enabled, reviewer_secret, reviewer_study,
+ reviewer_participant, public_base_url, local_https_port, local_http_port) = [
+    value.decode("utf-8") for value in raw
+]
+s = open('.env.example', encoding='utf-8').read()
+def setkv(s, k, v):
+    if re.search(rf'^{k}=.*$', s, re.M):
+        return re.sub(rf'^{k}=.*$', f'{k}={v}', s, count=1, flags=re.M)
+    return s.rstrip() + f'\n{k}={v}\n'
+# A bcrypt hash contains $2a$14$..., which bash would expand as variables when .env is
+# sourced. Single-quote it so it survives verbatim.
+def fmt(k, v):
+    return f"'{v}'" if k == 'DASHBOARD_PASSWORD_HASH' and v else v
+for k, v in [('DOMAIN', domain), ('COMPOSE_FILE', compose_file), ('HTTP_BIND', http_bind),
+             ('COMPOSE_PROJECT_NAME', project),
+             ('HTTP_PORT', http_port), ('INTERNAL_PORT', internal_port),
+             ('CHRONICLE_STATE_DIR', state_dir),
+             ('INTERNAL_BIND', internal_bind),
+             ('TESTING_LOGIN_ENABLED', testing_login), ('REQUIRE_MFA', require_mfa),
+             ('POSTGRES_PASSWORD', pg), ('MOBILE_SIGNING_ENABLED', mob_enabled),
+             ('MOBILE_SIGNING_REQUIRED', mob_required),
+             ('MOBILE_SIGNING_SECRET', mob), ('JWT_SECRET', jwt),
+             ('MOBILE_SIGNING_SECRET_PREVIOUS', mob_previous),
+             ('METRICS_PASSWORD', metrics), ('DASHBOARD_PASSWORD_HASH', dash_hash),
+             ('CHRONICLE_INTERNAL_WEB_SECRET', internal_web),
+             ('CHRONICLE_REVIEWER_ACCESS_ENABLED', reviewer_enabled),
+             ('CHRONICLE_REVIEWER_ACCESS_SECRET', reviewer_secret),
+             ('CHRONICLE_REVIEWER_STUDY_ID', reviewer_study),
+             ('CHRONICLE_REVIEWER_PARTICIPANT_ID', reviewer_participant),
+             ('CHRONICLE_PUBLIC_BASE_URL', public_base_url),
+             ('LOCAL_HTTPS_PORT', local_https_port),
+             ('LOCAL_HTTP_PORT', local_http_port),
+             ('GRAFANA_ADMIN_PASSWORD', grafana), ('GRAFANA_BIND', grafana_bind),
+             ('METRICS_RETENTION', metrics_retention), ('LOGS_RETENTION', logs_retention)]:
+    s = setkv(s, k, fmt(k, v))
+descriptor, temporary = tempfile.mkstemp(prefix='.env.setup-', dir='.')
+try:
+    os.fchmod(descriptor, 0o600)
+    with os.fdopen(descriptor, 'w', encoding='utf-8') as handle:
+        descriptor = -1
+        handle.write(s)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, '.env')
+finally:
+    if descriptor >= 0:
+        os.close(descriptor)
+    try:
+        os.unlink(temporary)
+    except FileNotFoundError:
+        pass
+PY
+  then
+    die "could not render .env"
+  fi
+  chmod 600 .env
+
+  printf '\n%sWrote .env%s (secrets generated, mode 600)\n\n' "$GRN" "$RST"
+  if [[ "$exposure" == internal ]]; then
+    printf '%sDashboard login:%s username is in .env; use the password you just chose.\n' "$BLD" "$RST"
+    printf '  Only its bcrypt hash is stored, so the cleartext cannot be recovered here.\n\n'
+  fi
+  if [[ "$monitoring_enabled" == true ]]; then
+    printf '%sMonitoring:%s Grafana will listen on http://%s:%s with %s metrics and %s sanitized logs.\n' \
+      "$BLD" "$RST" "$grafana_bind" "${GRAFANA_PORT:-3000}" "$metrics_retention" "$logs_retention"
+    printf '  After startup: ./chronicle monitoring add-viewer NAME\n\n'
+  fi
+
+  local effective_public_base_url="${keep_public_base_url:-https://${domain}}"
+  printf 'Public mobile enrollment:\n'
+  printf '  server URL: %s\n' "$effective_public_base_url"
+  printf '  Issue a one-time enrollment link from the dashboard. The public app exchanges it\n'
+  printf '  for a per-device API key; no deployment-wide secret is copied into the app.\n'
+  if [[ "$legacy_mobile_enabled" == true ]]; then
+    printf '  Controlled legacy HMAC compatibility is enabled; its server-side key was generated\n'
+    printf '  in the mode-0600 .env and must remain limited to that controlled legacy fleet.\n\n'
+  else
+    printf '  Legacy shared-HMAC compatibility is disabled; no deployment-wide mobile key was generated.\n\n'
+  fi
+  [[ "$tls_mode" == own-tls ]] && printf '%sPut cert.pem and key.pem in ./tls before starting.%s\n\n' "$YEL" "$RST"
+  if [[ "$tls_mode" == local-https ]]; then
+    printf '%sThis is a trial setup.%s The certificate will be signed by a CA that exists\n' "$YEL" "$RST"
+    printf 'only inside this stack, so each test phone has to install it first. After\n'
+    printf 'starting, run this and scan the QR code with the phone:\n\n'
+    printf '  docker compose logs ca-export\n\n'
+    printf 'Do not ask study participants to install it — for a real study, re-run setup\n'
+    printf 'and choose option 1 or 2.\n\n'
+  fi
+  printf 'Next:  ./chronicle up\n'
+  # Re-read the generated state directory and release version before the receipt is written.
+  need_env
+  operation_succeeded
+}
+
+# ------------------------------------------------------------------------------ images
+# A published release bundle carries digest-pinned images and simply pulls them. A source
+# checkout carries Dockerfiles and no images at all, and `.env` inherits the release
+# placeholders from `.env.example` -- which compose rejects with "invalid reference format:
+# repository name must be lowercase", naming neither the cause nor the cure. Building them
+# here is what makes `clone -> setup -> up` work in a source tree, which is the path the
+# README documents and the one every first-time operator takes.
+is_source_checkout() {
+  [[ -f ../docker/Dockerfile.backend && -f Dockerfile.frontend && -f Dockerfile.caddy ]]
+}
+
+# A source checkout keeps the server and dashboard code in git submodules, and a plain
+# `git clone` leaves those directories empty. The backend image copies
+# `chronicle-server/build.gradle` and four siblings, so an uninitialised checkout fails
+# inside Docker with "COPY failed: file not found" naming a path that plainly exists in the
+# repository -- which reads as a broken build rather than a missing checkout step.
+# chronicle (Android) and chronicle-ios are deliberately absent: neither is part of the
+# server build, and chronicle-ios is pinned `update = none`.
+SOURCE_SUBMODULES=(chronicle-models chronicle-api chronicle-server rhizome rhizome-client chronicle-web)
+
+ensure_sources() {
+  local missing=() m
+  for m in "${SOURCE_SUBMODULES[@]}"; do
+    [[ -e "../$m/build.gradle" || -e "../$m/package.json" ]] || missing+=("$m")
+  done
+  ((${#missing[@]})) || return 0
+  git -C .. rev-parse --git-dir >/dev/null 2>&1 ||
+    die "the source directories ${missing[*]} are empty and this is not a git checkout.
+       Use a published release bundle, or clone the repository with its submodules."
+  printf '  checking out source for %s — first run only\n' "${missing[*]}"
+  git -C .. submodule update --init --recursive -- "${missing[@]}" >/dev/null ||
+    die "could not check out the source submodules (${missing[*]}).
+       Run this from the repository root and try again:  git submodule update --init"
+  for m in "${missing[@]}"; do
+    [[ -e "../$m/build.gradle" || -e "../$m/package.json" ]] ||
+      die "submodule $m is still empty after checkout — the build cannot proceed"
+  done
+}
+
+# Local tags for a source build. Deliberately not `latest`: a moving tag on a research
+# deployment makes "which code is running?" unanswerable after the fact. The revision is
+# part of the tag so a later git pull cannot silently keep running an image built from an
+# older checkout.
+SOURCE_TAG_PREFIX=chronicle-selfhost
+source_image_tag() { printf '%s-%s:source-%s\n' "$SOURCE_TAG_PREFIX" "$1" "${2:0:16}"; }
+
+source_checkout_revision() {
+  local module line status revision
+  git -C .. rev-parse --git-dir >/dev/null 2>&1 ||
+    die "source images require a git checkout so their inputs can be identified"
+
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    status="${line:0:1}"
+    case "$status" in
+      ' ') ;;
+      -) die "a required source submodule is not initialized. Run: git submodule update --init --recursive" ;;
+      +) die "a source submodule does not match this checkout. Preserve any local work, then run: git submodule update --init --recursive" ;;
+      U) die "a source submodule has an unresolved merge conflict" ;;
+      *) die "could not verify the source submodule state" ;;
+    esac
+  done < <(git -C .. submodule status --recursive -- "${SOURCE_SUBMODULES[@]}")
+
+  # A commit-derived image tag is truthful only when every copied build input matches that
+  # commit. Runtime state and .env are ignored by git and never enter the Docker context.
+  if ! git -C .. diff --quiet --no-ext-diff HEAD -- \
+      build.gradle.kts settings.gradle.kts gradle.properties gradle gradles gradlew \
+      docker selfhost; then
+    die "tracked source-image inputs have local changes. Commit them on an appropriate branch or restore them before building a deployable source image"
+  fi
+  if [[ -n "$(git -C .. ls-files --others --exclude-standard -- \
+      build.gradle.kts settings.gradle.kts gradle.properties gradle gradles gradlew \
+      docker selfhost)" ]]; then
+    die "untracked source-image inputs are present. Review and commit or remove them before building a deployable source image"
+  fi
+  for module in "${SOURCE_SUBMODULES[@]}"; do
+    git -C "../$module" diff --quiet --no-ext-diff &&
+      git -C "../$module" diff --cached --quiet --no-ext-diff &&
+      [[ -z "$(git -C "../$module" ls-files --others --exclude-standard)" ]] ||
+      die "source submodule $module has local or untracked changes; refusing to label them as a published revision"
+  done
+
+  revision="$(git -C .. rev-parse --verify HEAD)"
+  [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || die "could not resolve the source revision"
+  printf '%s\n' "$revision"
+}
+
+is_managed_source_image() {
+  local value="$1" component="$2"
+  [[ "$value" == "${SOURCE_TAG_PREFIX}-${component}:source" ||
+     "$value" =~ ^${SOURCE_TAG_PREFIX}-${component}:source-[0-9a-f]{16}$ ]]
+}
+
+# Build one image if it is not already present. Never rebuilds a tag that exists -- an
+# operator who wants a rebuild has ./chronicle upgrade, and silently rebuilding on every
+# `up` would turn a restart into a ten-minute wait.
+build_image_if_missing() {
+  local tag="$1" dockerfile="$2" context="$3" label="$4" build_argument="${5:-}"
+  local -a build_options=(-q -f "$dockerfile" -t "$tag")
+  if docker image inspect "$tag" >/dev/null 2>&1; then
+    ok "$label image present ($tag)"
+    return 0
+  fi
+  [[ -z "$build_argument" ]] || build_options+=(--build-arg "$build_argument")
+  printf '  building %s from %s for this source revision\n' "$label" "$dockerfile"
+  docker build "${build_options[@]}" "$context" >/dev/null ||
+    die "could not build the $label image from $dockerfile"
+  ok "$label image built ($tag)"
+}
+
+# Only tags owned by this source checkout may be populated from local source. A custom
+# registry tag is an operator instruction to pull/use that image; building the checkout
+# under the same name would silently substitute different code.
+build_managed_source_image_if_missing() {
+  local tag="$1" component="$2"
+  shift 2
+  is_managed_source_image "$tag" "$component" || return 0
+  build_image_if_missing "$tag" "$@"
+}
+
+# Resolve the three image variables before compose ever sees them.
+ensure_images() {
+  local build_backend=0 build_frontend=0 build_caddy=0
+  if [[ "${BACKEND_IMAGE:-}" == *__CHRONICLE_* ]] ||
+      is_managed_source_image "${BACKEND_IMAGE:-}" backend; then
+    build_backend=1
+  fi
+  if [[ "${SELFHOST_FRONTEND_IMAGE:-}" == *__CHRONICLE_* ]] ||
+      is_managed_source_image "${SELFHOST_FRONTEND_IMAGE:-}" frontend; then
+    build_frontend=1
+  fi
+  if [[ "${CADDY_IMAGE:-}" == *__CHRONICLE_* ]] ||
+      is_managed_source_image "${CADDY_IMAGE:-}" caddy; then
+    build_caddy=1
+  fi
+
+  # All three are release digests or custom operator references. Leave resolution and
+  # pulling to Compose; source-checkout cleanliness is irrelevant when nothing is built.
+  ((build_backend || build_frontend || build_caddy)) || return 0
+
+  if ! is_source_checkout; then
+    die "one or more image values request a source build, but this is not a source checkout.
+       Use a published release bundle, or set all three variables to images you have."
+  fi
+
+  printf '\n%sImages%s\n' "$BLD" "$RST"
+  ensure_sources
+  local backend_tag frontend_tag caddy_tag source_revision
+  source_revision="$(source_checkout_revision)" || exit 1
+  backend_tag="$(source_image_tag backend "$source_revision")"
+  frontend_tag="$(source_image_tag frontend "$source_revision")"
+  caddy_tag="$(source_image_tag caddy "$source_revision")"
+
+  # Claim placeholders and tags previously managed by this source checkout. An operator
+  # who supplied a custom image keeps it. Legacy unversioned :source tags are upgraded
+  # once; revisioned tags change after git pull and therefore cannot conceal stale code.
+  if ((build_backend)); then
+    BACKEND_IMAGE="$backend_tag"
+  fi
+  if ((build_frontend)); then
+    SELFHOST_FRONTEND_IMAGE="$frontend_tag"
+  fi
+  if ((build_caddy)); then
+    CADDY_IMAGE="$caddy_tag"
+  fi
+
+  build_managed_source_image_if_missing "$BACKEND_IMAGE" backend \
+    ../docker/Dockerfile.backend .. backend "VCS_REF=$source_revision"
+  build_managed_source_image_if_missing "$SELFHOST_FRONTEND_IMAGE" frontend \
+    Dockerfile.frontend .. frontend "GIT_SHA=$source_revision"
+  build_managed_source_image_if_missing "$CADDY_IMAGE" caddy \
+    Dockerfile.caddy . proxy
+
+  # Persist so `check`, `status`, `verify` and a plain `docker compose` all agree with what
+  # `up` just built, instead of the resolution living only in this process.
+  if ! python3 - "$BACKEND_IMAGE" "$SELFHOST_FRONTEND_IMAGE" "$CADDY_IMAGE" <<'PY'
+from pathlib import Path
+import os
+import re
+import sys
+
+path = Path(".env")
+values = dict(zip(
+    ("BACKEND_IMAGE", "SELFHOST_FRONTEND_IMAGE", "CADDY_IMAGE"),
+    sys.argv[1:],
+))
+content = path.read_text(encoding="utf-8")
+for key, value in values.items():
+    pattern = re.compile(rf"^{key}=.*$", re.MULTILINE)
+    if not pattern.search(content):
+        raise SystemExit(f"{key} is missing from .env")
+    content = pattern.sub(f"{key}={value}", content, count=1)
+temporary = path.with_name(f".{path.name}.images-{os.getpid()}")
+try:
+    with temporary.open("x", encoding="utf-8") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+    temporary.chmod(0o600)
+    os.replace(temporary, path)
+    directory_fd = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+finally:
+    temporary.unlink(missing_ok=True)
+PY
+  then
+    die "could not atomically record the source image revisions in .env"
+  fi
+  export BACKEND_IMAGE SELFHOST_FRONTEND_IMAGE CADDY_IMAGE
+}
+
+# ---------------------------------------------------------------------------------- up
+# Exactly `docker compose up -d` with the host-only checks in front of it. Those
+# checks are the only thing this adds -- the certificate, the backups directory, encryption
+# at rest and the first dump are all services in the compose file now, so there is nothing
+# left here that plain compose would skip.
+assert_no_incomplete_mutation() {
+  local path label
+  for label in restore upgrade secret-rotation; do
+    case "$label" in
+      restore) path="${STATE_ROOT}/.chronicle-restore.lock" ;;
+      upgrade) path="${STATE_ROOT}/.chronicle-upgrade.lock" ;;
+      secret-rotation) path="${STATE_ROOT}/.chronicle-secret-rotation" ;;
+    esac
+    if [[ -e "$path" || -L "$path" ]]; then
+      die "cannot start Chronicle while an incomplete ${label} operation is preserved at ${path}. Follow the corresponding recovery runbook before removing that exact lock."
+    fi
+  done
+}
+
+cmd_up() {
+  need_env
+  # A destructive restore can leave a deliberately stopped, partially replaced schema.
+  # The preserved lock must be an enforced interlock, not merely a warning printed by the
+  # failed restore process. Apply the same rule to failed upgrades and rotations: `up` is
+  # the ordinary recovery shortcut operators will reach for after a failure, so it must not
+  # bypass the state-changing command's fail-closed boundary (including dangling symlinks).
+  assert_no_incomplete_mutation
+  begin_operation up startup_failed
+  ensure_images
+  preflight
+  printf '%sStarting%s (%s)\n' "$BLD" "$RST" "${COMPOSE_FILE:-docker-compose.yml}"
+  printf '  on a first run this also initialises the database — no output until it settles\n\n'
+  # Compose's own progress stream prints one line per container per state transition: 34
+  # lines for this stack, ten of them for the single config-guard that starts and exits.
+  # It scrolls the preflight results off the screen and contains nothing an operator can
+  # act on. The service table below is the same information, once, in its final form.
+  dc --progress quiet up -d || die "startup failed — see ./chronicle logs"
+  dc ps --format '{{.Service}}\t{{.Status}}' 2>/dev/null | sort | sed 's/^/  /'
+  printf '\n%sStarted.%s Next: ./chronicle verify\n' "$GRN" "$RST"
+  operation_succeeded
+}
+
+# ------------------------------------------------------------------------------ verify
+# Proves the boundary from outside the stack rather than trusting the config.
+cmd_verify() {
+  # DASHBOARD_PASSWORD is an optional one-run input, not deployment configuration. Capture
+  # it before loading .env and immediately remove its exported form so neither Python nor
+  # any of the curl probes can expose it through their process environments.
+  local dashboard_password="${DASHBOARD_PASSWORD:-}"
+  unset DASHBOARD_PASSWORD
+  shift || true
+  if (($#)); then
+    [[ "$#" -eq 1 && "$1" == --dashboard-password ]] ||
+      die "usage: ./chronicle verify [--dashboard-password]"
+    [[ -z "$dashboard_password" ]] ||
+      die "use either --dashboard-password or DASHBOARD_PASSWORD, not both"
+    if [[ -t 0 ]]; then
+      read -rsp 'Dashboard password: ' dashboard_password
+      printf '\n'
+    else
+      IFS= read -r dashboard_password ||
+        die "--dashboard-password expected one password line on stdin"
+    fi
+    [[ -n "$dashboard_password" ]] || die "dashboard password must not be empty"
+  fi
+  need_env
+  begin_operation verify verification_failed
+  if [[ -n "${DASHBOARD_PASSWORD:-}" ]]; then
+    dashboard_password="$DASHBOARD_PASSWORD"
+    unset DASHBOARD_PASSWORD
+  fi
+  local pub fail=0
+  # Probe the address the listener is actually published on. Assuming loopback silently
+  # fails the moment HTTP_BIND points at a LAN/VPN interface so devices can reach it.
+  local pub_host="${HTTP_BIND}"
+  [[ "$pub_host" == "0.0.0.0" ]] && pub_host=127.0.0.1
+  if [[ "$TLS_MODE" == own-tls || "$TLS_MODE" == local-https ]]; then
+    # Setup may select a nonstandard trial HTTPS port when another host service owns 443.
+    # Probe the same canonical origin rendered into enrollment manifests and the app.
+    pub="${CHRONICLE_PUBLIC_BASE_URL:-https://${DOMAIN}}"
+  else
+    pub="http://${pub_host}:${HTTP_PORT}"
+  fi
+
+  # These checks fire faster than any real client, so they trip the rate limiter on their
+  # own. A 429 says nothing about exposure -- back off past the window and ask again.
+  hit() { # url path -> status code, retrying past rate-limit windows
+    local code i
+    for i in 1 2 3 4; do
+      code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "$1$2")
+      [[ "$code" != 429 ]] && break
+      sleep "${RATE_LIMIT_RETRY_SLEEP:-1.2}"
+    done
+    printf '%s' "$code"
+  }
+  probe() { # url path expected label
+    local code; code=$(hit "$1" "$2")
+    if [[ "$code" == "$3" ]]; then printf '  %sok%s   %-3s %s %s\n' "$GRN" "$RST" "$code" "$2" "$4"
+    else printf '  %sFAIL%s %-3s %s (expected %s) %s\n' "$RED" "$RST" "$code" "$2" "$3" "$4"; fail=1; fi
+  }
+  probe_health() { # url path label — Spring readiness intentionally returns no content
+    local code; code=$(hit "$1" "$2")
+    if [[ "$code" == 200 || "$code" == 204 ]]; then
+      printf '  %sok%s   %-3s %s %s\n' "$GRN" "$RST" "$code" "$2" "$3"
+    else
+      printf '  %sFAIL%s %-3s %s (expected 200 or 204) %s\n' \
+        "$RED" "$RST" "$code" "$2" "$3"
+      fail=1
+    fi
+  }
+  probe_served() { # url path label — follows redirects and insists on a real page
+    # Status alone is not enough here. A route that matches nothing answers 200 with an
+    # empty body, which every status-only probe above passes while the browser shows a
+    # blank screen. Follow redirects, because the documented path is a redirect by design.
+    local out code size i
+    for i in 1 2 3 4; do
+      out=$(curl -skL -o /dev/null -w '%{http_code} %{size_download}' --max-time 10 "$1$2")
+      [[ "${out%% *}" != 429 ]] && break
+      sleep "${RATE_LIMIT_RETRY_SLEEP:-1.2}"
+    done
+    code="${out%% *}"; size="${out##* }"
+    if [[ "$code" == 200 && "${size:-0}" -gt 0 ]]; then
+      printf '  %sok%s   %-3s %s %s\n' "$GRN" "$RST" "$code" "$2" "$3"
+    else
+      printf '  %sFAIL%s %-3s %s served %s bytes (expected 200 and a page) %s\n' \
+        "$RED" "$RST" "$code" "$2" "${size:-0}" "$3"; fail=1
+    fi
+  }
+  probe_any() { # url path label — any of 200/401/403 means "reachable"
+    local code; code=$(hit "$1" "$2")
+    if [[ "$code" =~ ^(200|401|403)$ ]]; then printf '  %sok%s   %-3s %s %s\n' "$GRN" "$RST" "$code" "$2" "$3"
+    else printf '  %sFAIL%s %-3s %s (expected reachable) %s\n' "$RED" "$RST" "$code" "$2" "$3"; fail=1; fi
+  }
+  curl_basic_code() { # username password url -> status, credentials delivered over stdin
+    local credentials="${1}:${2}" escaped
+    case "$credentials" in
+      *$'\n'*|*$'\r'*) return 2 ;;
+    esac
+    escaped="${credentials//\\/\\\\}"
+    escaped="${escaped//\"/\\\"}"
+    printf 'user = "%s"\n' "$escaped" |
+      curl --config - -sk -o /dev/null -w '%{http_code}' --max-time 10 "$3"
+  }
+  curl_header_code() { # header-name header-value method url -> status, value delivered over stdin
+    local name="$1" value="$2" method="$3" url="$4" escaped
+    [[ "$name" =~ ^[A-Za-z0-9-]+$ ]] || return 2
+    case "$value" in
+      *$'\n'*|*$'\r'*) return 2 ;;
+    esac
+    escaped="${value//\\/\\\\}"
+    escaped="${escaped//\"/\\\"}"
+    printf 'header = "%s: %s"\n' "$name" "$escaped" |
+      curl --config - -sk -o /dev/null -w '%{http_code}' --max-time 10 -X "$method" "$url"
+  }
+  postgres_scalar() { # SQL -> one scalar result; DB password delivered over stdin
+    local sql="$1"
+    # Expansion belongs to the container shell; no credential is interpolated into argv.
+    # shellcheck disable=SC2016
+    {
+      printf '%s\0' "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set}"
+      printf '%s\n' "$sql"
+    } | dc exec -T postgres /bin/bash -euc '
+      IFS= read -r -d "" PGPASSWORD
+      export PGPASSWORD
+      exec psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 \
+        -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" -f -
+    '
+  }
+
+  # One fast probe before the real ones. Every check below retries past the rate limiter,
+  # so against a listener that is not reachable at all they each burn ~40s and `verify`
+  # appears to hang for ten minutes before reporting anything. Fail in five seconds with the
+  # one thing worth saying instead.
+  if [[ "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 "${pub}/health")" == 000 ]]; then
+    printf '%sCannot reach %s at all.%s\n\n' "$RED" "$pub" "$RST" >&2
+    printf 'Nothing was probed. Usual causes, in order:\n' >&2
+    printf '  * the published port is held by another process — run: ./chronicle check\n' >&2
+    printf '  * the stack is not running — run: ./chronicle status\n' >&2
+    printf '  * DOMAIN does not resolve to this machine from this machine\n' >&2
+    exit 1
+  fi
+
+  printf '%sPublic surface%s (%s)\n' "$BLD" "$RST" "$pub"
+  probe_health "$pub" /health "ready"
+  probe_served "$pub" /chronicle "dashboard (the path the README gives operators)"
+  probe_served "$pub" /chronicle/ "dashboard assets"
+  probe     "$pub" /chronicle/survey 200 "participant form"
+  probe_any "$pub" /chronicle/v4/study/x/upload "mobile upload reachable"
+  probe_any "$pub" /chronicle/study/x "legacy mobile API reachable"
+  for p in /chronicle/datastore/ /chronicle/principal/ /chronicle/compliance/ /chronicle/import/ /prometheus/; do
+    probe "$pub" "$p" 404 "direct backend route blocked"
+  done
+
+  if [[ "$DASHBOARD_EXPOSURE" == internal ]]; then
+    printf '\n%sPublic surface must NOT expose the dashboard%s\n' "$BLD" "$RST"
+    for p in /chronicle/v3/auth/testing-login /chronicle/v3/auth/session /chronicle/v3/auth/oidc/login \
+             /chronicle/api/web/study \
+             /chronicle/v3/time-use-diary/S/data /chronicle/v3/survey/S/questionnaire/Q/responses; do
+      probe "$pub" "$p" 404 ""
+    done
+    printf '\n%sInternal surface%s (https://%s:%s)\n' "$BLD" "$RST" "$INTERNAL_BIND" "$INTERNAL_PORT"
+    local int="https://${INTERNAL_BIND}:${INTERNAL_PORT}"
+
+    # TLS must actually be on, or the password would cross the wire in the clear.
+    if curl -sk -o /dev/null --max-time 10 "$int/health"; then
+      printf '  %sok%s   internal listener is HTTPS (credentials are not sent in clear)\n' "$GRN" "$RST"
+    else
+      printf '  %sFAIL%s internal listener did not answer over HTTPS\n' "$RED" "$RST"; fail=1
+    fi
+
+    # No credentials -> must be refused, and must actually be the password gate.
+    local code hdrs
+    code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "$int/chronicle/api/web/study")
+    hdrs=$(curl -sk -sI --max-time 10 "$int/chronicle/api/web/study" | tr -d '\r')
+    if [[ "$code" == 401 ]] && grep -qi '^WWW-Authenticate:' <<<"$hdrs"; then
+      printf '  %sok%s   401 dashboard API demands the global password\n' "$GRN" "$RST"
+    else
+      printf '  %sFAIL%s dashboard API answered %s without credentials (expected a 401 password challenge)\n' "$RED" "$RST" "$code"; fail=1
+    fi
+
+    # A wrong password must not get in.
+    # Built from a variable rather than an inline user:pass literal, which secret
+    # scanners flag -- suppressing that rule to keep a fake credential is a bad trade.
+    local wrong_pw="not-the-${RANDOM}-password"
+    code=$(curl_basic_code "${DASHBOARD_USER:-researcher}" "$wrong_pw" "$int/chronicle/api/web/study")
+    if [[ "$code" == 401 ]]; then
+      printf '  %sok%s   401 a wrong password is rejected\n' "$GRN" "$RST"
+    else
+      printf '  %sFAIL%s wrong password produced %s (expected 401)\n' "$RED" "$RST" "$code"; fail=1
+    fi
+
+    # The browser origin has to be on the backend's CORS allowlist, and nothing else here
+    # would notice if it were not. CorsValidationFilter refuses the sign-in POST, the SPA
+    # renders in full, the header sits at "awaiting-sso" forever, and every probe above
+    # still passes -- a deployment that looks perfect and cannot be logged into. Ask the
+    # backend directly, with the Origin a browser on this listener would send.
+    # Asked of the rendered allowlist rather than over HTTP: the endpoint that would prove
+    # it sits behind the password gate, so an unauthenticated probe gets 401 and could not
+    # tell an allowed origin from a refused one.
+    if dc exec -T backend grep -qF "\"${int}\"" /server/rendered-config/cors.yaml 2>/dev/null; then
+      printf '  %sok%s   the dashboard origin is on the API allowlist\n' "$GRN" "$RST"
+    else
+      printf '  %sFAIL%s the dashboard origin %s is not on the API allowlist — sign-in cannot complete.\n' \
+        "$RED" "$RST" "$int"
+      printf '       Add it to DASHBOARD_ORIGINS in .env and run ./chronicle up again.\n'; fail=1
+    fi
+
+    # Only if the operator supplies it at run time -- it is deliberately not stored.
+    if [[ -n "$dashboard_password" ]]; then
+      # Probe the dashboard ASSETS, not the API: the API answers 401 from the application
+      # itself even once the password gate has opened, so it cannot tell the two apart.
+      code=$(curl_basic_code "${DASHBOARD_USER:-researcher}" "$dashboard_password" "$int/chronicle/")
+      if [[ "$code" == 200 ]]; then
+        printf '  %sok%s   200 correct password opens the dashboard\n' "$GRN" "$RST"
+      else
+        printf '  %sFAIL%s correct password produced %s (expected 200)\n' "$RED" "$RST" "$code"; fail=1
+      fi
+    else
+      printf '  %s--%s   rerun with --dashboard-password to also check the correct password\n' "$YEL" "$RST"
+    fi
+  fi
+
+  # ---------------------------------------------------------------------------
+  # Public mobile bootstrap boundary. The public app must be able to read the exact
+  # non-sensitive settings route without a global secret, while enrollment without a
+  # one-time code and private mobile routes remain closed.
+  # ---------------------------------------------------------------------------
+  printf '\n%sPublic mobile bootstrap%s\n' "$BLD" "$RST"
+  local settings_path enrollment_path reviewer_path settings_code enrollment_code
+  local reviewer_unauth_code reviewer_code public_page expected_page page_result
+  settings_path="/chronicle/v3/study/00000000-0000-0000-0000-000000000000/settings/type/DataCollection"
+  enrollment_path="/chronicle/v4/study/00000000-0000-0000-0000-000000000000/participant/reviewer/enroll"
+  reviewer_path="/chronicle/v4/mobile/reviewer-enrollment"
+  settings_code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "${pub}${settings_path}")
+  enrollment_code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 -X POST \
+    -H 'Content-Type: application/json' \
+    -H 'X-Chronicle-Device-Id: selfhost-verifier' \
+    --data '{"@class":"com.openlattice.chronicle.sources.AndroidDevice","device":"selfhost-verifier","model":"selfhost-verifier","codename":"selfhost-verifier","brand":"selfhost-verifier","osVersion":"1","sdkVersion":"1","product":"selfhost-verifier","deviceId":"selfhost-verifier"}' \
+    "${pub}${enrollment_path}")
+  reviewer_unauth_code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 -X POST \
+    "${pub}${reviewer_path}")
+
+  for public_page in privacy withdrawal reviewer; do
+    expected_page="${pub}/chronicle/${public_page}"
+    page_result=$(curl -skL -o /dev/null \
+      -w '%{http_code}|%{url_effective}|%{size_download}' --max-time 10 \
+      "${pub}/${public_page}")
+    case "$page_result" in
+      "200|${expected_page}|"[1-9]*)
+        printf '  %sok%s   /%s reaches the anonymous Chronicle page (%s)\n' \
+          "$GRN" "$RST" "$public_page" "$expected_page" ;;
+      *)
+        printf '  %sFAIL%s /%s did not reach a nonempty anonymous Chronicle page (%s)\n' \
+          "$RED" "$RST" "$public_page" "$page_result"; fail=1 ;;
+    esac
+  done
+
+  case "$settings_code" in
+    000|401|403)
+      printf '  %sFAIL%s public collection settings are unavailable without a global app secret (%s)\n' \
+        "$RED" "$RST" "$settings_code"; fail=1 ;;
+    5??)
+      printf '  %sFAIL%s public collection settings returned a server error (%s)\n' \
+        "$RED" "$RST" "$settings_code"; fail=1 ;;
+    2??|400|404|409|422)
+      printf '  %sok%s   public collection settings are reachable (%s)\n' "$GRN" "$RST" "$settings_code" ;;
+    *)
+      printf '  %sFAIL%s public collection settings returned an unexpected status (%s)\n' \
+        "$RED" "$RST" "$settings_code"; fail=1 ;;
+  esac
+  case "$enrollment_code" in
+    401|403) printf '  %sok%s   enrollment without a one-time code is refused (%s)\n' "$GRN" "$RST" "$enrollment_code" ;;
+    000) printf '  %sFAIL%s enrollment endpoint did not answer\n' "$RED" "$RST"; fail=1 ;;
+    *) printf '  %sFAIL%s enrollment without a one-time code was not refused (%s)\n' \
+         "$RED" "$RST" "$enrollment_code"; fail=1 ;;
+  esac
+  case "$reviewer_unauth_code" in
+    401|403|404)
+      printf '  %sok%s   exact reviewer route refuses requests without its credential (%s)\n' \
+        "$GRN" "$RST" "$reviewer_unauth_code" ;;
+    5??)
+      printf '  %sFAIL%s exact reviewer route returned a server error (%s)\n' \
+        "$RED" "$RST" "$reviewer_unauth_code"; fail=1 ;;
+    *)
+      printf '  %sFAIL%s exact reviewer route accepted an unauthenticated request (%s)\n' \
+        "$RED" "$RST" "$reviewer_unauth_code"; fail=1 ;;
+  esac
+
+  if [[ "${CHRONICLE_REVIEWER_ACCESS_ENABLED:-false}" == true ]]; then
+    reviewer_code=$(curl_header_code X-Chronicle-Reviewer-Secret \
+      "${CHRONICLE_REVIEWER_ACCESS_SECRET:-}" POST "${pub}${reviewer_path}")
+    if [[ "$reviewer_code" == 200 ]]; then
+      printf '  %sok%s   reviewer bootstrap minted a fresh one-time invitation with the configured credential\n' "$GRN" "$RST"
+    else
+      printf '  %sFAIL%s reviewer bootstrap rejected the configured credential (%s)\n' \
+        "$RED" "$RST" "$reviewer_code"; fail=1
+    fi
+  else
+    printf '  %s--%s   reviewer bootstrap is disabled; authenticated mint probe skipped\n' "$YEL" "$RST"
+  fi
+
+  printf '\n%sRate limiting%s\n' "$BLD" "$RST"
+  local burst=$(( ${RATE_LIMIT_MOBILE_EVENTS:-20} * 3 )) got429=0 i burst_codes
+  # A sequential curl loop spends enough time establishing TLS that a healthy one-second
+  # edge bucket may refill before the loop reaches its configured capacity. Generate the
+  # same shape as an actual abusive burst: all requests are in flight concurrently, while
+  # keeping the total bounded by the configured event limit.
+  burst_codes="$({
+    for ((i=0; i<burst; i++)); do
+      curl -sk -o /dev/null -w '%{http_code}\n' --max-time 10 \
+        "${pub}/chronicle/v4/study/x/upload" &
+    done
+    wait
+  } || true)"
+  grep -qx 429 <<<"$burst_codes" && got429=1
+  if [[ $got429 -eq 1 ]]; then
+    printf '  %sok%s   mobile ingest is rate limited (%s/%s)\n' "$GRN" "$RST" "${RATE_LIMIT_MOBILE_EVENTS:-20}" "${RATE_LIMIT_MOBILE_WINDOW:-1s}"
+  else
+    printf '  %sFAIL%s %s requests to mobile ingest were never rate limited\n' "$RED" "$RST" "$burst"; fail=1
+  fi
+  sleep "${RATE_LIMIT_RETRY_SLEEP:-1.2}"
+
+  # Every dump is the whole database. The backup image writes them 0644 and has no umask
+  # option, so the only thing standing between them and any other local account is the mode
+  # on the directory itself.
+  if [[ "${ENABLE_BACKUPS:-true}" == true && -d "$BACKUPS_HOST_DIR" ]]; then
+    printf '\n%sDatabase dumps%s\n' "$BLD" "$RST"
+    local bmode; bmode=$(stat_mode "$BACKUPS_HOST_DIR"); bmode="${bmode:-?}"
+    if [[ "$bmode" == 700 ]]; then
+      printf '  %sok%s   %s is 0700 — dumps are not readable by other local accounts\n' "$GRN" "$RST" "$BACKUPS_HOST_DIR"
+    else
+      printf '  %sFAIL%s %s is %s — every local account can read the full database (want 0700)\n' "$RED" "$RST" "$BACKUPS_HOST_DIR" "$bmode"; fail=1
+    fi
+
+    # Confidentiality is the mode above; this is the other half. db-backup used to run as
+    # root, which left the rotation subdirectories and dumps root-owned inside that 0700
+    # parent -- readable by the operator, but impossible for them to prune, move, or delete
+    # without sudo, so a full disk had no non-root remedy. Test the property that actually
+    # matters (can this account write in there) rather than comparing uids, which says the
+    # wrong thing when the operator is in a shared group.
+    local unwritable=0 d
+    for d in "$BACKUPS_HOST_DIR" "$BACKUPS_HOST_DIR"/*/; do
+      [[ -d "$d" ]] || continue
+      [[ -w "$d" ]] || unwritable=$((unwritable + 1))
+    done
+    if ((unwritable == 0)); then
+      printf '  %sok%s   dumps belong to this account — they can be pruned and copied without sudo\n' "$GRN" "$RST"
+    else
+      printf '  %sFAIL%s %s director(y/ies) under %s are not writable by this account — backups cannot be pruned without sudo\n' \
+        "$RED" "$RST" "$unwritable" "$BACKUPS_HOST_DIR"; fail=1
+    fi
+  fi
+
+  # Encryption at rest, checked at the storage layer rather than by asking whether the
+  # extension is installed -- an installed pg_tde with every table still on plain heap
+  # encrypts nothing.
+  if [[ "${ENABLE_ENCRYPTION:-true}" == true ]]; then
+    printf '\n%sEncryption at rest%s\n' "$BLD" "$RST"
+    local plain enc
+    enc=$(postgres_scalar \
+      "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_am a ON a.oid=c.relam WHERE n.nspname='public' AND c.relkind='r' AND a.amname='tde_heap';" \
+      2>/dev/null || echo 0)
+    plain=$(postgres_scalar \
+      "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_am a ON a.oid=c.relam WHERE n.nspname='public' AND c.relkind='r' AND a.amname<>'tde_heap';" \
+      2>/dev/null || echo 999)
+    if [[ "$plain" == 0 && "$enc" -gt 0 ]]; then
+      printf '  %sok%s   all %s tables are encrypted (tde_heap)\n' "$GRN" "$RST" "$enc"
+    else
+      printf '  %sFAIL%s %s table(s) still on plain heap\n' "$RED" "$RST" "$plain"; fail=1
+    fi
+
+    # The recovery path matters more than the encryption. A dump older than the data, or
+    # a keyring with no copy outside the volume, is how "encrypted" becomes "lost".
+    if [[ -s "${BACKUPS_HOST_DIR}/keyring/chronicle-keyring.per" ]]; then
+      printf '  %sok%s   keyring copied into %s/keyring\n' "$GRN" "$RST" "$BACKUPS_HOST_DIR"
+    else
+      printf '  %sFAIL%s no keyring copy in %s — the data volume could not be remounted\n' "$RED" "$RST" "$BACKUPS_HOST_DIR"; fail=1
+    fi
+    if compgen -G "${BACKUPS_HOST_DIR}/last/*.sql.gz" >/dev/null; then
+      printf '  %sok%s   a key-free SQL dump exists (restores without pg_tde)\n' "$GRN" "$RST"
+    else
+      printf '  %sFAIL%s no SQL dump yet — nothing recoverable if the keyring is lost\n' "$RED" "$RST"; fail=1
+    fi
+  fi
+
+  printf '\n'
+  if [[ $fail -ne 0 ]]; then
+    printf '%sVerification FAILED%s — the deployment is not exposed as configured.\n' "$RED" "$RST"
+    exit 1
+  fi
+  printf '%sVerified%s — exposure matches DASHBOARD_EXPOSURE=%s\n' "$GRN" "$RST" "$DASHBOARD_EXPOSURE"
+
+  # Everything above was probed from this machine, so a green run says nothing about
+  # whether the load balancer can actually reach the stack. State the limit rather than
+  # letting "Verified" imply an end-to-end check it never performed.
+  if [[ "$TLS_MODE" == behind-proxy ]]; then
+    local external_origin="${CHRONICLE_PUBLIC_BASE_URL:-https://${DOMAIN}}"
+    printf '\n%sNot covered by this check:%s these probes ran from this host. They cannot tell\n' "$YEL" "$RST"
+    printf 'you whether your load balancer reaches the stack. Two different things to confirm:\n'
+    printf '  1. your proxy can reach this stack — run this ON THE PROXY host:\n'
+    printf '       curl -sS -o /dev/null -w '"'"'%%{http_code}\\n'"'"' http://%s:%s/health   # expect 200\n' "$HTTP_BIND" "$HTTP_PORT"
+    printf '  2. the world can reach your proxy — run this from anywhere outside:\n'
+    printf '       curl -sS -o /dev/null -w '"'"'%%{http_code}\\n'"'"' %s/health   # expect 200\n' "$external_origin"
+    # Naming the upstream address matters: this stack listens on plain HTTP at
+    # HTTP_BIND:HTTP_PORT (8080 by default, NOT 80), because TLS is terminated upstream in
+    # this mode. Printing only the public-origin line invites the operator to curl
+    # https://localhost, get "connection refused" from a perfectly healthy stack, and go
+    # hunting for a fault that is not there.
+    if [[ "$HTTP_BIND" == 127.0.0.1 || "$HTTP_BIND" == localhost ]]; then
+      printf '  %snote%s HTTP_BIND=%s is loopback, so (1) only works if the proxy runs on THIS host.\n' \
+        "$YEL" "$RST" "$HTTP_BIND"
+    fi
+  fi
+  operation_succeeded
+}
+
+# Validates .env and the bundle without building or starting anything, so an operator can
+# get the configuration right before spending a build on it.
+cmd_check() {
+  need_env
+  begin_operation check configuration_invalid
+  preflight
+  printf '%sConfiguration is valid.%s  Next: ./chronicle up\n' "$GRN" "$RST"
+  operation_succeeded
+}
+
+cmd_status() {
+  need_env
+  begin_operation status status_failed
+  dc ps || die "could not inspect Compose service status"
+  operation_succeeded
+}
+cmd_logs()   { need_env; shift || true; dc logs -f --tail=100 "$@"; }
+cmd_down() {
+  need_env
+  begin_operation down shutdown_failed
+  dc down || die "Compose shutdown failed"
+  operation_succeeded
+}
+
+doctor_add() { # id status summary action
+  DOCTOR_ROWS+=("$1"$'\x1f'"$2"$'\x1f'"$3"$'\x1f'"$4")
+  [[ "$2" == fail ]] && DOCTOR_FAILED=1
+}
+
+cmd_doctor() {
+  shift || true
+  local json=false
+  if (($#)); then
+    [[ "$#" -eq 1 && "$1" == --json ]] || die "usage: ./chronicle doctor [--json]"
+    json=true
+  fi
+  need_env
+  begin_operation doctor diagnosis_failed
+  local -a DOCTOR_ROWS=()
+  local DOCTOR_FAILED=0 running="" free_kb=0 free_gib=0 free_pct=0 latest="" age=0
+
+  if docker info >/dev/null 2>&1; then
+    doctor_add docker ok "Docker daemon is reachable" "none"
+  else
+    doctor_add docker fail "Docker daemon is unreachable" "Start Docker, then rerun ./chronicle doctor"
+  fi
+
+  if dc config --quiet >/dev/null 2>&1; then
+    doctor_add compose ok "Compose configuration renders" "none"
+  else
+    doctor_add compose fail "Compose configuration does not render" "Run docker compose config and correct the reported .env or YAML error"
+  fi
+
+  running="$(dc ps --status running --services 2>/dev/null || true)"
+  local service
+  for service in postgres backend web; do
+    if grep -Fxq "$service" <<<"$running"; then
+      doctor_add "service-${service}" ok "${service} is running" "none"
+    else
+      doctor_add "service-${service}" fail "${service} is not running" "Run ./chronicle logs ${service}, correct the first error, then run ./chronicle up"
+    fi
+  done
+
+  if [[ "${CHRONICLE_REVIEWER_ACCESS_ENABLED:-false}" == true ||
+        -n "${CHRONICLE_REVIEWER_STUDY_ID:-}" ||
+        -n "${CHRONICLE_REVIEWER_PARTICIPANT_ID:-}" ]]; then
+    local reviewer_state="query-failed"
+    if [[ "${CHRONICLE_REVIEWER_STUDY_ID:-}" =~ ^[0-9A-Fa-f-]{36}$ &&
+          "${CHRONICLE_REVIEWER_PARTICIPANT_ID:-}" =~ ^[a-zA-Z0-9_.-]{1,255}$ ]] &&
+       grep -Fxq postgres <<<"$running"; then
+      reviewer_state="$(reviewer_scope_state \
+        "$CHRONICLE_REVIEWER_STUDY_ID" "$CHRONICLE_REVIEWER_PARTICIPANT_ID" 2>/dev/null || true)"
+    fi
+    if [[ "$reviewer_state" == ok ]]; then
+      doctor_add reviewer-scope ok \
+        "Play reviewer study and synthetic participant are active" "none"
+    else
+      doctor_add reviewer-scope fail \
+        "Play reviewer scope is unavailable (${reviewer_state:-query-failed})" \
+        "Use the dashboard to create/activate the synthetic reviewer study and participant, then rerun ./chronicle doctor"
+    fi
+  else
+    doctor_add reviewer-scope warn "Play reviewer bootstrap is not configured" \
+      "Follow the Play reviewer setup in README.md before submitting the app for review"
+  fi
+
+  if ! read -r free_kb free_pct < <(
+    df -Pk "$STATE_ROOT" 2>/dev/null |
+      awk 'NR==2 {gsub(/%/,"",$5); print $4, 100-$5}' || true
+  ); then
+    # Preserve doctor's structured failure row when df is unavailable or malformed. With
+    # `set -e`, an unguarded read exits the command before the branch below can explain it.
+    free_kb=""
+    free_pct=""
+  fi
+  if [[ "$free_kb" =~ ^[0-9]+$ && "$free_pct" =~ ^[0-9]+$ ]]; then
+    free_gib=$(( free_kb / 1048576 ))
+  fi
+  if [[ "$free_pct" =~ ^[0-9]+$ ]] && (( free_pct >= 15 )); then
+    doctor_add disk ok "Host filesystem has ${free_pct}% free (${free_gib} GiB)" "none"
+  elif [[ "$free_kb" =~ ^[0-9]+$ && "$free_pct" =~ ^[0-9]+$ ]] && (( free_kb >= 20971520 )); then
+    doctor_add disk warn \
+      "Host filesystem is ${free_pct}% free but retains ${free_gib} GiB" \
+      "Plan more capacity before free space falls below 20 GiB"
+  elif [[ "$free_pct" =~ ^[0-9]+$ ]]; then
+    doctor_add disk fail \
+      "Host filesystem has only ${free_pct}% free (${free_gib} GiB)" \
+      "Free or add disk space before restarting or exporting data"
+  else
+    doctor_add disk fail "Host filesystem capacity could not be read" "Run df -h and verify the Chronicle state filesystem"
+  fi
+
+  if [[ "${COMPOSE_FILE:-}" == *overlays/backups.yml* ]]; then
+    latest="$(python3 - "$BACKUPS_HOST_DIR/last" <<'PY'
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+files = list(root.glob("*.sql.gz")) if root.is_dir() else []
+if files:
+    print(max(files, key=lambda path: path.stat().st_mtime))
+PY
+)"
+    if [[ -n "$latest" ]]; then
+      age=$(( $(date +%s) - $(stat_field '%Y' '%m' "$latest") ))
+      if gzip -t "$latest" >/dev/null 2>&1 && (( age <= 129600 )); then
+        doctor_add backup ok "Latest backup is readable and less than 36 hours old" "none"
+      else
+        doctor_add backup fail "Latest backup is stale or unreadable" "Run docker compose restart db-backup, inspect its logs, and verify a new dump with gzip -t"
+      fi
+    else
+      doctor_add backup fail "No local SQL backup exists" "Run docker compose up -d db-backup and inspect ./chronicle logs db-backup"
+    fi
+  fi
+
+  if [[ "${COMPOSE_FILE:-}" == *overlays/monitoring.yml* ]]; then
+    local monitor_service
+    for monitor_service in victoriametrics victorialogs fluent-bit grafana operational-probe; do
+      if grep -Fxq "$monitor_service" <<<"$running"; then
+        doctor_add "monitor-${monitor_service}" ok "${monitor_service} is running" "none"
+      else
+        doctor_add "monitor-${monitor_service}" fail "${monitor_service} is not running" "Run ./chronicle logs ${monitor_service}, correct the first error, then docker compose up -d ${monitor_service}"
+      fi
+    done
+    if dc exec -T grafana wget -qO- http://victoriametrics:8428/api/v1/targets 2>/dev/null | grep -q '"health":"up"'; then
+      doctor_add metrics-pipeline ok "VictoriaMetrics has a live scrape target" "none"
+    else
+      doctor_add metrics-pipeline fail "No live VictoriaMetrics scrape target was found" "Run ./chronicle logs victoriametrics monitoring-config"
+    fi
+    if dc exec -T grafana wget -q --spider http://victorialogs:9428/health 2>/dev/null; then
+      doctor_add logs-pipeline ok "VictoriaLogs is healthy" "none"
+    else
+      doctor_add logs-pipeline fail "VictoriaLogs is unavailable" "Run ./chronicle logs victorialogs fluent-bit"
+    fi
+  else
+    doctor_add monitoring warn "Monitoring overlay is disabled" "Run ./chronicle setup to enable it, or add overlays/monitoring.yml as documented"
+  fi
+
+  if [[ "$json" == true ]]; then
+    printf '%s\0' "${DOCTOR_ROWS[@]}" | DOCTOR_FAILED="$DOCTOR_FAILED" python3 -c '
+import json, os, sys
+rows=[]
+for raw in sys.stdin.buffer.read().split(b"\0"):
+    if not raw: continue
+    ident,status,summary,action=raw.decode().split("\x1f")
+    rows.append({
+        "check": ident,
+        "status": status,
+        "likelyCause": summary,
+        "recoveryCommand": action,
+    })
+print(json.dumps({"overall":"fail" if os.environ["DOCTOR_FAILED"]=="1" else "ok","checks":rows}, separators=(",",":")))
+'
+  else
+    printf '%sChronicle doctor%s\n' "$BLD" "$RST"
+    local row id status summary action
+    for row in "${DOCTOR_ROWS[@]}"; do
+      IFS=$'\x1f' read -r id status summary action <<<"$row"
+      case "$status" in
+        ok) printf '  %sok%s   %-26s %s\n' "$GRN" "$RST" "$id" "$summary" ;;
+        warn) printf '  %swarn%s %-26s %s\n       action: %s\n' "$YEL" "$RST" "$id" "$summary" "$action" ;;
+        fail) printf '  %sFAIL%s %-26s %s\n       action: %s\n' "$RED" "$RST" "$id" "$summary" "$action" ;;
+      esac
+    done
+  fi
+  if [[ $DOCTOR_FAILED -eq 0 ]]; then
+    operation_succeeded
+    return 0
+  fi
+  return 1
+}
+
+grafana_base_url() {
+  local host="${GRAFANA_BIND:-127.0.0.1}"
+  [[ "$host" == 0.0.0.0 ]] && host=127.0.0.1
+  [[ "$host" == *:* && "$host" != \[*\] ]] && host="[$host]"
+  printf 'http://%s:%s' "$host" "${GRAFANA_PORT:-3000}"
+}
+
+require_monitoring() {
+  [[ "${COMPOSE_FILE:-}" == *overlays/monitoring.yml* ]] ||
+    die "monitoring is disabled; rerun ./chronicle setup and enable the monitoring overlay"
+}
+
+read_viewer_password() {
+  local first second
+  if [[ -t 0 ]]; then
+    read -rsp 'Viewer password (16+ characters): ' first; printf '\n'
+    read -rsp 'Confirm viewer password: ' second; printf '\n'
+  else
+    IFS= read -r first || die "expected viewer password on stdin"
+    IFS= read -r second || die "expected password confirmation on stdin"
+  fi
+  [[ "$first" == "$second" ]] || die "viewer passwords do not match"
+  [[ ${#first} -ge 16 ]] || die "viewer password must be at least 16 characters"
+  VIEWER_PASSWORD="$first"
+}
+
+cmd_monitoring() {
+  shift || true
+  [[ $# -ge 1 ]] || die "usage: ./chronicle monitoring status|add-viewer|remove-viewer|reset-viewer [name]"
+  local action="$1" name="${2:-}" base
+  need_env
+  require_monitoring
+  begin_operation "monitoring-${action}" monitoring_failed
+  base="$(grafana_base_url)"
+  case "$action" in
+    status)
+      [[ $# -eq 1 ]] || die "usage: ./chronicle monitoring status"
+      printf '%sPrivate monitoring%s (%s)\n' "$BLD" "$RST" "$base"
+      dc ps monitoring-config cadvisor operational-probe metrics-exporter victoriametrics victorialogs fluent-bit grafana ||
+        die "could not inspect monitoring service status"
+      if curl -fsS --max-time 8 "$base/api/health" >/dev/null 2>&1; then
+        printf '  %sok%s   Grafana answers on the configured private listener\n' "$GRN" "$RST"
+      else
+        die "Grafana is not reachable at $base; run ./chronicle doctor"
+      fi
+      ;;
+    add-viewer|remove-viewer|reset-viewer)
+      [[ $# -eq 2 ]] || die "usage: ./chronicle monitoring ${action} NAME"
+      [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]] || die "viewer name must use 1..64 letters, numbers, dot, underscore, or dash"
+      [[ "$name" != admin ]] || die "the Grafana admin account cannot be managed as a viewer"
+      local operation="${action%-viewer}" password=""
+      if [[ "$action" != remove-viewer ]]; then
+        VIEWER_PASSWORD=""
+        read_viewer_password
+        password="$VIEWER_PASSWORD"
+      fi
+      if ! printf '%s\0' "$base" "${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is not set}" \
+        "$operation" "$name" "$password" | python3 ./monitoring/grafana-user.py; then
+        VIEWER_PASSWORD=""; password=""
+        die "Grafana viewer operation failed"
+      fi
+      VIEWER_PASSWORD=""; password=""
+      ;;
+    *) die "usage: ./chronicle monitoring status|add-viewer|remove-viewer|reset-viewer [name]" ;;
+  esac
+  operation_succeeded
+}
+
+write_restore_lock_file() {
+  local name="$1" value="$2"
+  local temporary="${RESTORE_LOCK_DIR}/.${name}.$$"
+  [[ "$name" =~ ^[a-z-]+$ ]] || die "internal error: invalid restore lock field"
+  printf '%s\n' "$value" >"$temporary" || die "could not write restore operation metadata"
+  /bin/chmod 0600 "$temporary" || die "could not protect restore operation metadata"
+  /bin/mv -f "$temporary" "${RESTORE_LOCK_DIR}/${name}" ||
+    die "could not publish restore operation metadata"
+}
+
+release_restore_lock() {
+  [[ "$RESTORE_LOCK_HELD" == true ]] || return 0
+  [[ -d "$RESTORE_LOCK_DIR" && ! -L "$RESTORE_LOCK_DIR" ]] || return 1
+  /bin/rm -f -- \
+    "${RESTORE_LOCK_DIR}/owner-pid" \
+    "${RESTORE_LOCK_DIR}/phase" \
+    "${RESTORE_LOCK_DIR}/restore-file" \
+    "${RESTORE_LOCK_DIR}/.owner-pid.$$" \
+    "${RESTORE_LOCK_DIR}/.phase.$$" \
+    "${RESTORE_LOCK_DIR}/.restore-file.$$"
+  /bin/rmdir "$RESTORE_LOCK_DIR" || return 1
+  RESTORE_LOCK_HELD=false
+}
+
+restore_exit_cleanup() {
+  local original_status=$?
+  trap - EXIT HUP INT TERM
+  set +e
+  if [[ "$ACTIVE_OPERATION" == restore ]]; then
+    write_operation_receipt restore failure restore_failed ||
+      warn "restore failed, and its local operation receipt could not be written"
+    record_operation restore failure restore_failed
+  fi
+  if [[ "$RESTORE_RESTART_ON_EXIT" == true ]]; then
+    if ((${#RESTORE_PREVIOUSLY_RUNNING_SERVICES[@]})); then
+      printf '%s\n' "${YEL}warning:${RST} restore had not begun; restarting the services that were running before the stop attempt: ${RESTORE_PREVIOUSLY_RUNNING_SERVICES[*]}" >&2
+      if dc up -d --wait --wait-timeout "$RESTORE_START_WAIT_TIMEOUT_SECONDS" --no-deps \
+          "${RESTORE_PREVIOUSLY_RUNNING_SERVICES[@]}"; then
+        printf '%s\n' "         The pre-restore service state was restored." >&2
+      else
+        printf '%s\n' "${YEL}warning:${RST} the database was not changed, but the previous application services could not all be restarted." >&2
+        printf '%s\n' "         Diagnose Docker Compose, then run ./chronicle up." >&2
+      fi
+    fi
+    RESTORE_RESTART_ON_EXIT=false
+    # This cleanup path is reachable only before the restore container is invoked. Its lock
+    # must not claim that the unchanged database is in a destructive recovery state.
+    RESTORE_LOCK_PRESERVE=false
+  fi
+  if [[ "$RESTORE_LOCK_HELD" == true ]]; then
+    if [[ "$RESTORE_LOCK_PRESERVE" == true ]]; then
+      printf '%s\n' "${YEL}warning:${RST} do not start Chronicle application services against this database." >&2
+      printf '%s\n' "         Restore state is preserved at ${RESTORE_LOCK_DIR}." >&2
+      printf '%s\n' "         Confirm no restore process or restore container is running, diagnose the" >&2
+      printf '%s\n' "         failure, then follow docs/BACKUP-RESTORE.md to release only that lock." >&2
+    elif ! release_restore_lock; then
+      printf '%s\n' "${YEL}warning:${RST} could not release restore lock ${RESTORE_LOCK_DIR}" >&2
+    fi
+  fi
+  return "$original_status"
+}
+
+resolve_restore_host_path() {
+  local container_path="$1"
+  python3 - "$BACKUPS_HOST_DIR" "$container_path" <<'PY'
+from pathlib import Path, PurePosixPath
+import os
+import sys
+
+root_text, container_text = sys.argv[1:]
+container = PurePosixPath(container_text)
+parts = container.parts
+if len(parts) < 3 or parts[:2] != ("/", "backups"):
+    raise SystemExit("restore path must be below /backups")
+relative = parts[2:]
+if any(part in {"", ".", ".."} for part in relative):
+    raise SystemExit("restore path contains an unsafe component")
+if not relative[-1].endswith(".sql.gz"):
+    raise SystemExit("restore path must end in .sql.gz")
+
+try:
+    root = Path(root_text).resolve(strict=True)
+    target = root.joinpath(*relative).resolve(strict=True)
+except (OSError, RuntimeError) as error:
+    raise SystemExit(f"cannot resolve restore path: {error}") from None
+if any(character in str(target) for character in ("\n", "\r", "\x00")):
+    raise SystemExit("restore path resolves to a name containing a control character")
+if os.path.commonpath((str(root), str(target))) != str(root):
+    raise SystemExit("restore path resolves outside the backups directory")
+if not target.is_file():
+    raise SystemExit("restore path is not a regular file")
+print(target)
+PY
+}
+
+cmd_restore() {
+  shift || true
+  local assume_yes=false no_start=false restore_container_path=""
+  local argument
+  for argument in "$@"; do
+    case "$argument" in
+      --yes) assume_yes=true ;;
+      --no-start) no_start=true ;;
+      -h|--help)
+        printf '%s\n' 'usage: ./chronicle restore [--yes] [--no-start] [/backups/path/to/dump.sql.gz]'
+        return 0
+        ;;
+      --*) die "unknown restore option: $argument" ;;
+      *)
+        [[ -z "$restore_container_path" ]] ||
+          die "usage: ./chronicle restore [--yes] [--no-start] [/backups/path/to/dump.sql.gz]"
+        restore_container_path="$argument"
+        ;;
+    esac
+  done
+
+  need_env
+  ACTIVE_OPERATION=restore
+  command -v gzip >/dev/null 2>&1 || die "required command is unavailable: gzip"
+  : "${RESTORE_START_WAIT_TIMEOUT_SECONDS:=300}"
+  [[ "$RESTORE_START_WAIT_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] ||
+    die "RESTORE_START_WAIT_TIMEOUT_SECONDS must be a positive integer"
+  (( RESTORE_START_WAIT_TIMEOUT_SECONDS <= 3600 )) ||
+    die "RESTORE_START_WAIT_TIMEOUT_SECONDS must not exceed 3600"
+  [[ -d "$STATE_ROOT" ]] || die "CHRONICLE_STATE_DIR does not exist: $STATE_ROOT"
+
+  restore_container_path="${restore_container_path:-/backups/last/chronicle-latest.sql.gz}"
+  case "$restore_container_path" in
+    *$'\n'*|*$'\r'*) die "restore path must not contain control characters" ;;
+  esac
+  local restore_host_path
+  restore_host_path="$(resolve_restore_host_path "$restore_container_path")" ||
+    die "restore dump is unavailable or unsafe: $restore_container_path"
+  [[ -s "$restore_host_path" ]] || die "restore dump is empty: $restore_container_path"
+  printf '%sRestoring Chronicle from%s %s\n' "$BLD" "$RST" "$restore_container_path"
+  printf '  Checking gzip integrity before stopping application services.\n'
+  gzip -t "$restore_host_path" || die "restore dump failed gzip integrity verification"
+
+  local service_list
+  # The one-shot restore service is intentionally hidden behind a profile so a normal
+  # `docker compose up` can never launch it. Enable that profile only while inspecting or
+  # invoking the restore service; post-restore `up` below must remain profile-free.
+  service_list="$(dc --profile restore config --services)" ||
+    die "Docker Compose configuration is invalid"
+  for argument in postgres backend web restore; do
+    grep -Fxq "$argument" <<<"$service_list" ||
+      die "Docker Compose configuration is missing required service: $argument"
+  done
+  local -a stopped_services=(backend web db-init)
+  if grep -Fxq db-backup <<<"$service_list"; then
+    stopped_services+=(db-backup)
+  fi
+  local running_services
+  running_services="$(dc --profile restore ps --status running --services)" ||
+    die "could not inspect running Compose services"
+  grep -Fxq restore <<<"$running_services" &&
+    die "a one-shot restore container is already running; do not start another restore"
+  RESTORE_PREVIOUSLY_RUNNING_SERVICES=()
+  for argument in "${stopped_services[@]}"; do
+    if grep -Fxq "$argument" <<<"$running_services"; then
+      RESTORE_PREVIOUSLY_RUNNING_SERVICES+=("$argument")
+    fi
+  done
+
+  if [[ "$assume_yes" != true ]]; then
+    [[ -t 0 ]] ||
+      die "confirmation requires a terminal; review the restore runbook, then repeat with --yes"
+    local answer
+    read -rp "Stop Chronicle and replace its database with this dump? [y/N] " answer
+    [[ "$answer" =~ ^[Yy]$ ]] || die "restore cancelled"
+  fi
+
+  umask 077
+  RESTORE_LOCK_DIR="${STATE_ROOT}/.chronicle-restore.lock"
+  local upgrade_lock="${STATE_ROOT}/.chronicle-upgrade.lock"
+  local rotation_lock="${STATE_ROOT}/.chronicle-secret-rotation"
+  [[ ! -e "$upgrade_lock" && ! -L "$upgrade_lock" ]] ||
+    die "an upgrade is active or incomplete ($upgrade_lock); do not restore concurrently"
+  [[ ! -e "$rotation_lock" && ! -L "$rotation_lock" ]] ||
+    die "a secret rotation is active or incomplete ($rotation_lock); do not restore concurrently"
+  if ! /bin/mkdir "$RESTORE_LOCK_DIR" 2>/dev/null; then
+    die "another restore is active or incomplete ($RESTORE_LOCK_DIR). Follow docs/BACKUP-RESTORE.md before removing the lock."
+  fi
+  RESTORE_LOCK_HELD=true
+  RESTORE_LOCK_PRESERVE=false
+  trap restore_exit_cleanup EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  /bin/chmod 0700 "$RESTORE_LOCK_DIR" || die "could not protect restore lock"
+
+  # Recheck after acquiring our lock. Without this second check, restore and upgrade (or
+  # rotation) can both pass their first check and create their own locks concurrently.
+  [[ ! -e "$upgrade_lock" && ! -L "$upgrade_lock" ]] ||
+    die "an upgrade started while the restore lock was being acquired; restore did not start"
+  [[ ! -e "$rotation_lock" && ! -L "$rotation_lock" ]] ||
+    die "a secret rotation started while the restore lock was being acquired; restore did not start"
+  write_restore_lock_file owner-pid "$$"
+  write_restore_lock_file restore-file "$restore_container_path"
+  write_restore_lock_file phase prepared
+
+  printf '  Stopping application access and backup activity: %s\n' "${stopped_services[*]}"
+  write_restore_lock_file phase stopping-services
+  RESTORE_RESTART_ON_EXIT=true
+  if ! dc stop "${stopped_services[@]}"; then
+    die "could not stop every application service; restore was not started"
+  fi
+  running_services="$(dc --profile restore ps --status running --services)" ||
+    die "could not verify that application services stopped"
+  for argument in "${stopped_services[@]}"; do
+    if grep -Fxq "$argument" <<<"$running_services"; then
+      die "Compose service '$argument' is still running; restore was not started"
+    fi
+  done
+  grep -Fxq restore <<<"$running_services" &&
+    die "a different one-shot restore container is running; restore was not started"
+
+  # From this point onward a failure may leave a partial replacement schema. Preserve the
+  # interlock until the operator follows the documented recovery procedure.
+  RESTORE_LOCK_PRESERVE=true
+  RESTORE_RESTART_ON_EXIT=false
+  write_restore_lock_file phase restoring
+  local -a restore_args=(run --rm -e CHRONICLE_RESTORE_ORCHESTRATED=true)
+  if [[ "$no_start" == true ]]; then
+    # The prior binary cannot consume a newer restore-continuity checkpoint. The restore
+    # service therefore permits rollback only when every immutable protected fact already
+    # exists identically in the selected backup; any post-backup withdrawal leaves the stack
+    # stopped and the operation lock intact.
+    restore_args+=(-e CHRONICLE_RESTORE_LEAVE_STOPPED=true)
+  fi
+  restore_args+=(-e "RESTORE_FILE=${restore_container_path}" restore)
+  if ! dc --profile restore "${restore_args[@]}"; then
+    die "database restore failed; Chronicle was deliberately left stopped"
+  fi
+  write_restore_lock_file phase database-restored
+
+  if [[ "$no_start" == true ]]; then
+    printf '  Database restored; application services remain stopped because --no-start was used.\n'
+  else
+    printf '  Starting Chronicle (bounded health wait: %ss).\n' "$RESTORE_START_WAIT_TIMEOUT_SECONDS"
+    write_restore_lock_file phase starting-services
+    local -a startup_services=()
+    local service has_ca_export=false configured_services
+    configured_services="$(dc config --services)" ||
+      die "could not resolve the post-restore Compose services"
+    while IFS= read -r service; do
+      [[ -n "$service" ]] || continue
+      if [[ "$service" == ca-export ]]; then
+        has_ca_export=true
+      else
+        startup_services+=("$service")
+      fi
+    done <<<"$configured_services"
+    [[ "${#startup_services[@]}" -gt 0 ]] || die "restore found no long-running services to start"
+    if ! dc up -d --wait --wait-timeout "$RESTORE_START_WAIT_TIMEOUT_SECONDS" \
+        --remove-orphans "${startup_services[@]}"; then
+      warn "post-restore startup failed; stopping application services again"
+      dc stop "${stopped_services[@]}" >/dev/null 2>&1 ||
+        warn "could not confirm every application service stopped after startup failure"
+      die "database restored, but Chronicle did not return healthy"
+    fi
+    if [[ "$has_ca_export" == true ]] && ! dc run --rm --no-deps ca-export; then
+      warn "local CA export failed after restore; stopping application services again"
+      dc stop "${stopped_services[@]}" >/dev/null 2>&1 ||
+        warn "could not confirm every application service stopped after CA export failure"
+      die "database restored, but Chronicle could not publish its local CA"
+    fi
+    write_restore_lock_file phase verified
+  fi
+
+  RESTORE_LOCK_PRESERVE=false
+  if ! release_restore_lock; then
+    RESTORE_LOCK_PRESERVE=true
+    die "restore completed, but its operation lock could not be released"
+  fi
+  trap - EXIT HUP INT TERM
+  if [[ "$no_start" == true ]]; then
+    printf '%sRestore complete.%s The Chronicle application remains stopped.\n' "$GRN" "$RST"
+  else
+    printf '%sRestore complete.%s Chronicle is healthy; run ./chronicle verify next.\n' "$GRN" "$RST"
+  fi
+  write_operation_receipt restore success none ||
+    warn "restore completed, but its local operation receipt could not be written"
+  record_operation restore success none
+  ACTIVE_OPERATION=""
+}
+
+cmd_deletion_status() {
+  shift || true
+  [[ $# -ge 1 && $# -le 2 ]] ||
+    die "usage: ./chronicle deletion-status STUDY_UUID [OPERATION_UUID]"
+  local study_id="$1" operation_id="${2:-}"
+  local uuid_pattern='^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$'
+  [[ "$study_id" =~ $uuid_pattern ]] || die "STUDY_UUID is not a UUID"
+  [[ -z "$operation_id" || "$operation_id" =~ $uuid_pattern ]] ||
+    die "OPERATION_UUID is not a UUID"
+  need_env
+  begin_operation deletion-status query_failed
+
+  if ! printf '%s\n%s\n' "$study_id" "$operation_id" | dc exec -T postgres /bin/bash -euc '
+    : "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is unavailable in the postgres container}"
+    IFS= read -r study_id
+    IFS= read -r operation_id || true
+    uuid_pattern="^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"
+    [[ "$study_id" =~ $uuid_pattern ]]
+    [[ -z "$operation_id" || "$operation_id" =~ $uuid_pattern ]]
+    operation_predicate=""
+    if [[ -n "$operation_id" ]]; then
+      operation_predicate="AND operation.operation_id = '\''${operation_id}'\''::uuid"
+    fi
+    export PGPASSWORD="$POSTGRES_PASSWORD"
+    exec psql -X -v ON_ERROR_STOP=1 -P pager=off \
+      -h 127.0.0.1 -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" <<SQL
+SELECT operation.operation_id,
+       operation.mode,
+       operation.status,
+       operation.quarantine_until,
+       operation.completed_at,
+       CASE
+         WHEN operation.status = '\''COMPLETED'\''
+          AND operation.proof_hash IS NOT NULL
+          AND tombstone.proof_hash = operation.proof_hash THEN '\''verified'\''
+         WHEN operation.status = '\''COMPLETED'\'' THEN '\''missing-proof'\''
+         ELSE '\''pending'\''
+       END AS proof_state,
+       EXISTS (
+         SELECT 1 FROM retention_holds AS hold
+          WHERE hold.operation_id = operation.operation_id
+            AND hold.released_at IS NULL
+       ) AS active_hold,
+       COALESCE(operation.failure_code, '\'''\'') AS failure_code
+  FROM data_deletion_operations AS operation
+  LEFT JOIN data_deletion_tombstones AS tombstone
+    ON tombstone.operation_id = operation.operation_id
+ WHERE operation.study_id = '\''${study_id}'\''::uuid
+   ${operation_predicate}
+ ORDER BY operation.created_at DESC;
+SQL
+  '; then
+    die "could not query deletion operation status"
+  fi
+  operation_succeeded
+}
+
+cmd_upgrade() {
+  shift || true
+  # upgrade.sh is intentionally run from a freshly extracted release. The new bundle must
+  # not have an .env yet: the guarded upgrade validates and merges the previous release's
+  # mode-0600 settings with the new defaults and immutable image pins. Requiring .env here
+  # made the documented clean-bundle upgrade path impossible before upgrade.sh could run.
+  # Do not arm the generic receipt trap until upgrade.sh has installed the merged .env.
+  # Before that point STATE_ROOT is this immutable extraction, so even an argument typo
+  # would create an unlisted operator-receipts file and make the clean bundle fail its own
+  # exact-inventory check on the next attempt. upgrade.sh owns failure receipts once a
+  # destructive phase starts. After success, need_env resolves the preserved state root and
+  # the generic success receipt is written there, never into the release extraction.
+  ./upgrade.sh "$@" || die "upgrade failed"
+  need_env
+  begin_operation upgrade upgrade_failed
+  operation_succeeded
+}
+
+cmd_rotate_secret() {
+  shift || true
+  need_env
+  begin_operation rotate-secret rotation_failed
+  ./rotate-secret.sh "$@" || die "secret rotation failed"
+  operation_succeeded
+}
+
+case "${1:-help}" in
+  setup)  cmd_setup ;;
+  up)     cmd_up ;;
+  check)  cmd_check ;;
+  verify) cmd_verify "$@" ;;
+  status) cmd_status ;;
+  doctor) cmd_doctor "$@" ;;
+  monitoring) cmd_monitoring "$@" ;;
+  logs)   cmd_logs "$@" ;;
+  down)   cmd_down ;;
+  restore) cmd_restore "$@" ;;
+  deletion-status) cmd_deletion_status "$@" ;;
+  upgrade) cmd_upgrade "$@" ;;
+  rotate-secret) cmd_rotate_secret "$@" ;;
+  *) sed -n '2,26p' "$SCRIPT_PATH" | sed 's/^# \{0,1\}//' ;;
+esac

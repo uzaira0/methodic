@@ -1,0 +1,333 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PINNED_AUDIT_IMAGE='docker.io/library/alpine:3.20.10@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc'
+STATE_DIR="${LEGACY_RESTORE_TEST_STATE_DIR:?}"
+
+mark() {
+  printf 'invoked\n' > "$1"
+}
+
+contains_argument() {
+  local expected="$1"
+  shift
+  local argument
+  for argument in "$@"; do
+    [[ "$argument" == "$expected" ]] && return 0
+  done
+  return 1
+}
+
+contains_fragment() {
+  local expected="$1"
+  shift
+  local argument
+  for argument in "$@"; do
+    [[ "$argument" == *"$expected"* ]] && return 0
+  done
+  return 1
+}
+
+require_database_wrapper() {
+  if ! contains_argument chronicle-postgres-command "$@"; then
+    echo "database fixture invocation omitted the in-container credential wrapper: $*" >&2
+    exit 96
+  fi
+  if ! contains_argument -h "$@" || ! contains_argument 127.0.0.1 "$@"; then
+    echo "database fixture invocation omitted TCP host 127.0.0.1: $*" >&2
+    exit 96
+  fi
+  if contains_fragment fixture-postgres-password "$@"; then
+    echo "database fixture observed the PostgreSQL password in host argv: $*" >&2
+    exit 96
+  fi
+}
+
+require_helper_flags() {
+  contains_argument --pull=never "$@" || exit 95
+  contains_argument --network=none "$@" || exit 95
+  contains_argument --read-only "$@" || exit 95
+  contains_argument --security-opt=no-new-privileges "$@" || exit 95
+  contains_argument "$PINNED_AUDIT_IMAGE" "$@" || exit 95
+}
+
+application_state() {
+  local container_name="$1"
+  if [[ -f "${STATE_DIR}/all.stopped" || -f "${STATE_DIR}/${container_name}.stopped" ]]; then
+    printf 'exited\n'
+    return
+  fi
+  if [[ -f "${LEGACY_RESTORE_TEST_FULL_START_MARKER:?}" ]]; then
+    case "$container_name" in
+      edge-traefik|chronicle-backend|chronicle-frontend|chronicle-preprocessing-frontend)
+        printf 'running\n'
+        return
+        ;;
+    esac
+  fi
+  if [[ "$container_name" == chronicle-backend \
+      && "${LEGACY_RESTORE_TEST_POST_DOWN_BACKEND_RUNNING:-false}" == true ]]; then
+    printf 'running\n'
+  fi
+}
+
+health_state() {
+  local container_name="$1"
+  if [[ "$container_name" == "${LEGACY_RESTORE_TEST_HEALTH_FAILURE_CONTAINER:-}" ]]; then
+    printf 'unhealthy\n'
+    return
+  fi
+  case "$container_name" in
+    chronicle-backend) printf '%s\n' "${LEGACY_RESTORE_TEST_BACKEND_HEALTH:-healthy}" ;;
+    chronicle-frontend) printf '%s\n' "${LEGACY_RESTORE_TEST_FRONTEND_HEALTH:-healthy}" ;;
+    chronicle-preprocessing-frontend) printf '%s\n' "${LEGACY_RESTORE_TEST_PREPROCESSING_HEALTH:-healthy}" ;;
+    *) printf 'healthy\n' ;;
+  esac
+}
+
+case "${1:-}" in
+  compose)
+    if contains_argument run "$@"; then
+      if contains_argument chronicle-migration-preflight "$@"; then
+        mark "${LEGACY_RESTORE_TEST_MIGRATION_PREFLIGHT_MARKER:?}"
+        exit "${LEGACY_RESTORE_TEST_MIGRATION_PREFLIGHT_EXIT:-0}"
+      fi
+      if contains_argument chronicle-migration-runner "$@"; then
+        mark "${LEGACY_RESTORE_TEST_MIGRATION_RUN_MARKER:?}"
+        exit "${LEGACY_RESTORE_TEST_MIGRATION_RUN_EXIT:-0}"
+      fi
+      echo "unexpected docker compose run fixture invocation: $*" >&2
+      exit 97
+    fi
+    if contains_argument down "$@"; then
+      exit "${LEGACY_RESTORE_TEST_COMPOSE_DOWN_EXIT:-0}"
+    fi
+    if contains_argument stop "$@"; then
+      mark "${LEGACY_RESTORE_TEST_QUIESCE_MARKER:?}"
+      if [[ "${LEGACY_RESTORE_TEST_QUIESCE_EXIT:-0}" == 0 ]]; then
+        mark "${STATE_DIR}/all.stopped"
+      fi
+      exit "${LEGACY_RESTORE_TEST_QUIESCE_EXIT:-0}"
+    fi
+    if (( $# >= 3 )); then
+      last_argument="${!#}"
+      previous_index=$(( $# - 1 ))
+      previous_argument="${!previous_index}"
+      if [[ "$previous_argument" == up && "$last_argument" == -d ]]; then
+        mark "${LEGACY_RESTORE_TEST_FULL_START_MARKER:?}"
+        exit "${LEGACY_RESTORE_TEST_FULL_START_EXIT:-0}"
+      fi
+    fi
+    if contains_argument up "$@" && contains_argument postgres "$@"; then
+      exit 0
+    fi
+    echo "unexpected docker compose fixture invocation: $*" >&2
+    exit 97
+    ;;
+  container)
+    [[ "${2:-}" == ls ]] || exit 97
+    [[ "${LEGACY_RESTORE_TEST_CONTAINER_STATE_EXIT:-0}" == 0 ]] ||
+      exit "${LEGACY_RESTORE_TEST_CONTAINER_STATE_EXIT}"
+    filter=""
+    index=1
+    for argument in "$@"; do
+      if [[ "$filter" == next ]]; then
+        filter="$argument"
+        break
+      fi
+      [[ "$argument" == --filter ]] && filter=next
+      index=$((index + 1))
+    done
+    [[ "$filter" == name='^/'*'$' ]] || exit 95
+    container_name="${filter#name=^/}"
+    container_name="${container_name%\$}"
+    application_state "$container_name"
+    ;;
+  cp)
+    for argument in "$@"; do
+      if [[ "$argument" == chronicle-postgres:/tmp/chronicle-restore-*.dump ]]; then
+        printf '%s\n' "${argument#chronicle-postgres:}" \
+          > "${LEGACY_RESTORE_TEST_STAGED_CONTAINER_PATH_MARKER:?}"
+      fi
+    done
+    ;;
+  exec)
+    if contains_argument chronicle-postgres-replica "$@"; then
+      if contains_fragment pg_is_in_recovery "$@"; then
+        printf '%s\n' "${LEGACY_RESTORE_TEST_REPLICA_RECOVERY_STATE:-t}"
+        exit "${LEGACY_RESTORE_TEST_REPLICA_QUERY_EXIT:-0}"
+      fi
+      echo "unexpected replica exec fixture invocation: $*" >&2
+      exit 97
+    fi
+    if contains_argument pg_isready "$@"; then
+      contains_argument -h "$@" && contains_argument 127.0.0.1 "$@" || exit 96
+      if [[ -f "${LEGACY_RESTORE_TEST_FULL_START_MARKER:?}" ]]; then
+        exit "${LEGACY_RESTORE_TEST_POSTGRES_FINAL_HEALTH_EXIT:-0}"
+      fi
+      exit 0
+    fi
+    if contains_fragment 'PG_TDE_KEY_PROVIDER is unavailable' "$@"; then
+      printf '%s\n' "${LEGACY_RESTORE_TEST_TDE_PROVIDER:-file}"
+      exit 0
+    fi
+    if contains_argument pg_restore "$@"; then
+      if contains_argument --list "$@"; then
+        mark "${LEGACY_RESTORE_TEST_LIST_MARKER:?}"
+        exit "${LEGACY_RESTORE_TEST_ARCHIVE_LIST_EXIT:-0}"
+      fi
+      require_database_wrapper "$@"
+      mark "${LEGACY_RESTORE_TEST_RESTORE_MARKER:?}"
+      exit "${LEGACY_RESTORE_TEST_PG_RESTORE_EXIT:-0}"
+    fi
+    if contains_argument psql "$@"; then
+      require_database_wrapper "$@"
+      admin_command_count=0
+      contains_fragment pg_terminate_backend "$@" && admin_command_count=$((admin_command_count + 1))
+      contains_fragment 'DROP DATABASE IF EXISTS' "$@" && admin_command_count=$((admin_command_count + 1))
+      contains_fragment 'CREATE DATABASE' "$@" && admin_command_count=$((admin_command_count + 1))
+      if (( admin_command_count > 1 )); then
+        echo "database fixture rejects combined terminate/drop/create transaction: $*" >&2
+        exit 95
+      fi
+    fi
+    if contains_fragment pg_terminate_backend "$@"; then
+      mark "${LEGACY_RESTORE_TEST_TERMINATE_MARKER:?}"
+      exit 0
+    fi
+    if contains_fragment 'DROP DATABASE IF EXISTS' "$@"; then
+      mark "${LEGACY_RESTORE_TEST_DROP_MARKER:?}"
+      exit 0
+    fi
+    if contains_fragment 'CREATE DATABASE' "$@"; then
+      mark "${LEGACY_RESTORE_TEST_CREATE_MARKER:?}"
+      exit "${LEGACY_RESTORE_TEST_CREATE_DATABASE_EXIT:-0}"
+    fi
+    if contains_fragment "SELECT COUNT(*) FROM pg_class WHERE relkind='r'" "$@"; then
+      [[ "${LEGACY_RESTORE_TEST_TABLE_QUERY_EXIT:-0}" == 0 ]] ||
+        exit "${LEGACY_RESTORE_TEST_TABLE_QUERY_EXIT}"
+      printf '%s\n' "${LEGACY_RESTORE_TEST_TABLE_COUNT:-0}"
+      exit 0
+    fi
+    if contains_fragment 'required_table(name)' "$@"; then
+      printf '%s\n' "${LEGACY_RESTORE_TEST_SCHEMA_ANCHOR_COUNT:-0}"
+      exit 0
+    fi
+    if contains_fragment 'COALESCE(max(version::int)' "$@"; then
+      if [[ -f "${LEGACY_RESTORE_TEST_MIGRATION_RUN_MARKER:?}" ]]; then
+        printf '%s|%s|%s|%s|%s\n' \
+          "${LEGACY_RESTORE_TEST_POST_MIGRATION_FLYWAY_MAX:-82}" \
+          "${LEGACY_RESTORE_TEST_FLYWAY_BASELINE:-54}" \
+          "${LEGACY_RESTORE_TEST_FLYWAY_SUCCESSFUL:-29}" \
+          "${LEGACY_RESTORE_TEST_POST_MIGRATION_FLYWAY_FAILED:-0}" \
+          "${LEGACY_RESTORE_TEST_FLYWAY_INVALID:-0}"
+      else
+        printf '%s|%s|%s|%s|%s\n' \
+          "${LEGACY_RESTORE_TEST_FLYWAY_MAX:-82}" \
+          "${LEGACY_RESTORE_TEST_FLYWAY_BASELINE:-54}" \
+          "${LEGACY_RESTORE_TEST_FLYWAY_SUCCESSFUL:-29}" \
+          "${LEGACY_RESTORE_TEST_FLYWAY_FAILED:-0}" \
+          "${LEGACY_RESTORE_TEST_FLYWAY_INVALID:-0}"
+      fi
+      exit 0
+    fi
+    if contains_fragment jsonb_build_array "$@"; then
+      printf '%s\n' "${LEGACY_RESTORE_TEST_FLYWAY_HISTORY_ROW:-[1,\"54\",\"baseline\",\"BASELINE\",\"baseline\",null,true]}"
+      exit "${LEGACY_RESTORE_TEST_FLYWAY_HISTORY_EXIT:-0}"
+    fi
+    if contains_fragment 'FROM pg_tde_key_info() AS key_info' "$@"; then
+      expected_type=file
+      [[ "${LEGACY_RESTORE_TEST_TDE_PROVIDER:-file}" == vault ]] && expected_type=vault-v2
+      printf '%s|%s|%s\n' \
+        "${LEGACY_RESTORE_TEST_TDE_KEY_NAME:-chronicle-principal-key}" \
+        "${LEGACY_RESTORE_TEST_TDE_PROVIDER_NAME:-chronicle-file-vault}" \
+        "${LEGACY_RESTORE_TEST_TDE_PROVIDER_TYPE:-$expected_type}"
+      exit 0
+    fi
+    if contains_fragment pg_tde_verify_key "$@"; then
+      exit "${LEGACY_RESTORE_TEST_TDE_VERIFY_EXIT:-0}"
+    fi
+    if contains_fragment 'AS total_tables' "$@"; then
+      if [[ -f "${LEGACY_RESTORE_TEST_FULL_START_MARKER:?}" ]]; then
+        printf '%s|%s|%s\n' \
+          "${LEGACY_RESTORE_TEST_FINAL_TABLE_COUNT:-0}" \
+          "${LEGACY_RESTORE_TEST_FINAL_TDE_COUNT:-0}" \
+          "${LEGACY_RESTORE_TEST_FINAL_PLAIN_COUNT:-0}"
+      else
+        printf '%s|%s|%s\n' \
+          "${LEGACY_RESTORE_TEST_CURRENT_TABLE_COUNT:-0}" \
+          "${LEGACY_RESTORE_TEST_CURRENT_TDE_COUNT:-0}" \
+          "${LEGACY_RESTORE_TEST_CURRENT_PLAIN_COUNT:-0}"
+      fi
+      exit 0
+    fi
+    if contains_fragment restore_data_read_proof "$@"; then
+      exit "${LEGACY_RESTORE_TEST_DATA_READ_EXIT:-0}"
+    fi
+    if contains_fragment 'FROM pg_stat_replication' "$@"; then
+      printf '%s\n' "${LEGACY_RESTORE_TEST_PRIMARY_STREAMS:-1}"
+      exit "${LEGACY_RESTORE_TEST_PRIMARY_REPLICATION_QUERY_EXIT:-0}"
+    fi
+    if contains_argument chronicle-keyring-cleanup "$@"; then
+      mark "${LEGACY_RESTORE_TEST_KEYRING_CLEANUP_MARKER:?}"
+      exit 0
+    fi
+    if contains_argument rm "$@"; then
+      for argument in "$@"; do
+        if [[ "$argument" == /tmp/chronicle-restore-*.dump ]]; then
+          printf '%s\n' "$argument" > "${LEGACY_RESTORE_TEST_CLEANUP_PATH_MARKER:?}"
+          exit 0
+        fi
+      done
+    fi
+    if contains_argument chronicle-keyring-restore "$@"; then
+      mark "${LEGACY_RESTORE_TEST_KEYRING_RESTORE_MARKER:?}"
+      exit "${LEGACY_RESTORE_TEST_KEYRING_RESTORE_EXIT:-0}"
+    fi
+    echo "unexpected docker exec fixture invocation: $*" >&2
+    exit 97
+    ;;
+  inspect)
+    container_name="${2:-}"
+    health_state "$container_name"
+    ;;
+  stop)
+    container_name="${2:-}"
+    mark "${LEGACY_RESTORE_TEST_QUIESCE_MARKER:?}"
+    if [[ "${LEGACY_RESTORE_TEST_DIRECT_STOP_EXIT:-0}" == 0 ]]; then
+      mark "${STATE_DIR}/${container_name}.stopped"
+    fi
+    exit "${LEGACY_RESTORE_TEST_DIRECT_STOP_EXIT:-0}"
+    ;;
+  image)
+    [[ "${2:-}" == inspect && "${3:-}" == "$PINNED_AUDIT_IMAGE" ]] || exit 95
+    mark "${LEGACY_RESTORE_TEST_AUDIT_IMAGE_MARKER:?}"
+    exit "${LEGACY_RESTORE_TEST_AUDIT_IMAGE_EXIT:-0}"
+    ;;
+  volume)
+    [[ "${2:-}" == create && "${3:-}" == chronicle_audit_logs ]] || exit 95
+    mark "${LEGACY_RESTORE_TEST_AUDIT_VOLUME_MARKER:?}"
+    exit "${LEGACY_RESTORE_TEST_AUDIT_VOLUME_EXIT:-0}"
+    ;;
+  run)
+    require_helper_flags "$@"
+    if contains_argument chronicle-audit-helper-preflight "$@"; then
+      mark "${LEGACY_RESTORE_TEST_AUDIT_PREFLIGHT_MARKER:?}"
+      exit "${LEGACY_RESTORE_TEST_AUDIT_PREFLIGHT_EXIT:-0}"
+    fi
+    if contains_argument chronicle-audit-restore "$@"; then
+      contains_argument 'chronicle_audit_logs:/restore' "$@" || exit 95
+      contains_fragment ':/tmp/audit-logs.tar.gz:ro,Z' "$@" || exit 95
+      mark "${LEGACY_RESTORE_TEST_AUDIT_RESTORE_MARKER:?}"
+      exit "${LEGACY_RESTORE_TEST_AUDIT_RESTORE_EXIT:-0}"
+    fi
+    exit 97
+    ;;
+  rm)
+    exit "${LEGACY_RESTORE_TEST_MIGRATION_CLEANUP_EXIT:-0}"
+    ;;
+  *)
+    echo "unexpected docker fixture invocation: $*" >&2
+    exit 97
+    ;;
+esac

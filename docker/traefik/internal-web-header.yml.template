@@ -1,0 +1,12 @@
+# Rendered at Traefik startup by the traefik service entrypoint (see
+# docker-compose.traefik.yml). The entrypoint replaces the placeholder token
+# below with the required CHRONICLE_INTERNAL_WEB_SECRET. This authenticates the mobile HMAC
+# signing bypass for researcher-console traffic with a proxy-only secret rather
+# than a guessable header value (CWE-290). Mounted OUTSIDE the dynamic directory
+# so Traefik never loads the un-rendered template.
+http:
+  middlewares:
+    chronicle-web-internal-header:
+      headers:
+        customRequestHeaders:
+          X-Chronicle-Internal-Web: "__CHRONICLE_INTERNAL_WEB_SECRET__"

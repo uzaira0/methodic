@@ -1,0 +1,599 @@
+# Chronicle — self-host base stack
+#
+#   cp .env.example .env      # then edit DOMAIN + secrets
+#   docker compose up -d
+#
+# That is the whole deployment. There is no separate setup, check or migrate step.
+#
+# Long-running services: PostgreSQL (encrypted at rest via pg_tde, while its SQL dumps stay
+# key-free so they always restore), the backend API, and a Caddy that serves the dashboard
+# and routes the API. Plus four services that run once and exit, which is what makes the
+# single command safe:
+#
+#   config-guard  refuses to let anything start on a configuration that is unsafe or
+#                 self-contradictory (guard-config.sh). Everything else waits on it.
+#   cert-init     makes ./tls readable by Caddy, and generates the internal dashboard
+#                 certificate when a mode-*-internal overlay is in use (cert-init.sh).
+#   db-init       secures ./backups and turns on encryption at rest BEFORE the backend
+#                 first connects, so Flyway creates every table already encrypted rather
+#                 than having it converted afterwards (db-init.sh -> init-tde.sh).
+#   frontend      copies the prebuilt React dashboard into the volume Caddy serves.
+#
+# COMPOSE_FILE in .env selects the shape of the deployment; `cp .env.example .env` starts
+# with a working default and every value it needs is in that one file. Exactly one
+# mode overlay must be in it -- config-guard fails with the list if none is:
+#
+#   overlays/mode-behind-proxy-internal.yml   your load balancer terminates TLS;
+#                                             dashboard on a private interface only
+#   overlays/mode-own-tls-internal.yml        this stack terminates TLS with YOUR
+#                                             certificate in ./tls; private dashboard
+#   overlays/mode-local-https.yml             trial on a laptop: Caddy runs its own CA and
+#                                             issues a certificate for this machine's LAN
+#                                             address, which each test phone installs once
+#
+# There is deliberately no automatic-Let's-Encrypt default — see docs/CONFIGURATION.md.
+# Further supported overlays: overlays/backups.yml (in the default COMPOSE_FILE, and
+# required whenever encryption is on) and overlays/monitoring.yml. Public-dashboard and
+# Keycloak scaffolds are physically separated under experimental/ and are not released.
+#
+# `./chronicle` is still here and still useful — `setup` writes a .env with generated
+# secrets, `check` adds the checks a container cannot make (whether a bind address exists
+# on this host, whether a port is already taken, whether another Compose project would be
+# adopted), and `verify` probes the exposure boundary from outside. None of it is required.
+#
+# Release images are built, scanned, attested, and digest-pinned before this bundle is
+# published. A self-hoster never needs the source workspace or a language toolchain.
+
+# Docker's default json-file driver grows without bound, which on a busy box eventually
+# fills the disk and takes the database down with it. Cap every service.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "${LOG_MAX_SIZE:-10m}"
+    max-file: "${LOG_MAX_FILES:-5}"
+
+services:
+  # Runs first, exits, and gates every other service. Nothing here touches the network or
+  # the database -- it reads configuration and refuses combinations that would deploy
+  # something unsafe or something that looks broken (see guard-config.sh for each one).
+  #
+  # TLS_MODE and DASHBOARD_EXPOSURE are set by the mode overlay, not read from .env, so the
+  # guard checks the overlay that was actually composed in. With no mode overlay they stay
+  # empty and the guard fails -- which is correct, because `web` would then publish nothing.
+  config-guard:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE to the digest-pinned release image from .env.example}
+    restart: "no"
+    logging: *default-logging
+    entrypoint: ["/bin/bash", "/selfhost/guard-config.sh"]
+    environment:
+      TLS_MODE: ""
+      DASHBOARD_EXPOSURE: ""
+      # Compose consumes COMPOSE_FILE before rendering. Pass the selected list back into the
+      # guard so plain `docker compose up -d` can reject duplicate/unknown mode overlays.
+      COMPOSE_FILE_SELECTION: ${COMPOSE_FILE:-}
+      BACKUPS_ENABLED: "false"
+      # Base value; the source-only experimental auth scaffold overrides it to "true".
+      # BACKUPS_ENABLED above — the overlay announces itself rather than the guard
+      # trying to parse COMPOSE_FILE.
+      AUTH_OVERLAY_ENABLED: "false"
+      MONITORING_ENABLED: "false"
+      RELEASE_VERSION: ${RELEASE_VERSION:-development}
+      ENABLE_ENCRYPTION: ${ENABLE_ENCRYPTION:-true}
+      DOMAIN: ${DOMAIN:-}
+      CHRONICLE_PUBLIC_BASE_URL: ${CHRONICLE_PUBLIC_BASE_URL:-}
+      LOCAL_HTTPS_PORT: ${LOCAL_HTTPS_PORT:-443}
+      LOCAL_HTTP_PORT: ${LOCAL_HTTP_PORT:-80}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      MOBILE_SIGNING_ENABLED: ${MOBILE_SIGNING_ENABLED:-false}
+      MOBILE_SIGNING_REQUIRED: ${MOBILE_SIGNING_REQUIRED:-false}
+      MOBILE_SIGNING_SECRET: ${MOBILE_SIGNING_SECRET:-}
+      MOBILE_SIGNING_SECRET_PREVIOUS: ${MOBILE_SIGNING_SECRET_PREVIOUS:-}
+      CHRONICLE_INTERNAL_WEB_SECRET: ${CHRONICLE_INTERNAL_WEB_SECRET:-}
+      CHRONICLE_REVIEWER_ACCESS_ENABLED: ${CHRONICLE_REVIEWER_ACCESS_ENABLED:-false}
+      CHRONICLE_REVIEWER_ACCESS_SECRET: ${CHRONICLE_REVIEWER_ACCESS_SECRET:-}
+      CHRONICLE_REVIEWER_STUDY_ID: ${CHRONICLE_REVIEWER_STUDY_ID:-}
+      CHRONICLE_REVIEWER_PARTICIPANT_ID: ${CHRONICLE_REVIEWER_PARTICIPANT_ID:-}
+      JWT_SECRET: ${JWT_SECRET:-}
+      METRICS_PASSWORD: ${METRICS_PASSWORD:-}
+      GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-}
+      GRAFANA_BIND: ${GRAFANA_BIND:-127.0.0.1}
+      GRAFANA_PORT: ${GRAFANA_PORT:-3000}
+      METRICS_RETENTION: ${METRICS_RETENTION:-30d}
+      LOGS_RETENTION: ${LOGS_RETENTION:-14d}
+      METRICS_MAX_DISK_BYTES: ${METRICS_MAX_DISK_BYTES:-5368709120}
+      LOGS_MAX_DISK_BYTES: ${LOGS_MAX_DISK_BYTES:-5368709120}
+      METRICS_MIN_FREE_DISK_BYTES: ${METRICS_MIN_FREE_DISK_BYTES:-2147483648}
+      FLUENT_BIT_FORWARD_PORT: ${FLUENT_BIT_FORWARD_PORT:-24224}
+      TESTING_LOGIN_ENABLED: ${TESTING_LOGIN_ENABLED:-false}
+      REQUIRE_MFA: ${REQUIRE_MFA:-true}
+      HTTP_BIND: ${HTTP_BIND:-127.0.0.1}
+      INTERNAL_BIND: ${INTERNAL_BIND:-127.0.0.1}
+      INTERNAL_PORT: ${INTERNAL_PORT:-8081}
+      DASHBOARD_PASSWORD_HASH: ${DASHBOARD_PASSWORD_HASH:-}
+      DASHBOARD_ALLOWED_IPS: ${DASHBOARD_ALLOWED_IPS:-}
+    volumes:
+      - .:/selfhost:ro
+      - "${CHRONICLE_STATE_DIR:-.}/tls:/tls:ro"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    mem_limit: 128m
+    pids_limit: 64
+
+  export-init:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE to the digest-pinned release image from .env.example}
+    restart: "no"
+    user: "0:0"
+    entrypoint: ["/bin/bash", "-euc"]
+    command: ["install -d -m 0700 -o 100 -g 101 /exports"]
+    volumes:
+      - export_data:/exports
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
+    read_only: true
+    mem_limit: 64m
+    pids_limit: 32
+    depends_on:
+      config-guard:
+        condition: service_completed_successfully
+
+  # Certificate material for Caddy. Runs as root because its whole job is fixing ownership
+  # and modes that Caddy -- root, but with cap_drop: ALL -- cannot work around.
+  cert-init:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE to the digest-pinned release image from .env.example}
+    restart: "no"
+    logging: *default-logging
+    user: "0:0"
+    entrypoint: ["/bin/bash", "/selfhost/cert-init.sh"]
+    environment:
+      TLS_MODE: ""
+      DASHBOARD_EXPOSURE: ""
+      DOMAIN: ${DOMAIN:-localhost}
+      INTERNAL_BIND: ${INTERNAL_BIND:-127.0.0.1}
+      # Extra names for the self-signed dashboard certificate, in openssl SAN syntax, e.g.
+      # "DNS:chronicle.internal,IP:10.0.0.9".
+      INTERNAL_CERT_SANS: ${INTERNAL_CERT_SANS:-}
+    volumes:
+      - .:/selfhost:ro
+      - "${CHRONICLE_STATE_DIR:-.}/tls:/tls"
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    pids_limit: 64
+    depends_on:
+      config-guard:
+        condition: service_completed_successfully
+
+  # Encryption at rest, before the backend exists. Running this ahead of Flyway rather than
+  # after it is the reason `docker compose up -d` can replace `./chronicle up`: init-tde.sh
+  # sets the database's default access method to tde_heap, so every table Flyway then
+  # creates is encrypted at creation instead of being rewritten by a later sweep.
+  db-init:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE to the digest-pinned release image from .env.example}
+    restart: "no"
+    logging: *default-logging
+    # Root, to chown ./backups to the operator and the keyring directory to postgres (26).
+    user: "0:0"
+    entrypoint: ["/bin/bash", "/selfhost/db-init.sh"]
+    environment:
+      ENABLE_ENCRYPTION: ${ENABLE_ENCRYPTION:-true}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-chronicle}
+      POSTGRES_USER: ${POSTGRES_USER:-chronicle}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      # Read-only, and also the reference for who owns ./backups: nothing in a container
+      # knows the operator's uid, but this directory is theirs.
+      - .:/selfhost:ro
+      - "${CHRONICLE_STATE_DIR:-.}/backups:/backups"
+      - postgres_tde_keyring:/var/lib/postgresql/tde-keyring
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 64
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Restores a dump over an existing database. Behind a profile, so `docker compose up -d`
+  # never starts it. Invoke it only through the operator command, which stops and verifies
+  # every application writer and excludes upgrades/secret rotations with a shared state lock:
+  #
+  #   ./chronicle restore                                                # newest dump
+  #   ./chronicle restore /backups/daily/chronicle-20260809.sql.gz
+  #
+  # This is a service rather than a documented psql one-liner because the one-liner
+  # silently corrupts: piping a dump into a database that still has the schema skips every
+  # CREATE and then appends every COPY, so tables without a primary key end up with each row
+  # twice while psql exits 0. See the header of restore.sh for the measured numbers.
+  restore:
+    profiles: ["restore"]
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE to the digest-pinned release image from .env.example}
+    restart: "no"
+    logging: *default-logging
+    entrypoint: ["/bin/bash", "/selfhost/restore.sh"]
+    environment:
+      # Which dump to restore. Defaults inside the script to the newest one the backups
+      # overlay wrote, /backups/last/chronicle-latest.sql.gz.
+      RESTORE_FILE: ${RESTORE_FILE:-}
+      ENABLE_ENCRYPTION: ${ENABLE_ENCRYPTION:-true}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-chronicle}
+      POSTGRES_USER: ${POSTGRES_USER:-chronicle}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - .:/selfhost:ro
+      # Read-write: the script writes a pre-restore snapshot here before it drops anything.
+      - "${CHRONICLE_STATE_DIR:-.}/backups:/backups"
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    pids_limit: 64
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE to the digest-pinned release image from .env.example}
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-chronicle}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-chronicle}
+      # Refuse the trust/md5 fallbacks; require SCRAM for every connection.
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
+    # Postgres' built-in defaults are deliberately tiny and assume spinning disks:
+    # shared_buffers=128MB, effective_cache_size=4GB (which OVERSTATES the 2g mem_limit
+    # below, so the planner believes in cache that the cgroup will never allow),
+    # random_page_cost=4 and effective_io_concurrency=1. On SSD/NVMe that combination
+    # pushes the planner towards sequential scans where an index scan is cheaper.
+    #
+    # These defaults are sized for POSTGRES_MEM_LIMIT=2g -- shared_buffers at ~25% and
+    # effective_cache_size at ~75% of it. If you raise POSTGRES_MEM_LIMIT, raise these
+    # with it or the extra memory goes unused. Keep
+    #   shared_buffers + (max_connections x work_mem) + maintenance_work_mem
+    # comfortably under the limit, or the kernel OOM-kills Postgres instead of it
+    # returning an error.
+    #
+    # If you are on spinning disks, set POSTGRES_RANDOM_PAGE_COST=4 and
+    # POSTGRES_EFFECTIVE_IO_CONCURRENCY=2.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-512MB}
+      - -c
+      - effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-1536MB}
+      - -c
+      - work_mem=${POSTGRES_WORK_MEM:-8MB}
+      - -c
+      - maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-128MB}
+      - -c
+      - wal_buffers=${POSTGRES_WAL_BUFFERS:-16MB}
+      - -c
+      - max_wal_size=${POSTGRES_MAX_WAL_SIZE:-2GB}
+      - -c
+      - min_wal_size=${POSTGRES_MIN_WAL_SIZE:-512MB}
+      - -c
+      - random_page_cost=${POSTGRES_RANDOM_PAGE_COST:-1.1}
+      - -c
+      - effective_io_concurrency=${POSTGRES_EFFECTIVE_IO_CONCURRENCY:-200}
+      # Encryption at rest. The library is always preloaded -- it is inert until
+      # init-tde.sh creates the extension -- because loading it costs nothing and making
+      # the argument conditional would mean templating the whole command block.
+      - -c
+      - shared_preload_libraries=pg_tde
+      # A parallel scan or aggregate over a pg_tde table segfaults the backend and takes
+      # the whole cluster down with it; we hit exactly this on the production stack, where
+      # it is worked around per-session with SET max_parallel_workers_per_gather = 0.
+      # A self-host operator running an ad-hoc query cannot be expected to know that, so
+      # parallelism is off cluster-wide. Set this to 2 only if you turn encryption off.
+      - -c
+      - max_parallel_workers_per_gather=${POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER:-0}
+      # Machine-parseable envelope. Fluent Bit keeps only timestamp, severity and SQLSTATE;
+      # the raw PostgreSQL message and statement text are never sent to shared monitoring.
+      - -c
+      - "log_line_prefix=chronicle_pg timestamp_ms=%n sqlstate=%e "
+    volumes:
+      # /data/db, NOT /var/lib/postgresql/data. This image sets PGDATA=/data/db and
+      # declares /data/db as a VOLUME, so mounting the conventional Postgres path stored
+      # NOTHING: the named volume stayed empty and the real cluster went into an anonymous
+      # volume Docker created for /data/db. That survives a restart, which is why it looked
+      # fine, and does NOT survive the container being recreated -- `docker compose up -d`
+      # after any change to this service, `down -v`, or `rm -v` silently starts a brand-new
+      # empty database while the old one becomes an unreferenced volume. Observed: 86 tables
+      # and two studies gone after a mode change, with the keyring volume (mounted at a path
+      # this image does not override) still holding the old key. The prod stack already
+      # mounts /data/db for this reason -- docker/docker-compose.traefik.yml.
+      - postgres_data:/data/db
+      - postgres_tde_keyring:/var/lib/postgresql/tde-keyring
+      # The backend runs SET ROLE chronicle_app on the request path, so every table it
+      # touches must be granted to that role. Without this, only the 44 tables whose own
+      # Flyway migration happened to include an explicit GRANT were reachable: reading
+      # `studies` failed with "permission denied for table studies", the dashboard API
+      # 401'd, and a background job logged the same failure 324 times against
+      # `webhook_registrations` -- while ./chronicle verify stayed green, because it only
+      # probes unauthenticated routes. The blanket grant plus ALTER DEFAULT PRIVILEGES in
+      # this file is what covers tables created later by Flyway; it runs as POSTGRES_USER,
+      # the same role Flyway creates them as, which is what makes the defaults apply.
+      # Mounted from docker/ rather than copied so prod and self-host cannot drift.
+      - ../docker/init-db-roles.sql:/docker-entrypoint-initdb.d/10-init-db-roles.sql:ro
+    expose:
+      - "5432"
+    depends_on:
+      config-guard:
+        condition: service_completed_successfully
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      # Postgres starts as root and drops to the postgres user.
+      - CHOWN
+      - DAC_READ_SEARCH
+      - FOWNER
+      - SETGID
+      - SETUID
+    mem_limit: ${POSTGRES_MEM_LIMIT:-2g}
+    pids_limit: 512
+    healthcheck:
+      # Fresh encrypted volumes run initdb, role bootstrap, a controlled shutdown, and the
+      # final PostgreSQL start before accepting connections. On slower disks that can exceed
+      # the five normal retries even though initialization is healthy and progressing.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-chronicle} -d ${POSTGRES_DB:-chronicle}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+
+  backend:
+    image: ${BACKEND_IMAGE:?set BACKEND_IMAGE to the digest-pinned release image from .env.example}
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      CHRONICLE_SERVER_XMS: ${BACKEND_XMS:--Xms512m}
+      CHRONICLE_SERVER_XMX: ${BACKEND_XMX:--Xmx2g}
+      # "local" Spring profile: single-tenant, no Keycloak. The auth overlay switches this
+      # to a multi-user "production" profile wired to OIDC.
+      CHRONICLE_SERVER_ARGS: ${CHRONICLE_SERVER_ARGS:-local postgres medialocal}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-chronicle}
+      POSTGRES_USER: ${POSTGRES_USER:-chronicle}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      # Public clients enroll with one-time invitations and then authenticate with per-device
+      # API keys. Deployment-wide HMAC compatibility stays off and blank unless the operator
+      # explicitly controls a legacy/research-client fleet; guard-config.sh and the backend
+      # entrypoint reject partial legacy opt-ins.
+      MOBILE_SIGNING_ENABLED: ${MOBILE_SIGNING_ENABLED:-false}
+      MOBILE_SIGNING_REQUIRED: ${MOBILE_SIGNING_REQUIRED:-false}
+      MOBILE_SIGNING_SECRET: ${MOBILE_SIGNING_SECRET:-}
+      # Empty normally. During a coordinated mobile-key rollout the server accepts this
+      # one previous key until the operator explicitly finalizes rotation.
+      MOBILE_SIGNING_SECRET_PREVIOUS: ${MOBILE_SIGNING_SECRET_PREVIOUS:-}
+      # Signs dashboard session tokens.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+
+      # Guards the /prometheus scrape endpoint. The backend REFUSES TO START if this is
+      # shorter than 32 characters (MetricsAuthenticationFilter), so it is required even
+      # when monitoring is off -- Caddy 404s /prometheus regardless.
+      # Consumed by config/chronicle-auth.yaml.template. Without these passthroughs the
+      # entrypoint defaults win and setting them in .env silently does nothing.
+      TESTING_LOGIN_ENABLED: ${TESTING_LOGIN_ENABLED:-false}
+      # The same bcrypt hash used by Caddy is rendered into chronicle-auth.yaml so the
+      # backend can exchange that password for a cookie-backed dashboard session.
+      DASHBOARD_PASSWORD_HASH: ${DASHBOARD_PASSWORD_HASH:-}
+      # chronicle.security.require-mfa, via Spring relaxed binding. Secure default true.
+      # The built-in testing login mints a token with no `amr` claim, so with this left on,
+      # MfaClaimValidator rejects every dashboard API call it authenticates:
+      #   401 invalid_token "Multi-factor authentication is required..."
+      # while /chronicle/v3/auth/session still returns 200, so the login looks like it
+      # worked. An operator using TESTING_LOGIN_ENABLED must therefore opt out here
+      # explicitly; ./chronicle check refuses the combinations that are actually unsafe.
+      CHRONICLE_SECURITY_REQUIRE_MFA: ${REQUIRE_MFA:-true}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+
+      CHRONICLE_SECURITY_METRICS_USERNAME: ${METRICS_USERNAME:-chronicle-metrics}
+      CHRONICLE_SECURITY_METRICS_PASSWORD: ${METRICS_PASSWORD:?set METRICS_PASSWORD in .env (32+ chars)}
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+      # Authoritative root origin embedded in the participant's enrollment manifest.
+      # Blank means the entrypoint deterministically uses https://DOMAIN; it is never
+      # inferred from caller-controlled Host or X-Forwarded-* request headers.
+      CHRONICLE_PUBLIC_BASE_URL: ${CHRONICLE_PUBLIC_BASE_URL:-}
+      # Optional, exact-route Google Play reviewer bootstrap. The reusable value stays in
+      # the mode-0600 .env and is pinned to one synthetic study/participant.
+      CHRONICLE_REVIEWER_ACCESS_ENABLED: ${CHRONICLE_REVIEWER_ACCESS_ENABLED:-false}
+      CHRONICLE_REVIEWER_ACCESS_SECRET: ${CHRONICLE_REVIEWER_ACCESS_SECRET:-}
+      CHRONICLE_REVIEWER_STUDY_ID: ${CHRONICLE_REVIEWER_STUDY_ID:-}
+      CHRONICLE_REVIEWER_PARTICIPANT_ID: ${CHRONICLE_REVIEWER_PARTICIPANT_ID:-}
+      # All three feed the CORS allowlist the entrypoint builds for cors.yaml.template.
+      # INTERNAL_PORT is not cosmetic here: in the internal-dashboard modes the researcher
+      # API is served only on that listener, so https://<host>:${INTERNAL_PORT} IS the
+      # dashboard's browser origin, and an allowlist without it lets the SPA load but never
+      # sign in.
+      #
+      # INTERNAL_BIND has to be passed too. There is no env_file on this service, so a
+      # variable that is not named here does not reach the container at all: the
+      # entrypoint fell back to its own 127.0.0.1 default and emitted a duplicate loopback
+      # origin instead of the address the dashboard is actually served on. Deployments
+      # whose DOMAIN happens to be that same address were covered by the separate
+      # https://${DOMAIN}:${INTERNAL_PORT} entry, which is why this stayed hidden.
+      INTERNAL_BIND: ${INTERNAL_BIND:-127.0.0.1}
+      INTERNAL_PORT: ${INTERNAL_PORT:-8081}
+      DASHBOARD_ORIGINS: ${DASHBOARD_ORIGINS:-}
+      # The other half of the marker Caddy stamps on rewritten dashboard requests. Same
+      # default, same value, or MobileApiSignatureFilter rejects every dashboard call.
+      CHRONICLE_INTERNAL_WEB_SECRET: ${CHRONICLE_INTERNAL_WEB_SECRET:?set CHRONICLE_INTERNAL_WEB_SECRET in .env}
+      SMTP_ENABLED: ${SMTP_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
+      # Consumed by log4j2.xml's logDir/auditDir properties. Set explicitly rather than
+      # left to the config's defaults so the mount below and the appenders cannot drift.
+      LOG_DIR: /var/log/chronicle
+      AUDIT_LOG_DIR: /var/log/chronicle
+      LOG_FORMAT: json
+      CHRONICLE_EXPORT_DIR: /exports
+    volumes:
+      # The image ships an EMPTY /server/config. These templates + the entrypoint below
+      # are what actually give the backend its database connection; without them it has
+      # no configuration at all. The entrypoint also bypasses ./bin/chronicle-server,
+      # which requests the java.se module that the image's minimal JRE does not contain.
+      - ./config:/server/config:ro
+      - ./backend-entrypoint.sh:/server/backend-entrypoint.sh:ro
+      # log4j2.xml declares three RollingFile appenders under /var/log/chronicle, and the
+      # AUDIT logger has additivity="false" with AuditFile as its ONLY appender. With the
+      # root filesystem read-only and nothing mounted here, all three failed to initialise
+      # at boot. AuditService dual-writes, so the database half of the audit trail survived,
+      # but the file half -- the copy meant for SIEM ingestion, and the only one that
+      # outlives the database -- was silently discarded, along with the application log,
+      # while health checks and ./chronicle verify stayed green. Production mounts
+      # audit_logs at this same path for exactly this reason.
+      - audit_logs:/var/log/chronicle
+      - export_data:/exports
+    entrypoint: ["/bin/sh", "/server/backend-entrypoint.sh"]
+    command: []
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Root filesystem is read-only; the only writable paths are the two tmpfs mounts
+    # below. The entrypoint renders config into one and the JVM is pointed at the other
+    # via -Djava.io.tmpdir, so nothing needs to write into the image.
+    read_only: true
+    # uid/gid must match the image's `chronicle` user (100:101). A tmpfs is created
+    # root-owned by default, so without these the entrypoint cannot write the rendered
+    # config and the container dies with "Permission denied" under read_only.
+    tmpfs:
+      - /server/scratch:size=256m,mode=0700,uid=100,gid=101
+      - /server/rendered-config:size=1m,mode=0700,uid=100,gid=101
+    mem_limit: ${BACKEND_MEM_LIMIT:-3g}
+    pids_limit: 1024
+    depends_on:
+      # Not `postgres: service_healthy` — db-init already waits for that, and waiting on
+      # db-init instead is what guarantees the default access method is tde_heap before
+      # Flyway runs. Starting the backend alongside db-init would race the sweep against
+      # the migrations and produce a mix of encrypted and plain tables.
+      db-init:
+        condition: service_completed_successfully
+      export-init:
+        condition: service_completed_successfully
+    expose:
+      - "40320"
+    healthcheck:
+      # Readiness is intentionally dependency-aware: a live JVM with unavailable PostgreSQL
+      # or Hazelcast must not admit traffic or release dependent services. A fresh encrypted
+      # database also makes the backend durably initialize all 65,536 ID-generator partitions;
+      # slower disks can need more than the former 90-second grace even though startup is
+      # healthy and progressing. Failures remain visible immediately, but Docker does not mark
+      # the service terminally unhealthy until the bounded first-boot window has elapsed.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:40320/chronicle/internal/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 240s
+
+  # Copies the prebuilt React dashboard from its immutable release image into the shared
+  # frontend_build volume that Caddy serves, and exits. Re-runs on every `up`, so an
+  # upgraded dashboard actually reaches Caddy without building source on the host.
+  # The dashboard has no login screen of its own — see "Securing the dashboard" in README.md.
+  frontend:
+    image: ${SELFHOST_FRONTEND_IMAGE:?set SELFHOST_FRONTEND_IMAGE to the digest-pinned release image from .env.example}
+    restart: "no"
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${FRONTEND_MEM_LIMIT:-512m}
+    volumes:
+      - frontend_build:/out
+    depends_on:
+      config-guard:
+        condition: service_completed_successfully
+
+  # Serves the dashboard's static files AND routes the API AND, in the own-tls modes,
+  # terminates TLS — all in one container.
+  #
+  # Deliberately has no `ports:` and no Caddyfile here. Which config is mounted and which
+  # ports are published IS the deployment mode, so both live in the mode overlay and
+  # cannot drift apart: there is no combination of .env values that mounts Caddyfile.split
+  # without also publishing the internal listener it defines.
+  web:
+    # This release image has the rate-limit plugin compiled in. Stock Caddy images cannot
+    # parse the rate_limit block in caddy/snippets.caddy.
+    image: ${CADDY_IMAGE:?set CADDY_IMAGE to the digest-pinned release image from .env.example}
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      # Caddy resolves all four at parse time. DASHBOARD_* are used only by the internal
+      # listener's guard in Caddyfile.split*; they are set here regardless so the same web
+      # service definition serves every mode.
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+      # Compose resolves the default before Caddy parses its configuration, giving the
+      # dashboard the same canonical participant origin rendered into backend manifests.
+      CHRONICLE_PUBLIC_BASE_URL: "${CHRONICLE_PUBLIC_BASE_URL:-https://${DOMAIN}}"
+      DASHBOARD_ALLOWED_IPS: ${DASHBOARD_ALLOWED_IPS:-10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.1/32}
+      DASHBOARD_USER: ${DASHBOARD_USER:-researcher}
+      DASHBOARD_PASSWORD_HASH: ${DASHBOARD_PASSWORD_HASH:-}
+      # Stamped onto dashboard API requests after they are rewritten into the /chronicle/v3
+      # namespace, so MobileApiSignatureFilter treats them as researcher-console traffic
+      # rather than an unsigned mobile upload. MUST be byte-identical to the backend's copy
+      # below; release configuration requires a non-guessable shared value.
+      CHRONICLE_INTERNAL_WEB_SECRET: ${CHRONICLE_INTERNAL_WEB_SECRET:?set CHRONICLE_INTERNAL_WEB_SECRET in .env}
+      # Propagate the documented edge-rate controls. Without these entries, values in .env
+      # never reached Caddy and its inline defaults silently won.
+      RATE_LIMIT_MOBILE_EVENTS: ${RATE_LIMIT_MOBILE_EVENTS:-20}
+      RATE_LIMIT_MOBILE_WINDOW: ${RATE_LIMIT_MOBILE_WINDOW:-1s}
+      RATE_LIMIT_WEB_EVENTS: ${RATE_LIMIT_WEB_EVENTS:-20}
+      RATE_LIMIT_WEB_WINDOW: ${RATE_LIMIT_WEB_WINDOW:-1s}
+    volumes:
+      - ./caddy/snippets.caddy:/etc/caddy/snippets.caddy:ro
+      - frontend_build:/srv:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      # Needed only when rebound to a privileged port, e.g. the tls overlay's :443.
+      - NET_BIND_SERVICE
+    mem_limit: ${WEB_MEM_LIMIT:-256m}
+    pids_limit: 256
+    depends_on:
+      backend:
+        condition: service_healthy
+      # Wait for the dashboard to be copied in, or Caddy briefly serves an empty /srv.
+      frontend:
+        condition: service_completed_successfully
+      # Certificates and their permissions. Caddy exits at parse time on an unreadable key,
+      # so this must be settled before it starts, not repaired after.
+      cert-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+  # The TDE key lives on its OWN volume, never inside postgres_data. A key stored beside
+  # the data it encrypts is decoration -- whoever copies the data volume copies the key
+  # with it. Keeping them separate is what makes a stolen postgres_data useless.
+  postgres_tde_keyring:
+  frontend_build:
+  export_data:
+  caddy_data:
+  caddy_config:
+  # Audit trail. Separate from the container's log stream on purpose: `docker logs` is
+  # capped and rotated (LOG_MAX_SIZE x LOG_MAX_FILES), which is fine for diagnostics and
+  # wrong for a record you may have to produce later.
+  audit_logs:

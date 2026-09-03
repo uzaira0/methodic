@@ -1,0 +1,9 @@
+{
+  "participantId": "p-sleep-001",
+  "candidate": {
+    "id": "660e8400-e29b-41d4-a716-446655440000"
+  },
+  "participationStatus": "ENROLLED",
+  "participantNotes": "Completed initial screening",
+  "participantTags": ["control", "wave-1"]
+}

@@ -1,0 +1,117 @@
+# Chronicle + OpenSearch Stack
+#
+# Self-hosted Elasticsearch-compatible log aggregation.
+# Usage:
+#   docker-compose -f docker-compose.prod.yml -f docker-compose.opensearch.yml up -d
+#
+# Access OpenSearch Dashboards at http://localhost:5601 after setting
+# OPENSEARCH_PASSWORD in the untracked local environment file.
+
+services:
+  # OpenSearch - Log storage and search
+  opensearch:
+    image: opensearchproject/opensearch:2.11.0
+    container_name: chronicle-opensearch
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - IPC_LOCK
+    environment:
+      - cluster.name=chronicle-cluster
+      - node.name=chronicle-node
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_PASSWORD:?Set OPENSEARCH_PASSWORD in .env}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    ports:
+      - "127.0.0.1:9200:9200"
+    networks:
+      - chronicle-internal
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sk https://localhost:9200 -u admin:$${OPENSEARCH_PASSWORD} | grep -q 'cluster_name'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          pids: 512
+
+  # OpenSearch Dashboards - Visualization
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.11.0
+    container_name: chronicle-opensearch-dashboards
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      - OPENSEARCH_HOSTS=["https://opensearch:9200"]
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=false
+    ports:
+      - "127.0.0.1:5601:5601"
+    networks:
+      - chronicle-internal
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          pids: 256
+
+  # Fluent Bit - Log shipper
+  fluent-bit:
+    image: fluent/fluent-bit:2.2
+    container_name: chronicle-fluent-bit
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:noexec,nosuid,size=16M
+      - /run:noexec,nosuid,size=1M
+    environment:
+      OPENSEARCH_PASSWORD: ${OPENSEARCH_PASSWORD:?Set OPENSEARCH_PASSWORD in .env}
+    volumes:
+      - ./siem/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./siem/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+      - audit_logs:/var/log/chronicle:ro
+      - ./postgres-ssl/ca/ca.crt:/app/ssl/ca.crt:ro,z
+    networks:
+      - chronicle-internal
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          pids: 256
+
+networks:
+  chronicle-internal:
+    external: true
+
+volumes:
+  opensearch_data:
+  audit_logs:
+    external: true
+    name: chronicle_audit_logs

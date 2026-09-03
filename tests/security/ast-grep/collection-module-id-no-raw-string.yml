@@ -1,0 +1,57 @@
+# Catalog #6 (design §4) / §1A.1 — module IDs are CollectionModuleId references,
+# not raw string literals.
+#
+# Per design §1A.1 each module ID is declared exactly once as a CollectionModuleId
+# enum constant; wire/diagnostics use CollectionModuleId.id. A raw string literal
+# such as "usage_events" / "hardware_sensors" in collection code duplicates the ID
+# namespace and silently desyncs from the enum. This rule flags those literals.
+#
+# Exceptions: CollectionModuleId.kt itself declares the canonical literals, and the
+# JsonValue/JsonCreator/fromIdOrNull plumbing necessarily handles raw strings.
+#
+# Scope: the collection package wherever it lives — :app and every :collection-*
+# Gradle module (Phase 10 split it out of :app), plus the shared chronicle-models
+# collection package. Test code is excluded via ignores: it legitimately asserts
+# on the raw wire literals.
+id: collection-module-id-no-raw-string
+language: Kotlin
+severity: error
+message: >
+  Use a CollectionModuleId enum constant, not a raw module-ID string literal
+  (design §1A.1, guardrail #2). Module IDs are declared once in CollectionModuleId;
+  wire/diagnostics code must reference CollectionModuleId.<CONST>.id.
+files:
+  - "**/collection/**/*.kt"
+ignores:
+  # CollectionModuleId.kt is the single sanctioned declaration of the literals.
+  - "**/CollectionModuleId.kt"
+  # Test code asserts on the raw wire literals and is not production collection code.
+  - "**/test/**"
+  - "**/androidTest/**"
+rule:
+  any:
+    - pattern: '"usage_events"'
+    - pattern: '"device_lifecycle"'
+    - pattern: '"hardware_sensors"'
+    - pattern: '"user_identification"'
+    - pattern: '"upload_telemetry"'
+    - pattern: '"sensor_availability"'
+    - pattern: '"time_use_diary"'
+    - pattern: '"questionnaire"'
+    - pattern: '"app_inventory"'
+    # Per-sensor hardware modules (per-sensor consent redesign): each sensor's wire id
+    # is declared once in CollectionModuleId; reference the enum constant, never the literal.
+    - pattern: '"sensor_accelerometer"'
+    - pattern: '"sensor_gyroscope"'
+    - pattern: '"sensor_magnetometer"'
+    - pattern: '"sensor_gravity"'
+    - pattern: '"sensor_linear_acceleration"'
+    - pattern: '"sensor_rotation_vector"'
+    - pattern: '"sensor_step_counter"'
+    - pattern: '"sensor_light"'
+    - pattern: '"sensor_proximity"'
+    - pattern: '"sensor_significant_motion"'
+    - pattern: '"sensor_tilt_detector"'
+    - pattern: '"sensor_screen_orientation"'
+    - pattern: '"sensor_samsung_grip_wifi"'
+    - pattern: '"sensor_samsung_motion"'

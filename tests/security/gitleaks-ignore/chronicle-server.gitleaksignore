@@ -1,0 +1,28 @@
+# Historical/false-positive findings accepted 2026-07-11 (see local-ci gitleaks job).
+# All verified: deleted legacy files, test fixtures, age PUBLIC key, env-var template text.
+4223c5fe6cabe16816804635bee1d5c27a58728a:src/test/kotlin/com/openlattice/chronicle/services/webhooks/WebhookServiceTest.kt:generic-api-key:25
+77885fa3cbb86dc1143f4566f58c77075414fb59:src/test/kotlin/com/openlattice/chronicle/security/MfaEnforcementMatrixTest.kt:generic-api-key:42
+8f6e8e052017dc6a0f1e860a9455b842e3a4bc7c:src/test/kotlin/com/openlattice/chronicle/security/MfaEnforcementMatrixTest.kt:generic-api-key:42
+addbf576a2ed0f73972b813b1a5c2a983df3c606:src/test/kotlin/com/openlattice/chronicle/pods/ChronicleConfigurationPodTest.kt:generic-api-key:19
+11849d93031a1411ceec871138527e4d1b055647:src/test/kotlin/com/openlattice/chronicle/serialization/DtoSerializationTests.kt:generic-api-key:1302
+9549208d35f3a32f532683c3c6371e944c5f6113:src/test/kotlin/com/openlattice/chronicle/serialization/DtoSerializationTests.kt:generic-api-key:1310
+a354565e2a4b677d04b21025d69ce60c698bf396:src/main/java/com/openlattice/chronicle/services/ChronicleServiceImpl.java:jwt:161
+c1c680eee358ac9cc683647f8d731dcdf562b9cc:src/main/java/com/openlattice/chronicle/services/ChronicleServiceImpl.java:jwt:168
+c1c680eee358ac9cc683647f8d731dcdf562b9cc:src/main/java/com/openlattice/chronicle/services/ChronicleServiceImpl.java:jwt:182
+43fe28f8a0e0c3f9eb67fb966b831ddb85c53a78:src/main/java/com/openlattice/chronicle/services/ChronicleServiceImpl.java:jwt:140
+e05437c9a5dcc403c6affb0c93cad38fa24109bb:src/main/resources/chronicle.yaml:generic-api-key:2
+42b518b9a893614fa9cad92f5d142a3263cff6f0:src/main/java/com/openlattice/chronicle/services/ChronicleServiceImpl.java:jwt:137
+e05437c9a5dcc403c6affb0c93cad38fa24109bb:src/main/java/com/openlattice/chronicle/services/ChronicleServiceImpl.java:jwt:129
+8b1989ab9d454c122c89ee9e5604d6f41d35d88d:src/main/java/com/openlattice/chronicle/services/ChronicleServiceImpl.java:jwt:128
+9d7e9bb1dd6072ccde2267a7cc66bb7b9155e070:src/main/resources/chronicle.yaml:generic-api-key:2
+656dfc2ad78bd9e9e8a4a24486682f862faebd88:src/main/java/com/openlattice/chronicle/services/ChronicleServiceImpl.java:jwt:128
+9d7e9bb1dd6072ccde2267a7cc66bb7b9155e070:src/main/java/com/openlattice/chronicle/services/ChronicleServiceImpl.java:jwt:110
+6d9fa3034d78043363d0b28cf875e9f340e0e61d:src/test/resources/auth0.yaml:generic-api-key:3
+6d9fa3034d78043363d0b28cf875e9f340e0e61d:src/test/resources/auth0.yaml:generic-api-key:12
+6d9fa3034d78043363d0b28cf875e9f340e0e61d:src/test/resources/auth0.yaml:generic-api-key:17
+# Accepted 2026-08-26: synthetic secrets/raw key bytes used only by unit tests.
+fd3bfa6226c432c755e17eac33c53027dda1ebf5:src/test/kotlin/com/openlattice/chronicle/pods/ChronicleConfigurationPodTest.kt:generic-api-key:19
+fd3bfa6226c432c755e17eac33c53027dda1ebf5:src/test/kotlin/com/openlattice/chronicle/security/MfaEnforcementMatrixTest.kt:generic-api-key:51
+fd3bfa6226c432c755e17eac33c53027dda1ebf5:src/test/kotlin/com/openlattice/chronicle/services/webhooks/WebhookServiceTest.kt:generic-api-key:44
+fd3bfa6226c432c755e17eac33c53027dda1ebf5:src/test/kotlin/com/openlattice/chronicle/serialization/DtoSerializationTests.kt:generic-api-key:1381
+9a286926467a391da7a948244d1eeb5d3bb9780c:src/test/kotlin/com/openlattice/chronicle/services/webhooks/WebhookServiceTest.kt:generic-api-key:25

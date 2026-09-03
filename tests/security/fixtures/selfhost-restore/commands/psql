@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf 'invoked\n' > "${SELFHOST_RESTORE_TEST_PSQL_MARKER:?}"
+exit 99

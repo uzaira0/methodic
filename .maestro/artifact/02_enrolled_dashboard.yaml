@@ -1,0 +1,26 @@
+appId: ${APP_PACKAGE}
+tags:
+  - artifact
+  - smoke
+---
+
+- launchApp:
+    clearState: false
+
+- tapOn:
+    text: "CANCEL"
+    optional: true
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/overviewStudyId"
+    timeout: 15000
+
+- assertVisible:
+    id: "${APP_PACKAGE}:id/overviewParticipantId"
+
+- assertVisible:
+    id: "${APP_PACKAGE}:id/overviewLastUpload"
+
+- assertVisible:
+    id: "${APP_PACKAGE}:id/overviewServerHealth"

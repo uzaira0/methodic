@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "source_roots": [
+    "chronicle-models/src/main",
+    "chronicle-api/src/main",
+    "chronicle-server/src/main",
+    "chronicle/app/src/main",
+    "chronicle/collection-activity/src/main",
+    "chronicle/collection-audio/src/main",
+    "chronicle/collection-base/src/main",
+    "chronicle/collection-battery/src/main",
+    "chronicle/collection-contracts/src/main",
+    "chronicle/collection-core/src/main",
+    "chronicle/collection-device/src/main",
+    "chronicle/collection-interaction/src/main",
+    "chronicle/collection-lifecycle/src/main",
+    "chronicle/collection-notifications/src/main",
+    "chronicle/collection-sensors/src/main",
+    "chronicle/collection-upload/src/main",
+    "chronicle/collection-usage/src/main",
+    "chronicle-web/src"
+  ],
+  "optional_source_roots": [
+    "chronicle-ios/chronicle"
+  ],
+  "owners": [
+    {
+      "name": "wire-models",
+      "prefixes": ["chronicle-models/src/main/"]
+    },
+    {
+      "name": "transport-contracts",
+      "prefixes": ["chronicle-api/src/main/"]
+    },
+    {
+      "name": "server-runtime",
+      "prefixes": ["chronicle-server/src/main/"]
+    },
+    {
+      "name": "android-app",
+      "prefixes": ["chronicle/app/src/main/"]
+    },
+    {
+      "name": "android-storage-adapter",
+      "prefixes": ["chronicle/collection-base/src/main/"]
+    },
+    {
+      "name": "android-contracts",
+      "prefixes": ["chronicle/collection-contracts/src/main/"]
+    },
+    {
+      "name": "android-feature-adapters",
+      "prefixes": ["chronicle/collection-"],
+      "exclude_prefixes": [
+        "chronicle/collection-base/",
+        "chronicle/collection-contracts/"
+      ]
+    },
+    {
+      "name": "ios-runtime",
+      "prefixes": ["chronicle-ios/chronicle/"]
+    },
+    {
+      "name": "web-runtime",
+      "prefixes": ["chronicle-web/src/"]
+    }
+  ],
+  "forbidden_dependencies": [
+    {
+      "owner": "wire-models",
+      "tokens": [
+        "retrofit2.",
+        "org.springframework.",
+        "java.sql.",
+        "jakarta.servlet."
+      ]
+    },
+    {
+      "owner": "android-contracts",
+      "tokens": [
+        "androidx.room.",
+        "net.zetetic.",
+        "retrofit2."
+      ]
+    },
+    {
+      "owner": "android-storage-adapter",
+      "tokens": [
+        "com.openlattice.chronicle.ui.",
+        "retrofit2."
+      ]
+    }
+  ],
+  "exceptions": [
+    {
+      "path": "chronicle-models/src/main/java/com/openlattice/chronicle/serialization/ChronicleJacksonConverterFactory.java",
+      "token": "retrofit2.",
+      "owner": "mobile-platform",
+      "reason": "Legacy Retrofit converter awaiting generated client adapter replacement",
+      "expires": "2026-12-31"
+    },
+    {
+      "path": "chronicle-models/src/main/kotlin/com/openlattice/chronicle/serialization/ChronicleCallAdapterFactory.kt",
+      "token": "retrofit2.",
+      "owner": "mobile-platform",
+      "reason": "Legacy Retrofit call adapter awaiting generated client adapter replacement",
+      "expires": "2026-12-31"
+    },
+    {
+      "path": "chronicle-models/src/main/kotlin/com/openlattice/chronicle/util/RetrofitBuilders.kt",
+      "token": "retrofit2.",
+      "owner": "mobile-platform",
+      "reason": "Legacy Retrofit builder awaiting transport-adapter extraction",
+      "expires": "2026-12-31"
+    }
+  ]
+}

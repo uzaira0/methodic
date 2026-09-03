@@ -1,0 +1,114 @@
+---
+- name: Create RKE2 config directory
+  ansible.builtin.file:
+    path: /etc/rancher/rke2
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create RKE2 audit log directory
+  ansible.builtin.file:
+    path: "{{ chronicle_rke2_audit_log_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Label RKE2 audit log directory for static control-plane pods
+  community.general.sefcontext:
+    target: "{{ chronicle_rke2_audit_log_path | dirname }}(/.*)?"
+    setype: container_log_t
+    state: present
+
+- name: Apply SELinux context to RKE2 audit log directory
+  ansible.builtin.command: "restorecon -Rv {{ chronicle_rke2_audit_log_path | dirname }}"
+  changed_when: false
+
+- name: Create RKE2 etcd snapshot directory
+  ansible.builtin.file:
+    path: "{{ chronicle_rke2_etcd_snapshot_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Render Kubernetes API audit policy
+  ansible.builtin.copy:
+    dest: "{{ chronicle_rke2_audit_policy_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      apiVersion: audit.k8s.io/v1
+      kind: Policy
+      omitStages:
+        - RequestReceived
+      rules:
+        - level: Metadata
+          resources:
+            - group: ""
+              resources: ["secrets", "configmaps"]
+        - level: RequestResponse
+          verbs: ["create", "update", "patch", "delete"]
+          resources:
+            - group: "rbac.authorization.k8s.io"
+              resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+            - group: "admissionregistration.k8s.io"
+              resources: ["validatingwebhookconfigurations", "mutatingwebhookconfigurations"]
+            - group: "networking.k8s.io"
+              resources: ["networkpolicies"]
+        - level: Request
+          verbs: ["create", "update", "patch", "delete"]
+        - level: Metadata
+  notify: Restart rke2-server
+
+- name: Render RKE2 server config
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: /etc/rancher/rke2/config.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart rke2-server
+
+- name: Check for RKE2 binary
+  ansible.builtin.stat:
+    path: "{{ chronicle_rke2_binary }}"
+  register: rke2_binary
+
+- name: Download RKE2 installer
+  ansible.builtin.get_url:
+    url: https://get.rke2.io
+    dest: /tmp/rke2-install.sh
+    mode: "0755"
+  when: not rke2_binary.stat.exists
+
+- name: Install RKE2 server
+  ansible.builtin.command: /tmp/rke2-install.sh
+  environment:
+    INSTALL_RKE2_TYPE: server
+  args:
+    creates: "{{ chronicle_rke2_binary }}"
+  when: not rke2_binary.stat.exists
+
+- name: Enable and start RKE2 server
+  ansible.builtin.service:
+    name: rke2-server
+    state: started
+    enabled: true
+
+- name: Link kubectl into PATH
+  ansible.builtin.file:
+    src: /var/lib/rancher/rke2/bin/kubectl
+    dest: /usr/local/bin/kubectl
+    state: link
+    force: true
+
+- name: Wait for Kubernetes API
+  ansible.builtin.command: /usr/local/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml get nodes
+  register: rke2_nodes
+  retries: 30
+  delay: 10
+  until: rke2_nodes.rc == 0
+  changed_when: false

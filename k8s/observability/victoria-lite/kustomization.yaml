@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - policies.yaml
+  - metrics-secret.yaml
+  - victoria-metrics.yaml
+  - victoria-logs.yaml
+  - fluent-bit.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: chronicle
+
+configMapGenerator:
+  - name: victoria-metrics-scrape
+    namespace: chronicle-observability
+    files:
+      - scrape.yml=config/victoria-metrics-scrape.yml
+  - name: fluent-bit-config
+    namespace: chronicle
+    files:
+      - fluent-bit.conf=config/fluent-bit.conf
+      - parsers.conf=config/parsers.conf

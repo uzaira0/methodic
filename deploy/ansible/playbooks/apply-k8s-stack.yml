@@ -1,0 +1,8 @@
+---
+- name: Render and optionally apply Chronicle Kubernetes overlays
+  hosts: chronicle_k8s
+  gather_facts: false
+  become: true
+  roles:
+    - chronicle_k8s_apply
+    - chronicle_k8s_validate

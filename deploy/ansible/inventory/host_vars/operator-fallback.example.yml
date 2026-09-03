@@ -1,0 +1,34 @@
+---
+# Example host variables for an operator fallback/restore target.
+# This host is PHI/ePHI-capable, but it is not part of the primary Kubernetes
+# control plane in the initial one-node design.
+
+chronicle_swap_enabled: true
+chronicle_swap_size_mib: 4096
+chronicle_swap_swappiness: 10
+
+chronicle_require_crowdsec_enforced: false
+chronicle_backup_drill_pause_observability: true
+
+chronicle_rke2_node_labels:
+  - chronicle.io/environment=operator-fallback
+  - chronicle.io/host-profile=fallback-restore-target
+  - chronicle.io/role=restore-drill
+
+chronicle_rke2_tls_sans:
+  - "{{ chronicle_hostname }}"
+  - "{{ chronicle_public_ip }}"
+  - "{{ chronicle_private_ip }}"
+
+chronicle_rke2_kubelet_args:
+  - system-reserved=cpu=250m,memory=512Mi
+  - kube-reserved=cpu=300m,memory=768Mi
+  - eviction-hard=memory.available<500Mi,nodefs.available<10%,imagefs.available<10%
+  - eviction-minimum-reclaim=memory.available=250Mi,nodefs.available=2Gi,imagefs.available=2Gi
+  - fail-swap-on=false
+
+chronicle_k8s_overlays:
+  - name: rhel9-small
+    path: k8s/overlays/rhel9-small
+  - name: local-backup
+    path: k8s/backup/local

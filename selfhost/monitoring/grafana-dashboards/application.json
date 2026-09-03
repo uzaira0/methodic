@@ -1,0 +1,317 @@
+{
+  "uid": "chronicle-application",
+  "title": "Chronicle Application",
+  "tags": [
+    "chronicle",
+    "selfhost",
+    "operational"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": false,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "API requests / second",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(chronicle_api_request_duration_seconds_count[5m]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "API latency p95",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95,sum(rate(chronicle_api_request_duration_seconds_bucket[5m])) by (le))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 81,
+      "title": "API errors by status",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(chronicle_api_errors_total[5m])) by (status)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ]
+    },
+    {
+      "id": 93,
+      "title": "Uploads by data type",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(chronicle_upload_total[5m])) by (data_type)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ]
+    },
+    {
+      "id": 161,
+      "title": "Materialization failures",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "increase(chronicle_sensor_materialization_runs_total{outcome!=\"success\"}[1h])",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ]
+    },
+    {
+      "id": 173,
+      "title": "Deletion outcomes",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(chronicle_data_deletion_operations_total[1h])) by (mode,outcome)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ]
+    },
+    {
+      "id": 241,
+      "title": "Export storage",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "chronicle_export_artifact_bytes",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 253,
+      "title": "Export failures and admission rejections",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(chronicle_export_storage_admission_rejections_total[1h])) by (reason)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        },
+        {
+          "expr": "sum(increase(chronicle_export_jobs_total{outcome=\"failed\"}[1h]))",
+          "legendFormat": "failed jobs",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "id": 321,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(chronicle_enrollment_total[5m])",
+          "legendFormat": "enrollments",
+          "refId": "A"
+        }
+      ],
+      "title": "Enrollments / second",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "id": 333,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(chronicle_participant_form_access_total{outcome!=\"success\"}[5m])) by (form_kind,outcome)",
+          "legendFormat": "{{form_kind}} {{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Participant form access failures",
+      "type": "timeseries"
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  }
+}

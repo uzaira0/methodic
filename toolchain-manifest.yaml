@@ -1,0 +1,63 @@
+# Chronicle toolchain manifest — the single source of truth for version pins.
+#
+# scripts/verify-toolchain.sh enforces this file against the repo (wrappers,
+# workflows, Dockerfiles, package pins — root AND submodules). Change a version
+# HERE first, then update the pinned artifacts; the checker fails CI/local-ci on
+# any drift. Rationale for each choice: the "Deliberately not upgraded" section
+# and docs/db/MIGRATION-LEDGER-AUDIT.md (migrations).
+#
+# JDK model (two dials):
+#   - build/runtime JDK: 25 (prod container already runs Temurin 25)
+#   - bytecode target: 21 (analyzer/Mockito ecosystem; no Gradle toolchains —
+#     they break the --add-exports flags Hazelcast needs)
+#   - Android: JDK 21 launcher / bytecode 17 (AGP certification boundary)
+
+jdk:
+  build_runtime: "25"
+  bytecode_target: "21"
+  android_launcher: "21"
+  android_bytecode: "17"
+
+gradle:
+  wrapper: "9.5.0"          # root, chronicle-server, chronicle-api, rhizome, rhizome-client
+  android_wrapper: "9.3.0"  # chronicle/ (AGP pairing; do not unify)
+
+kotlin: "2.3.21"
+
+bun: "1.3.12"               # sole JS runtime — Node is not a dependency of this repo
+
+postgres:
+  image: "percona/percona-distribution-postgresql:18.4-5"  # pg_tde pins prod; same image in dev/CI/testcontainers
+  index_digest: "sha256:40b133dec71f85dbc391bdf686bbc6b745517c2a9ffe49158ff77809f9bf28e4"
+  # Percona, not stock Postgres, because pg_tde is a Percona extension and it IS the
+  # encryption-at-rest model (init-db-encryption.sh, migrate-tde.sh, selfhost/init-tde.sh,
+  # rotate-tde-principal-key.sh, the HIPAA and Ley 21719 evidence). Percona tracks upstream:
+  # 18.4-5 carries PostgreSQL 18.4, the current stable release — 19 is still beta.
+  #
+  # 17.5-3 -> 18.4-5 is a MAJOR jump. Two consequences that are not image-swap-shaped:
+  #   - The data directory is not forward-compatible. An existing cluster needs a
+  #     dump/restore; see docs/db/POSTGRES-18-UPGRADE.md.
+  #   - pg_tde goes 1.0 -> 2.2. Nothing we call was removed (the 1.0->2.0 step only ADDS
+  #     vault_v2 provider functions), but a cluster restored from a 17 dump carries
+  #     extension version 1.0 and needs ALTER EXTENSION pg_tde UPDATE. The TDE scripts
+  #     do that themselves.
+
+keycloak_postgres:
+  image: "postgres:18.4-alpine"  # SSO tier only — stock Postgres, no pg_tde, no PHI
+  index_digest: "sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"
+
+selfhost_images:
+  backup: "prodrigestivill/postgres-backup-local:18@sha256:f70742ebe42b2277689b028d1fd15aa80f77cffa01da163cc9f85a6ff1866e7f"
+  cadvisor: "ghcr.io/google/cadvisor:v0.60.5@sha256:763aecf1c32c2be8a1a75f9abfc2fc461005c9dbbaa39cb356b354aac1296dbe"
+  victoria_metrics: "victoriametrics/victoria-metrics:v1.149.0@sha256:13b8951e35bb3589626816538483127785a9d8b53f9f5123769db0fcab1d961f"
+  victoria_logs: "victoriametrics/victoria-logs:v1.50.0@sha256:ae9bea8d8a3b0fc47c7f0058bcca410e79c84b4a0acd12d4dac71b9302526590"
+  fluent_bit: "fluent/fluent-bit:4.2.1@sha256:d0ba6ceea4ed1a7cecb15a9184c29cc23159240d8d19b32885268b62dd54155b"
+  grafana: "grafana/grafana:13.1.3@sha256:ab5cb380e3ff3172d6c8bd2e7cfd31cce977d2881b260e1f5bc089bf0b759b43"
+  keycloak: "quay.io/keycloak/keycloak:26.0@sha256:09a381c715ab0b111835b70f2905955274843a219c6f27efb348e4d9f4086858"
+
+flyway:
+  version: "11.20.3"        # gradles/chronicle.gradle ext.flyway_version + scripts/flyway-migrate.sh image
+
+# Deliberately NOT upgraded (a Rust service layer replaces these; see
+# docs/architecture/SENSING-PLAN-LANGUAGE-ROADMAP.md):
+#   spring-framework: 6.2.19   hazelcast: 5.5.0   android-agp: 9.0.1

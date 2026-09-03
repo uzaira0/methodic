@@ -1,0 +1,145 @@
+# Flow: Full enrollment and verification test
+# Tests enrollment, main screen, and background collection in one flow
+# so the app is never force-stopped between steps (SharedPreferences.apply
+# is async and am force-stop would lose unsaved data).
+#
+# Prerequisites:
+#   - A study must exist with TEST_STUDY_ID
+#   - TEST_PARTICIPANT_ID must be registered and have a current one-time invitation
+#   - The Chronicle server must be reachable from the emulator
+#   - Usage stats and notification permissions pre-granted via adb
+
+appId: ${APP_PACKAGE}
+tags:
+  - smoke
+  - enrollment
+---
+
+# ============================================================
+# Part 1: Enrollment
+# ============================================================
+- launchApp:
+    clearState: true
+
+# With permissions pre-granted, app goes MainActivity -> Enrollment. Open the same
+# fragment-only capability contract delivered by a researcher-managed enrollment page.
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/studyIdText"
+    timeout: 15000
+
+- openLink: "chronicle://enroll?studyId=${TEST_STUDY_ID}&participantId=${TEST_PARTICIPANT_ID}&serverUrl=${SERVER_URL}#accessCode=${TEST_ENROLLMENT_ACCESS_CODE}"
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/serverUrlText"
+    timeout: 10000
+
+# Resolve the capability-protected manifest. No enrollment request is made until both
+# study-level disclosure and the required module choice are affirmatively accepted.
+- tapOn:
+    id: "${APP_PACKAGE}:id/button"
+
+- scrollUntilVisible:
+    element:
+      id: "${APP_PACKAGE}:id/acceptStudyDisclosureButton"
+    direction: DOWN
+    timeout: 45000
+    speed: 40
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/acceptStudyDisclosureButton"
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/orientationAccept"
+    timeout: 15000
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/orientationAccept"
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/doneButton"
+    timeout: 45000
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/doneButton"
+
+# A fresh Android installation is not exempt from battery optimization. MainActivity shows this
+# dialog asynchronously on its first resume, so an optional immediate tap races the dialog.
+- extendedWaitUntil:
+    visible: "Battery Optimization"
+    timeout: 15000
+
+- tapOn:
+    text: "CANCEL"
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/overviewStudyId"
+    timeout: 15000
+
+# ============================================================
+# Part 2: Verify main screen
+# ============================================================
+- assertVisible:
+    id: "${APP_PACKAGE}:id/overviewStudyId"
+
+- assertVisible:
+    id: "${APP_PACKAGE}:id/overviewParticipantId"
+
+- assertVisible:
+    id: "${APP_PACKAGE}:id/overviewParticipantId"
+
+- assertVisible:
+    id: "${APP_PACKAGE}:id/overviewLastUpload"
+
+# ============================================================
+# Part 3: Background collection — switch apps, return, verify
+# ============================================================
+
+# Generate usage events by opening browser
+- openLink: "https://www.example.com"
+- waitForAnimationToEnd
+- waitForAnimationToEnd:
+    timeout: 3000
+- pressKey: home
+- waitForAnimationToEnd:
+    timeout: 2000
+
+# Open settings briefly
+- launchApp:
+    appId: com.android.settings
+- waitForAnimationToEnd:
+    timeout: 2000
+- pressKey: home
+- waitForAnimationToEnd:
+    timeout: 2000
+
+# Return to Chronicle — should still be active, not crashed
+- launchApp:
+    clearState: false
+
+# Android 11+ presents its separate app-hibernation decision after Chronicle returns from the
+# first background exercise. Respecting CANCEL is verified by the next dependent flow/relaunch.
+- runFlow:
+    when:
+      true: ${parseInt(API_LEVEL) >= 30}
+    commands:
+      - extendedWaitUntil:
+          visible: "Keep Chronicle Active"
+          timeout: 15000
+      - tapOn:
+          text: "CANCEL"
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/overviewStudyId"
+    timeout: 15000
+
+- assertVisible:
+    id: "${APP_PACKAGE}:id/overviewParticipantId"
+
+- assertVisible:
+    id: "${APP_PACKAGE}:id/overviewLastUpload"

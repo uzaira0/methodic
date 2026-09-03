@@ -1,0 +1,377 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Backend Status",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "up{job=\"chronicle-backend\"}",
+          "legendFormat": "Backend"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } }, "type": "value" }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Total Connections (All Pools)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "sum(HikariPool_1_pool_TotalConnections{job=\"chronicle-backend\"}) + sum(HikariPool_2_pool_TotalConnections{job=\"chronicle-backend\"}) + sum(HikariPool_3_pool_TotalConnections{job=\"chronicle-backend\"})",
+          "legendFormat": "Total"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 40 },
+              { "color": "red", "value": 55 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Connection Timeouts (All Pools)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "sum(increase(HikariPool_1_pool_ConnectionTimeoutRate_total{job=\"chronicle-backend\"}[5m])) + sum(increase(HikariPool_2_pool_ConnectionTimeoutRate_total{job=\"chronicle-backend\"}[5m])) + sum(increase(HikariPool_3_pool_ConnectionTimeoutRate_total{job=\"chronicle-backend\"}[5m]))",
+          "legendFormat": "Timeouts (5m)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Pool 1 — Connections",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "HikariPool_1_pool_ActiveConnections{job=\"chronicle-backend\"}",
+          "legendFormat": "Active"
+        },
+        {
+          "expr": "HikariPool_1_pool_IdleConnections{job=\"chronicle-backend\"}",
+          "legendFormat": "Idle"
+        },
+        {
+          "expr": "HikariPool_1_pool_PendingConnections{job=\"chronicle-backend\"}",
+          "legendFormat": "Pending"
+        },
+        {
+          "expr": "HikariPool_1_pool_MaxConnections{job=\"chronicle-backend\"}",
+          "legendFormat": "Max"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10,
+            "pointSize": 5,
+            "showPoints": "auto"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Pool 2 — Connections",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "HikariPool_2_pool_ActiveConnections{job=\"chronicle-backend\"}",
+          "legendFormat": "Active"
+        },
+        {
+          "expr": "HikariPool_2_pool_IdleConnections{job=\"chronicle-backend\"}",
+          "legendFormat": "Idle"
+        },
+        {
+          "expr": "HikariPool_2_pool_PendingConnections{job=\"chronicle-backend\"}",
+          "legendFormat": "Pending"
+        },
+        {
+          "expr": "HikariPool_2_pool_MaxConnections{job=\"chronicle-backend\"}",
+          "legendFormat": "Max"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10,
+            "pointSize": 5,
+            "showPoints": "auto"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Pool 3 — Connections",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "HikariPool_3_pool_ActiveConnections{job=\"chronicle-backend\"}",
+          "legendFormat": "Active"
+        },
+        {
+          "expr": "HikariPool_3_pool_IdleConnections{job=\"chronicle-backend\"}",
+          "legendFormat": "Idle"
+        },
+        {
+          "expr": "HikariPool_3_pool_PendingConnections{job=\"chronicle-backend\"}",
+          "legendFormat": "Pending"
+        },
+        {
+          "expr": "HikariPool_3_pool_MaxConnections{job=\"chronicle-backend\"}",
+          "legendFormat": "Max"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10,
+            "pointSize": 5,
+            "showPoints": "auto"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Connection Wait Time (p50 / p95 / p99)",
+      "description": "Time threads spend waiting for a connection from the pool",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "HikariPool_1_pool_Wait{job=\"chronicle-backend\", quantile=\"0.5\"}",
+          "legendFormat": "Pool 1 p50"
+        },
+        {
+          "expr": "HikariPool_1_pool_Wait{job=\"chronicle-backend\", quantile=\"0.95\"}",
+          "legendFormat": "Pool 1 p95"
+        },
+        {
+          "expr": "HikariPool_1_pool_Wait{job=\"chronicle-backend\", quantile=\"0.99\"}",
+          "legendFormat": "Pool 1 p99"
+        },
+        {
+          "expr": "HikariPool_2_pool_Wait{job=\"chronicle-backend\", quantile=\"0.95\"}",
+          "legendFormat": "Pool 2 p95"
+        },
+        {
+          "expr": "HikariPool_3_pool_Wait{job=\"chronicle-backend\", quantile=\"0.95\"}",
+          "legendFormat": "Pool 3 p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Connection Usage Time (p50 / p95 / p99)",
+      "description": "Time connections are held outside the pool (active query duration)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "HikariPool_1_pool_Usage{job=\"chronicle-backend\", quantile=\"0.5\"}",
+          "legendFormat": "Pool 1 p50"
+        },
+        {
+          "expr": "HikariPool_1_pool_Usage{job=\"chronicle-backend\", quantile=\"0.95\"}",
+          "legendFormat": "Pool 1 p95"
+        },
+        {
+          "expr": "HikariPool_1_pool_Usage{job=\"chronicle-backend\", quantile=\"0.99\"}",
+          "legendFormat": "Pool 1 p99"
+        },
+        {
+          "expr": "HikariPool_2_pool_Usage{job=\"chronicle-backend\", quantile=\"0.95\"}",
+          "legendFormat": "Pool 2 p95"
+        },
+        {
+          "expr": "HikariPool_3_pool_Usage{job=\"chronicle-backend\", quantile=\"0.95\"}",
+          "legendFormat": "Pool 3 p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Connection Creation Time (p50 / p95)",
+      "description": "Time to create new physical database connections",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "HikariPool_1_pool_ConnectionCreation{job=\"chronicle-backend\", quantile=\"0.5\"}",
+          "legendFormat": "Pool 1 p50"
+        },
+        {
+          "expr": "HikariPool_1_pool_ConnectionCreation{job=\"chronicle-backend\", quantile=\"0.95\"}",
+          "legendFormat": "Pool 1 p95"
+        },
+        {
+          "expr": "HikariPool_2_pool_ConnectionCreation{job=\"chronicle-backend\", quantile=\"0.95\"}",
+          "legendFormat": "Pool 2 p95"
+        },
+        {
+          "expr": "HikariPool_3_pool_ConnectionCreation{job=\"chronicle-backend\", quantile=\"0.95\"}",
+          "legendFormat": "Pool 3 p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Connection Timeouts Over Time",
+      "description": "Rate of connection acquisition timeouts per pool",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "increase(HikariPool_1_pool_ConnectionTimeoutRate_total{job=\"chronicle-backend\"}[5m])",
+          "legendFormat": "Pool 1"
+        },
+        {
+          "expr": "increase(HikariPool_2_pool_ConnectionTimeoutRate_total{job=\"chronicle-backend\"}[5m])",
+          "legendFormat": "Pool 2"
+        },
+        {
+          "expr": "increase(HikariPool_3_pool_ConnectionTimeoutRate_total{job=\"chronicle-backend\"}[5m])",
+          "legendFormat": "Pool 3"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["chronicle", "backend", "hikaricp"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "name": "DS_PROMETHEUS",
+        "query": "prometheus",
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "title": "Chronicle Backend",
+  "uid": "chronicle-backend",
+  "version": 2
+}

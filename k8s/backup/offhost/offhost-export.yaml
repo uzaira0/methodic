@@ -1,0 +1,128 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: chronicle-offhost-backups
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: chronicle-offhost-backup-export
+    app.kubernetes.io/part-of: chronicle
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: chronicle-offhost-backup
+  resources:
+    requests:
+      storage: 100Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: chronicle-offhost-backup-export
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: chronicle-offhost-backup-export
+    app.kubernetes.io/part-of: chronicle
+spec:
+  schedule: "37 * * * *"
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: chronicle-offhost-backup-export
+            app.kubernetes.io/part-of: chronicle
+        spec:
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          restartPolicy: Never
+          serviceAccountName: chronicle-local-backup
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 26
+            runAsGroup: 26
+            fsGroup: 26
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: export
+              image: percona/percona-distribution-postgresql:18.4-5@sha256:40b133dec71f85dbc391bdf686bbc6b745517c2a9ffe49158ff77809f9bf28e4
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/bash
+                - /scripts/export-latest.sh
+              env:
+                - name: OFFHOST_BACKUP_TARGET_NAME
+                  valueFrom:
+                    configMapKeyRef:
+                      name: chronicle-offhost-backup-export-evidence
+                      key: target_name
+                - name: OFFHOST_STORAGE_SCOPE
+                  valueFrom:
+                    configMapKeyRef:
+                      name: chronicle-offhost-backup-export-evidence
+                      key: storage_scope
+                - name: OFFHOST_EXPORT_PROFILE
+                  valueFrom:
+                    configMapKeyRef:
+                      name: chronicle-offhost-backup-export-evidence
+                      key: export_profile
+                - name: OFFHOST_PRODUCTION_CUTOVER_REQUIREMENT
+                  valueFrom:
+                    configMapKeyRef:
+                      name: chronicle-offhost-backup-export-evidence
+                      key: production_cutover_requirement
+                - name: BACKUP_MAX_AGE_HOURS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: chronicle-offhost-backup-export-evidence
+                      key: max_backup_age_hours
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 128Mi
+                limits:
+                  cpu: 250m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: local-backups
+                  mountPath: /backups
+                  readOnly: true
+                - name: offhost-backups
+                  mountPath: /offhost-backups
+                - name: work
+                  mountPath: /work
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: scripts
+              configMap:
+                name: chronicle-offhost-backup-export-scripts
+                defaultMode: 0550
+            - name: local-backups
+              persistentVolumeClaim:
+                claimName: chronicle-local-backups
+                readOnly: true
+            - name: offhost-backups
+              persistentVolumeClaim:
+                claimName: chronicle-offhost-backups
+            - name: work
+              emptyDir:
+                sizeLimit: 1Gi
+            - name: tmp
+              emptyDir:
+                sizeLimit: 64Mi

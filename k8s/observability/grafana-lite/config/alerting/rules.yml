@@ -1,0 +1,385 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: chronicle-platform-fallback
+    folder: Chronicle
+    interval: 60s
+    rules:
+      - uid: chronicle_backend_down
+        title: Chronicle backend down
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              expr: up{job="chronicle-backend"}
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: "__expr__"
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              datasource:
+                type: "__expr__"
+                uid: "__expr__"
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: "__expr__"
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              datasource:
+                type: "__expr__"
+                uid: "__expr__"
+              expression: "$B < 1"
+              refId: C
+              type: math
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: Chronicle backend scrape is down.
+          runbook_url: docs/PRODUCTION-SLO-ALERT-RUNBOOK.md
+        labels:
+          service: chronicle-backend
+          severity: critical
+          team: chronicle-platform
+
+      - uid: chronicle_db_pool_pressure
+        title: Chronicle database pool pressure
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              expr: sum(HikariPool_1_pool_PendingConnections{job="chronicle-backend"}) + sum(HikariPool_2_pool_PendingConnections{job="chronicle-backend"}) + sum(HikariPool_3_pool_PendingConnections{job="chronicle-backend"})
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: "__expr__"
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              datasource:
+                type: "__expr__"
+                uid: "__expr__"
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: "__expr__"
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              datasource:
+                type: "__expr__"
+                uid: "__expr__"
+              expression: "$B > 0"
+              refId: C
+              type: math
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: Chronicle backend has pending database connections.
+          runbook_url: docs/PRODUCTION-SLO-ALERT-RUNBOOK.md
+        labels:
+          service: chronicle-backend
+          severity: warning
+          team: chronicle-platform
+
+      - uid: chronicle_backend_5xx_errors
+        title: Chronicle backend 5xx errors
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              expr: sum(rate(chronicle_api_errors_total{status=~"5.."}[10m]))
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: "__expr__"
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              datasource:
+                type: "__expr__"
+                uid: "__expr__"
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: "__expr__"
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              datasource:
+                type: "__expr__"
+                uid: "__expr__"
+              expression: "$B > 0.05"
+              refId: C
+              type: math
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: Chronicle backend routes are returning sustained 5xx errors.
+          runbook_url: docs/PRODUCTION-SLO-ALERT-RUNBOOK.md
+        labels:
+          service: chronicle-backend
+          severity: warning
+          team: chronicle-platform
+
+      - uid: chronicle_enrollment_failures
+        title: Chronicle enrollment failures
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              expr: sum(rate(chronicle_api_errors_total{endpoint=~".*(enroll|enrollment).*",status=~"4..|5.."}[10m]))
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: "__expr__"
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              datasource:
+                type: "__expr__"
+                uid: "__expr__"
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: "__expr__"
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              datasource:
+                type: "__expr__"
+                uid: "__expr__"
+              expression: "$B > 0.083"
+              refId: C
+              type: math
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: Chronicle enrollment routes are returning sustained 4xx/5xx errors.
+          runbook_url: docs/PRODUCTION-SLO-ALERT-RUNBOOK.md
+        labels:
+          service: chronicle-enrollment
+          severity: warning
+          team: chronicle-platform
+
+      - uid: chronicle_backup_stale
+        title: Chronicle backup freshness stale
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              expr: time() - chronicle_backup_latest_success_timestamp_seconds
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: "__expr__"
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              datasource:
+                type: "__expr__"
+                uid: "__expr__"
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: "__expr__"
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              datasource:
+                type: "__expr__"
+                uid: "__expr__"
+              expression: "$B > 86400"
+              refId: C
+              type: math
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 15m
+        annotations:
+          summary: Chronicle latest verified backup is older than 24 hours or missing.
+          runbook_url: docs/security/data-retention-deletion-pitr-runbook.md
+        labels:
+          service: chronicle-backup
+          severity: critical
+          team: chronicle-platform
+
+      - uid: chronicle_mobile_upload_failures
+        title: Chronicle mobile upload failures
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              expr: sum(rate(chronicle_api_errors_total{endpoint=~".*(upload|android|screen-time|user-identification).*",status=~"4..|5.."}[10m]))
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: "__expr__"
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              datasource:
+                type: "__expr__"
+                uid: "__expr__"
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: "__expr__"
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              datasource:
+                type: "__expr__"
+                uid: "__expr__"
+              expression: "$B > 0.1"
+              refId: C
+              type: math
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: Chronicle mobile upload endpoints are returning elevated 4xx/5xx errors.
+          runbook_url: docs/PRODUCTION-SLO-ALERT-RUNBOOK.md
+        labels:
+          service: chronicle-mobile-upload
+          severity: warning
+          team: chronicle-platform
+
+      - uid: chronicle_export_storage_pressure
+        title: Chronicle export storage pressure
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              expr: max(chronicle_export_artifact_bytes) > 7516192768 or max(chronicle_export_storage_usable_bytes) < 1073741824
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: "__expr__"
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              datasource:
+                type: "__expr__"
+                uid: "__expr__"
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: "__expr__"
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              datasource:
+                type: "__expr__"
+                uid: "__expr__"
+              expression: "$B > 0"
+              refId: C
+              type: math
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: Chronicle export artifacts are near the aggregate cap or filesystem free-space floor.
+          runbook_url: docs/RHEL9-KUBERNETES-RUNBOOK.md
+        labels:
+          service: chronicle-export
+          severity: warning
+          team: chronicle-platform

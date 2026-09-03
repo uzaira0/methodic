@@ -1,0 +1,181 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: chronicle-observability
+  labels:
+    app.kubernetes.io/name: chronicle-observability
+    app.kubernetes.io/part-of: chronicle
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: chronicle-observability
+  labels:
+    app.kubernetes.io/name: chronicle-observability
+    app.kubernetes.io/part-of: chronicle
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-observability-internal
+  namespace: chronicle-observability
+  labels:
+    app.kubernetes.io/name: chronicle-observability
+    app.kubernetes.io/part-of: chronicle
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8428
+        - protocol: TCP
+          port: 9428
+        - protocol: TCP
+          port: 2020
+  egress:
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8428
+        - protocol: TCP
+          port: 9428
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: victoria-metrics-scrape-chronicle
+  namespace: chronicle-observability
+  labels:
+    app.kubernetes.io/name: victoria-metrics
+    app.kubernetes.io/part-of: chronicle
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: victoria-metrics
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chronicle
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: chronicle-backend
+      ports:
+        - protocol: TCP
+          port: 40320
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-fluent-bit-to-victoria-logs
+  namespace: chronicle-observability
+  labels:
+    app.kubernetes.io/name: victoria-logs
+    app.kubernetes.io/part-of: chronicle
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: victoria-logs
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chronicle
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: fluent-bit
+      ports:
+        - protocol: TCP
+          port: 9428
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fluent-bit-egress-victoria-logs
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: fluent-bit
+    app.kubernetes.io/part-of: chronicle
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: fluent-bit
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chronicle-observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: victoria-logs
+      ports:
+        - protocol: TCP
+          port: 9428
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-observability-to-backend-metrics
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: chronicle-backend
+    app.kubernetes.io/part-of: chronicle
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: chronicle-backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chronicle-observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: victoria-metrics
+      ports:
+        - protocol: TCP
+          port: 40320

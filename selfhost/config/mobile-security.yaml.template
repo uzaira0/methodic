@@ -1,0 +1,23 @@
+# Rendered by ../backend-entrypoint.sh at container start.
+# Disabled and blank by default. Public Android/iOS builds enroll with a one-time link and
+# then authenticate with a per-device API key. The shared fields below are server-side
+# compatibility configuration only for an explicitly controlled legacy/research fleet.
+enabled: ${MOBILE_SIGNING_ENABLED}
+signing-secret: "${MOBILE_SIGNING_SECRET}"
+# Normally blank. Used only while rotating controlled legacy/research clients.
+previous-signing-secret: "${MOBILE_SIGNING_SECRET_PREVIOUS}"
+signing-required: ${MOBILE_SIGNING_REQUIRED}
+max-request-age-minutes: 5
+clock-skew-seconds: 30
+nonce-ttl-minutes: 10
+internal-web-secret: "${CHRONICLE_INTERNAL_WEB_SECRET}"
+# Canonical researcher-operated HTTPS root used in the signed consent handoff. Never derive
+# this from request Host/X-Forwarded-* headers, which are caller-controlled at this boundary.
+public-base-url: "${CHRONICLE_PUBLIC_BASE_URL}"
+# Optional Google Play reviewer bootstrap. All four values are server-side deployment
+# configuration; the reusable secret is never returned by the API or stored in Git.
+reviewer-enrollment:
+  enabled: ${CHRONICLE_REVIEWER_ACCESS_ENABLED}
+  secret: "${CHRONICLE_REVIEWER_ACCESS_SECRET}"
+  study-id: "${CHRONICLE_REVIEWER_STUDY_ID}"
+  participant-id: "${CHRONICLE_REVIEWER_PARTICIPANT_ID}"

@@ -1,0 +1,176 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: chronicle
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: chronicle
+    app.kubernetes.io/part-of: chronicle
+spec:
+  gatewayClassName: cilium
+  addresses:
+    - type: IPAddress
+      value: "10.50.0.120"
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: chronicle.example.com
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: chronicle
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: chronicle
+    app.kubernetes.io/part-of: chronicle
+spec:
+  parentRefs:
+    - name: chronicle
+      sectionName: http
+  hostnames:
+    - chronicle.example.com
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /keycloak
+        - path:
+            type: Exact
+            value: /keycloak/
+        - path:
+            type: PathPrefix
+            value: /keycloak/admin
+        - path:
+            type: PathPrefix
+            value: /keycloak/health
+        - path:
+            type: PathPrefix
+            value: /keycloak/metrics
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /keycloak/blocked-route-not-found
+      backendRefs:
+        - name: keycloak
+          port: 8080
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /keycloak
+      filters:
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            set:
+              - name: X-Forwarded-Proto
+                value: https
+              - name: X-Forwarded-Port
+                value: "443"
+      backendRefs:
+        - name: keycloak
+          port: 8080
+    - matches:
+        - path:
+            type: Exact
+            value: /chronicle/downloads/Chronicle-2026-06-25-beta.2-debug.apk
+        - path:
+            type: Exact
+            value: /chronicle/downloads/Chronicle-2026-06-25-beta.2-debug.apk.sha256
+      backendRefs:
+        - name: chronicle-apk-download
+          port: 8080
+    - matches:
+        - path:
+            type: Exact
+            value: /chronicle/preprocessing-gui
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /chronicle/preprocessing-gui/
+            statusCode: 302
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /chronicle/preprocessing-gui/
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - name: chronicle-preprocessing-frontend
+          port: 8080
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /chronicle/downloads/
+      backendRefs:
+        - name: chronicle-apk-download
+          port: 8080
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /chronicle/api/web/
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /chronicle/v3/
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            set:
+              - name: X-Chronicle-Internal-Web
+                value: "true"
+              - name: X-Forwarded-Proto
+                value: https
+              - name: X-Forwarded-Port
+                value: "443"
+      backendRefs:
+        - name: chronicle-backend
+          port: 40320
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /chronicle/v4/
+        - path:
+            type: PathPrefix
+            value: /chronicle/v3/
+        - path:
+            type: PathPrefix
+            value: /chronicle/v2/
+        - path:
+            type: PathPrefix
+            value: /chronicle/study/
+        - path:
+            type: PathPrefix
+            value: /chronicle/limits/
+      filters:
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            remove:
+              - X-Chronicle-Internal-Web
+            set:
+              - name: X-Forwarded-Proto
+                value: https
+              - name: X-Forwarded-Port
+                value: "443"
+      backendRefs:
+        - name: chronicle-backend
+          port: 40320
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: chronicle-frontend
+          port: 8080

@@ -1,0 +1,373 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: chronicle-backend
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: chronicle-backend
+    app.kubernetes.io/part-of: chronicle
+spec:
+  selector:
+    app.kubernetes.io/name: chronicle-backend
+  ports:
+    - name: http
+      port: 40320
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chronicle-backend
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: chronicle-backend
+    app.kubernetes.io/part-of: chronicle
+spec:
+  # Authorization state is cached in-process and the current Hazelcast
+  # configuration uses localhost discovery with CP disabled. Keep this workload
+  # single-replica until cross-pod discovery and cache coherence are implemented.
+  replicas: 1
+  strategy:
+    # Recreate terminates the old ReplicaSet before starting the replacement
+    # during a controlled Deployment update. It is not a general distributed
+    # singleton guarantee; database invariants remain authoritative.
+    type: Recreate
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chronicle-backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: chronicle-backend
+        app.kubernetes.io/part-of: chronicle
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      serviceAccountName: chronicle-backend
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: backend
+          image: ghcr.io/uzaira0/chronicle/chronicle-backend:sha-000000000000
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 40320
+              name: http
+          env:
+            - name: CHRONICLE_SERVER_XMS
+              value: -Xms1g
+            - name: CHRONICLE_SERVER_XMX
+              value: -Xmx3g
+            - name: JAVA_TOOL_OPTIONS
+              value: -XX:+ExitOnOutOfMemoryError
+            - name: CHRONICLE_SERVER_ARGS
+              value: local postgres medialocal
+            - name: DOMAIN
+              value: chronicle.example.com
+            - name: CHRONICLE_PUBLIC_BASE_URL
+              value: https://chronicle.example.com
+            - name: POSTGRES_HOST
+              value: postgres
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DB
+              value: chronicle
+            - name: POSTGRES_USER
+              value: chronicle
+            - name: POSTGRES_SSL_MODE
+              value: verify-full
+            - name: POSTGRES_SSL_ROOT_CERT
+              value: /app/ssl/ca.crt
+            - name: OIDC_ENABLED
+              value: "true"
+            - name: OIDC_PROVIDER_LABEL
+              value: Institution SSO
+            - name: OIDC_PUBLIC_BASE_URL
+              value: https://chronicle.example.com
+            - name: OIDC_REALM
+              value: chronicle
+            - name: OIDC_ISSUER
+              value: https://chronicle.example.com/keycloak/realms/chronicle
+            - name: OIDC_AUTHORIZATION_URI
+              value: https://chronicle.example.com/keycloak/realms/chronicle/protocol/openid-connect/auth
+            - name: OIDC_TOKEN_URI
+              value: http://keycloak.chronicle.svc.cluster.local:8080/keycloak/realms/chronicle/protocol/openid-connect/token
+            - name: OIDC_JWKS_URI
+              value: http://keycloak.chronicle.svc.cluster.local:8080/keycloak/realms/chronicle/protocol/openid-connect/certs
+            - name: OIDC_CLIENT_ID
+              value: chronicle-web
+            - name: OIDC_IDP_HINT
+              value: upstream-oidc
+            - name: OIDC_COOKIE_TOKEN_CLAIM
+              value: id_token
+            - name: TESTING_LOGIN_ENABLED
+              value: "false"
+            - name: ALLOW_PRODUCTION_TESTING_LOGIN
+              value: "false"
+            - name: CHRONICLE_SECURITY_COOKIE_SECURE
+              value: "true"
+            - name: CHRONICLE_SECURITY_REQUIRE_MFA
+              value: "true"
+            - name: CHRONICLE_SECURITY_APPROVED_MFA_ACR_VALUES
+              value: ""
+            - name: CHRONICLE_SECURITY_MFA_IDP_PROOF_VERIFIED
+              value: "false"
+            - name: CHRONICLE_SECURITY_METRICS_USERNAME
+              value: chronicle-metrics
+            - name: CHRONICLE_SECURITY_JWT_ACCESS_TOKEN_EXPIRY_MINUTES
+              value: "15"
+            - name: CHRONICLE_SECURITY_JWT_REFRESH_TOKEN_EXPIRY_DAYS
+              value: "7"
+            - name: SMTP_HOST
+              value: smtp.office365.com
+            - name: SMTP_PORT
+              value: "587"
+            - name: SMTP_USERNAME
+              value: ""
+            - name: SMTP_FROM_EMAIL
+              value: noreply@example.com
+            - name: SMTP_ENABLED
+              value: "false"
+            - name: MOBILE_SIGNING_ENABLED
+              value: "false"
+            - name: MOBILE_SIGNING_REQUIRED
+              value: "false"
+            - name: VAULT_ADDR
+              value: https://openbao.openbao.svc.cluster.local:8200
+            - name: VAULT_ENABLED
+              value: "false"
+            - name: VAULT_AUTH_METHOD
+              value: token
+            - name: LOG_FORMAT
+              value: json
+            - name: AUDIT_LOG_DIR
+              value: /var/log/chronicle
+            - name: LOG_DIR
+              value: /var/log/chronicle
+            - name: CHRONICLE_EXPORT_DIR
+              value: /var/lib/chronicle/exports
+            - name: CHRONICLE_EXPORT_MAX_ROWS
+              value: "1000000"
+            - name: CHRONICLE_EXPORT_MAX_BYTES
+              value: "536870912"
+            - name: CHRONICLE_EXPORT_MAX_RUNTIME_SECONDS
+              value: "1800"
+            - name: CHRONICLE_EXPORT_MAX_TOTAL_BYTES
+              value: "8589934592"
+            - name: CHRONICLE_EXPORT_MIN_FREE_BYTES
+              value: "1073741824"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chronicle-app-secrets
+                  key: POSTGRES_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: chronicle-app-secrets
+                  key: JWT_SECRET
+            - name: HAZELCAST_SERVER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chronicle-app-secrets
+                  key: HAZELCAST_SERVER_PASSWORD
+            - name: HAZELCAST_CLIENT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chronicle-app-secrets
+                  key: HAZELCAST_CLIENT_PASSWORD
+            - name: MOBILE_SIGNING_SECRET
+              value: ""
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: chronicle-app-secrets
+                  key: OIDC_CLIENT_SECRET
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chronicle-app-secrets
+                  key: SMTP_PASSWORD
+                  optional: true
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: chronicle-app-secrets
+                  key: VAULT_TOKEN
+                  optional: true
+            - name: CHRONICLE_SECURITY_METRICS_PASSWORD_FILES
+              value: /run/secrets/chronicle-metrics/current,/run/secrets/chronicle-metrics/previous,/run/secrets/chronicle-metrics/next
+          readinessProbe:
+            httpGet:
+              path: /chronicle/internal/health/ready
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /chronicle/internal/health/live
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 18
+          livenessProbe:
+            httpGet:
+              path: /chronicle/internal/health/live
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+            limits:
+              cpu: "3"
+              memory: 4Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            readOnlyRootFilesystem: true
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              umask 077
+              case "$MOBILE_SIGNING_ENABLED" in true|false) ;; *) echo "FATAL: MOBILE_SIGNING_ENABLED must be exactly true or false" >&2; exit 1 ;; esac
+              case "$MOBILE_SIGNING_REQUIRED" in true|false) ;; *) echo "FATAL: MOBILE_SIGNING_REQUIRED must be exactly true or false" >&2; exit 1 ;; esac
+              if [ "$MOBILE_SIGNING_ENABLED" != "$MOBILE_SIGNING_REQUIRED" ]; then
+                echo "FATAL: MOBILE_SIGNING_ENABLED and MOBILE_SIGNING_REQUIRED must either both be true or both be false" >&2
+                exit 1
+              fi
+              if [ "$MOBILE_SIGNING_ENABLED" = "false" ]; then
+                [ -z "$MOBILE_SIGNING_SECRET" ] || { echo "FATAL: MOBILE_SIGNING_SECRET must stay blank unless controlled legacy compatibility is enabled" >&2; exit 1; }
+              else
+                case "$MOBILE_SIGNING_SECRET" in ''|*CHANGE_ME*) echo "FATAL: controlled legacy compatibility requires a generated 32+ character MOBILE_SIGNING_SECRET" >&2; exit 1 ;; esac
+                [ "${#MOBILE_SIGNING_SECRET}" -ge 32 ] || { echo "FATAL: controlled legacy compatibility requires a generated 32+ character MOBILE_SIGNING_SECRET" >&2; exit 1; }
+              fi
+              if [ "$CHRONICLE_SECURITY_COOKIE_SECURE" != "true" ]; then
+                echo "FATAL: production requires secure cookies" >&2
+                exit 1
+              fi
+              if [ "$CHRONICLE_SECURITY_REQUIRE_MFA" != "true" ]; then
+                echo "FATAL: production requires MFA enforcement" >&2
+                exit 1
+              fi
+              if [ "$OIDC_IDP_HINT" = "upstream-saml" ]; then
+                echo "FATAL: MFA enforcement cannot use the disabled upstream SAML example until current-session AuthnContext is mapped to approved amr/acr assurance" >&2
+                exit 1
+              fi
+              if [ "$CHRONICLE_SECURITY_MFA_IDP_PROOF_VERIFIED" != "true" ]; then
+                echo "FATAL: production requires verified live current-session MFA IdP proof" >&2
+                exit 1
+              fi
+              if [ "$OIDC_ENABLED" = "true" ]; then
+                case "$OIDC_CLIENT_SECRET" in ''|change-me-*|CHANGE_ME*) echo "FATAL: OIDC client secret missing or placeholder" >&2; exit 1 ;; esac
+              fi
+              mkdir -p /tmp/chronicle-config
+              envsubst < /server/config-templates/rhizome.yaml.template > /tmp/chronicle-config/rhizome.yaml
+              envsubst < /server/config-templates/chronicle-auth.yaml.template > /tmp/chronicle-config/chronicle-auth.yaml
+              envsubst < /server/config-templates/mail.yaml.template > /tmp/chronicle-config/mail.yaml
+              envsubst < /server/config-templates/mobile-security.yaml.template > /tmp/chronicle-config/mobile-security.yaml
+              envsubst < /server/config-templates/vault.yaml.template > /tmp/chronicle-config/vault.yaml
+              envsubst < /server/config-templates/cors.yaml.template > /tmp/chronicle-config/cors.yaml
+              for f in rhizome.yaml chronicle-auth.yaml mail.yaml mobile-security.yaml vault.yaml cors.yaml; do
+                [ -s "/tmp/chronicle-config/$f" ] || { echo "FATAL: rendered $f is empty" >&2; exit 1; }
+                ! grep -qF '${' "/tmp/chronicle-config/$f" || { echo "FATAL: rendered $f contains unresolved variables" >&2; exit 1; }
+              done
+              [ -d /var/log/chronicle ] || { echo "FATAL: audit log volume missing" >&2; exit 1; }
+              exec java "$CHRONICLE_SERVER_XMS" "$CHRONICLE_SERVER_XMX" \
+                -Xss512k -XX:MetaspaceSize=128m -XX:MaxMetaspaceSize=256m \
+                -XX:+UseStringDeduplication -XX:MaxGCPauseMillis=200 \
+                -cp "/tmp/chronicle-config:/server/lib/*" \
+                com.openlattice.chronicle.ChronicleServer local postgres medialocal
+          volumeMounts:
+            - name: config-templates
+              mountPath: /server/config-templates
+              readOnly: true
+            - name: postgres-ca
+              mountPath: /app/ssl
+              readOnly: true
+            - name: audit-logs
+              mountPath: /var/log/chronicle
+            - name: export-artifacts
+              mountPath: /var/lib/chronicle/exports
+            - name: metrics-credentials
+              mountPath: /run/secrets/chronicle-metrics
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config-templates
+          configMap:
+            name: chronicle-backend-config-templates
+        - name: postgres-ca
+          secret:
+            secretName: chronicle-postgres-tls
+            items:
+              - key: ca.crt
+                path: ca.crt
+            defaultMode: 0440
+        - name: audit-logs
+          persistentVolumeClaim:
+            claimName: chronicle-audit-logs
+        - name: export-artifacts
+          persistentVolumeClaim:
+            claimName: chronicle-export-artifacts
+        - name: metrics-credentials
+          secret:
+            secretName: chronicle-app-secrets
+            items:
+              - key: CHRONICLE_SECURITY_METRICS_PASSWORD
+                path: current
+              - key: CHRONICLE_SECURITY_METRICS_PASSWORD_PREVIOUS
+                path: previous
+              - key: CHRONICLE_SECURITY_METRICS_PASSWORD_NEXT
+                path: next
+            defaultMode: 0440
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: chronicle-audit-logs
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: chronicle-backend
+    app.kubernetes.io/part-of: chronicle
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: chronicle-export-artifacts
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: chronicle-backend
+    app.kubernetes.io/part-of: chronicle
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 10Gi

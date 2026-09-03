@@ -1,0 +1,32 @@
+[
+  {
+    "benchmark": "com.openlattice.chronicle.bench.JsonSerDesBench.deserialize1000Events",
+    "mode": "thrpt",
+    "threads": 1,
+    "forks": 2,
+    "warmupIterations": 5,
+    "warmupTime": "1 s",
+    "measurementIterations": 5,
+    "measurementTime": "2 s",
+    "primaryMetric": {
+      "score": 0,
+      "scoreError": 0,
+      "scoreUnit": "ops/s",
+      "rawData": []
+    },
+    "_comment": "Placeholder — run ./gradlew :chronicle-server:jmh and replace with actual results"
+  },
+  {
+    "benchmark": "com.openlattice.chronicle.bench.JsonSerDesBench.serialize1000Events",
+    "mode": "thrpt",
+    "threads": 1,
+    "forks": 2,
+    "primaryMetric": {
+      "score": 0,
+      "scoreError": 0,
+      "scoreUnit": "ops/s",
+      "rawData": []
+    },
+    "_comment": "Placeholder — run ./gradlew :chronicle-server:jmh and replace with actual results"
+  }
+]

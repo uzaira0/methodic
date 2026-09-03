@@ -1,0 +1,7 @@
+---
+- name: Build and run the AWS Nitro Enclaves hello-world lab
+  hosts: chronicle_k8s
+  gather_facts: true
+  become: true
+  roles:
+    - chronicle_nitro_enclaves_lab

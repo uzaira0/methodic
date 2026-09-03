@@ -1,0 +1,21 @@
+# Historical/false-positive findings accepted 2026-07-11 (see local-ci gitleaks job).
+# All verified: deleted legacy files, test fixtures, age PUBLIC key, env-var template text.
+bf154f63efc4760deb6b68964ea5267f372fa455:src/bun-legacy/auth-utils.test.js:generic-api-key:171
+9ceaa08e5c179f3d41d1ab8cd197eaaa6b1fd562:src/index.js:jwt:107
+91e76a2e3bb106c1b4b3e00430c16c85b52861db:config/auth/auth0.config.js:generic-api-key:1
+91e76a2e3bb106c1b4b3e00430c16c85b52861db:config/auth/auth0.config.js:generic-api-key:2
+a1f22edb65b0b12d5aaeb6bfaf03b1d9fa5b0bb8:config/auth/auth0.config.js:generic-api-key:1
+a1f22edb65b0b12d5aaeb6bfaf03b1d9fa5b0bb8:config/auth/auth0.config.js:generic-api-key:2
+# Accepted 2026-07-15: generated payload-contract fixtures — encryptedKey/ciphertext are
+# deterministic test bytes (0x00 0x01 ... sequences) from chronicle-models fixtures, not keys.
+a9410d41dda1daf3e6a7949078b99f329b510dae:src/modern/generated/chronicle-payload-contracts.generated.ts:generic-api-key:974
+a9410d41dda1daf3e6a7949078b99f329b510dae:src/modern/generated/chronicle-payload-contracts.generated.ts:generic-api-key:984
+a9410d41dda1daf3e6a7949078b99f329b510dae:src/modern/generated/chronicle-payload-contracts.generated.ts:generic-api-key:994
+6468ada9ee1ba1c2db408ff46505d35f0dd89229:src/modern/generated/chronicle-payload-contracts.generated.ts:generic-api-key:974
+6468ada9ee1ba1c2db408ff46505d35f0dd89229:src/modern/generated/chronicle-payload-contracts.generated.ts:generic-api-key:984
+6468ada9ee1ba1c2db408ff46505d35f0dd89229:src/modern/generated/chronicle-payload-contracts.generated.ts:generic-api-key:994
+# Accepted 2026-08-26: regenerated copies of the deterministic payload-contract
+# fixture bytes above; no runtime credential is embedded.
+d7f792e7683621714d9a5798c360db7604c421dd:src/modern/generated/chronicle-payload-contracts.generated.ts:generic-api-key:1031
+d7f792e7683621714d9a5798c360db7604c421dd:src/modern/generated/chronicle-payload-contracts.generated.ts:generic-api-key:1041
+d7f792e7683621714d9a5798c360db7604c421dd:src/modern/generated/chronicle-payload-contracts.generated.ts:generic-api-key:1051

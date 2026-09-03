@@ -1,0 +1,9 @@
+id: no-rls-context-manager-call
+language: Kotlin
+severity: error
+message: >
+  Do not call setCurrentUserContext directly from request or service code.
+  RLS context must be published by RLSContextFilter and applied by the
+  request-scoped datasource wrapper on the actual query connection.
+rule:
+  pattern: $MANAGER.setCurrentUserContext($CONNECTION)

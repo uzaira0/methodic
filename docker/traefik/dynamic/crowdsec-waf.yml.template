@@ -1,0 +1,25 @@
+http:
+  middlewares:
+    crowdsec-waf:
+      plugin:
+        crowdsec-bouncer:
+          enabled: true
+          logLevel: INFO
+          crowdsecMode: live
+          crowdsecLapiScheme: http
+          crowdsecLapiHost: chronicle-crowdsec:8080
+          crowdsecLapiPath: /
+          crowdsecLapiKey: ${CROWDSEC_BOUNCER_API_KEY}
+          crowdsecAppsecEnabled: true
+          crowdsecAppsecHost: chronicle-crowdsec:7422
+          crowdsecAppsecPath: /
+          crowdsecAppsecFailureBlock: true
+          crowdsecAppsecUnreachableBlock: true
+          crowdsecAppsecBodyLimit: 10485760
+          remediationStatusCode: 403
+          httpTimeoutSeconds: 10
+          forwardedHeadersCustomName: X-Forwarded-For
+          forwardedHeadersTrustedIps:
+            - 10.0.0.0/8
+            - 172.16.0.0/12
+            - 192.168.0.0/16

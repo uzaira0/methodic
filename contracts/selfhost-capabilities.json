@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "capabilities": [
+    {
+      "id": "study-export",
+      "backend": "ExportController: create, list, inspect, and download export jobs",
+      "owners": ["researcher-web"],
+      "evidence": ["chronicle-web/src/modern/routes/study-bulk-downloads-page.tsx:Recent export jobs"]
+    },
+    {
+      "id": "participant-export",
+      "backend": "StudyController: download participant data",
+      "owners": ["researcher-web"],
+      "evidence": ["chronicle-web/src/modern/components/download-participant-data-modal.tsx:Download"]
+    },
+    {
+      "id": "participant-enrollment-health",
+      "backend": "StudyController: participant, device, sensor, upload, and compliance status",
+      "owners": ["researcher-web", "mobile-client"],
+      "evidence": [
+        "chronicle-web/src/modern/routes/study-participants-page.tsx:Receiving data",
+        "chronicle-web/src/modern/routes/study-compliance-page.tsx:enrollment status",
+        "chronicle/app/src/main/java/com/openlattice/chronicle/ServerEnrollmentActivity.kt:enroll"
+      ]
+    },
+    {
+      "id": "verified-deletion",
+      "backend": "DataDeletionController and StudyController: queue and inspect verified deletion",
+      "owners": ["researcher-web", "participant-web"],
+      "evidence": [
+        "chronicle-web/src/modern/routes/study-participants-page.tsx:Deletion status",
+        "chronicle-web/src/modern/routes/public-research-policy-page.tsx:deletion request"
+      ]
+    },
+    {
+      "id": "study-lifecycle-deletion",
+      "backend": "StudyLifecycleController: quarantine, status, cancel, and erase a study",
+      "owners": ["researcher-web"],
+      "evidence": ["chronicle-web/src/modern/routes/study-layout.tsx:deletion quarantine"]
+    },
+    {
+      "id": "failed-background-operations",
+      "backend": "ExportController, PipelineController, and deletion workers expose job state",
+      "owners": ["researcher-web", "operator-cli", "grafana"],
+      "evidence": [
+        "chronicle-web/src/modern/routes/study-bulk-downloads-page.tsx:FAILED",
+        "selfhost/chronicle:doctor",
+        "selfhost/monitoring/grafana-dashboards/application.json:materialization"
+      ]
+    },
+    {
+      "id": "backup-visibility",
+      "backend": "Self-host backup receipts and verification state",
+      "owners": ["operator-cli", "grafana"],
+      "evidence": [
+        "selfhost/chronicle:backup",
+        "selfhost/monitoring/grafana-dashboards/system-overview.json:backup"
+      ]
+    },
+    {
+      "id": "deployment-diagnostics",
+      "backend": "Compose services, probes, configuration guard, and operational events",
+      "owners": ["operator-cli", "grafana"],
+      "evidence": [
+        "selfhost/chronicle:doctor",
+        "selfhost/monitoring/grafana-dashboards/system-overview.json:Configuration"
+      ]
+    },
+    {
+      "id": "monitoring-viewers",
+      "backend": "Grafana Viewer account administration",
+      "owners": ["operator-cli"],
+      "evidence": ["selfhost/chronicle:add-viewer"]
+    },
+    {
+      "id": "participant-forms",
+      "backend": "SurveyController and TimeUseDiaryController participant forms",
+      "owners": ["participant-web"],
+      "evidence": [
+        "chronicle-web/src/modern/routes/survey-page.tsx:SurveyRoutePage",
+        "chronicle-web/src/modern/routes/questionnaire-page.tsx:QuestionnaireRoutePage",
+        "chronicle-web/src/modern/routes/time-use-diary-page.tsx:TimeUseDiaryPage"
+      ]
+    },
+    {
+      "id": "mobile-data-collection",
+      "backend": "StudyController v4 enrollment and upload APIs",
+      "owners": ["mobile-client"],
+      "evidence": [
+        "chronicle/collection-upload/src/main/java/com/openlattice/chronicle/collection/upload/CombinedUploadOrchestrator.kt:upload",
+        "chronicle-ios/chronicle/CoreData/UploadDataOperation.swift:upload"
+      ]
+    },
+    {
+      "id": "retention-holds",
+      "backend": "DataDeletionController retention-hold endpoints",
+      "owners": ["api-only-by-design"],
+      "rationale": "Legal-hold actions remain an explicit owner API rather than a routine researcher workflow.",
+      "evidence": ["chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/DataDeletionController.kt:placeHold"]
+    }
+  ]
+}

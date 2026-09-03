@@ -1,0 +1,260 @@
+<?xml version="1.0" ?>
+<!-- Existing findings captured from reviewed release tranches. CI must fail on new findings. -->
+<SmellBaseline>
+  <ManuallySuppressedIssues></ManuallySuppressedIssues>
+  <CurrentIssues>
+    <ID>ComplexCondition:SsrfValidator.kt$SsrfValidator$address.isAnyLocalAddress || address.isLoopbackAddress || address.isLinkLocalAddress || address.isSiteLocalAddress || address.isMulticastAddress</ID>
+    <ID>CyclomaticComplexMethod:ApiKeyAuthenticationFilter.kt$ApiKeyAuthenticationFilter$@Suppress("LongMethod", "ReturnCount") override fun doFilterInternal( request: HttpServletRequest, response: HttpServletResponse, filterChain: FilterChain )</ID>
+    <ID>CyclomaticComplexMethod:AppDataUploadService.kt$AppDataUploadService$@Suppress("TooGenericExceptionCaught", "NestedBlockDepth") private fun moveToEventStorageBatch(scope: UploadBufferScope?): Int</ID>
+    <ID>CyclomaticComplexMethod:CompactNumericSensorPayloadValidator.kt$CompactNumericSensorPayloadValidator$fun validate(envelope: CompactNumericSensorPayload)</ID>
+    <ID>CyclomaticComplexMethod:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun completeOperation(claim: ClaimedDeletion, participantId: String?)</ID>
+    <ID>CyclomaticComplexMethod:ExportService.kt$ExportService$@Suppress("TooGenericExceptionCaught") private fun completeExportAndEnqueue( claim: ClaimedExport, request: ExportRequest, dataByType: Map&lt;String, Iterable&lt;Map&lt;String, Any&gt;&gt;&gt;, ): ExportWriteResult?</ID>
+    <ID>CyclomaticComplexMethod:ExportService.kt$ExportService$@Suppress("TooGenericExceptionCaught") private fun persistExportFailure( claim: ClaimedExport, format: ExportFormat, failure: Exception, )</ID>
+    <ID>CyclomaticComplexMethod:ExportService.kt$ExportService$internal fun terminalizeOneExhaustedRecovery(): Boolean</ID>
+    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testConcurrentPipelineMappingAndJobDeletionCannotCommitAnOrphan()</ID>
+    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDeletionAccountabilityIsAtomicDurableAndRetrySafe()</ID>
+    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDeletionLedgerAndParticipantAccess()</ID>
+    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDeletionMutationBarrierHonorsModeLifecycle()</ID>
+    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDirectAppendOnlyAudit()</ID>
+    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDurableWebhookRetryUsesStableDeliveryIdentity()</ID>
+    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testExportQueueLeaseRecoveryAndActiveErasureRevocation()</ID>
+    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testFinalDeletionSweepTerminalizesExportCreatedAfterInitialSweep()</ID>
+    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testJobWorkerPersistsLeasedTerminalStatesAndFailsCanceledPipeline()</ID>
+    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testLastActiveAclOwnerConstraintSerializesCompetingDeletes()</ID>
+    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testLifecycleServiceSchedulesAndCancelsOneAtomicArchivedStudyErasure()</ID>
+    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testParticipantErasureDeletesPendingPausedAndTerminalScopedJobs()</ID>
+    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testPipelineAndJobStateMachineRejectsImpossibleTransitions()</ID>
+    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testScopedUploadBufferDrainWaitsForConcurrentClaim()</ID>
+    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStartedStudyErasureCannotBeCancelledOrHeldAsIfReversible()</ID>
+    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyErasureCancellationRestoresOnlyWorkflowRevocations()</ID>
+    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyFinalizationFailsClosedOnUnsafeLateTableIdentifier()</ID>
+    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyFinalizationReconcilesTablesCreatedDuringQuarantine()</ID>
+    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyParticipantRowsAreHiddenFromApplicationRoleDuringStudyQuarantine()</ID>
+    <ID>CyclomaticComplexMethod:MobileApiSignatureFilter.kt$MobileApiSignatureFilter$@Suppress("LongMethod", "ReturnCount") override fun doFilterInternal( request: HttpServletRequest, response: HttpServletResponse, filterChain: FilterChain )</ID>
+    <ID>CyclomaticComplexMethod:ParticipantFormAccessFilter.kt$ParticipantFormAccessFilter$private fun target(request: HttpServletRequest): Target?</ID>
+    <ID>CyclomaticComplexMethod:RuntimeOwnedTablesMigrationTest.kt$RuntimeOwnedTablesMigrationTest$@Test fun testV84AdoptsLegacyServiceTablesWithoutLosingDataAndAppliesRls()</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeCaptureSource$deviceActivityExport</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeCaptureSource$monitorThreshold</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeCaptureSource$reportSummary</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeCaptureSource$shortcutSnapshot</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeConfidence$appleDeviceActivity</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeConfidence$exactParticipantSubmitted</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeConfidence$externalShortcut</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeConfidence$reportViewOnly</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeConfidence$thresholdEstimate</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeUsageRowKind$application</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeUsageRowKind$categorySummary</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeUsageRowKind$thresholdEvent</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeUsageRowKind$webDomain</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$UserIdentificationChoice$participant</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$UserIdentificationChoice$someoneElse</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$UserIdentificationTrigger$appBecameActive</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$UserIdentificationTrigger$manualInApp</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$UserIdentificationTrigger$notificationAction</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$UserIdentificationTrigger$screenTimeThreshold</ID>
+    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$UserIdentificationTrigger$shortcut</ID>
+    <ID>InstanceOfCheckForException:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$exception is DeletionLeaseLostException</ID>
+    <ID>IteratorHasNextCallsNextMethod:ExportFileWriter.kt$ExportFileWriter.Companion$ClosingIterator&lt;T&gt; : IteratorAutoCloseable</ID>
+    <ID>IteratorNotThrowingNoSuchElementException:ExportFileWriter.kt$ExportFileWriter.Companion$ClosingIterator&lt;T&gt; : IteratorAutoCloseable</ID>
+    <ID>IteratorNotThrowingNoSuchElementException:ExportFileWriter.kt$ExportFileWriter.Companion$TypedCsvCursor : IteratorAutoCloseable</ID>
+    <ID>LargeClass:DataDeletionOrchestrator.kt$DataDeletionOrchestrator : AuditingComponent</ID>
+    <ID>LargeClass:ExportFileWriter.kt$ExportFileWriter$Companion</ID>
+    <ID>LargeClass:ExportService.kt$ExportService</ID>
+    <ID>LargeClass:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest</ID>
+    <ID>LargeClass:HazelcastAuthorizationService.kt$HazelcastAuthorizationService : AuthorizationManager</ID>
+    <ID>LargeClass:MobileApiSignatureFilterTest.kt$MobileApiSignatureFilterTest</ID>
+    <ID>LargeClass:PayloadFixtureIngestionTest.kt$PayloadFixtureIngestionTest</ID>
+    <ID>LargeClass:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest</ID>
+    <ID>LargeClass:StudyControllerTest.kt$StudyControllerTest</ID>
+    <ID>LongMethod:AppDataUploadService.kt$AppDataUploadService$@Suppress("TooGenericExceptionCaught", "NestedBlockDepth") private fun moveToEventStorageBatch(scope: UploadBufferScope?): Int</ID>
+    <ID>LongMethod:CompactNumericSensorPayloadValidator.kt$CompactNumericSensorPayloadValidator$fun validate(envelope: CompactNumericSensorPayload)</ID>
+    <ID>LongMethod:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun claimDueOperation(requiredOperationId: UUID? = null): ClaimedDeletion?</ID>
+    <ID>LongMethod:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun completeOperation(claim: ClaimedDeletion, participantId: String?)</ID>
+    <ID>LongMethod:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun sweepRevokedExportArtifacts(connection: Connection, claim: ClaimedDeletion)</ID>
+    <ID>LongMethod:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$public open fun placeHold( operationId: UUID, studyId: UUID, reason: String, createdBy: String, reviewAt: OffsetDateTime, ): UUID</ID>
+    <ID>LongMethod:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$public open fun releaseHold( operationId: UUID, holdId: UUID, studyId: UUID, releasedBy: String, releaseReason: String, )</ID>
+    <ID>LongMethod:ExportFileWriterTest.kt$ExportFileWriterTest$@Test fun testMultiTypeCsvUsesStableTypedUnionSchemaAndClosesOneShotIterators()</ID>
+    <ID>LongMethod:ExportLegacyFormatMigrationTest.kt$ExportLegacyFormatMigrationTest$@Test fun testV77TerminalizesAndNormalizesInvalidLegacyFormatWithoutLosingCleanupPath()</ID>
+    <ID>LongMethod:ExportService.kt$ExportService$@Suppress("TooGenericExceptionCaught") private fun completeExportAndEnqueue( claim: ClaimedExport, request: ExportRequest, dataByType: Map&lt;String, Iterable&lt;Map&lt;String, Any&gt;&gt;&gt;, ): ExportWriteResult?</ID>
+    <ID>LongMethod:ExportService.kt$ExportService$@Suppress("TooGenericExceptionCaught") private fun persistExportFailure( claim: ClaimedExport, format: ExportFormat, failure: Exception, )</ID>
+    <ID>LongMethod:ExportService.kt$ExportService$internal fun reserveExportCapacity(claim: ClaimedExport): Boolean</ID>
+    <ID>LongMethod:ExportService.kt$ExportService$internal fun terminalizeOneExhaustedRecovery(): Boolean</ID>
+    <ID>LongMethod:ExportService.kt$ExportService$private fun cleanupOneExpiredExport(): Boolean</ID>
+    <ID>LongMethod:ExportService.kt$ExportService$public fun streamExportFile(studyId: UUID, exportId: UUID, requestingUserId: String, outputStream: OutputStream): ExportJobInfo</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testActiveJobHoldsLeaseFenceUntilTerminalCommit()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testConcurrentPipelineMappingAndJobDeletionCannotCommitAnOrphan()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testCorpusAppliedCleanly()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDeletionAccountabilityIsAtomicDurableAndRetrySafe()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDeletionLedgerAndParticipantAccess()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDeletionMutationBarrierHonorsModeLifecycle()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDirectAppendOnlyAudit()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDurableWebhookRetryUsesStableDeliveryIdentity()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testExportCapacityReservationsFenceIndependentWorkersAndLeaseOwnership()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testExportQueueLeaseRecoveryAndActiveErasureRevocation()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testExportQueueRejectsFormatCorruptionAndTerminalizesRequestMismatch()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testFinalDeletionSweepTerminalizesExportCreatedAfterInitialSweep()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testIosScreenTimeDeltaProjectionAcrossDstAndMidnight()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testJobWorkerPersistsLeasedTerminalStatesAndFailsCanceledPipeline()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testLastActiveAclOwnerConstraintSerializesCompetingDeletes()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testLifecycleServiceSchedulesAndCancelsOneAtomicArchivedStudyErasure()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testMissingCompletedExportIsPersistedAsFailed()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testParticipantErasureDeletesPendingPausedAndTerminalScopedJobs()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testPipelineAndJobStateMachineRejectsImpossibleTransitions()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testPoisonedRecoveryCleanupBacksOffWithoutStarvingPendingWork()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testReissuedOrphanObjects()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testScopedUploadBufferDrainWaitsForConcurrentClaim()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStartedStudyErasureCannotBeCancelledOrHeldAsIfReversible()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyCancellationAndLifecycleMutationRollBackTogether()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyErasureCancellationRestoresOnlyWorkflowRevocations()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyFinalizationFailsClosedOnUnsafeLateTableIdentifier()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyFinalizationReconcilesTablesCreatedDuringQuarantine()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyParticipantRowsAreHiddenFromApplicationRoleDuringStudyQuarantine()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyQuarantineAndLifecycleMutationRollBackTogether()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testUploadBufferDrainExcludesDeletionBlockedRowsEvenWithoutRls()</ID>
+    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest.Companion$@BeforeClass @JvmStatic fun setUp()</ID>
+    <ID>LongMethod:HzAuthzTest.kt$HzAuthzTest$@Test fun expiredAceIsExcludedFromEveryAuthorizationReadAndOwnerPath()</ID>
+    <ID>LongMethod:MobileApiSecurityConfig.kt$MobileApiSecurityConfig$@Bean @Order(Ordered.HIGHEST_PRECEDENCE + 10) public fun mobileApiSignatureFilter(): Filter</ID>
+    <ID>LongMethod:ParticipantFormAccessService.kt$ParticipantFormAccessService$@Suppress("TooGenericExceptionCaught") public fun exchangeAccessCode(rawAccessCode: String): ExchangedParticipantFormSession?</ID>
+    <ID>LongMethod:ParticipantFormSubmissionReceiptService.kt$ParticipantFormSubmissionReceiptService$@Suppress("TooGenericExceptionCaught") private fun execute( scope: ParticipantFormAccessScope, formKind: ParticipantFormKind, resourceKey: String, idempotencyKey: UUID, payload: Any, action: (Connection) -&gt; UUID?, ): IdempotentSubmissionResult&lt;UUID?&gt;</ID>
+    <ID>LongMethod:PayloadFixtureIngestionTest.kt$PayloadFixtureIngestionTest$@Test fun `screen-time-usage fixtures ingest through ScreenTimeUsageUploadService and the ios mover`()</ID>
+    <ID>LongMethod:PermanentOwnerBootstrapMigrationTest.kt$PermanentOwnerBootstrapMigrationTest$@Test fun testV67AcceptsAndProtectsSelfOwnedBootstrapRolesOnlyOnTheirOwnAcls()</ID>
+    <ID>LongMethod:PipelineJobRunner.kt$PipelineJobRunner$@Suppress("TooGenericExceptionCaught", "NestedBlockDepth") override fun runJob(connection: Connection, job: ChronicleJob): List&lt;AuditableEvent&gt;</ID>
+    <ID>LongMethod:RestoreContinuityReconciler.kt$RestoreContinuityReconciler$private fun loadAlreadyProtectedCompletedOperationIds(): Set&lt;UUID&gt;</ID>
+    <ID>LongMethod:RestoreContinuityReconciler.kt$RestoreContinuityReconciler$private fun validateCheckpointRelations(connection: Connection)</ID>
+    <ID>LongMethod:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$@Test fun `cancelled study erasure remains cancelled and restores form access`()</ID>
+    <ID>LongMethod:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$private fun createContinuitySchema(connection: Connection)</ID>
+    <ID>LongMethod:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$private fun seedAlreadyProtectedPublicState()</ID>
+    <ID>LongMethod:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$private fun seedContinuityCheckpoint()</ID>
+    <ID>LongMethod:RuntimeOwnedTablesMigrationTest.kt$RuntimeOwnedTablesMigrationTest$@Test fun testV84AdoptsLegacyServiceTablesWithoutLosingDataAndAppliesRls()</ID>
+    <ID>LongMethod:StudyController.kt$StudyController$@Timed @GetMapping( path = [STUDY_ID_PATH + PARTICIPANTS_PATH + DATA_PATH], produces = [MediaType.APPLICATION_JSON_VALUE, CustomMediaType.TEXT_CSV_VALUE] ) @RateLimit(type = RateLimitType.SENSITIVE, keyStrategy = RateLimitKeyStrategy.STUDY) public fun getParticipantsData( @PathVariable(STUDY_ID) studyId: UUID, @RequestParam(value = DATA_TYPE) dataType: ParticipantDataType, @RequestParam(value = PARTICIPANT_ID) @Size(max = SynchronousExportLimits.MAX_PARTICIPANTS) participantIds: Set&lt;String&gt;, @RequestParam(value = START_DATE) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) startDateTime: OffsetDateTime?, @RequestParam(value = END_DATE) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) endDateTime: OffsetDateTime?, @RequestParam(value = RESPONSE_TYPE, defaultValue = "csv") fileType: FileType, @RequestParam(value = FILE_NAME) @Size(max = 64) fileName: String?, @RequestParam(value = "sensorTypes", required = false) sensorTypes: Set&lt;String&gt;?, response: HttpServletResponse, ): Iterable&lt;Map&lt;String, Any&gt;&gt;</ID>
+    <ID>LongMethod:StudyControllerTest.kt$StudyControllerTest$private fun mobileUploadCalls( studyId: UUID, participantId: String, sourceDeviceId: String, ): List&lt;Pair&lt;String, () -&gt; Unit&gt;&gt;</ID>
+    <ID>LongMethod:StudyDeletionScheduleLinkMigrationTest.kt$StudyDeletionScheduleLinkMigrationTest$@Test fun testV85AdoptsLedgerAndPreLedgerSchedulesWithoutLosingRestorationState()</ID>
+    <ID>LongMethod:StudyLifecycleService.kt$StudyLifecycleService$private fun scheduleStudyDeletionAtomically( studyId: UUID, userId: String, deleteAfter: OffsetDateTime, idempotencyKey: UUID, ): UUID</ID>
+    <ID>LongMethod:StudyLifecycleService.kt$StudyLifecycleService$public open fun cloneStudy(studyId: UUID, userId: String, request: StudyCloneRequest): UUID</ID>
+    <ID>LongMethod:StudyService.kt$StudyService$override fun registerParticipant(connection: Connection, studyId: UUID, participant: Participant): UUID</ID>
+    <ID>LongMethod:TimeUseDiaryController.kt$TimeUseDiaryController$@Timed @PostMapping( path = [STUDY_ID_PATH + PARTICIPANT_PATH + PARTICIPANT_ID_PATH], consumes = [MediaType.APPLICATION_JSON_VALUE], produces = [MediaType.APPLICATION_JSON_VALUE] ) // reason: boundary catch — must record an audit failure event for any error type and rethrow on the submission path @Suppress("TooGenericExceptionCaught") override fun submitTimeUseDiary( @PathVariable(STUDY_ID) studyId: UUID, @PathVariable(PARTICIPANT_ID) participantId: String, @Valid @RequestBody @Size(max = 10_000) responses: List&lt;TimeUseDiaryResponse&gt; ): UUID</ID>
+    <ID>LongMethod:WebhookService.kt$WebhookService$@Suppress("TooGenericExceptionCaught") private fun deliverWebhook(claim: ClaimedDelivery): DeliveryOutcome</ID>
+    <ID>LongParameterList:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$( connection: Connection, operationId: UUID, studyId: UUID, eventType: AuditEventType, actor: String, description: String, data: Map&lt;String, Any&gt;, holdId: UUID? = null, )</ID>
+    <ID>LongParameterList:ParticipantFormAccessService.kt$ParticipantFormAccessService$( studyId: UUID, participantId: String, formKind: ParticipantFormKind, resourceId: UUID?, logicalDate: LocalDate?, requestedExpiresAt: OffsetDateTime?, issuerType: ParticipantAccessCodeIssuerType, issuedBy: String, )</ID>
+    <ID>LongParameterList:StudyService.kt$StudyService$( private val storageResolver: StorageResolver, private val authorizationService: AuthorizationManager, private val candidateService: CandidateManager, private val enrollmentService: EnrollmentManager, private val surveysManager: SurveysManager, private val idGenerationService: HazelcastIdGenerationService, private val studyLimitsMgr: StudyLimitsManager, override val auditingManager: AuditingManager, hazelcast: HazelcastInstance, private val participantStatsCache: ParticipantStatsCache, private val webhookService: WebhookService, )</ID>
+    <ID>LoopWithTooManyJumpStatements:CollectionModuleCoverageMatrixTest.kt$CollectionModuleCoverageMatrixTest$for</ID>
+    <ID>LoopWithTooManyJumpStatements:MobileApiSignatureFilter.kt$MobileApiSignatureFilter$while</ID>
+    <ID>MaxLineLength:MobileApiSignatureFilter.kt$MobileApiSignatureFilter.Companion$Regex("""^/chronicle/v3/study/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/settings/type/(?:AndroidSensor|Sensor|DataCollection|Encryption)$""")</ID>
+    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$"""{"schemaVersion":1,"provenance":"live","stationary":true,"walking":false,"running":false,"automotive":false,"cycling":false,"unknown":false,"confidence":"high"}"""</ID>
+    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$"""{"schemaVersion":1,"provenance":"os_buffered","stationary":false,"walking":false,"running":false,"automotive":false,"cycling":false,"unknown":false,"confidence":"low"}"""</ID>
+    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$"""{"schemaVersion":1,"provenance":"os_buffered","stationary":false,"walking":true,"running":false,"automotive":false,"cycling":false,"unknown":false,"confidence":"high"}"""</ID>
+    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$"""{"schemaVersion":1,"provenance":"os_buffered","stationary":true,"walking":false,"running":false,"automotive":false,"cycling":false,"unknown":false,"confidence":"certain"}"""</ID>
+    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$"""{"schemaVersion":2,"provenance":"os_buffered","stationary":true,"walking":false,"running":false,"automotive":false,"cycling":false,"unknown":false,"confidence":"high"}"""</ID>
+    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$val payload = """{"schemaVersion":1,"frequencyHz":50.0,"provenance":"system_recorded","samples":[{"offsetSeconds":0.0,"xG":0.1,"yG":0.2,"zG":0.9}]}"""</ID>
+    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$val payload = """{"schemaVersion":1,"provenance":"os_buffered","numberOfSteps":267,"distanceMeters":183.19096727995202,"floorsAscended":1,"floorsDescended":2,"averageActivePaceSecondsPerMeter":0.8123456789012345,"currentCadenceStepsPerSecond":1.9876543210987654}"""</ID>
+    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$val payload = """{"schemaVersion":1,"provenance":"os_buffered","stationary":false,"walking":true,"running":false,"automotive":false,"cycling":false,"unknown":false,"confidence":"high"}"""</ID>
+    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$val payload = """{"schemaVersion":2,"encoding":"delta-zigzag-varint-zlib-base64","sampleCount":1,"provenance":"system_recorded","timeUnit":"nanoseconds","uncompressedByteCount":4,"channels":[{"name":"x","unit":"g","scale":0.000244140625},{"name":"y","unit":"g","scale":0.000244140625},{"name":"z","unit":"g","scale":0.000244140625}],"payload":"aW52YWxpZA=="}"""</ID>
+    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$val payload = """{"schemaVersion":2,"encoding":"delta-zigzag-varint-zlib-base64","sampleCount":3,"nominalFrequencyHz":50.0,"provenance":"system_recorded","timeUnit":"nanoseconds","uncompressedByteCount":19,"channels":[{"name":"x","unit":"g","scale":0.000244140625},{"name":"y","unit":"g","scale":0.000244140625},{"name":"z","unit":"g","scale":0.000244140625}],"payload":"eNpjaNjSKfyNcTYTK9N3RgbWqQ4MTAA+wQVA"}"""</ID>
+    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$val payload = """{"schemaVersion":3,"encoding":"ieee754-binary64-xor-bytepack-zlib-base64","sampleCount":3,"nominalFrequencyHz":50.0,"provenance":"system_recorded","timeUnit":"seconds","uncompressedByteCount":82,"channels":[{"name":"x","unit":"g"},{"name":"y","unit":"g"},{"name":"z","unit":"g"}],"payload":"eNpjYIAADvspVQ/d14lUixswsOhPfrLbfudMEJhVyMjxX+vyHdmUaZH7T8KF9uV8b4tOzDpk//4/GIjLQ2im/R8AKY8o6Q=="}"""</ID>
+    <ID>NestedBlockDepth:AmbientAudioUploadService.kt$AmbientAudioUploadService$public fun upload( studyId: UUID, participantId: String, data: List&lt;AmbientAudioClassificationEvent&gt;, ): Int</ID>
+    <ID>NestedBlockDepth:AndroidSensorDataUploadService.kt$AndroidSensorDataUploadService$public fun upload( studyId: UUID, participantId: String, deviceId: UUID, data: List&lt;AndroidSensorSample&gt; ): Int</ID>
+    <ID>NestedBlockDepth:AuditService.kt$AuditService$private fun flushOneBatch()</ID>
+    <ID>NestedBlockDepth:ChronicleContractTestSchema.kt$ChronicleContractTestSchema$fun waitForQueryReady(container: PostgreSQLContainer&lt;*&gt;, timeout: Duration = Duration.ofMinutes(2))</ID>
+    <ID>NestedBlockDepth:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun claimDueOperation(requiredOperationId: UUID? = null): ClaimedDeletion?</ID>
+    <ID>NestedBlockDepth:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun claimPendingDeletionAuditEvent(): ClaimedDeletionAuditEvent?</ID>
+    <ID>NestedBlockDepth:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun completeOperation(claim: ClaimedDeletion, participantId: String?)</ID>
+    <ID>NestedBlockDepth:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun eraseAsset( claim: ClaimedDeletion, participantId: String, asset: ParticipantDataAsset, )</ID>
+    <ID>NestedBlockDepth:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun eraseStudyTable( claim: ClaimedDeletion, assetId: String, tableName: String, )</ID>
+    <ID>NestedBlockDepth:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$public open fun placeHold( operationId: UUID, studyId: UUID, reason: String, createdBy: String, reviewAt: OffsetDateTime, ): UUID</ID>
+    <ID>NestedBlockDepth:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$public open fun releaseHold( operationId: UUID, holdId: UUID, studyId: UUID, releasedBy: String, releaseReason: String, )</ID>
+    <ID>NestedBlockDepth:ExportFileWriter.kt$ExportFileWriter.Companion$@Suppress("DEPRECATION") private fun writeMultiSheetExcel( dataByType: Map&lt;String, Iterable&lt;Map&lt;String, Any&gt;&gt;&gt;, filePath: Path, budget: ExportBudget, )</ID>
+    <ID>NestedBlockDepth:ExportFileWriter.kt$ExportFileWriter.Companion$private fun writeCsv( dataByType: Map&lt;String, Iterable&lt;Map&lt;String, Any&gt;&gt;&gt;, filePath: Path, budget: ExportBudget, )</ID>
+    <ID>NestedBlockDepth:ExportFileWriter.kt$ExportFileWriter.Companion$private fun writeJson( datasets: Iterable&lt;Iterable&lt;Map&lt;String, Any&gt;&gt;&gt;, filePath: Path, budget: ExportBudget, )</ID>
+    <ID>NestedBlockDepth:ExportService.kt$ExportService$@Suppress("TooGenericExceptionCaught") private fun completeExportAndEnqueue( claim: ClaimedExport, request: ExportRequest, dataByType: Map&lt;String, Iterable&lt;Map&lt;String, Any&gt;&gt;&gt;, ): ExportWriteResult?</ID>
+    <ID>NestedBlockDepth:ExportService.kt$ExportService$@Suppress("TooGenericExceptionCaught") private fun releaseExportStudyLock(connection: Connection, studyId: UUID, exportId: UUID)</ID>
+    <ID>NestedBlockDepth:ExportService.kt$ExportService$private fun cleanupOneExpiredExport(): Boolean</ID>
+    <ID>NestedBlockDepth:ExportService.kt$ExportService$public fun streamExportFile(studyId: UUID, exportId: UUID, requestingUserId: String, outputStream: OutputStream): ExportJobInfo</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testActiveJobHoldsLeaseFenceUntilTerminalCommit()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testConcurrentPipelineMappingAndJobDeletionCannotCommitAnOrphan()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDeletionAccountabilityIsAtomicDurableAndRetrySafe()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDeletionLedgerAndParticipantAccess()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDurableWebhookRetryUsesStableDeliveryIdentity()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testExportCapacityReservationsFenceIndependentWorkersAndLeaseOwnership()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testExportQueueLeaseRecoveryAndActiveErasureRevocation()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testExportQueueRejectsFormatCorruptionAndTerminalizesRequestMismatch()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testFinalDeletionSweepTerminalizesExportCreatedAfterInitialSweep()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testIosScreenTimeDeltaProjectionAcrossDstAndMidnight()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testJobWorkerPersistsLeasedTerminalStatesAndFailsCanceledPipeline()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testLastActiveAclOwnerConstraintSerializesCompetingDeletes()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testLifecycleServiceSchedulesAndCancelsOneAtomicArchivedStudyErasure()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testMissingCompletedExportIsPersistedAsFailed()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testParticipantErasureDeletesPendingPausedAndTerminalScopedJobs()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testPipelineAndJobMigrationRepairsLegacyState()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testPoisonedRecoveryCleanupBacksOffWithoutStarvingPendingWork()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testScopedUploadBufferDrainWaitsForConcurrentClaim()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyCancellationAndLifecycleMutationRollBackTogether()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyFinalizationFailsClosedOnUnsafeLateTableIdentifier()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyFinalizationReconcilesTablesCreatedDuringQuarantine()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyParticipantRowsAreHiddenFromApplicationRoleDuringStudyQuarantine()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyQuarantineAndLifecycleMutationRollBackTogether()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testUploadBufferDrainExcludesDeletionBlockedRowsEvenWithoutRls()</ID>
+    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$private fun readJobState(jobId: UUID): PersistedJobState?</ID>
+    <ID>NestedBlockDepth:JobService.kt$JobService$@Suppress("TooGenericExceptionCaught") private fun executeNextJob()</ID>
+    <ID>NestedBlockDepth:MoveAndroidSensorDataToStorageTask.kt$MoveAndroidSensorDataToStorageTask$@Suppress("TooGenericExceptionCaught") private fun moveToStorage(): MoveResult</ID>
+    <ID>NestedBlockDepth:ParticipantFormAccessService.kt$ParticipantFormAccessService$public fun resolveSession( rawSessionToken: String, mutationCsrfToken: String?, requireCsrf: Boolean, ): ParticipantFormAccessScope?</ID>
+    <ID>NestedBlockDepth:ParticipantFormSubmissionReceiptService.kt$ParticipantFormSubmissionReceiptService$@Suppress("TooGenericExceptionCaught") private fun execute( scope: ParticipantFormAccessScope, formKind: ParticipantFormKind, resourceKey: String, idempotencyKey: UUID, payload: Any, action: (Connection) -&gt; UUID?, ): IdempotentSubmissionResult&lt;UUID?&gt;</ID>
+    <ID>NestedBlockDepth:ParticipantStatsMapstore.kt$ParticipantStatsMapstore$@Timed override fun storeAll(map: Map&lt;ParticipantKey, ParticipantStats&gt;)</ID>
+    <ID>NestedBlockDepth:PayloadFixtureIngestionTest.kt$PayloadFixtureIngestionTest$@Suppress("LongParameterList") private fun assertSensorDataRows( family: String, table: String, studyId: UUID, participantId: String, expectedCount: Int, expectedDistinctSampleIds: Int, expectedStart: OffsetDateTime, expectedEnd: OffsetDateTime, expectedExactRecorded: OffsetDateTime, expectedSampleId: UUID, )</ID>
+    <ID>NestedBlockDepth:PayloadFixtureIngestionTest.kt$PayloadFixtureIngestionTest$@Test fun `legacy buffer claim is bounded by rows rather than participant pairs`()</ID>
+    <ID>NestedBlockDepth:PayloadFixtureIngestionTest.kt$PayloadFixtureIngestionTest$private fun persistedEventTimestamps( table: String, idColumn: String, studyId: UUID, participantId: String, ): Map&lt;String, OffsetDateTime&gt;</ID>
+    <ID>NestedBlockDepth:PostgresAuditingManager.kt$PostgresAuditingManager$override fun recordEvents(events: List&lt;AuditableEvent&gt;): Int</ID>
+    <ID>NestedBlockDepth:RestoreContinuityReconciler.kt$RestoreContinuityReconciler$internal fun reconcile(): RestoreContinuityResult?</ID>
+    <ID>NestedBlockDepth:RuntimeOwnedTablesMigrationTest.kt$RuntimeOwnedTablesMigrationTest$@Test fun testV84AdoptsLegacyServiceTablesWithoutLosingDataAndAppliesRls()</ID>
+    <ID>NestedBlockDepth:SecretRotationService.kt$SecretRotationService$@Suppress("TooGenericExceptionCaught") private fun refreshRotationStatus()</ID>
+    <ID>NestedBlockDepth:StudyLifecycleService.kt$StudyLifecycleService$private fun getPreDeletionStatus(connection: Connection, studyId: UUID): StudyLifecycleStatus</ID>
+    <ID>NestedBlockDepth:WebhookService.kt$WebhookService$public fun getDeliveries(studyId: UUID, webhookId: UUID): List&lt;WebhookDeliveryInfo&gt;</ID>
+    <ID>ReturnCount:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$@Suppress("TooGenericExceptionCaught") public open fun publishPendingDeletionAuditEvents(limit: Int = MAX_AUDIT_PUBLISH_BATCH): Int</ID>
+    <ID>ReturnCount:MfaClaimValidator.kt$MfaClaimValidator$override fun validate(token: Jwt): OAuth2TokenValidatorResult</ID>
+    <ID>ReturnCount:ParticipantFormAccessFilter.kt$ParticipantFormAccessFilter$private fun target(request: HttpServletRequest): Target?</ID>
+    <ID>ReturnCount:WebhookService.kt$WebhookService$@Suppress("TooGenericExceptionCaught") private fun deliverWebhook(claim: ClaimedDelivery): DeliveryOutcome</ID>
+    <ID>SwallowedException:WebhookService.kt$WebhookService$ex: RejectedExecutionException</ID>
+    <ID>SwallowedException:WebhookService.kt$WebhookService$ex: SSLException</ID>
+    <ID>ThrowingExceptionFromFinally:ExportService.kt$ExportService$throw restoreFailure</ID>
+    <ID>ThrowingExceptionFromFinally:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$throw exception</ID>
+    <ID>ThrowsCount:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$@Suppress("TooGenericExceptionCaught") private fun eraseAndVerify(claim: ClaimedDeletion)</ID>
+    <ID>ThrowsCount:ParticipantFormAccessController.kt$ParticipantFormAccessController$@PostMapping( path = [ "/v3/study/{studyId}/participant/{participantId}/form-access-codes", "/chronicle/v3/study/{studyId}/participant/{participantId}/form-access-codes", "/v4/study/{studyId}/participant/{participantId}/form-access-codes", "/chronicle/v4/study/{studyId}/participant/{participantId}/form-access-codes", ] ) public fun createAccessCode( @PathVariable studyId: UUID, @PathVariable participantId: String, @Valid @RequestBody request: CreateParticipantFormAccessCodeRequest, authentication: Authentication, response: HttpServletResponse, ): ParticipantFormAccessCodeResponse</ID>
+    <ID>ThrowsCount:SsrfValidator.kt$SsrfValidator$private fun validateAndResolveAll( host: String, config: SsrfConfig, resolver: (String) -&gt; Array&lt;InetAddress&gt;, ): List&lt;InetAddress&gt;</ID>
+    <ID>TooGenericExceptionCaught:AndroidSensorDataUploadService.kt$AndroidSensorDataUploadService$ex: Exception</ID>
+    <ID>TooGenericExceptionCaught:AndroidSensorDataUploadService.kt$AndroidSensorDataUploadService$restoreFailure: Exception</ID>
+    <ID>TooGenericExceptionCaught:AndroidSensorDataUploadService.kt$AndroidSensorDataUploadService$rollbackFailure: Exception</ID>
+    <ID>TooGenericExceptionCaught:AuditService.kt$AuditService$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$lockFailure: Exception</ID>
+    <ID>TooGenericExceptionCaught:DataQualityService.kt$DataQualityService$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:ExportFileWriter.kt$ExportFileWriter.Companion$cleanupFailure: Exception</ID>
+    <ID>TooGenericExceptionCaught:ExportFileWriter.kt$ExportFileWriter.Companion$failure: Exception</ID>
+    <ID>TooGenericExceptionCaught:ExportService.kt$ExportService$deferFailure: Exception</ID>
+    <ID>TooGenericExceptionCaught:ExportService.kt$ExportService$ex: Exception</ID>
+    <ID>TooGenericExceptionCaught:ExportService.kt$ExportService$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:ExportService.kt$ExportService$lockFailure: Exception</ID>
+    <ID>TooGenericExceptionCaught:ExportService.kt$ExportService$restoreFailure: Exception</ID>
+    <ID>TooGenericExceptionCaught:ExportService.kt$ExportService$rollbackFailure: Exception</ID>
+    <ID>TooGenericExceptionCaught:InternalHealthController.kt$InternalHealthController$ex: Exception</ID>
+    <ID>TooGenericExceptionCaught:JobService.kt$JobService$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:ParticipantFormAccessService.kt$ParticipantFormAccessService$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:ParticipantStatsMapstore.kt$ParticipantStatsMapstore$guardFailure: Exception</ID>
+    <ID>TooGenericExceptionCaught:PipelineService.kt$PipelineService$ex: Exception</ID>
+    <ID>TooGenericExceptionCaught:PostgresAuditingManager.kt$PostgresAuditingManager$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:RestoreContinuityReconciler.kt$RestoreContinuityReconciler$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:StorageResolver.kt$StorageResolver$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:StudyLifecycleService.kt$StudyLifecycleService$ex: Exception</ID>
+    <ID>TooGenericExceptionCaught:StudyService.kt$StudyService$ex: Exception</ID>
+    <ID>TooManyFunctions:DataDeletionOrchestrator.kt$DataDeletionOrchestrator : AuditingComponent</ID>
+    <ID>TooManyFunctions:DataDownloadService.kt$DataDownloadService$Companion</ID>
+    <ID>TooManyFunctions:ExportService.kt$ExportService</ID>
+    <ID>TooManyFunctions:SsrfException.kt$SsrfException$Companion</ID>
+    <ID>UnusedParameter:HazelcastAuthorizationOwnerLockTest.kt$HazelcastAuthorizationOwnerLockTest$aclKey: AclKey</ID>
+    <ID>UnusedPrivateMember:ExportFileWriter.kt$ExportFileWriter.Companion$private fun spreadsheetSafeRow(row: Map&lt;String, Any&gt;): Map&lt;String, Any?&gt;</ID>
+    <ID>UnusedPrivateMember:StudyController.kt$StudyController$private fun buildParticipantDeletionJobs(studyId: UUID, participantIds: Set&lt;String&gt;): List&lt;ChronicleJob&gt;</ID>
+    <ID>UnusedPrivateMember:StudyController.kt$StudyController$private fun buildStudyDeletionAuditEvents( studyId: UUID, currentUser: com.openlattice.chronicle.authorization.SecurablePrincipal, jobIds: Iterable&lt;UUID&gt;, ): List&lt;AuditableEvent&gt;</ID>
+    <ID>UseCheckOrError:AuditService.kt$AuditService$throw IllegalStateException("Only saved $saved/${batch.size} audit entries to database")</ID>
+    <ID>UseCheckOrError:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$throw IllegalStateException("injected lifecycle failure")</ID>
+    <ID>UseCheckOrError:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest.&lt;no name provided&gt;$throw IllegalStateException("injected audit outage")</ID>
+    <ID>UseCheckOrError:MobileEnrollmentController.kt$MobileEnrollmentController$throw IllegalStateException("A mobile API key is required")</ID>
+  </CurrentIssues>
+</SmellBaseline>

@@ -1,0 +1,54 @@
+# Flow: Single-server settings — verify the active study server can be reviewed
+#
+# Chronicle supports exactly one active study/server enrollment at a time. This flow
+# intentionally has no per-server enable switch or second-server affordance.
+#
+# Prerequisites:
+#   - Device must already be enrolled (run 01_enrollment first)
+
+appId: ${APP_PACKAGE}
+tags:
+  - settings
+  - single-server
+---
+
+- launchApp:
+    clearState: false
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/overviewStudyId"
+    timeout: 15000
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/nav_settings"
+
+- waitForAnimationToEnd:
+    timeout: 2000
+
+- extendedWaitUntil:
+    visible:
+      text: "Settings"
+    timeout: 10000
+
+# The Play build exposes the authoritative enrolled origin as read-only participant
+# information. It must not expose controls that can add, edit, pause, or redirect uploads.
+- assertVisible:
+    id: "${APP_PACKAGE}:id/settingsServerSummary"
+- assertVisible:
+    text: "(?s).*${SERVER_URL}.*"
+- assertNotVisible:
+    id: "${APP_PACKAGE}:id/settingsServerList"
+- assertNotVisible:
+    id: "${APP_PACKAGE}:id/openServerSettingsButton"
+- assertNotVisible:
+    id: "${APP_PACKAGE}:id/addServerSettingsButton"
+
+# Leave the settings surface through the app shell.
+- tapOn:
+    id: "${APP_PACKAGE}:id/nav_overview"
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/overviewStudyId"
+    timeout: 10000

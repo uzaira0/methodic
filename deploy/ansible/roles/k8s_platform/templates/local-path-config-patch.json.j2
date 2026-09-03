@@ -1,0 +1,5 @@
+{
+  "data": {
+    "setup": "#!/bin/sh\nset -eu\nmkdir -m 0777 -p \"$VOL_DIR\"\ncase \"$VOL_DIR\" in\n  *keycloak-postgres*)\n    chown 70:70 \"$VOL_DIR\"\n    chmod 0700 \"$VOL_DIR\"\n    ;;\n  *postgres*)\n    chown 26:26 \"$VOL_DIR\"\n    chmod 0700 \"$VOL_DIR\"\n    ;;\n  *chronicle-export-artifacts*)\n    chown 1000:1000 \"$VOL_DIR\"\n    chmod 0700 \"$VOL_DIR\"\n    ;;\n  *chronicle-audit-logs*)\n    chown 1000:1000 \"$VOL_DIR\"\n    chmod 0770 \"$VOL_DIR\"\n    ;;\nesac\n"
+  }
+}

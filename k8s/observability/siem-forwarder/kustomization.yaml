@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: chronicle-observability
+
+resources:
+  - external-secrets.yaml
+  - fluent-bit-siem-forwarder.yaml
+  - policies.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: chronicle
+
+configMapGenerator:
+  - name: chronicle-siem-forwarder-config
+    files:
+      - fluent-bit.conf=config/fluent-bit.conf
+      - parsers.conf=config/parsers.conf
+  - name: chronicle-siem-forwarder-evidence
+    literals:
+      - redaction_contract=chronicle-production-observability-v1
+      - selected_mode=operator SIEM
+      - production_cutover_requirement=CHRONICLE_SIEM_EVIDENCE

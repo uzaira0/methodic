@@ -1,0 +1,186 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: chronicle-postgres
+    app.kubernetes.io/part-of: chronicle
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: chronicle-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: chronicle-postgres
+    app.kubernetes.io/part-of: chronicle
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chronicle-postgres
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+        labels:
+          app.kubernetes.io/name: chronicle-postgres
+          app.kubernetes.io/part-of: chronicle
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 100Gi
+    - metadata:
+        name: postgres-tde-keyring
+        labels:
+          app.kubernetes.io/name: chronicle-postgres
+          app.kubernetes.io/part-of: chronicle
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 1Gi
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: chronicle-postgres
+        app.kubernetes.io/part-of: chronicle
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      serviceAccountName: chronicle-postgres
+      securityContext:
+        fsGroup: 26
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: percona/percona-distribution-postgresql:18.4-5@sha256:40b133dec71f85dbc391bdf686bbc6b745517c2a9ffe49158ff77809f9bf28e4
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_USER
+              value: chronicle
+            - name: POSTGRES_DB
+              value: chronicle
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chronicle-app-secrets
+                  key: POSTGRES_PASSWORD
+            - name: ENABLE_PG_TDE
+              value: "1"
+            - name: PG_TDE_KEY_PROVIDER
+              value: vault
+            - name: PG_TDE_VAULT_URL
+              value: https://openbao.openbao.svc.cluster.local:8200
+            - name: PG_TDE_VAULT_MOUNT_PATH
+              value: secret
+            - name: PG_TDE_VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: chronicle-app-secrets
+                  key: VAULT_TOKEN
+                  optional: true
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 26
+            runAsGroup: 26
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /data/db
+            - name: postgres-tde-keyring
+              mountPath: /var/lib/postgresql/tde-keyring
+            - name: postgres-tls
+              mountPath: /var/lib/postgresql/ssl-run
+              readOnly: true
+            - name: postgres-init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+          args:
+            - postgres
+            - -c
+            - ssl=on
+            - -c
+            - ssl_cert_file=/var/lib/postgresql/ssl-run/server.crt
+            - -c
+            - ssl_key_file=/var/lib/postgresql/ssl-run/server.key
+            - -c
+            - ssl_ca_file=/var/lib/postgresql/ssl-run/ca.crt
+            - -c
+            - ssl_min_protocol_version=TLSv1.2
+            - -c
+            - ssl_prefer_server_ciphers=on
+            - -c
+            - password_encryption=scram-sha-256
+            - -c
+            - shared_preload_libraries=pg_tde,pgaudit,pg_stat_statements
+            - -c
+            - pg_stat_statements.track=all
+            - -c
+            - pgaudit.log=ddl,role,write
+            - -c
+            - pgaudit.log_catalog=off
+            - -c
+            - pgaudit.log_client=on
+            - -c
+            - pgaudit.log_level=log
+            - -c
+            - pgaudit.log_statement_once=on
+            - -c
+            - max_parallel_workers_per_gather=0
+      volumes:
+        - name: postgres-tls
+          secret:
+            secretName: chronicle-postgres-tls
+            defaultMode: 0440
+        - name: postgres-init
+          configMap:
+            name: chronicle-postgres-init
+            defaultMode: 0550

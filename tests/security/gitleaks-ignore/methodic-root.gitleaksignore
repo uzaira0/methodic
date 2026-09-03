@@ -1,0 +1,31 @@
+# Accepted 2026-08-26 after redacted per-fingerprint review. These entries are
+# intentionally exact; no rule-wide/path-wide suppression is permitted.
+#
+# Environment-reference and documentation false positives. The OpenSearch healthcheck
+# references an environment variable, and the operator handoff/script findings are prose.
+53fd926e60a7b6343d64bc8a91a6d3b3cfe9f051:docker/docker-compose.opensearch.yml:curl-auth-user:43
+53fd926e60a7b6343d64bc8a91a6d3b3cfe9f051:scripts/chronicle-operator-secret-evidence.sh:generic-api-key:323
+6f807e48542b783b76d5731bac5884c070f32bdd:docker/docker-compose.opensearch.yml:curl-auth-user:43
+6f807e48542b783b76d5731bac5884c070f32bdd:docs/BCM-OPERATOR-ACCESS-HANDOFF.md:generic-api-key:72
+6f807e48542b783b76d5731bac5884c070f32bdd:scripts/chronicle-operator-secret-evidence.sh:generic-api-key:307
+# Historical CrowdSec values were removed from rendered source and explicitly rotated
+# by commits 15f0546 and 92b9216; current configuration uses mounted secret files.
+13f9a203e92e1c34b2f124ba20e7b3b6b184f4d5:docker/traefik/dynamic/crowdsec-waf.yml.template:generic-api-key:13
+91ce802e7078612b14d6be6289f37d7c93f769ca:docker/traefik/dynamic/crowdsec-waf.yml:generic-api-key:10
+91ce802e7078612b14d6be6289f37d7c93f769ca:docker/traefik/dynamic/crowdsec-waf.yml:generic-api-key:13
+4ee69bcf1f7be0d7a1a53cbd44a83d90e61eba44:reports/security-hardening.md:generic-api-key:37
+# Synthetic negative-test JWT and historical workflow expression; neither is an
+# accepted application credential.
+8b3c072a641617983653c2e1b1b3ab7e674fdea5:tests/security/session-management-tests.sh:jwt:116
+d7996ea66cc695311c0fe42eead51c7403655796:.github/workflows/maestro-android-test.yml:jwt:18
+# Legacy rendered/local rhizome credentials were removed and converted to environment
+# inputs by b877e57; live production is explicitly absent/deferred. Current selfhost
+# setup generates fresh secret files and does not consume these historical values.
+e19511a70cdaa21c27f5df2988efd6e064a8ee74:docker/rhizome-docker.yaml.template:generic-api-key:7
+e19511a70cdaa21c27f5df2988efd6e064a8ee74:docker/rhizome-docker.yaml.template:generic-api-key:17
+dd2d95e3bbb3286bca14ca6a17e723603db7b197:docker/rhizome-docker.yaml:generic-api-key:31
+dd2d95e3bbb3286bca14ca6a17e723603db7b197:docker/rhizome-docker.yaml:generic-api-key:42
+# SHA-256 checksums of encrypted backup members, not API keys.
+b5beb75d1fe671a76d526caa951fe2b28fbe1ecf:backups/20260225_095434/manifest.json:generic-api-key:8
+b5beb75d1fe671a76d526caa951fe2b28fbe1ecf:backups/20260226_020001/manifest.json:generic-api-key:8
+b5beb75d1fe671a76d526caa951fe2b28fbe1ecf:backups/20260227_020001/manifest.json:generic-api-key:8

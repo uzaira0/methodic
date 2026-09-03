@@ -1,0 +1,15 @@
+# Historical/false-positive findings accepted 2026-07-11 (see local-ci gitleaks job).
+# All verified: deleted legacy files, test fixtures, age PUBLIC key, env-var template text.
+5d67b4a8aa82607702eeb23f6c01dce02e893cb5:app/src/test/java/com/openlattice/chronicle/collection/upload/UploadTelemetryRedactionTest.kt:generic-api-key:30
+d7174661e8186a0f7c5bb727b8fcf15bc6c41e35:app/src/debug/google-services.json:gcp-api-key:23
+d7174661e8186a0f7c5bb727b8fcf15bc6c41e35:app/src/release/google-services.json:gcp-api-key:23
+d7174661e8186a0f7c5bb727b8fcf15bc6c41e35:app/src/debug/google-services.json:gcp-api-key:60
+d7174661e8186a0f7c5bb727b8fcf15bc6c41e35:app/src/debug/google-services.json:gcp-api-key:97
+d7174661e8186a0f7c5bb727b8fcf15bc6c41e35:app/src/debug/google-services.json:gcp-api-key:134
+d7174661e8186a0f7c5bb727b8fcf15bc6c41e35:app/src/release/google-services.json:gcp-api-key:60
+d7174661e8186a0f7c5bb727b8fcf15bc6c41e35:app/src/release/google-services.json:gcp-api-key:97
+d7174661e8186a0f7c5bb727b8fcf15bc6c41e35:app/src/release/google-services.json:gcp-api-key:134
+7df00231e2d3b60bfcfff6569351f0ab1d948632:app/fabric.properties:generic-api-key:3
+# Accepted 2026-08-26: explicit sentinel used by the upload-diagnostic redaction
+# unit test to prove credential-shaped input is never emitted.
+3527cccce9b10c1373de30b32b66e6ded8cd0bda:app/src/test/java/com/openlattice/chronicle/collection/upload/UploadTelemetryRedactionTest.kt:generic-api-key:29

@@ -1,0 +1,8 @@
+{
+  "27088d4330483d006ca8a79dbca1fe81_0": {
+    "author": "chronicle",
+    "comment": "False positive: AWS CLI call uses shell=false argv list, absolute aws path from PATH lookup, strict region regex, and strict token allowlist before subprocess execution.",
+    "false_positive": true,
+    "ignored_at": "2026-07-04T20:00:28Z"
+  }
+}

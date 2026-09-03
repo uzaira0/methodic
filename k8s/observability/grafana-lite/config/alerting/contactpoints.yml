@@ -1,0 +1,14 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: chronicle-local-placeholder
+    receivers:
+      - uid: chronicle-local-placeholder
+        type: webhook
+        settings:
+          url: http://127.0.0.1:9/chronicle-alert-placeholder
+          httpMethod: POST
+          title: Chronicle fallback alert placeholder
+          message: "Replace this placeholder with an operator-approved SIEM, paging, or email contact point before production cutover."
+        disableResolveMessage: false

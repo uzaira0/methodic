@@ -1,0 +1,1911 @@
+{
+  "apiVersion": 1,
+  "groups": [
+    {
+      "orgId": 1,
+      "name": "chronicle-selfhost",
+      "folder": "Chronicle",
+      "interval": "60s",
+      "rules": [
+        {
+          "uid": "backend-down",
+          "title": "Chronicle backend metrics are unavailable",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "up{job=\"chronicle-backend\"}",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B < 1",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "for": "300s",
+          "annotations": {
+            "summary": "Chronicle backend metrics are unavailable",
+            "runbook_url": "/public/runbooks/index.html#backend-down"
+          },
+          "labels": {
+            "service": "backend",
+            "severity": "critical",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "database-down",
+          "title": "Chronicle PostgreSQL is unavailable",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "chronicle_database_up",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B < 1",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "for": "120s",
+          "annotations": {
+            "summary": "Chronicle PostgreSQL is unavailable",
+            "runbook_url": "/public/runbooks/index.html#database-down"
+          },
+          "labels": {
+            "service": "postgres",
+            "severity": "critical",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "web-down",
+          "title": "Chronicle web listener is unavailable",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "chronicle_web_up",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B < 1",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "for": "120s",
+          "annotations": {
+            "summary": "Chronicle web listener is unavailable",
+            "runbook_url": "/public/runbooks/index.html#web-down"
+          },
+          "labels": {
+            "service": "web",
+            "severity": "critical",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "public-probe-down",
+          "title": "Chronicle participant endpoint is unreachable",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "chronicle_public_probe_success",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B < 1",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "for": "300s",
+          "annotations": {
+            "summary": "Chronicle participant endpoint is unreachable",
+            "runbook_url": "/public/runbooks/index.html#public-probe-down"
+          },
+          "labels": {
+            "service": "web",
+            "severity": "critical",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "logs-down",
+          "title": "Chronicle logs pipeline is unavailable",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "chronicle_logs_pipeline_up",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B < 1",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "for": "300s",
+          "annotations": {
+            "summary": "Chronicle logs pipeline is unavailable",
+            "runbook_url": "/public/runbooks/index.html#logs-down"
+          },
+          "labels": {
+            "service": "logs",
+            "severity": "warning",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "config-invalid",
+          "title": "Chronicle configuration validation failed",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "chronicle_configuration_valid",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B < 1",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "for": "0s",
+          "annotations": {
+            "summary": "Chronicle configuration validation failed",
+            "runbook_url": "/public/runbooks/index.html#config-invalid"
+          },
+          "labels": {
+            "service": "configuration",
+            "severity": "critical",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "probe-stale",
+          "title": "Chronicle operational probe is stale",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "time()-chronicle_operational_probe_timestamp_seconds",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B > 180",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "for": "120s",
+          "annotations": {
+            "summary": "Chronicle operational probe is stale",
+            "runbook_url": "/public/runbooks/index.html#probe-stale"
+          },
+          "labels": {
+            "service": "monitoring",
+            "severity": "critical",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "backup-stale",
+          "title": "Chronicle verified backup is stale",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "chronicle_backups_expected * (time()-chronicle_backup_latest_success_timestamp_seconds)",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B > 129600",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "for": "900s",
+          "annotations": {
+            "summary": "Chronicle verified backup is stale",
+            "runbook_url": "/public/runbooks/index.html#backup-stale"
+          },
+          "labels": {
+            "service": "backup",
+            "severity": "critical",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "backup-invalid",
+          "title": "Chronicle latest backup failed verification",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "chronicle_backups_expected * (1-chronicle_backup_latest_verified)",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B > 0",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "for": "300s",
+          "annotations": {
+            "summary": "Chronicle latest backup failed verification",
+            "runbook_url": "/public/runbooks/index.html#backup-invalid"
+          },
+          "labels": {
+            "service": "backup",
+            "severity": "critical",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "disk-pressure",
+          "title": "Chronicle host filesystem has less than 15% free",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "1-(container_fs_usage_bytes{id=\"/\"}/container_fs_limit_bytes{id=\"/\"})",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B < 0.15",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "for": "600s",
+          "annotations": {
+            "summary": "Chronicle host filesystem has less than 15% free",
+            "runbook_url": "/public/runbooks/index.html#disk-pressure"
+          },
+          "labels": {
+            "service": "storage",
+            "severity": "critical",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "inode-pressure",
+          "title": "Chronicle host filesystem has less than 15% inodes free",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "container_fs_inodes_free{id=\"/\"}/container_fs_inodes_total{id=\"/\"}",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B < 0.15",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "600s",
+          "annotations": {
+            "summary": "Chronicle host filesystem has less than 15% inodes free",
+            "runbook_url": "/public/runbooks/index.html#inode-pressure"
+          },
+          "labels": {
+            "service": "storage",
+            "severity": "warning",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "backend-errors",
+          "title": "Chronicle has sustained HTTP 5xx responses",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "sum(rate(chronicle_api_errors_total{status=~\"5..\"}[10m]))",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B > 0.05",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "600s",
+          "annotations": {
+            "summary": "Chronicle has sustained HTTP 5xx responses",
+            "runbook_url": "/public/runbooks/index.html#backend-errors"
+          },
+          "labels": {
+            "service": "backend",
+            "severity": "warning",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "upload-errors",
+          "title": "Chronicle has sustained upload failures",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "sum(rate(chronicle_upload_errors_total[10m]))",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B > 0.1",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "600s",
+          "annotations": {
+            "summary": "Chronicle has sustained upload failures",
+            "runbook_url": "/public/runbooks/index.html#upload-errors"
+          },
+          "labels": {
+            "service": "ingestion",
+            "severity": "warning",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "database-rollbacks",
+          "title": "Chronicle has sustained transaction rollbacks",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "rate(chronicle_postgres_transactions_total{outcome=\"rollback\"}[10m])",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B > 0.1",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "600s",
+          "annotations": {
+            "summary": "Chronicle has sustained transaction rollbacks",
+            "runbook_url": "/public/runbooks/index.html#database-rollbacks"
+          },
+          "labels": {
+            "service": "postgres",
+            "severity": "warning",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "container-restarts",
+          "title": "Chronicle containers restarted repeatedly",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "sum(changes(container_start_time_seconds{name!=\"\"}[30m]))",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B > 3",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "300s",
+          "annotations": {
+            "summary": "Chronicle containers restarted repeatedly",
+            "runbook_url": "/public/runbooks/index.html#container-restarts"
+          },
+          "labels": {
+            "service": "containers",
+            "severity": "warning",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "container-oom",
+          "title": "A Chronicle container reported an OOM event",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "sum(increase(container_memory_failures_total{failure_type=\"oom\"}[15m]))",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B > 0",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "0s",
+          "annotations": {
+            "summary": "A Chronicle container reported an OOM event",
+            "runbook_url": "/public/runbooks/index.html#container-oom"
+          },
+          "labels": {
+            "service": "containers",
+            "severity": "critical",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "certificate-expiry",
+          "title": "Chronicle TLS certificate expires within 14 days",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "(chronicle_certificate_expiry_timestamp_seconds-time())/86400",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B < 14 && $B > 0",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "3600s",
+          "annotations": {
+            "summary": "Chronicle TLS certificate expires within 14 days",
+            "runbook_url": "/public/runbooks/index.html#certificate-expiry"
+          },
+          "labels": {
+            "service": "tls",
+            "severity": "warning",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "operation-failed",
+          "title": "A guarded Chronicle operator command failed",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "time()-max(chronicle_operator_operation_timestamp_seconds{outcome=\"failure\"})",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B < 3600 && $B > 0",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "0s",
+          "annotations": {
+            "summary": "A guarded Chronicle operator command failed",
+            "runbook_url": "/public/runbooks/index.html#operation-failed"
+          },
+          "labels": {
+            "service": "operations",
+            "severity": "warning",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "metrics-budget",
+          "title": "Chronicle metrics storage exceeds 80% of budget",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "chronicle_observability_storage_bytes{store=\"metrics\"}/chronicle_observability_storage_budget_bytes{store=\"metrics\"}",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B > 0.8",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "for": "600s",
+          "annotations": {
+            "summary": "Chronicle metrics storage exceeds 80% of budget",
+            "runbook_url": "/public/runbooks/index.html#disk-pressure"
+          },
+          "labels": {
+            "service": "monitoring",
+            "severity": "warning",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "logs-budget",
+          "title": "Chronicle logs storage exceeds 80% of budget",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "chronicle_observability_storage_bytes{store=\"logs\"}/chronicle_observability_storage_budget_bytes{store=\"logs\"}",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B > 0.8",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "for": "600s",
+          "annotations": {
+            "summary": "Chronicle logs storage exceeds 80% of budget",
+            "runbook_url": "/public/runbooks/index.html#disk-pressure"
+          },
+          "labels": {
+            "service": "monitoring",
+            "severity": "warning",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "enrollment-failures",
+          "title": "Chronicle enrollment requests are failing",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "sum(rate(chronicle_api_errors_total{endpoint=~\".*enroll.*\"}[10m]))",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B > 0.1",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "600s",
+          "annotations": {
+            "summary": "Sustained enrollment requests are failing",
+            "runbook_url": "/public/runbooks/index.html#enrollment-failures"
+          },
+          "labels": {
+            "service": "enrollment",
+            "severity": "warning",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "export-failures",
+          "title": "Chronicle exports are failing",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "sum(rate(chronicle_export_jobs_total{outcome=\"failed\"}[10m]))",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B > 0.1",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "600s",
+          "annotations": {
+            "summary": "Chronicle exports are failing",
+            "runbook_url": "/public/runbooks/index.html#export-failures"
+          },
+          "labels": {
+            "service": "export",
+            "severity": "warning",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "deletion-failures",
+          "title": "Chronicle deletion jobs are failing",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "sum(rate(chronicle_data_deletion_operations_total{outcome!=\"success\"}[10m]))",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B > 0.1",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "600s",
+          "annotations": {
+            "summary": "Chronicle deletion jobs are failing",
+            "runbook_url": "/public/runbooks/index.html#deletion-failures"
+          },
+          "labels": {
+            "service": "deletion",
+            "severity": "warning",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "disk-predicted-full",
+          "title": "Chronicle host disk is predicted to fill within seven days",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "predict_linear(container_fs_usage_bytes{id=\"/\"}[6h], 7*24*3600) / container_fs_limit_bytes{id=\"/\"}",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B < 0.15",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "for": "600s",
+          "annotations": {
+            "summary": "Chronicle host disk is predicted to fill within seven days",
+            "runbook_url": "/public/runbooks/index.html#disk-predicted-full"
+          },
+          "labels": {
+            "service": "storage",
+            "severity": "critical",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "tde-unhealthy",
+          "title": "Chronicle TDE health check failed",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "chronicle_tde_expected * (1 - chronicle_tde_healthy)",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B > 0",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "for": "0s",
+          "annotations": {
+            "summary": "Chronicle TDE health check failed",
+            "runbook_url": "/public/runbooks/index.html#tde-unhealthy"
+          },
+          "labels": {
+            "service": "database",
+            "severity": "critical",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "database-connection-pressure",
+          "title": "Chronicle PostgreSQL connection usage exceeds 80%",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "chronicle_postgres_connections / chronicle_postgres_max_connections",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B > 0.8",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "600s",
+          "annotations": {
+            "summary": "Chronicle PostgreSQL connection usage exceeds 80%",
+            "runbook_url": "/public/runbooks/index.html#database-connection-pressure"
+          },
+          "labels": {
+            "service": "postgres",
+            "severity": "warning",
+            "scope": "selfhost"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,161 @@
+# Chronicle + Apache Kafka Stack
+#
+# Self-hosted event streaming for audit logs.
+# Usage:
+#   docker compose --env-file docker/.env.production.local \
+#     -f docker/docker-compose.traefik.yml \
+#     -f docker/docker-compose.kafka.yml \
+#     up -d kafka fluent-bit
+#
+# Access Kafka UI at http://localhost:8080
+
+services:
+  # Kafka (KRaft mode - no Zookeeper required)
+  kafka:
+    image: apache/kafka:3.9.1@sha256:4ceccc577f03f51f6af8dbfda55194d0d892f4fa7913ffbded567ce3895622ed
+    container_name: chronicle-kafka
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64M
+    environment:
+      # KRaft settings (no Zookeeper)
+      - "CLUSTER_ID=${KAFKA_CLUSTER_ID:?Set KAFKA_CLUSTER_ID in .env.production.local. Generate with: docker run --rm apache/kafka:3.9.1 /opt/kafka/bin/kafka-storage.sh random-uuid}"
+      - KAFKA_NODE_ID=1
+      - KAFKA_PROCESS_ROLES=broker,controller
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_LISTENERS=SASL_PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_ADVERTISED_LISTENERS=SASL_PLAINTEXT://kafka:9092
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_INTER_BROKER_LISTENER_NAME=SASL_PLAINTEXT
+      - KAFKA_SASL_ENABLED_MECHANISMS=PLAIN
+      - KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL=PLAIN
+      - KAFKA_LOG_DIRS=/var/lib/kafka/data
+      - KAFKA_USER=${KAFKA_USER:?Set KAFKA_USER in .env.production.local}
+      - KAFKA_PASSWORD=${KAFKA_PASSWORD:?Set KAFKA_PASSWORD in .env.production.local}
+      - KAFKA_HEAP_OPTS=-Xms512m -Xmx512m
+      # Topic settings
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_NUM_PARTITIONS=3
+      - KAFKA_DEFAULT_REPLICATION_FACTOR=1
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      # Retention (7 days default, adjust for compliance)
+      - KAFKA_LOG_RETENTION_HOURS=168
+      - KAFKA_LOG_RETENTION_BYTES=-1
+    command:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        case "$${KAFKA_USER}" in
+          ""|*[!A-Za-z0-9_]*)
+            echo "KAFKA_USER must contain only letters, numbers, and underscores for Kafka JAAS user_ entries" >&2
+            exit 1
+            ;;
+        esac
+        umask 077
+        cat > /tmp/kafka_server_jaas.conf <<EOF
+        KafkaServer {
+          org.apache.kafka.common.security.plain.PlainLoginModule required
+          username="$${KAFKA_USER}"
+          password="$${KAFKA_PASSWORD}"
+          user_$${KAFKA_USER}="$${KAFKA_PASSWORD}";
+        };
+        EOF
+        export KAFKA_OPTS="-Djava.security.auth.login.config=/tmp/kafka_server_jaas.conf $${KAFKA_OPTS:-}"
+        exec /etc/kafka/docker/run
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    ports:
+      - "127.0.0.1:9092:9092"
+    networks:
+      - chronicle-internal
+    healthcheck:
+      test: ["CMD-SHELL", "umask 077 && printf 'security.protocol=SASL_PLAINTEXT\nsasl.mechanism=PLAIN\nsasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username=\"%s\" password=\"%s\";\n' \"$$KAFKA_USER\" \"$$KAFKA_PASSWORD\" > /tmp/client.properties && /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --command-config /tmp/client.properties --list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          pids: 512
+
+  # Kafka UI (optional - for monitoring)
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2@sha256:8f2ff02d64b0a7a2b71b6b3b3148b85f66d00ec20ad40c30bdcd415d46d31818
+    container_name: chronicle-kafka-ui
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64M
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=chronicle
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+      - KAFKA_CLUSTERS_0_PROPERTIES_SECURITY_PROTOCOL=SASL_PLAINTEXT
+      - KAFKA_CLUSTERS_0_PROPERTIES_SASL_MECHANISM=PLAIN
+      - KAFKA_CLUSTERS_0_PROPERTIES_SASL_JAAS_CONFIG=org.apache.kafka.common.security.plain.PlainLoginModule required username="${KAFKA_USER:?Set KAFKA_USER in .env.production.local}" password="${KAFKA_PASSWORD:?Set KAFKA_PASSWORD in .env.production.local}";
+      - DYNAMIC_CONFIG_ENABLED=false
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      - chronicle-internal
+    depends_on:
+      kafka:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          pids: 256
+
+  # Fluent Bit - Log shipper to Kafka
+  fluent-bit:
+    image: fluent/fluent-bit:2.2
+    container_name: chronicle-fluent-bit
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:noexec,nosuid,size=16M
+      - /run:noexec,nosuid,size=1M
+    environment:
+      - KAFKA_USER=${KAFKA_USER:?Set KAFKA_USER in .env.production.local}
+      - KAFKA_PASSWORD=${KAFKA_PASSWORD:?Set KAFKA_PASSWORD in .env.production.local}
+    volumes:
+      - ./siem/fluent-bit-kafka.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./siem/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+      - audit_logs:/var/log/chronicle:ro
+    networks:
+      - chronicle-internal
+    depends_on:
+      kafka:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          pids: 256
+
+networks:
+  chronicle-internal:
+    external: true
+
+volumes:
+  kafka_data:
+  audit_logs:
+    external: true
+    name: chronicle_audit_logs

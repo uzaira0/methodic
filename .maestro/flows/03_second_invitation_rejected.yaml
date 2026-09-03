@@ -1,0 +1,42 @@
+# Flow: A second study invitation is rejected while one study is active
+#
+# The app deliberately supports one active study/server enrollment at a time. Opening a
+# different invitation must not contact its server, consume its capability, or replace the
+# existing enrollment. The app gives the participant an explicit withdrawal-first message.
+
+appId: ${APP_PACKAGE}
+tags:
+  - smoke
+  - enrollment
+  - single-server
+---
+
+- launchApp:
+    clearState: false
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/overviewStudyId"
+    timeout: 15000
+
+- openLink: "chronicle://enroll?studyId=${TEST_STUDY_ID}&participantId=${TEST_PARTICIPANT_ID_2}&serverUrl=${SERVER_URL}#accessCode=${TEST_ENROLLMENT_ACCESS_CODE_2}"
+
+- extendedWaitUntil:
+    visible: "This device already has an active Chronicle study. Withdraw from it before opening another study invitation."
+    timeout: 15000
+
+- assertVisible:
+    id: "${APP_PACKAGE}:id/doneButton"
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/doneButton"
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/overviewStudyId"
+    timeout: 15000
+
+# The original participant remains the sole active enrollment.
+- assertVisible:
+    id: "${APP_PACKAGE}:id/overviewParticipantId"
+    text: "(?s).*${TEST_PARTICIPANT_ID}.*"

@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chronicle-local-backup
+  namespace: chronicle
+  labels:
+    app.kubernetes.io/name: chronicle-local-backup
+    app.kubernetes.io/part-of: chronicle
+automountServiceAccountToken: false

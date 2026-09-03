@@ -1,0 +1,9 @@
+---
+- name: Provision Chronicle RHEL 9 Kubernetes platform
+  hosts: chronicle_k8s
+  gather_facts: true
+  become: true
+  roles:
+    - chronicle_common
+    - rke2
+    - k8s_platform

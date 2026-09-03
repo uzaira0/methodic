@@ -1,0 +1,46 @@
+# Flow: Settings screen navigation test
+# Verifies the settings screen loads and is navigable.
+#
+# Prerequisites:
+#   - Device must already be enrolled (run 01_enrollment first)
+#   - The Chronicle app must be installed
+
+appId: ${APP_PACKAGE}
+tags:
+  - smoke
+  - settings
+---
+
+# Launch the app (already enrolled, goes to main screen)
+- launchApp:
+    clearState: false
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/overviewStudyId"
+    timeout: 15000
+
+# Open the overflow menu / settings
+- tapOn:
+    id: "${APP_PACKAGE}:id/nav_settings"
+
+- waitForAnimationToEnd:
+    timeout: 2000
+
+# Verify settings screen loaded
+- extendedWaitUntil:
+    visible:
+      text: "Settings"
+    timeout: 10000
+
+# MainActivity intentionally sends Android Back to Home. Switch tabs through the app shell.
+- tapOn:
+    id: "${APP_PACKAGE}:id/nav_overview"
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/overviewStudyId"
+    timeout: 10000
+
+- assertVisible:
+    id: "${APP_PACKAGE}:id/overviewParticipantId"

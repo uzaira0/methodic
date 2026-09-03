@@ -1,0 +1,30 @@
+rules:
+  - id: chronicle-spreadsheet-export-must-sanitize-strings
+    languages:
+      - kotlin
+    severity: ERROR
+    message: >
+      CSV/XLSX export writers must pass string cells through spreadsheetSafeString to prevent formula injection.
+    patterns:
+      - pattern: |
+          cell.setCellValue($VALUE.toString())
+      - pattern-not: |
+          cell.setCellValue(spreadsheetSafeString($VALUE.toString()))
+    paths:
+      include:
+        - chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/export/**/*.kt
+
+  - id: chronicle-csv-export-must-sanitize-data
+    languages:
+      - kotlin
+    severity: ERROR
+    message: >
+      CSV exports must write spreadsheetSafeRow output rather than raw attacker-controlled rows.
+    patterns:
+      - pattern: |
+          csvMapper.writer($SCHEMA).writeValues($OUT).writeAll($DATA)
+      - pattern-not: |
+          csvMapper.writer($SCHEMA).writeValues($OUT).writeAll(safeData)
+    paths:
+      include:
+        - chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/export/**/*.kt

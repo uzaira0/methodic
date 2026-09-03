@@ -1,0 +1,31 @@
+# Run after open-unlock-notification.sh has exercised a real screen cycle and opened the private
+# notification. This verifies the resulting participant choice and persistence behavior.
+appId: ${APP_PACKAGE}
+tags:
+  - artifact
+  - unlock-identification
+---
+
+- extendedWaitUntil:
+    visible: "Please select current user:"
+    timeout: 15000
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/child_user_btn"
+
+- launchApp:
+    clearState: false
+
+- tapOn:
+    id: "android:id/button2"
+    optional: true
+
+- tapOn:
+    id: "${APP_PACKAGE}:id/nav_settings"
+
+- extendedWaitUntil:
+    visible:
+      id: "${APP_PACKAGE}:id/identifyUserStatus"
+    timeout: 15000
+
+- assertVisible: "Active: Chronicle will show the device-user prompt after unlock."

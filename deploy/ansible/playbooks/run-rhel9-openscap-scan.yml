@@ -1,0 +1,68 @@
+---
+- name: Run Chronicle RHEL 9 OpenSCAP assessment
+  hosts: chronicle_k8s
+  gather_facts: true
+  become: true
+  vars:
+    chronicle_openscap_allow_constrained_host: false
+    chronicle_openscap_min_memory_mb: 12000
+    chronicle_openscap_timeout_seconds: 900
+  tasks:
+    - name: Refuse OpenSCAP scan on constrained hosts unless explicitly allowed
+      ansible.builtin.assert:
+        that:
+          - >-
+            ansible_facts.memtotal_mb | int >= chronicle_openscap_min_memory_mb | int
+            or chronicle_openscap_allow_constrained_host | bool
+        fail_msg: >-
+          This host has {{ ansible_facts.memtotal_mb }} MiB RAM. The full RHEL 9
+          CIS OpenSCAP scan can cause heavy memory pressure on constrained
+          single-node Kubernetes hosts. Re-run with
+          -e chronicle_openscap_allow_constrained_host=true only during a
+          maintenance window, preferably with observability paused. The default
+          threshold is intended to allow an 8 vCPU / 16 GiB rehearsal profile
+          while refusing a constrained 4 vCPU / 8 GiB profile by default.
+
+    - name: Ensure OpenSCAP tooling is installed
+      ansible.builtin.package:
+        name:
+          - openscap-scanner
+          - scap-security-guide
+        state: present
+
+    - name: Create Chronicle evidence directory
+      ansible.builtin.file:
+        path: /var/log/chronicle/evidence
+        state: directory
+        owner: root
+        group: root
+        mode: "0750"
+
+    - name: Run OpenSCAP CIS Server Level 1 scan
+      ansible.builtin.command: >-
+        timeout {{ chronicle_openscap_timeout_seconds }}s
+        oscap xccdf eval
+        --profile xccdf_org.ssgproject.content_profile_cis_server_l1
+        --results /var/log/chronicle/evidence/openscap-rhel9-cis-server-l1-results.xml
+        --report /var/log/chronicle/evidence/openscap-rhel9-cis-server-l1-report.html
+        /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml
+      register: chronicle_openscap_scan
+      changed_when: false
+      failed_when: chronicle_openscap_scan.rc not in [0, 2]
+
+    - name: Summarize OpenSCAP result counts
+      ansible.builtin.shell: |
+        set -euo pipefail
+        python3 - <<'PY'
+        import re
+        from collections import Counter
+
+        path = "/var/log/chronicle/evidence/openscap-rhel9-cis-server-l1-results.xml"
+        data = open(path, encoding="utf-8").read()
+        counts = Counter(re.findall(r"<result>([^<]+)</result>", data))
+        for key in sorted(counts):
+            print(f"{key}: {counts[key]}")
+        PY
+      args:
+        executable: /bin/bash
+      changed_when: false

@@ -1,0 +1,7 @@
+---
+- name: Validate Chronicle RHEL 9 Kubernetes platform
+  hosts: chronicle_k8s
+  gather_facts: true
+  become: true
+  roles:
+    - chronicle_platform_validate

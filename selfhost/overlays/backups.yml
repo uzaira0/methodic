@@ -1,0 +1,99 @@
+# Overlay: scheduled database backups.
+#
+# In COMPOSE_FILE in .env by default, and REQUIRED whenever encryption at rest is on --
+# config-guard refuses that combination without it.
+#
+# Uses the well-known prodrigestivill/postgres-backup-local image (pg_dump on a schedule
+# with rotation). Dumps land in the ./backups directory on the host as plain compressed
+# SQL. pg_dump reads through the running server, so the dumps contain no encryption even
+# though the database files themselves are encrypted — any dump restores cleanly into a
+# fresh Postgres that has no pg_tde at all. That property is exactly why encryption is
+# survivable here, and why config-guard refuses to encrypt with backups disabled.
+# See docs/BACKUP-RESTORE.md.
+#
+# For off-box / encrypted backups, sync ./backups to object storage (rclone/restic) or
+# set BACKUP_KEEP_* + a cron rclone job — the dumps are portable files.
+
+services:
+  db-backup:
+    # The tag is the pg_dump MAJOR, and it must match the server. pg_dump refuses to read a
+    # server newer than itself ("aborting because of server version mismatch"), so leaving
+    # this on :17 against the 18.4-5 server does not degrade — every scheduled dump fails,
+    # and the backups the encryption interlock depends on quietly stop existing.
+    image: prodrigestivill/postgres-backup-local:18@sha256:f70742ebe42b2277689b028d1fd15aa80f77cffa01da163cc9f85a6ff1866e7f
+    restart: unless-stopped
+    # Compose evaluates depends_on only when it creates/starts the project. Docker's
+    # restart policy can later restart this container independently after a host or daemon
+    # restart. The wrapper rechecks PostgreSQL and the migrated backend before /init.sh
+    # asks go-cron for its immediate backup, preventing a failed first dump from leaving
+    # the image's health endpoint at 503 until the next daily run.
+    entrypoint: ["/bin/bash", "/selfhost/backup-entrypoint.sh"]
+    command: ["/init.sh"]
+    mem_limit: ${BACKUP_MEM_LIMIT:-512m}
+    pids_limit: 128
+    # Run as the operator, not root. As root this image wrote every dump and every rotation
+    # subdirectory root:root, so the operator could read their own backups but not delete,
+    # move, or prune them -- `rm` answered "Permission denied" and reclaiming the disk needed
+    # sudo. The uid/gid come from the `./chronicle` wrapper, which exports them from the
+    # account running it; the 0:0 fallback is only reached by a bare `docker compose` call,
+    # which this bundle tells operators not to make. db-init.sh chowns ./backups to the same
+    # account before this service starts, including anything an earlier root-owned run left.
+    #
+    # Nothing about confidentiality rests on this. The image ignores UMASK/BACKUP_UMASK --
+    # neither /backup.sh nor /env.sh ever calls umask, so the file mode cannot be set from
+    # compose and the dumps land 0644 regardless. Access is denied one level up instead:
+    # db-init.sh holds ./backups at 0700 owned by the operator, so no other local account can
+    # traverse in. Verified by `./chronicle verify`.
+    user: "${CHRONICLE_HOST_UID:-0}:${CHRONICLE_HOST_GID:-0}"
+    #
+    # The logging cap is spelled out rather than using the x-logging anchor from
+    # docker-compose.yml: anchors do not cross YAML documents, and a compose overlay is a
+    # separate document, so referencing it here is an error and omitting it silently
+    # leaves this one service with unbounded logs.
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILES:-5}"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-chronicle}
+      POSTGRES_USER: ${POSTGRES_USER:-chronicle}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      SCHEDULE: ${BACKUP_SCHEDULE:-@daily}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      BACKUP_KEEP_WEEKS: ${BACKUP_KEEP_WEEKS:-8}
+      BACKUP_KEEP_MONTHS: ${BACKUP_KEEP_MONTHS:-6}
+      HEALTHCHECK_PORT: 8080
+      BACKUP_STARTUP_TIMEOUT_SECONDS: ${BACKUP_STARTUP_TIMEOUT_SECONDS:-300}
+      BACKUP_STARTUP_INTERVAL_SECONDS: ${BACKUP_STARTUP_INTERVAL_SECONDS:-2}
+      BACKUP_BACKEND_URL: http://backend:40320/chronicle/v3/study
+      # Take a dump immediately, not only on the SCHEDULE. Without this the first key-free
+      # copy of the data is up to 24 hours away, and until it lands the stack sits in exactly
+      # the state config-guard refuses to create: encrypted data with nothing that restores
+      # without the keyring. go-cron gets -i from this and runs once at startup.
+      BACKUP_ON_START: "TRUE"
+    volumes:
+      - ./backup-entrypoint.sh:/selfhost/backup-entrypoint.sh:ro
+      - "${CHRONICLE_STATE_DIR:-.}/backups:/backups"
+    depends_on:
+      # A healthy BACKEND, not a healthy postgres. Flyway creates the schema when the backend
+      # boots, so BACKUP_ON_START against a merely-running database writes a dump of an empty
+      # cluster -- a file that satisfies every "is there a backup" check and restores nothing.
+      backend:
+        condition: service_healthy
+    # The upstream image waits five minutes before its first health probe. Override that
+    # interval so `docker compose ps` and `up --wait` report the successful startup dump
+    # promptly, while still using the image's own health endpoint as the authority.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${HEALTHCHECK_PORT:-8080}/ >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  # Tells config-guard that backups are actually composed in, rather than having it parse
+  # COMPOSE_FILE and restate what this file already is.
+  config-guard:
+    environment:
+      BACKUPS_ENABLED: "true"

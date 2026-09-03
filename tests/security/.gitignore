@@ -1,0 +1,2 @@
+tests/security/reports/
+.trivy-cache/

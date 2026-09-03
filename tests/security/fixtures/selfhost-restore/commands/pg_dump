@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf 'invoked\n' > "${SELFHOST_RESTORE_TEST_PG_DUMP_MARKER:?}"
+result_code="${SELFHOST_RESTORE_TEST_PG_DUMP_EXIT:-0}"
+if [[ "$result_code" == "0" ]]; then
+  printf 'SELECT 1;\n'
+fi
+exit "$result_code"

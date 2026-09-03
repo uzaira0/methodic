@@ -1,0 +1,127 @@
+---
+- name: Wait for CoreDNS
+  ansible.builtin.command: /usr/local/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml -n kube-system rollout status deploy/rke2-coredns-rke2-coredns --timeout=2m
+  register: coredns_rollout
+  retries: 10
+  delay: 15
+  until: coredns_rollout.rc == 0
+  changed_when: false
+
+- name: Read Cilium operator replica count
+  ansible.builtin.command: >-
+    /usr/local/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml
+    -n kube-system get deploy/cilium-operator -o jsonpath={.spec.replicas}
+  register: chronicle_cilium_operator_replicas_current
+  changed_when: false
+  failed_when: false
+  when: chronicle_manage_single_node_cilium_operator | bool
+
+- name: Scale Cilium operator for single-node scheduling
+  ansible.builtin.command: >-
+    /usr/local/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml
+    -n kube-system scale deploy/cilium-operator --replicas={{ chronicle_cilium_operator_replicas }}
+  when:
+    - chronicle_manage_single_node_cilium_operator | bool
+    - chronicle_cilium_operator_replicas_current.rc == 0
+    - chronicle_cilium_operator_replicas_current.stdout | int != chronicle_cilium_operator_replicas | int
+
+- name: Wait for Cilium operator
+  ansible.builtin.command: >-
+    /usr/local/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml
+    -n kube-system rollout status deploy/cilium-operator --timeout=2m
+  changed_when: false
+  when:
+    - chronicle_manage_single_node_cilium_operator | bool
+    - chronicle_cilium_operator_replicas_current.rc == 0
+
+- name: Check Helm binary
+  ansible.builtin.stat:
+    path: /usr/local/bin/helm
+  register: helm_binary
+
+- name: Download Helm installer
+  ansible.builtin.get_url:
+    url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+    dest: /tmp/get-helm-3.sh
+    mode: "0755"
+  when: not helm_binary.stat.exists
+
+- name: Install Helm
+  ansible.builtin.command: /tmp/get-helm-3.sh
+  args:
+    creates: /usr/local/bin/helm
+  when: not helm_binary.stat.exists
+
+- name: Add External Secrets Helm repo
+  ansible.builtin.command: /usr/local/bin/helm repo add external-secrets https://charts.external-secrets.io
+  register: external_secrets_repo
+  changed_when: "'has been added' in external_secrets_repo.stdout"
+  failed_when: external_secrets_repo.rc != 0 and 'already exists' not in external_secrets_repo.stderr
+  when: chronicle_install_external_secrets | bool
+
+- name: Update Helm repos
+  ansible.builtin.command: /usr/local/bin/helm repo update
+  changed_when: false
+  when: chronicle_install_external_secrets | bool
+
+- name: Install External Secrets Operator
+  ansible.builtin.command: >-
+    /usr/local/bin/helm upgrade --install external-secrets external-secrets/external-secrets
+    --kubeconfig /etc/rancher/rke2/rke2.yaml
+    --namespace {{ chronicle_external_secrets_namespace }} --create-namespace
+    --set installCRDs=true
+  changed_when: true
+  when: chronicle_install_external_secrets | bool
+
+- name: Apply local-path provisioner
+  ansible.builtin.command: >-
+    /usr/local/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml apply -f
+    https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.36/deploy/local-path-storage.yaml
+  changed_when: true
+  when: chronicle_install_local_path_storage | bool
+
+- name: Allow local-path provisioner privileged namespace policy
+  ansible.builtin.command: >-
+    /usr/local/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml label namespace
+    {{ chronicle_local_path_storage_namespace }}
+    pod-security.kubernetes.io/enforce=privileged --overwrite
+  changed_when: true
+  when: chronicle_install_local_path_storage | bool
+
+- name: Make local-path storage the default class
+  ansible.builtin.command: >-
+    /usr/local/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml patch storageclass local-path
+    -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+  changed_when: true
+  when: chronicle_install_local_path_storage | bool
+
+- name: Render local-path setup patch
+  ansible.builtin.template:
+    src: local-path-config-patch.json.j2
+    dest: /tmp/chronicle-local-path-config-patch.json
+    owner: root
+    group: root
+    mode: "0600"
+  changed_when: false
+  when: chronicle_install_local_path_storage | bool
+
+- name: Patch local-path provisioner setup script
+  ansible.builtin.command: >-
+    /usr/local/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml -n {{ chronicle_local_path_storage_namespace }}
+    patch configmap local-path-config --type merge --patch-file /tmp/chronicle-local-path-config-patch.json
+  changed_when: true
+  when: chronicle_install_local_path_storage | bool
+
+- name: Restart local-path provisioner
+  ansible.builtin.command: >-
+    /usr/local/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml -n {{ chronicle_local_path_storage_namespace }}
+    rollout restart deploy/local-path-provisioner
+  changed_when: true
+  when: chronicle_install_local_path_storage | bool
+
+- name: Wait for local-path provisioner
+  ansible.builtin.command: >-
+    /usr/local/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml -n {{ chronicle_local_path_storage_namespace }}
+    rollout status deploy/local-path-provisioner --timeout=2m
+  changed_when: false
+  when: chronicle_install_local_path_storage | bool

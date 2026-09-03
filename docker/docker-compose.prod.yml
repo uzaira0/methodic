@@ -1,0 +1,209 @@
+
+# LEGACY standalone deployment with built-in nginx.
+#
+# This is not the active Chronicle production path. The supported production path is:
+#   docker-compose.traefik.yml + docker-compose.production.yml via scripts/deploy.sh,
+# or the Mac workflow's prod-backend branch for backend-only live deploys.
+#
+# This file is gated behind an explicit profile so `docker compose -f
+# docker-compose.prod.yml up -d` cannot accidentally start the weaker legacy stack.
+#
+# Legacy usage only:
+#   1. Copy .env.example to .env and configure
+#   2. Run: ./init-ssl.sh (for Let's Encrypt) OR place your own certs in ./certs/
+#   3. Run: docker compose -f docker-compose.prod.yml --profile legacy-standalone up -d
+
+services:
+  # PostgreSQL Database with Transparent Data Encryption (TDE) and SSL/TLS
+  # Uses Percona Distribution for PostgreSQL with pg_tde extension for HIPAA/GDPR compliance
+  # SSL/TLS encryption in transit protects data between application and database
+  postgres:
+    profiles: ["legacy-standalone"]
+    image: percona/percona-distribution-postgresql:18.4-5@sha256:40b133dec71f85dbc391bdf686bbc6b745517c2a9ffe49158ff77809f9bf28e4
+    container_name: chronicle-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # Enable pg_tde extension for Transparent Data Encryption
+      ENABLE_PG_TDE: "1"
+      # TDE Key Provider Configuration
+      # Options: "file" (development), "vault" (production), "none" (disabled)
+      PG_TDE_KEY_PROVIDER: ${PG_TDE_KEY_PROVIDER:-file}
+      # HashiCorp Vault settings (required when PG_TDE_KEY_PROVIDER=vault)
+      PG_TDE_VAULT_URL: ${PG_TDE_VAULT_URL:-}
+      PG_TDE_VAULT_TOKEN: ${PG_TDE_VAULT_TOKEN:-}
+      PG_TDE_VAULT_MOUNT_PATH: ${PG_TDE_VAULT_MOUNT_PATH:-secret}
+      PG_TDE_VAULT_CA_PATH: ${PG_TDE_VAULT_CA_PATH:-}
+    volumes:
+      # /data/db, NOT /var/lib/postgresql/data: this image sets PGDATA=/data/db and declares
+      # it as a VOLUME, so the conventional path stored nothing -- the named volume stayed
+      # empty and the real cluster went into an anonymous volume, which does not survive the
+      # container being recreated. docker-compose.traefik.yml already mounts /data/db.
+      #
+      # MIGRATING AN EXISTING DEPLOYMENT: the current data is in that anonymous volume, not
+      # in postgres_data. Take a pg_dump BEFORE changing this, or the stack comes up on an
+      # empty database. `docker inspect <container> --format '{{range .Mounts}}{{.Name}} {{.Destination}}{{"\n"}}{{end}}'`
+      # names the anonymous volume holding it.
+      - postgres_data:/data/db
+      # TDE keyring storage (for file-based provider - development only)
+      - postgres_tde_keyring:/var/lib/postgresql/tde-keyring
+      # RLS roles (chronicle_app / chronicle_admin) — MUST run first: the backend's
+      # request-path RLS wrapper does SET ROLE chronicle_app on every authenticated request.
+      - ./init-db-roles.sql:/docker-entrypoint-initdb.d/10-init-db-roles.sql:ro
+      # Initialization script for TDE setup
+      - ./init-db-encryption.sh:/docker-entrypoint-initdb.d/20-init-db-encryption.sh:ro
+      # SSL/TLS certificates for encryption in transit
+      # Generate with: ./init-postgres-ssl.sh
+      - ./postgres-ssl/server/server.crt:/var/lib/postgresql/ssl/server.crt:ro
+      - ./postgres-ssl/server/server.key:/var/lib/postgresql/ssl/server.key:ro
+      - ./postgres-ssl/ca/ca.crt:/var/lib/postgresql/ssl/ca.crt:ro
+    networks:
+      - chronicle-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Security: Run as non-root user
+    user: "999:999"
+    # PostgreSQL SSL configuration via command line arguments
+    command: >
+      -c ssl=on
+      -c ssl_cert_file=/var/lib/postgresql/ssl/server.crt
+      -c ssl_key_file=/var/lib/postgresql/ssl/server.key
+      -c ssl_ca_file=/var/lib/postgresql/ssl/ca.crt
+      -c ssl_min_protocol_version=TLSv1.2
+      -c ssl_prefer_server_ciphers=on
+
+  # Chronicle Backend API
+  backend:
+    profiles: ["legacy-standalone"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: chronicle-backend
+    restart: unless-stopped
+    environment:
+      CHRONICLE_SERVER_XMS: ${BACKEND_XMS:-"-Xms512m"}
+      CHRONICLE_SERVER_XMX: ${BACKEND_XMX:-"-Xmx2g"}
+      CHRONICLE_SERVER_ARGS: "local postgres medialocal"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # PostgreSQL SSL/TLS Configuration for HIPAA-compliant encryption in transit
+      # Options: disable, allow, prefer, require, verify-ca, verify-full
+      # Default verify-full (validates server certificate AND hostname). The backend JDBC URL
+      # (rhizome-docker.yaml.template) also hardcodes sslmode=verify-full; this requires the
+      # postgres server cert SAN to cover the 'postgres' hostname and be signed by the mounted
+      # CA (/app/ssl/ca.crt). See docs/security/compliance-evidence/W4-encryption-transport.md.
+      POSTGRES_SSL_MODE: ${POSTGRES_SSL_MODE:-verify-full}
+      # Path to CA certificate for server certificate verification
+      POSTGRES_SSL_ROOT_CERT: /app/ssl/ca.crt
+      JWT_SECRET: ${JWT_SECRET}
+      # JWT algorithm and key configuration (RS256 opt-in, HS256 default)
+      CHRONICLE_SECURITY_JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      CHRONICLE_SECURITY_JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH:-}
+      CHRONICLE_SECURITY_JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH:-}
+      CHRONICLE_SECURITY_JWT_KEY_ID: ${JWT_KEY_ID:-}
+      # MFA enforcement via RFC 8176 amr/acr claims. Production requires true.
+      # Confirm explicit mfa, pwd+possession, or an approved current-session acr.
+      # See docs/security/compliance-evidence/W3-mfa-enforcement.md (HIPAA §164.312(d)).
+      CHRONICLE_SECURITY_REQUIRE_MFA: ${CHRONICLE_SECURITY_REQUIRE_MFA:?Set CHRONICLE_SECURITY_REQUIRE_MFA=true for production}
+      CHRONICLE_SECURITY_APPROVED_MFA_ACR_VALUES: ${CHRONICLE_SECURITY_APPROVED_MFA_ACR_VALUES:-}
+      CHRONICLE_SECURITY_MFA_IDP_PROOF_VERIFIED: ${CHRONICLE_SECURITY_MFA_IDP_PROOF_VERIFIED:-false}
+      # Token expiry configuration
+      CHRONICLE_SECURITY_JWT_ACCESS_TOKEN_EXPIRY_MINUTES: ${ACCESS_TOKEN_EXPIRY_MINUTES:-15}
+      CHRONICLE_SECURITY_JWT_REFRESH_TOKEN_EXPIRY_DAYS: ${REFRESH_TOKEN_EXPIRY_DAYS:-7}
+      CORS_ORIGINS: ${CORS_ORIGINS:-"https://${DOMAIN}"}
+      # Audit log directory for HIPAA compliance
+      # Logs are written in JSON format for SIEM integration
+      AUDIT_LOG_DIR: /var/log/chronicle
+      CHRONICLE_EXPORT_DIR: /var/lib/chronicle/exports
+      CHRONICLE_EXPORT_MAX_ROWS: "1000000"
+      CHRONICLE_EXPORT_MAX_BYTES: "536870912"
+      CHRONICLE_EXPORT_MAX_RUNTIME_SECONDS: "1800"
+      CHRONICLE_EXPORT_MAX_TOTAL_BYTES: "8589934592"
+      CHRONICLE_EXPORT_MIN_FREE_BYTES: "1073741824"
+    command:
+      - sh
+      - -c
+      - |
+        umask 077
+        if [ "$$CHRONICLE_SECURITY_REQUIRE_MFA" != "true" ]; then
+          echo "FATAL: legacy production requires CHRONICLE_SECURITY_REQUIRE_MFA=true" >&2
+          exit 1
+        fi
+        if [ "$$CHRONICLE_SECURITY_MFA_IDP_PROOF_VERIFIED" != "true" ]; then
+          echo "FATAL: legacy production requires verified live current-session MFA IdP proof" >&2
+          exit 1
+        fi
+        exec ./bin/chronicle-server local postgres medialocal
+    volumes:
+      # Persistent volume for HIPAA-compliant audit logs
+      # These logs are critical for compliance - rotated daily, kept 365 days
+      # Format: JSON (NDJSON) compatible with Splunk, ELK, DataDog, etc.
+      - audit_logs:/var/log/chronicle
+      - export_artifacts:/var/lib/chronicle/exports
+      # SSL/TLS CA certificate for PostgreSQL connection verification
+      - ./postgres-ssl/ca/ca.crt:/app/ssl/ca.crt:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - chronicle-internal
+
+  # Chronicle Frontend (production build)
+  frontend:
+    profiles: ["legacy-standalone"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend.prod
+      args:
+        - API_BASE_URL=https://${DOMAIN}
+    container_name: chronicle-frontend
+    restart: unless-stopped
+    networks:
+      - chronicle-internal
+
+  # Nginx Reverse Proxy with SSL
+  nginx:
+    profiles: ["legacy-standalone"]
+    image: nginx:alpine
+    container_name: chronicle-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ./certbot-webroot:/var/www/certbot:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - chronicle-internal
+      - chronicle-external
+
+networks:
+  chronicle-internal:
+    driver: bridge
+    internal: true
+  chronicle-external:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  # Separate volume for TDE keyring to ensure key persistence
+  # IMPORTANT: Back up this volume securely - loss of keys means loss of encrypted data
+  postgres_tde_keyring:
+  # HIPAA-compliant audit logs volume
+  # Contains JSON-formatted audit entries for compliance and SIEM integration
+  # Retention: 365 days (configure cleanup policy for production)
+  # IMPORTANT: Include in backup strategy for compliance requirements
+  audit_logs:
+  export_artifacts:

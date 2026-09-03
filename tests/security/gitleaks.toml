@@ -1,0 +1,35 @@
+title = "Chronicle gitleaks config"
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+  '''bun\.lock''',
+  '''package-lock\.json''',
+  '''\.snap$''',
+  '''\.golden\.json$''',
+  '''(^|/)backups/''',
+  # Runtime-generated secret material is intentionally outside source control
+  # and may be root-readable only. It is validated by deployment permission
+  # guardrails rather than the source-tree scanner.
+  '''(^|/)docker/postgres-ssl/server/''',
+  '''(^|/)docker/traefik/dynamic/crowdsec-waf\.yml$''',
+  '''(^|/)docker/rhizome-docker\.yaml$''',
+  '''(^|/)docker/chronicle-auth\.yaml$''',
+  '''(^|/)docker/mail\.yaml$''',
+  '''(^|/)docker/mobile-security\.yaml$''',
+  '''(^|/)docker/vault\.yaml$''',
+  '''(^|/)docker/cors\.yaml$''',
+  '''(^|/)docker/chronicle-config\.json$''',
+]
+
+# Allow test JWTs and mock tokens
+regexes = [
+  '''test-token''',
+  '''testing-token''',
+  '''HS256''',
+  '''\$\{\{\s*secrets\.[A-Z0-9_]+\s*\}\}''',
+  '''\$\{\{\s*github\.token\s*\}\}''',
+  # age recipient PUBLIC keys (bech32 "age1…") are non-secret by design — they
+  # only permit encryption, never decryption. The private keys never live here.
+  '''age1[0-9a-z]{58}''',
+]

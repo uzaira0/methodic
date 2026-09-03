@@ -1,0 +1,677 @@
+---
+chronicle_project_root: /opt/chronicle/methodic
+chronicle_local_path_root: /srv/chronicle/local-path
+
+chronicle_swap_enabled: false
+chronicle_swap_file_path: /swapfile
+chronicle_swap_size_mib: 4096
+chronicle_swap_swappiness: 10
+
+chronicle_manage_journald: true
+chronicle_journald_system_max_use: 1G
+chronicle_journald_runtime_max_use: 512M
+chronicle_journald_max_retention_sec: 14day
+chronicle_journald_rate_limit_interval_sec: 30s
+chronicle_journald_rate_limit_burst: 10000
+chronicle_journald_seal: true
+
+chronicle_manage_ssh_hardening: true
+chronicle_ssh_allow_users: []
+chronicle_ssh_client_alive_interval: 300
+chronicle_ssh_client_alive_count_max: 1
+chronicle_manage_dnf_automatic: true
+chronicle_dnf_automatic_apply_updates: false
+chronicle_manage_auditd: true
+chronicle_manage_aide: true
+chronicle_manage_logrotate: true
+chronicle_manage_sudo_hardening: true
+chronicle_manage_coredump_hardening: true
+chronicle_manage_login_banners: true
+chronicle_login_banner: |
+  Authorized use only. Activity may be monitored and audited.
+chronicle_manage_session_defaults: true
+chronicle_session_timeout_seconds: 900
+chronicle_shell_umask: "027"
+chronicle_manage_account_policy: true
+chronicle_password_hashing_algorithm: yescrypt
+chronicle_password_max_days: 365
+chronicle_password_min_days: 1
+chronicle_password_warn_age: 7
+chronicle_inactive_account_lock_days: 30
+chronicle_manage_pam_hardening: true
+chronicle_manage_authselect_custom_profile: true
+chronicle_authselect_custom_profile_name: chronicle-hardening
+chronicle_manage_su_wheel_hardening: true
+chronicle_su_wheel_group: sugroup
+chronicle_authselect_features:
+  - with-faillock
+  - with-pwhistory
+  - without-nullok
+chronicle_faillock_deny: 5
+chronicle_faillock_fail_interval: 900
+chronicle_faillock_unlock_time: 900
+chronicle_faillock_root_unlock_time: 60
+chronicle_pwquality_minlen: 14
+chronicle_pwquality_maxrepeat: 3
+chronicle_pwquality_difok: 8
+chronicle_pwquality_minclass: 4
+chronicle_pwquality_maxsequence: 3
+chronicle_pwhistory_remember: 24
+chronicle_manage_user_init_file_permissions: true
+chronicle_manage_cron_at_hardening: true
+chronicle_cron_allowed_users:
+  - root
+chronicle_at_allowed_users:
+  - root
+chronicle_manage_legacy_package_removal: true
+chronicle_legacy_packages_absent:
+  - bind
+  - bind-chroot
+  - cups
+  - dnsmasq
+  - dovecot
+  - ftp
+  - net-snmp
+  - nfs-utils
+  - postfix
+  - rsh
+  - rsh-server
+  - samba
+  - squid
+  - talk
+  - talk-server
+  - telnet
+  - tftp
+  - tftp-server
+  - vsftpd
+  - xinetd
+  - ypbind
+  - ypserv
+chronicle_manage_legacy_service_hardening: true
+chronicle_legacy_services_disabled:
+  - avahi-daemon
+  - bluetooth
+  - cups
+  - dnsmasq
+  - named
+  - nfs-server
+  - nmb
+  - postfix
+  - rpcbind
+  - rsyncd
+  - smb
+  - snmpd
+  - squid
+  - tftp
+  - vsftpd
+  - xinetd
+chronicle_manage_kernel_module_hardening: true
+chronicle_disabled_kernel_modules:
+  - cramfs
+  - freevxfs
+  - hfs
+  - hfsplus
+  - jffs2
+  - squashfs
+  - udf
+  - usb-storage
+chronicle_manage_dev_shm_hardening: true
+chronicle_dev_shm_opts: defaults,rw,nosuid,nodev,noexec,relatime
+chronicle_manage_aide_timer: true
+chronicle_aide_timer_on_calendar: "*-*-* 03:25:00"
+chronicle_manage_aide_cron_for_openscap: true
+chronicle_aide_cron_minute: "05"
+chronicle_aide_cron_hour: "04"
+chronicle_manage_auditd_retention: true
+chronicle_auditd_max_log_file_mb: 64
+chronicle_auditd_num_logs: 20
+chronicle_auditd_name_format: HOSTNAME
+chronicle_manage_openscap: true
+chronicle_manage_journal_remote_package: true
+chronicle_manage_kernel_sysctl: true
+chronicle_manage_identity_file_permissions: true
+chronicle_identity_file_permissions:
+  - path: /etc/passwd
+    mode: "0644"
+  - path: /etc/group
+    mode: "0644"
+  - path: /etc/passwd-
+    mode: "0644"
+  - path: /etc/group-
+    mode: "0644"
+  - path: /etc/shadow
+    mode: "0000"
+  - path: /etc/gshadow
+    mode: "0000"
+  - path: /etc/shadow-
+    mode: "0000"
+  - path: /etc/gshadow-
+    mode: "0000"
+chronicle_manage_boot_config_permissions: true
+chronicle_boot_config_files:
+  - /boot/grub2/grub.cfg
+  - /boot/efi/EFI/redhat/grub.cfg
+chronicle_manage_reboot_required_check: true
+chronicle_reboot_required_strict: true
+chronicle_manage_host_listener_validation: true
+chronicle_expected_tcp_listeners:
+  - "0.0.0.0:22"
+  - "[::]:22"
+  - "*:6443"
+  - "*:9345"
+  - "*:9963"
+  - "*:10250"
+  - "127.0.0.1:2379"
+  - "127.0.0.1:2380"
+  - "127.0.0.1:2381"
+  - "127.0.0.1:2382"
+  - "127.0.0.1:9234"
+  - "127.0.0.1:9879"
+  - "127.0.0.1:9890"
+  - "127.0.0.1:9891"
+  - "127.0.0.1:10010"
+  - "127.0.0.1:10248"
+  - "127.0.0.1:10249"
+  - "127.0.0.1:10256"
+  - "127.0.0.1:10257"
+  - "127.0.0.1:10258"
+  - "127.0.0.1:10259"
+  - "127.0.0.1:43443"
+chronicle_expected_tcp_listener_prefixes:
+  - "{{ chronicle_private_ip }}:2379"
+  - "{{ chronicle_private_ip }}:2380"
+  - "{{ chronicle_private_ip }}:4240"
+chronicle_allowed_dynamic_loopback_listener_processes:
+  - cilium-agent
+chronicle_expected_udp_listeners:
+  - "0.0.0.0:8472"
+  - "[::]:8472"
+  - "127.0.0.1:323"
+  - "[::1]:323"
+  - "127.0.0.1:43443"
+chronicle_manage_resource_pressure_validation: true
+chronicle_min_mem_available_mib: 1536
+chronicle_max_swap_used_percent: 50
+chronicle_max_root_used_percent: 80
+chronicle_max_local_path_used_percent: 80
+chronicle_manage_host_filesystem_privilege_validation: true
+chronicle_filesystem_privilege_prune_paths:
+  - /var/lib/containerd
+  - /var/lib/rancher
+  - /var/lib/kubelet
+  - /srv/chronicle/local-path
+chronicle_allowed_privileged_files:
+  - "2555 root ssh_keys /usr/libexec/openssh/ssh-keysign"
+  - "2711 root utmp /usr/libexec/utempter/utempter"
+  - "2755 root tty /usr/bin/write"
+  - "4111 root root /usr/bin/sudo"
+  - "4711 root root /usr/sbin/userhelper"
+  - "4755 root root /usr/bin/at"
+  - "4755 root root /usr/bin/chage"
+  - "4755 root root /usr/bin/crontab"
+  - "4755 root root /usr/bin/fusermount3"
+  - "4755 root root /usr/bin/gpasswd"
+  - "4755 root root /usr/bin/mount"
+  - "4755 root root /usr/bin/newgrp"
+  - "4755 root root /usr/bin/passwd"
+  - "4755 root root /usr/bin/pkexec"
+  - "4755 root root /usr/bin/su"
+  - "4755 root root /usr/bin/umount"
+  - "4755 root root /usr/lib/polkit-1/polkit-agent-helper-1"
+  - "4755 root root /usr/sbin/grub2-set-bootflag"
+  - "4755 root root /usr/sbin/pam_timestamp_check"
+  - "4755 root root /usr/sbin/unix_chkpwd"
+chronicle_manage_certificate_expiry_validation: true
+chronicle_certificate_expiry_host: "{{ chronicle_hostname }}"
+chronicle_certificate_expiry_port: 443
+chronicle_certificate_expiry_min_days: 30
+chronicle_kernel_sysctl:
+  fs.suid_dumpable: 0
+  fs.protected_hardlinks: 1
+  fs.protected_symlinks: 1
+  fs.protected_fifos: 2
+  fs.protected_regular: 2
+  kernel.dmesg_restrict: 1
+  kernel.kptr_restrict: 2
+  kernel.randomize_va_space: 2
+  kernel.yama.ptrace_scope: 1
+  kernel.unprivileged_bpf_disabled: 1
+  net.core.bpf_jit_harden: 2
+  net.ipv4.conf.all.accept_redirects: 0
+  net.ipv4.conf.all.accept_source_route: 0
+  net.ipv4.conf.all.log_martians: 1
+  net.ipv4.conf.all.secure_redirects: 0
+  net.ipv4.conf.all.send_redirects: 0
+  net.ipv4.conf.default.accept_redirects: 0
+  net.ipv4.conf.default.accept_source_route: 0
+  net.ipv4.conf.default.log_martians: 1
+  net.ipv4.conf.default.secure_redirects: 0
+  net.ipv4.conf.default.send_redirects: 0
+  net.ipv4.icmp_ignore_bogus_error_responses: 1
+  net.ipv4.icmp_echo_ignore_broadcasts: 1
+  net.ipv4.tcp_syncookies: 1
+  net.ipv6.conf.all.accept_ra: 0
+  net.ipv6.conf.all.accept_redirects: 0
+  net.ipv6.conf.all.accept_source_route: 0
+  net.ipv6.conf.all.forwarding: 0
+  net.ipv6.conf.default.accept_ra: 0
+  net.ipv6.conf.default.accept_redirects: 0
+  net.ipv6.conf.default.accept_source_route: 0
+
+chronicle_rke2_profile: cis
+chronicle_rke2_cni: cilium
+chronicle_rke2_ingress_controller: traefik
+chronicle_rke2_binary: /usr/bin/rke2
+chronicle_rke2_audit_policy_path: /etc/rancher/rke2/audit-policy.yaml
+chronicle_rke2_audit_log_path: /var/log/rancher/rke2/kube-apiserver-audit.log
+chronicle_rke2_audit_log_maxage_days: 30
+chronicle_rke2_audit_log_maxbackup: 10
+chronicle_rke2_audit_log_maxsize_mb: 100
+chronicle_rke2_etcd_snapshot_dir: /var/lib/rancher/rke2/server/db/snapshots
+chronicle_rke2_etcd_snapshot_schedule_cron: "0 */6 * * *"
+chronicle_rke2_etcd_snapshot_retention: 20
+chronicle_rke2_tls_sans:
+  - "{{ chronicle_public_ip }}"
+  - "{{ chronicle_private_ip }}"
+  - "{{ chronicle_hostname }}"
+chronicle_rke2_node_labels:
+  - chronicle.io/profile={{ chronicle_profile | default('rhel9') }}
+  - chronicle.io/single-node=true
+chronicle_rke2_kubelet_args:
+  - system-reserved=cpu=250m,memory=512Mi
+  - kube-reserved=cpu=250m,memory=768Mi
+  - eviction-hard=memory.available<500Mi,nodefs.available<10%
+chronicle_rke2_kube_apiserver_args:
+  - "audit-policy-file={{ chronicle_rke2_audit_policy_path }}"
+  - "audit-log-path={{ chronicle_rke2_audit_log_path }}"
+  - "audit-log-maxage={{ chronicle_rke2_audit_log_maxage_days }}"
+  - "audit-log-maxbackup={{ chronicle_rke2_audit_log_maxbackup }}"
+  - "audit-log-maxsize={{ chronicle_rke2_audit_log_maxsize_mb }}"
+
+chronicle_install_external_secrets: true
+chronicle_install_local_path_storage: true
+chronicle_manage_single_node_cilium_operator: true
+chronicle_cilium_operator_replicas: 1
+chronicle_external_secrets_namespace: external-secrets
+chronicle_local_path_storage_namespace: local-path-storage
+
+chronicle_kubeconfig: /etc/rancher/rke2/rke2.yaml
+chronicle_kubectl: /usr/local/bin/kubectl
+chronicle_namespace: chronicle
+chronicle_observability_namespace: chronicle-observability
+chronicle_security_namespace: chronicle-security
+chronicle_secret_source_namespace: chronicle-secret-source
+chronicle_valid_participation_statuses:
+  - ENROLLED
+  - NOT_ENROLLED
+  - PAUSED
+  - COLLECTION_COMPLETED
+  - UNKNOWN
+chronicle_backup_cronjob_contracts:
+  - name: chronicle-local-backup
+  - name: chronicle-local-backup-verify
+  - name: chronicle-local-restore-drill
+chronicle_backup_cronjob_concurrency_policy: Forbid
+chronicle_backup_cronjob_successful_history_limit: 3
+chronicle_backup_cronjob_failed_history_limit: 3
+chronicle_backup_cronjob_backoff_limit: 1
+chronicle_backup_max_age_hours: 48
+chronicle_require_crowdsec_enforced: true
+chronicle_expected_waf_middleware: chronicle-crowdsec-bouncer
+chronicle_waf_benign_path: /health
+chronicle_waf_block_probe_paths:
+  - "/chronicle/v4/study/%27%20OR%201=1--"
+  - "/?q=%3Cscript%3Ealert(1)%3C/script%3E"
+chronicle_restricted_namespaces:
+  - "{{ chronicle_namespace }}"
+  - "{{ chronicle_observability_namespace }}"
+  - "{{ chronicle_security_namespace }}"
+  - "{{ chronicle_secret_source_namespace }}"
+chronicle_default_deny_namespaces:
+  - "{{ chronicle_namespace }}"
+  - "{{ chronicle_observability_namespace }}"
+  - "{{ chronicle_security_namespace }}"
+  - "{{ chronicle_secret_source_namespace }}"
+chronicle_expected_networkpolicies:
+  - namespace: "{{ chronicle_namespace }}"
+    names:
+      - allow-dns
+      - allow-gateway-to-app
+      - allow-observability-to-backend-metrics
+      - backend-egress
+      - backup-egress-postgres
+      - default-deny
+      - fluent-bit-egress-victoria-logs
+      - keycloak-egress
+      - keycloak-ingress
+      - keycloak-postgres-ingress
+      - postgres-ingress
+      - postgres-ingress-backup
+  - namespace: "{{ chronicle_observability_namespace }}"
+    names:
+      - allow-dns
+      - allow-fluent-bit-to-victoria-logs
+      - allow-observability-internal
+      - default-deny
+      - grafana-egress-plugin-bootstrap
+      - grafana-egress-victoria
+      - victoria-metrics-scrape-chronicle
+  - namespace: "{{ chronicle_security_namespace }}"
+    names:
+      - allow-crowdsec-bootstrap-https
+      - allow-dns
+      - allow-traefik-to-crowdsec
+      - default-deny
+  - namespace: "{{ chronicle_secret_source_namespace }}"
+    names:
+      - default-deny
+chronicle_disallowed_service_types:
+  - NodePort
+  - LoadBalancer
+  - ExternalName
+chronicle_internal_service_namespaces:
+  - "{{ chronicle_namespace }}"
+  - "{{ chronicle_observability_namespace }}"
+  - "{{ chronicle_security_namespace }}"
+  - "{{ chronicle_secret_source_namespace }}"
+chronicle_private_route_namespaces:
+  - "{{ chronicle_observability_namespace }}"
+  - "{{ chronicle_security_namespace }}"
+  - "{{ chronicle_secret_source_namespace }}"
+chronicle_workload_template_namespaces:
+  - "{{ chronicle_namespace }}"
+  - "{{ chronicle_observability_namespace }}"
+  - "{{ chronicle_security_namespace }}"
+chronicle_manage_k8s_recent_warning_event_validation: true
+chronicle_k8s_warning_event_lookback_minutes: 30
+chronicle_k8s_warning_event_reboot_grace_minutes: 10
+chronicle_capacity_namespaces: "{{ chronicle_workload_template_namespaces }}"
+chronicle_capacity_max_request_cpu_percent: 85
+chronicle_capacity_max_request_memory_percent: 80
+chronicle_capacity_max_limit_memory_percent: 150
+chronicle_namespace_control_contracts:
+  - namespace: "{{ chronicle_namespace }}"
+    resource_quota:
+      name: resource-quota
+      hard:
+        requests.cpu: "3"
+        requests.memory: 5Gi
+        limits.cpu: "9"
+        limits.memory: 11Gi
+        pods: "30"
+        requests.storage: 260Gi
+    limit_range:
+      name: default-limits
+      container:
+        default:
+          cpu: 250m
+          memory: 512Mi
+        defaultRequest:
+          cpu: 100m
+          memory: 256Mi
+        max:
+          cpu: "4"
+          memory: 4Gi
+      pod:
+        max:
+          cpu: "6"
+          memory: 6Gi
+  - namespace: "{{ chronicle_observability_namespace }}"
+    resource_quota:
+      name: observability-quota
+      hard:
+        requests.cpu: 275m
+        requests.memory: 384Mi
+        limits.cpu: 1500m
+        limits.memory: 1200Mi
+        pods: "7"
+        persistentvolumeclaims: "2"
+        requests.storage: 10Gi
+    limit_range:
+      name: observability-defaults
+      container:
+        default:
+          cpu: 250m
+          memory: 256Mi
+        defaultRequest:
+          cpu: 25m
+          memory: 64Mi
+  - namespace: "{{ chronicle_security_namespace }}"
+    resource_quota:
+      name: chronicle-security-quota
+      hard:
+        requests.cpu: 250m
+        requests.memory: 384Mi
+        limits.cpu: 1000m
+        limits.memory: 768Mi
+        pods: "4"
+        persistentvolumeclaims: "3"
+        requests.storage: 8Gi
+    limit_range:
+      name: chronicle-security-defaults
+      container:
+        default:
+          cpu: 500m
+          memory: 512Mi
+        defaultRequest:
+          cpu: 50m
+          memory: 128Mi
+chronicle_pvc_namespaces:
+  - "{{ chronicle_namespace }}"
+  - "{{ chronicle_observability_namespace }}"
+  - "{{ chronicle_security_namespace }}"
+chronicle_expected_storage_class: local-path
+chronicle_local_path_max_used_percent: 80
+chronicle_readwrite_root_containers:
+  - StatefulSet/postgres/postgres
+chronicle_allowed_image_pull_policies:
+  - IfNotPresent
+  - Never
+# Kubernetes API stores 0440 as decimal 288.
+chronicle_secret_volume_max_default_mode: 288
+chronicle_allowed_sensitive_literal_envs:
+  - ref: "{{ chronicle_namespace }}/StatefulSet/postgres/postgres/PG_TDE_VAULT_TOKEN"
+    value: ""
+chronicle_configmap_sensitive_key_namespaces:
+  - "{{ chronicle_namespace }}"
+  - "{{ chronicle_observability_namespace }}"
+  - "{{ chronicle_security_namespace }}"
+  - "{{ chronicle_secret_source_namespace }}"
+chronicle_unprivileged_service_accounts:
+  - "{{ chronicle_namespace }}/chronicle-apk-download"
+  - "{{ chronicle_namespace }}/chronicle-backend"
+  - "{{ chronicle_namespace }}/chronicle-frontend"
+  - "{{ chronicle_namespace }}/chronicle-local-backup"
+  - "{{ chronicle_namespace }}/chronicle-postgres"
+  - "{{ chronicle_namespace }}/chronicle-preprocessing-frontend"
+  - "{{ chronicle_namespace }}/fluent-bit"
+  - "{{ chronicle_namespace }}/keycloak"
+  - "{{ chronicle_namespace }}/keycloak-postgres"
+  - "{{ chronicle_observability_namespace }}/grafana"
+  - "{{ chronicle_observability_namespace }}/victoria-logs"
+  - "{{ chronicle_observability_namespace }}/victoria-metrics"
+chronicle_secret_reader_service_account: "{{ chronicle_secret_source_namespace }}/external-secrets-kubernetes-provider"
+chronicle_rbac_binding_namespaces:
+  - "{{ chronicle_namespace }}"
+  - "{{ chronicle_observability_namespace }}"
+  - "{{ chronicle_security_namespace }}"
+  - "{{ chronicle_secret_source_namespace }}"
+chronicle_expected_rolebindings:
+  - namespace: "{{ chronicle_secret_source_namespace }}"
+    name: external-secrets-read-secrets
+    role_kind: Role
+    role_name: external-secrets-read-secrets
+    subjects:
+      - kind: ServiceAccount
+        namespace: "{{ chronicle_secret_source_namespace }}"
+        name: external-secrets-kubernetes-provider
+chronicle_expected_roles:
+  - namespace: "{{ chronicle_secret_source_namespace }}"
+    name: external-secrets-read-secrets
+    rules:
+      - api_groups:
+          - ""
+        resources:
+          - secrets
+        verbs:
+          - get
+          - list
+          - watch
+chronicle_expected_public_route_resources:
+  - ingressroute.traefik.io/chronicle
+  - httproute.gateway.networking.k8s.io/chronicle
+chronicle_expected_public_gateways:
+  - name: chronicle
+    gateway_class_name: traefik
+    addresses:
+      - type: IPAddress
+        value: "{{ chronicle_public_ip }}"
+    listeners:
+      - name: http
+        protocol: HTTP
+        port: 80
+        hostname: "{{ chronicle_hostname }}"
+        allowed_routes_namespaces_from: Same
+chronicle_expected_public_httproutes:
+  - name: chronicle
+    hostnames:
+      - "{{ chronicle_hostname }}"
+    parent_refs:
+      - group: gateway.networking.k8s.io
+        kind: Gateway
+        name: chronicle
+        section_name: http
+chronicle_expected_public_ingressroutes:
+  - name: chronicle
+    ingress_class_name: traefik
+    hostname: "{{ chronicle_hostname }}"
+    entrypoints:
+      - websecure
+    required_route_middleware: chronicle-security-headers
+chronicle_expected_traefik_header_middlewares:
+  - name: chronicle-security-headers
+    values:
+      contentTypeNosniff: true
+      frameDeny: true
+      browserXssFilter: true
+      forceSTSHeader: true
+      stsSeconds: 31536000
+      referrerPolicy: no-referrer
+      permissionsPolicy: "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+chronicle_expected_traefik_rate_limit_middlewares:
+  - name: chronicle-apk-download-ratelimit
+    average: 2
+    burst: 4
+    ip_strategy_depth: 1
+  - name: chronicle-preprocessing-ratelimit
+    average: 10
+    burst: 20
+    ip_strategy_depth: 1
+  - name: chronicle-keycloak-ratelimit
+    average: 20
+    burst: 40
+    ip_strategy_depth: 1
+chronicle_expected_public_route_rate_limits:
+  - match_contains: "/chronicle/downloads"
+    middleware: chronicle-apk-download-ratelimit
+  - match_contains: "/chronicle/preprocessing-gui"
+    middleware: chronicle-preprocessing-ratelimit
+  - match_contains: "/keycloak"
+    middleware: chronicle-keycloak-ratelimit
+chronicle_expected_public_route_priority_rules:
+  - higher_match_contains: "Chronicle-2026-06-25-beta.2-debug.apk"
+    lower_match_contains: "PathPrefix(`/chronicle/downloads/`)"
+  - higher_match_contains: "/keycloak/admin"
+    lower_match_contains: "PathPrefix(`/keycloak`)"
+  - higher_match_contains: "Path(`/chronicle/preprocessing-gui`)"
+    lower_match_contains: "PathPrefix(`/chronicle/preprocessing-gui/`)"
+  - higher_match_contains: "PathPrefix(`/chronicle/api/web`)"
+    lower_match_contains: "PathPrefix(`/chronicle/v4/`)"
+chronicle_expected_public_catchall_match: "PathPrefix(`/`)"
+chronicle_expected_deployments:
+  - chronicle-backend
+  - chronicle-frontend
+  - chronicle-apk-download
+  - chronicle-preprocessing-frontend
+  - keycloak
+  - fluent-bit
+chronicle_zero_surge_deployments: []
+chronicle_recreate_deployments: []
+chronicle_expected_statefulsets:
+  - postgres
+  - keycloak-postgres
+chronicle_expected_external_secrets:
+  - chronicle-app
+  - chronicle-backup
+  - chronicle-postgres-tls
+  - keycloak
+chronicle_expected_observability_deployments:
+  - victoria-metrics
+  - victoria-logs
+  - grafana
+chronicle_secret_placeholder_pattern: "(?i)(change-me|changeme|placeholder|example|password|secret|token|todo|replace)"
+chronicle_required_secret_contracts:
+  - namespace: "{{ chronicle_namespace }}"
+    name: chronicle-app-secrets
+    keys:
+      POSTGRES_PASSWORD: { min_bytes: 32 }
+      JWT_SECRET: { min_bytes: 32 }
+      HAZELCAST_SERVER_PASSWORD: { min_bytes: 32 }
+      HAZELCAST_CLIENT_PASSWORD: { min_bytes: 32 }
+      OIDC_CLIENT_SECRET: { min_bytes: 32 }
+      SMTP_PASSWORD: { min_bytes: 16 }
+      VAULT_TOKEN: { min_bytes: 16 }
+  - namespace: "{{ chronicle_namespace }}"
+    name: chronicle-backup-secrets
+    keys:
+      BACKUP_ENCRYPTION_PASSPHRASE: { min_bytes: 32 }
+  - namespace: "{{ chronicle_namespace }}"
+    name: keycloak-secrets
+    keys:
+      KEYCLOAK_DB_PASSWORD: { min_bytes: 32 }
+      KEYCLOAK_ADMIN_PASSWORD: { min_bytes: 32 }
+      OIDC_CLIENT_SECRET: { min_bytes: 32 }
+      UPSTREAM_OIDC_CLIENT_SECRET: { min_bytes: 32 }
+  - namespace: "{{ chronicle_namespace }}"
+    name: chronicle-postgres-tls
+    keys:
+      ca.crt: { min_bytes: 256, contains: "BEGIN CERTIFICATE" }
+      server.crt: { min_bytes: 256, contains: "BEGIN CERTIFICATE" }
+      server.key: { min_bytes: 256, contains: "BEGIN" }
+  - namespace: "{{ chronicle_observability_namespace }}"
+    name: grafana-admin
+    keys:
+      admin-password: { min_bytes: 32 }
+chronicle_crowdsec_secret_contracts:
+  - namespace: "{{ chronicle_security_namespace }}"
+    name: chronicle-crowdsec-secrets
+    keys:
+      CROWDSEC_BOUNCER_API_KEY: { min_bytes: 32 }
+chronicle_secret_equalities:
+  - left:
+      namespace: "{{ chronicle_namespace }}"
+      name: chronicle-app-secrets
+      key: OIDC_CLIENT_SECRET
+    right:
+      namespace: "{{ chronicle_namespace }}"
+      name: keycloak-secrets
+      key: OIDC_CLIENT_SECRET
+chronicle_tls_secret_contracts:
+  - namespace: "{{ chronicle_namespace }}"
+    name: chronicle-postgres-tls
+    ca_cert_key: ca.crt
+    server_cert_key: server.crt
+    server_key_key: server.key
+    min_days: 14
+
+chronicle_k8s_render_dir: /tmp/chronicle-k8s-rendered
+chronicle_k8s_render_source_dir: "{{ chronicle_k8s_render_dir }}/source"
+chronicle_allow_k8s_apply: false
+chronicle_run_k8s_guardrails: true
+chronicle_k8s_overlays: []
+
+chronicle_backup_job_timeout: 10m
+chronicle_backup_verify_timeout: 10m
+chronicle_restore_drill_timeout: 15m
+chronicle_backup_drill_pause_observability: false
+chronicle_delete_successful_drill_jobs: false

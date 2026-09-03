@@ -1,0 +1,24 @@
+# Public clients authenticate with enrollment-issued per-device API keys. The shared HMAC
+# remains false/false/blank unless an operator deliberately patches all three values for a
+# controlled legacy/research-client fleet.
+enabled: ${MOBILE_SIGNING_ENABLED}
+signing-secret: "${MOBILE_SIGNING_SECRET}"
+signing-required: ${MOBILE_SIGNING_REQUIRED}
+max-request-age-minutes: 5
+clock-skew-seconds: 30
+nonce-ttl-minutes: 10
+# Canonical public HTTPS root embedded in signed enrollment manifests.
+public-base-url: "${CHRONICLE_PUBLIC_BASE_URL}"
+# Proxy-injected secret authenticating the X-Chronicle-Internal-Web signing
+# bypass (CWE-290 hardening). Blank => legacy "true" marker is honored.
+#
+# WARNING — k8s is only HALF-wired for this today (docker-compose on the box is
+# the live prod path, and it IS fully wired). To actually harden k8s you must do
+# BOTH, together, or the web console will break/stay-legacy:
+#   1. inject CHRONICLE_INTERNAL_WEB_SECRET into the chronicle-backend pod env
+#      (nothing in k8s/ does this yet — so this value currently renders blank and
+#      the backend stays on the legacy "true" marker regardless of what is set),
+#   2. render the SAME value into the ingress Middleware
+#      chronicle-web-internal-header (overlays/*/traefik-ingressroute.yaml, which
+#      still hardcodes "true"). Setting only one side => web console 401s.
+internal-web-secret: "${CHRONICLE_INTERNAL_WEB_SECRET}"
