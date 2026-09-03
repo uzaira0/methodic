@@ -5,7 +5,7 @@
       "id": "study-export",
       "backend": "ExportController: create, list, inspect, and download export jobs",
       "owners": ["researcher-web"],
-      "evidence": ["chronicle-web/src/modern/routes/study-bulk-downloads-page.tsx:Recent export jobs"]
+      "evidence": ["chronicle-web/src/modern/routes/study-bulk-downloads-page.tsx:bulk_downloads.recent_jobs"]
     },
     {
       "id": "participant-export",
@@ -18,8 +18,8 @@
       "backend": "StudyController: participant, device, sensor, upload, and compliance status",
       "owners": ["researcher-web", "mobile-client"],
       "evidence": [
-        "chronicle-web/src/modern/routes/study-participants-page.tsx:Receiving data",
-        "chronicle-web/src/modern/routes/study-compliance-page.tsx:enrollment status",
+        "chronicle-web/src/modern/routes/study-participants-page.tsx:participants.receiving_data",
+        "chronicle-web/src/modern/routes/study-compliance-page.tsx:compliance.description",
         "chronicle/app/src/main/java/com/openlattice/chronicle/ServerEnrollmentActivity.kt:enroll"
       ]
     },
@@ -28,15 +28,15 @@
       "backend": "DataDeletionController and StudyController: queue and inspect verified deletion",
       "owners": ["researcher-web", "participant-web"],
       "evidence": [
-        "chronicle-web/src/modern/routes/study-participants-page.tsx:Deletion status",
-        "chronicle-web/src/modern/routes/public-research-policy-page.tsx:deletion request"
+        "chronicle-web/src/modern/routes/study-participants-page.tsx:participants.deletion_status",
+        "chronicle-web/src/modern/routes/public-research-policy-page.tsx:initialSection === 'withdrawal'"
       ]
     },
     {
       "id": "study-lifecycle-deletion",
       "backend": "StudyLifecycleController: quarantine, status, cancel, and erase a study",
       "owners": ["researcher-web"],
-      "evidence": ["chronicle-web/src/modern/routes/study-layout.tsx:deletion quarantine"]
+      "evidence": ["chronicle-web/src/modern/routes/study-layout.tsx:study_layout.banner_scheduled"]
     },
     {
       "id": "failed-background-operations",
