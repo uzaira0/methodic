@@ -1,0 +1,33 @@
+# git-cliff configuration: drafts a CHANGELOG section from Conventional Commits.
+# Used by scripts/changelog-draft.sh (make changelog RELEASE=<version>).
+[changelog]
+header = ""
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }}{% if commit.breaking %} (breaking){% endif %}
+{%- endfor %}
+{% endfor %}
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+split_commits = false
+protect_breaking_commits = true
+filter_commits = false
+sort_commits = "oldest"
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->Added" },
+  { message = "^fix", group = "<!-- 1 -->Fixed" },
+  { message = "^perf", group = "<!-- 2 -->Performance" },
+  { message = "^refactor", group = "<!-- 3 -->Changed" },
+  { message = "^docs", group = "<!-- 4 -->Documentation" },
+  { message = "^revert", group = "<!-- 5 -->Reverted" },
+  { message = "^(test|build|ci|chore|style)", skip = true },
+  { message = "^Update submodules", skip = true },
+  { message = ".*", group = "<!-- 6 -->Other" },
+]

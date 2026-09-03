@@ -93,3 +93,25 @@ i18n-lint: ## Fail on hardcoded English in web/Android/server/iOS UI paths (ast-
 i18n-lint-proof: ## Prove the i18n guard: per-repo case suites plus the mutation test against the real trees
 	scripts/i18n-lint.sh
 	scripts/i18n-lint-mutation.sh
+
+.PHONY: publish-stage publish-status publish-push publish-abandon
+## Publish curated history to the public mirrors (see scripts/publish.sh):
+##   make publish-stage REPO=all|<name>          lay the filtered snapshot over the public tip
+##   make publish-status                         curated commits and remaining paths per repo
+##   make publish-push REPO=all|<name> [DRY_RUN=1] [REPLACE=1]
+##   make publish-abandon REPO=all|<name>
+publish-stage:
+	scripts/publish.sh stage $(or $(REPO),all) $(if $(BASE),--base $(BASE),)
+publish-status:
+	scripts/publish.sh status
+publish-push:
+	scripts/publish.sh push $(or $(REPO),all) $(if $(DRY_RUN),--dry-run,) $(if $(REPLACE),--replace,)
+publish-abandon:
+	scripts/publish.sh abandon $(or $(REPO),all)
+
+## Draft the CHANGELOG section from the curated commits staged for publish:
+##   make changelog RELEASE=2026.09.10   (prints Markdown; paste and edit into CHANGELOG.md)
+.PHONY: changelog
+changelog:
+	@test -n "$(RELEASE)" || (echo "usage: make changelog RELEASE=<version>" && exit 1)
+	scripts/changelog-draft.sh $(RELEASE)
