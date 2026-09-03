@@ -34,29 +34,12 @@ reject_pattern() {
   ! grep -Eq -- "$pattern" "$ROOT_DIR/$file" || fail "$description"
 }
 
-BUILD_WORKFLOW=.github/workflows/build-android-apk.yml
-MAESTRO_WORKFLOW=.github/workflows/maestro-android-test.yml
-
-for workflow in "$BUILD_WORKFLOW" "$MAESTRO_WORKFLOW"; do
-  reject_pattern "$workflow" 'android_ref:|Select Android ref|git fetch --no-tags origin' \
-    "$workflow must build the Android revision pinned by the committed submodule gitlink"
-done
 reject_pattern docker/build-apk.sh 'android_ref|server_url|git-credentials|export PATH=.*/tmp' \
   'the Android workflow wrapper must use the pinned gitlink and protected GitHub CLI/output paths'
 require_literal docker/build-apk.sh '-f "distribution=$DISTRIBUTION"' \
   'the Android workflow wrapper must dispatch the selected public distribution'
-reject_pattern "$MAESTRO_WORKFLOW" 'mobileSigningSecret|MOBILE_SIGNING_SECRET' \
-  'Maestro public-flavor builds must not require or pass a deployment-wide HMAC secret'
 require_literal tests/security/mobile-upload-guardrails.sh 'CHRONICLE_REQUIRE_MOBILE_SIGNING_SECRET:-0' \
   'the canonical mobile guard must exercise the public secret-free contract by default'
-require_literal "$BUILD_WORKFLOW" "if: inputs.distribution == 'play' || inputs.distribution == 'amazon'" \
-  'the public Android build step must be isolated from controlled-legacy inputs'
-reject_pattern "$BUILD_WORKFLOW" '^      SERVER_HOST:' \
-  'the controlled research deployment host must not be inherited by public build steps'
-require_literal "$BUILD_WORKFLOW" 'ORG_GRADLE_PROJECT_mobileSigningSecret: ${{ secrets.MOBILE_SIGNING_SECRET }}' \
-  'the controlled research build must deliberately inject its legacy signing key without putting it in process argv'
-reject_pattern "$BUILD_WORKFLOW" 'play[^\n]*(chronicleProductionHost|mobileSigningSecret)|amazon[^\n]*(chronicleProductionHost|mobileSigningSecret)' \
-  'Play and Amazon builds must not receive a fixed deployment host or shared HMAC secret'
 
 for env_file in docker/.env.example docker/.env.production docker/.env.staging; do
   require_literal "$env_file" 'MOBILE_SIGNING_ENABLED=false' \
@@ -202,48 +185,6 @@ require_literal k8s/base/config-templates/mobile-security.yaml.template 'public-
 require_literal k8s/base/backend.yaml 'name: CHRONICLE_PUBLIC_BASE_URL' \
   'Kubernetes backend must receive the canonical public application origin'
 
-python3 - "$ROOT_DIR/.github/workflows/cd.yml" \
-  "$ROOT_DIR/docker/Dockerfile.backend" \
-  "$ROOT_DIR/docker/Dockerfile.frontend.prod" \
-  "$ROOT_DIR/selfhost/Dockerfile.frontend" \
-  "$ROOT_DIR/selfhost/Dockerfile.caddy" <<'PY' || fail 'CD block-mode egress does not cover the exact current Docker/Gradle/Bun/Go fetch paths'
-from pathlib import Path
-import re
-import sys
-
-workflow = Path(sys.argv[1]).read_text(encoding="utf-8")
-dockerfiles = "\n".join(Path(path).read_text(encoding="utf-8") for path in sys.argv[2:])
-match = re.search(r"allowed-endpoints:\s*>\s*\n(?P<body>(?:\s{12}\S.*\n)+)", workflow)
-if not match:
-    raise SystemExit("build-images allowed-endpoints block was not found")
-endpoints = {line.strip() for line in match.group("body").splitlines() if line.strip()}
-
-expected = {
-    "services.gradle.org:443",
-    "release-assets.githubusercontent.com:443",
-    "downloads.gradle.org:443",
-    "plugins.gradle.org:443",
-    "plugins-artifacts.gradle.org:443",
-    "repo.maven.apache.org:443",
-    "registry.npmjs.org:443",
-    "archive.ubuntu.com:80",
-    "security.ubuntu.com:80",
-    "dl-cdn.alpinelinux.org:443",
-    "proxy.golang.org:443",
-    "sum.golang.org:443",
-    "storage.googleapis.com:443",
-}
-missing = sorted(expected - endpoints)
-if missing:
-    raise SystemExit("missing endpoints: " + ", ".join(missing))
-for obsolete in ("dl.google.com:443", "repo1.maven.org:443"):
-    if obsolete in endpoints:
-        raise SystemExit("unneeded endpoint remains: " + obsolete)
-if "apt-get" not in dockerfiles or "apk add" not in dockerfiles:
-    raise SystemExit("Dockerfile package-manager paths disappeared without updating this guard")
-if "./gradlew" not in dockerfiles or "bun install" not in dockerfiles or "xcaddy build" not in dockerfiles:
-    raise SystemExit("Dockerfile dependency-fetch paths disappeared without updating this guard")
-PY
 
 for sql_file in docker/init-db-roles.sql k8s/base/postgres-init/10-init-db-roles.sql; do
   require_literal "$sql_file" "'audit'" "$sql_file must protect the final audit table"

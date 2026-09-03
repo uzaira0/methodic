@@ -33,7 +33,6 @@ Fast jobs:
   dependency-sbom       Backend CycloneDX SBOM generation
   license-compliance    Backend and frontend license checks
   detekt                Kotlin Detekt scan with the pinned CI CLI jar
-  actionlint            GitHub Actions workflow lint
 
 Container/IaC jobs:
   selfhost              Turnkey setup, monitoring privacy, release bundle, supported matrix
@@ -66,7 +65,7 @@ Slow/specialized jobs:
   ios-verify            iOS contract freshness + simulator test suite (macOS)
 
 Groups:
-  fast                  preflight web jvm-smoke repo-automation linkml-ssot cue-k8s dead-code dependency-sbom license-compliance actionlint
+  fast                  preflight web jvm-smoke repo-automation linkml-ssot cue-k8s dead-code dependency-sbom license-compliance
   security              gradle-depcheck bun-audit detekt pmd bearer osv grype syft
   containers            selfhost dockerfile-lint iac-scan container-structure http-smoke-stack
   all                   fast security containers parity
@@ -951,8 +950,6 @@ EOF
     rm -f "$ROOT_DIR/docker/.env"
   fi
   rm -f "$compose_env" "$compose_override"
-  log "Bun workflow audit"
-  bash "$ROOT_DIR/scripts/check-bun-workflows.sh"
   log "toolchain manifest verification"
   bash "$ROOT_DIR/scripts/verify-toolchain.sh"
   log "trusted dependency script guard"
@@ -1575,11 +1572,6 @@ job_openapi_diff() {
   fi
 }
 
-job_actionlint() {
-  require_cmd actionlint "brew install actionlint"
-  actionlint -color
-}
-
 job_linkml_ssot() {
   require_cmd python3 "install Python 3"
   local models_dir="${CHRONICLE_MODELS_DIR:-}"
@@ -1652,7 +1644,6 @@ run_job() {
     grype) job_grype ;;
     syft) job_syft ;;
     openapi-diff) job_openapi_diff ;;
-    actionlint) job_actionlint ;;
     web-mutation) job_web_mutation ;;
     fast)
       run_job preflight
@@ -1665,7 +1656,6 @@ run_job() {
       run_job dead-code
       run_job dependency-sbom
       run_job license-compliance
-      run_job actionlint
       ;;
     security)
       run_job gradle-depcheck

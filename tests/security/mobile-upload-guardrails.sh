@@ -122,8 +122,7 @@ if "$REMOTE_ENROLLMENT_HELPER" \
 fi
 pass "Remote-tablet helper rejects non-root origins and overexposed code files"
 
-MAESTRO_WORKFLOW="$ROOT_DIR/.github/workflows/maestro-android-test.yml"
-MAESTRO_RUNNER="$ROOT_DIR/.github/scripts/maestro-run-emulator.sh"
+MAESTRO_RUNNER="$ROOT_DIR/tests/maestro/maestro-run-emulator.sh"
 MAESTRO_CONFIG="$ROOT_DIR/.maestro/config.yaml"
 MAESTRO_SMOKE_FLOW="$ROOT_DIR/.maestro/smoke.yaml"
 MAESTRO_SETUP="$ROOT_DIR/.maestro/setup-test-data.sh"
@@ -164,26 +163,10 @@ fi
   fail "Maestro single-server settings flow is missing"
 [[ -f "$MAESTRO_SECOND_INVITATION_FLOW" ]] ||
   fail "Maestro second-invitation rejection flow is missing"
-if grep -Eq 'Patch server URL|chronicle\.example\.com.*10\.0\.2\.2' \
-  "$MAESTRO_WORKFLOW"; then
-  fail "Maestro CI must pass the enrollment server at runtime instead of rewriting Android source"
-fi
 if grep -Eq '10\.0\.2\.2|SERVER_URL="?http:|usesCleartextTraffic.*sed|google-services\.json' \
-  "$MAESTRO_WORKFLOW" "$ROOT_DIR/.maestro/config.yaml"; then
+  "$ROOT_DIR/.maestro/config.yaml"; then
   fail "Maestro must not weaken the production HTTPS/origin contract"
 fi
-require_file_contains "$MAESTRO_WORKFLOW" \
-  'CHRONICLE_PUBLIC_BASE_URL: "https://127\.0\.0\.1:8443"' \
-  "Maestro uses one canonical HTTPS root origin"
-require_file_contains "$MAESTRO_WORKFLOW" \
-  'public-base-url: "\$\{CHRONICLE_PUBLIC_BASE_URL\}"' \
-  "Maestro enrollment manifests use the canonical HTTPS origin"
-require_file_contains "$MAESTRO_WORKFLOW" \
-  'subjectAltName = IP:127\.0\.0\.1, DNS:localhost' \
-  "Maestro leaf certificate covers its exact loopback origin"
-require_file_contains "$MAESTRO_WORKFLOW" \
-  'caddy:2\.10\.2-alpine@sha256:[0-9a-f]{64}' \
-  "Maestro HTTPS proxy image is digest pinned"
 require_file_contains "$MAESTRO_RUNNER" \
   'adb reverse tcp:8443 tcp:8443' \
   "Maestro reverses the exact HTTPS port into the emulator"
@@ -260,21 +243,6 @@ require_file_contains "$MAESTRO_RUNNER" \
 require_file_contains "$MAESTRO_RUNNER" \
   'cannot install the ephemeral CA noninteractively' \
   "Maestro fails explicitly when a disposable emulator cannot install the CA"
-require_file_contains "$MAESTRO_WORKFLOW" \
-  'emulator-options: -no-snapshot -writable-system' \
-  "Maestro uses a fresh writable emulator system for its ephemeral CA"
-require_file_contains "$MAESTRO_WORKFLOW" \
-  'force-avd-creation: true' \
-  "Maestro does not reuse participant state from an AVD snapshot"
-require_file_contains "$MAESTRO_WORKFLOW" \
-  'MAESTRO_VERSION=2\.7\.0' \
-  "Maestro uses the current pinned CLI with maintained Android transport support"
-require_file_contains "$MAESTRO_WORKFLOW" \
-  'MAESTRO_SHA256=a4ccab6b604617e7aef6db4f885666056eabe5cfa32befaa3bc994041b8fcbb5' \
-  "Maestro verifies the official 2.7.0 release asset digest"
-require_file_contains "$MAESTRO_WORKFLOW" \
-  'script: \.github/scripts/maestro-run-emulator\.sh' \
-  "Maestro runs its stateful emulator commands in one shell process"
 require_file_contains "$MAESTRO_RUNNER" \
   '--env APP_PACKAGE="\$APP_PACKAGE"' \
   "Maestro binds resource identifiers to the exact installed package"
@@ -446,21 +414,6 @@ require_file_contains "$MAESTRO_SETUP" \
 if grep -Eq -- '-H[[:space:]]+"Authorization: Bearer.*AUTH_TOKEN' "$MAESTRO_SETUP"; then
   fail "Maestro seeding must not expose the administrator token in curl argv"
 fi
-if grep -Eq 'AUTH_TOKEN=.*>>.*GITHUB_ENV' "$MAESTRO_WORKFLOW"; then
-  fail "Maestro must not export the administrator token through GITHUB_ENV"
-fi
-require_file_contains "$MAESTRO_WORKFLOW" \
-  'AUTH_TOKEN_FILE=.*admin.jwt' \
-  "Maestro transports the administrator token through a private one-use file"
-require_file_contains "$MAESTRO_WORKFLOW" \
-  'chmod 600.*AUTH_TOKEN_FILE' \
-  "Maestro enforces mode 0600 on the administrator token transport"
-require_file_contains "$MAESTRO_WORKFLOW" \
-  'token_file_to_remove=.*AUTH_TOKEN_FILE' \
-  "Maestro preserves the private token path only for post-source deletion verification"
-require_file_contains "$MAESTRO_WORKFLOW" \
-  'test ! -e.*token_file_to_remove' \
-  "Maestro verifies token deletion without rereading an unset transport variable"
 if grep -Eq 'eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}' "$MAESTRO_SETUP"; then
   fail "Maestro seeding must not retain a JWT in source"
 fi
@@ -476,28 +429,6 @@ fi
 [[ ! -e "$plain_http_auth_file" ]] ||
   fail "Maestro plain-HTTP rejection fixture did not consume its one-use token file"
 pass "Maestro seeding rejects plain HTTP after consuming a valid private token fixture"
-
-python3 - "$MAESTRO_WORKFLOW" <<'PY' || fail "Maestro must sanitize capabilities and destroy TLS keys before artifact upload"
-import pathlib
-import sys
-
-source = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
-sanitize = source.index("- name: Sanitize diagnostics and destroy ephemeral credentials")
-destroy = source.index('rm -rf -- "$EXPECTED_TLS_DIR"', sanitize)
-upload = source.index("- name: Upload test results", sanitize)
-failure_upload = source.index("- name: Upload failure artifacts", sanitize)
-if not (sanitize < destroy < upload < failure_upload):
-    raise SystemExit(1)
-required = (
-    "TEST_ENROLLMENT_ACCESS_CODE",
-    "TEST_ENROLLMENT_ACCESS_CODE_2",
-    "BEGIN PRIVATE KEY",
-    "BEGIN CERTIFICATE",
-)
-if any(value not in source[sanitize:upload] for value in required):
-    raise SystemExit(1)
-PY
-pass "Maestro covers one active server over trusted HTTPS and scrubs ephemeral credentials before upload"
 
 if find "$APP_DIR/libs" -type f -name '*.jar' 2>/dev/null | grep -q .; then
   find "$APP_DIR/libs" -type f -name '*.jar' >&2

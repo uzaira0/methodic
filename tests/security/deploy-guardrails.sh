@@ -3,8 +3,6 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 REPORT_DIR="${1:-$ROOT_DIR/tests/security/reports}"
-LEGACY_WORKFLOW="$ROOT_DIR/.github/workflows/docker-build-deploy.yml"
-CD_WORKFLOW="$ROOT_DIR/.github/workflows/cd.yml"
 
 mkdir -p "$REPORT_DIR"
 
@@ -29,62 +27,7 @@ require_file_contains() {
 
 echo "=== Chronicle deploy guardrails ==="
 
-if grep -Eq '^[[:space:]]*push:[[:space:]]*$' "$LEGACY_WORKFLOW"; then
-  fail "Legacy self-hosted deploy workflow must not have push triggers"
-fi
-pass "Legacy self-hosted deploy workflow has no push trigger"
-
-if grep -Eq 'runs-on:[[:space:]]*self-hosted' "$LEGACY_WORKFLOW"; then
-  fail "Legacy self-hosted deploy workflow must not run deployment jobs on self-hosted runners"
-fi
-pass "Legacy self-hosted deploy workflow does not use self-hosted runners"
-
-if grep -Eq 'docker[[:space:]]+compose[[:space:]].*-f[[:space:]]+docker-compose\.prod\.yml[[:space:]]+up[[:space:]]+-d' "$LEGACY_WORKFLOW"; then
-  fail "Legacy workflow must not deploy docker-compose.prod.yml"
-fi
-pass "Legacy workflow does not deploy docker-compose.prod.yml"
-
-require_file_contains "$LEGACY_WORKFLOW" \
-  'Legacy self-hosted production deploy is disabled' \
-  "Legacy workflow fails closed with an explicit disabled message"
-
-require_file_contains "$CD_WORKFLOW" \
-  '\./scripts/deploy\.sh[[:space:]]*\\' \
-  "Current CD workflow deploys through scripts/deploy.sh"
-require_file_contains "$CD_WORKFLOW" \
-  'environment:[[:space:]]*$' \
-  "Current CD workflow uses GitHub environments"
-require_file_contains "$CD_WORKFLOW" \
-  'name:[[:space:]]*production' \
-  "Current CD workflow has a production environment gate"
-require_file_contains "$CD_WORKFLOW" \
-  "check-name:[[:space:]]*'Security Gate'" \
-  "Current CD workflow waits for the Security Gate"
-require_file_contains "$CD_WORKFLOW" \
-  'attest-build-provenance' \
-  "Current CD workflow emits GitHub provenance attestations"
-require_file_contains "$CD_WORKFLOW" \
-  'verify-image-provenance\.sh' \
-  "Current CD workflow verifies image provenance before deploy jobs"
-require_file_contains "$CD_WORKFLOW" \
-  '--env-file[[:space:]]+docker/\.env\.production\.local' \
-  "Current CD workflow deploys production with the untracked production env file"
-require_file_contains "$CD_WORKFLOW" \
-  '--env-file[[:space:]]+docker/\.env\.staging\.local' \
-  "Current CD workflow deploys staging with the untracked staging env file"
-
-require_file_contains "$ROOT_DIR/.github/workflows/security-suite.yml" \
-  'prod-backend' \
-  "Security suite runs on prod-backend pushes"
-require_file_contains "$ROOT_DIR/.github/workflows/security-suite.yml" \
-  'KUSTOMIZE_VERSION' \
-  "Security suite installs kustomize for deploy guardrails"
-require_file_contains "$ROOT_DIR/.github/workflows/security-suite.yml" \
-  'CUE_VERSION' \
-  "Security suite installs CUE for deploy guardrails"
-require_file_contains "$ROOT_DIR/.github/workflows/security-suite.yml" \
-  'PyYAML' \
-  "Security suite installs PyYAML for schema and K8s guardrails"
+# Deployment runs from this checkout via scripts/deploy.sh; there are no hosted workflows to gate.
 
 if grep -Eq 'IMAGE_TAG:-latest|\$\{(BACKEND_IMAGE|FRONTEND_IMAGE):-' "$ROOT_DIR/docker/docker-compose.production.yml"; then
   fail "Production image override must not default to mutable image tags or registry paths"
@@ -190,11 +133,6 @@ then
 else
   fail "Export deployments must use bounded, durable, writable artifact storage"
 fi
-
-if grep -Eq 'contains\(steps\.meta\.outputs\.tags, '\''(latest|main)'\''\)|:[[:space:]]*\$\{\{.*(latest|main)|TAGS="\$\{PRIMARY_TAG\}"' "$CD_WORKFLOW"; then
-  fail "CD workflow must not publish mutable latest/main image tags"
-fi
-pass "CD workflow publishes only immutable primary image tags"
 
 if grep -Eq '^IMAGE_TAG=(latest|main|master|develop|dev|staging|production)$' "$ROOT_DIR/docker/.env.production"; then
   fail "Production env template must not set IMAGE_TAG to a mutable tag"

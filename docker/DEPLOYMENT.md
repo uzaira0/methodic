@@ -4,8 +4,8 @@ Chronicle has two maintained deployment paths:
 
 1. `selfhost/` for a study operator deploying from a public source clone or a
    digest-pinned release bundle. Start with [`../selfhost/README.md`](../selfhost/README.md).
-2. The immutable-image Traefik deployment driven by `../scripts/deploy.sh` and
-   `.github/workflows/cd.yml` for operators who already maintain that platform.
+2. The immutable-image Traefik deployment driven by `../scripts/deploy.sh` for operators
+   who already maintain that platform (images are built and signed locally; no hosted CI).
 
 The historical standalone nginx deployment is not supported. Do not copy its
 `/api/mobile` routing or deployment-wide app-key design into a new installation.

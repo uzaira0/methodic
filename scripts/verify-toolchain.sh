@@ -55,62 +55,20 @@ else
 fi
 
 # ── 2. Workflow JDK pins (root + submodules) ─────────────────────────────────
-# Everything must be on $JDK except the Android APK build jobs, which stay on
-# the Android launcher JDK.
-ANDROID_JDK_ALLOWED=(
-  ".github/workflows/build-android-apk.yml"
-  ".github/workflows/maestro-android-test.yml"
-)
-while IFS=: read -r file _ line; do
-  rel="${file#"$ROOT_DIR"/}"
-  ver="$(sed -E "s/.*java-version: *['\"]?([0-9]+).*/\1/" <<<"$line")"
-  if [[ "$ver" == "$JDK" ]]; then
-    continue
-  fi
-  allowed=0
-  if [[ "$ver" == "$ANDROID_JDK" ]]; then
-    for a in "${ANDROID_JDK_ALLOWED[@]}"; do [[ "$rel" == "$a" ]] && allowed=1; done
-    # Android submodule workflows may use the Android JDK too.
-    [[ "$rel" == chronicle/.github/* ]] && allowed=1
-  fi
-  if [[ "$allowed" -ne 1 ]]; then
-    fail "JDK pin drift: $rel pins java-version $ver (expected $JDK)"
-  fi
-done < <(grep -rn 'java-version:' \
-  "$ROOT_DIR/.github/workflows" \
-  "$ROOT_DIR"/chronicle-server/.github/workflows \
-  "$ROOT_DIR"/chronicle-api/.github/workflows \
-  "$ROOT_DIR"/chronicle-models/.github/workflows \
-  "$ROOT_DIR"/rhizome/.github/workflows \
-  "$ROOT_DIR"/rhizome-client/.github/workflows \
-  "$ROOT_DIR"/chronicle/.github/workflows 2>/dev/null)
-# The per-file allowance above is too coarse for maestro-android-test.yml: its APK
-# builder and Maestro driver use the Android JDK; the backend stays on $JDK.
-MAESTRO_ANDROID_PINS="$(grep -c "java-version: [\"']${ANDROID_JDK}[\"']" "$ROOT_DIR/.github/workflows/maestro-android-test.yml" 2>/dev/null || true)"
-[[ "${MAESTRO_ANDROID_PINS:-0}" -eq 2 ]] \
-  || fail "maestro-android-test.yml has ${MAESTRO_ANDROID_PINS} java-version ${ANDROID_JDK} pins (build-apk and the Maestro driver must use the Android JDK)"
-ok "workflow JDK pins checked (expected $JDK; Android jobs $ANDROID_JDK)"
+# JDK pins live in the Gradle builds and docker images checked below; there are no hosted workflows.
 
 # ── 3. Bun pins (root + web submodule; Node must not reappear) ───────────────
 # Remember the failure count so the closing summary is only printed when this section
 # actually passed -- otherwise a drift prints "[fail] ..." immediately followed by
 # "[ok] bun pins checked", and anyone scanning for [ok] reads the green line.
 BUN_FAILURES_BEFORE=$FAILURES
-while IFS=: read -r file _ line; do
-  rel="${file#"$ROOT_DIR"/}"
-  ver="$(sed -E "s/.*bun-version: *['\"]?([0-9.]+).*/\1/" <<<"$line")"
-  [[ "$ver" == "$BUN" ]] || fail "Bun pin drift: $rel pins $ver (expected $BUN)"
-done < <(grep -rn 'bun-version:' "$ROOT_DIR/.github" "$ROOT_DIR/chronicle-web/.github" 2>/dev/null)
-# The two guard scripts hardcode their own Bun literals (they cannot depend on yq);
+# The guard script hardcodes its own Bun literal (they cannot depend on yq);
 # cross-check them against the manifest so the gates cannot contradict each other.
 grep -Eq "^[[:space:]]*BUN_VERSION=[\"']?${BUN}" "$ROOT_DIR/tests/security/supply-chain-guardrails.sh" \
   || fail "supply-chain-guardrails.sh BUN_VERSION != $BUN"
-grep -q "bun-version: ${BUN}" "$ROOT_DIR/scripts/check-bun-workflows.sh" \
-  || fail "check-bun-workflows.sh expected bun-version literal != $BUN"
 
 # chronicle-web/package.json pins `bun` and `bun-types` as exact versions, and until now
-# nothing compared them to the manifest -- every check above only reads `bun-version:` keys
-# in workflows. Dependabot bumped bun-types to 1.3.14 (chronicle-web#153) and it merged
+# nothing compared them to the manifest. Dependabot bumped bun-types to 1.3.14 (chronicle-web#153) and it merged
 # unnoticed, which broke `bun install --frozen-lockfile`: bun.lock still held the manifest
 # version, so package.json and the lockfile disagreed and the install refused to run.
 #
@@ -179,8 +137,7 @@ DUP_PINS="$(grep -rEn '= *"percona/percona-distribution-postgresql' "$ROOT_DIR/c
   || fail "duplicate postgres image literal outside ChronicleContractTestSchema: $(head -1 <<<"$DUP_PINS")"
 
 for f in docker/docker-compose.traefik.yml docker/docker-compose.prod.yml \
-  docker/docker-compose.yml docker/docker-compose.dev.yml \
-  .github/workflows/maestro-android-test.yml .github/workflows/backup-restore-test.yml; do
+  docker/docker-compose.yml docker/docker-compose.dev.yml; do
   grep -Eq "^[[:space:]]*image: ${PG_IMAGE}" "$ROOT_DIR/$f" \
     && ok "$f -> $PG_IMAGE" \
     || fail "$f postgres image != $PG_IMAGE"

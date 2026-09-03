@@ -63,7 +63,7 @@ else
     title="freshness:plugin-drift — $(date -u +%Y-%m-%d)"
     body="# Plugin Version Drift
 
-Auto-detected by \`.github/workflows/freshness-plugin-drift.yml\`.
+Auto-detected by \`scripts/plugin-drift-detect.sh\`.
 
 \`\`\`
 $drift_lines

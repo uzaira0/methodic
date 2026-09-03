@@ -366,8 +366,6 @@ case "$LAYER" in
       "deploy-guardrails.txt" "" -- "$ROOT_DIR/tests/security/deploy-guardrails.sh" "$REPORT_DIR"
     run_security_step "deploy.public-distribution-integration" "Deploy: public distribution integration contract" "guardrail" \
       "public-distribution-integration.txt" "" -- "$ROOT_DIR/tests/security/public-distribution-integration-guardrails.sh"
-    run_security_step "deploy.play-release-sealing" "Deploy: Play release sealing and attestation contract" "guardrail" \
-      "play-release-sealing.txt" "" -- "$ROOT_DIR/tests/security/play-release-sealing-guardrails.sh"
     run_security_step "deploy.db-secret-transport" "Deploy: database client secret-transport contract" "guardrail" \
       "db-secret-transport.txt" "" -- "$ROOT_DIR/tests/security/db-secret-transport-guardrails.sh"
     run_security_step "deploy.schema" "Deploy: schema/source-of-truth guardrails" "guardrail" \

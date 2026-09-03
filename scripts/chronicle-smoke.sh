@@ -59,10 +59,8 @@ else
 fi
 
 if have_cmd rg; then
-  run_step "bun-workflow-audit" bash -lc "cd '$ROOT_DIR' && bash ./scripts/check-bun-workflows.sh"
   run_step "sso-drift-audit" bash -lc "cd '$ROOT_DIR' && ./scripts/check-sso-drift.sh"
 else
-  skip_step "bun-workflow-audit (rg missing)"
   skip_step "sso-drift-audit (rg missing)"
 fi
 
