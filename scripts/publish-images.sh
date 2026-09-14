@@ -73,9 +73,24 @@ capture epoch git log -1 --format=%ct
 backend="ghcr.io/$login/chronicle-backend:$release"
 frontend="ghcr.io/$login/chronicle-selfhost-frontend:$release"
 caddy="ghcr.io/$login/chronicle-selfhost-caddy:$release"
-run docker build -f docker/Dockerfile.backend --build-arg "VCS_REF=$revision" -t "$backend" .
-run docker build -f selfhost/Dockerfile.frontend --build-arg "GIT_SHA=$revision" -t "$frontend" .
-run docker build -f selfhost/Dockerfile.caddy -t "$caddy" selfhost
+# Build from a tar of tracked files. The directory walk of the checkout (hundreds of MB of
+# untracked build output) starves the BuildKit session healthcheck on a loaded host and
+# dockerd cancels the build; the tracked tree is a few tens of MB.
+build_image() { # build_image <context dir> <dockerfile in context> <tag> [docker build args...]
+  local ctx=$1 dockerfile=$2 tag=$3
+  shift 3
+  if [[ -n "$dry_run" ]]; then
+    printf '(cd %q && git ls-files --recurse-submodules -z | tar --null -T - -cf -) | ' "$ctx"
+    printf '%q ' docker build -f "$dockerfile" -t "$tag" "$@" -
+    printf '\n'
+  else
+    (cd "$ctx" && git ls-files --recurse-submodules -z | tar --null -T - -cf -) |
+      docker build -f "$dockerfile" -t "$tag" "$@" -
+  fi
+}
+build_image . docker/Dockerfile.backend "$backend" --build-arg "VCS_REF=$revision"
+build_image . selfhost/Dockerfile.frontend "$frontend" --build-arg "GIT_SHA=$revision"
+build_image selfhost Dockerfile.caddy "$caddy"
 run docker push "$backend"
 run docker push "$frontend"
 run docker push "$caddy"
