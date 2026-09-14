@@ -2,7 +2,7 @@
 # Draft the CHANGELOG section for a release from the curated commits staged for publish
 # (scripts/publish.sh stage), across the root and every submodule.
 #
-#   scripts/changelog-draft.sh <release>        e.g. scripts/changelog-draft.sh 2026.09.10
+#   scripts/changelog-draft.sh <release>        e.g. scripts/changelog-draft.sh 2026.9.10
 #
 # Prints Markdown to stdout: paste it under a new "## [<release>]" heading in CHANGELOG.md
 # and edit it into prose a user can read. For each repository with a curate worktree, the
@@ -21,7 +21,11 @@ for label in $(git config -f .gitmodules --get-regexp 'submodule\..*\.path' | aw
   branch="$(cat "$WORK/.branch-$label" 2>/dev/null || true)"
   tip="$(git -C "$wt" rev-parse -q --verify "refs/remotes/public/${branch:-main}" 2>/dev/null || true)"
   range="${tip:+$tip..}HEAD"
-  body="$(git -C "$wt" cliff --config "$ROOT_DIR/cliff.toml" --tag "$RELEASE" "$range" 2>/dev/null | sed '/^[[:space:]]*$/d' || true)"
+  # An empty range exits 0 with no output; any nonzero status is a broken range or config,
+  # and swallowing it silently drops that repository's changes from the release notes.
+  body="$(git -C "$wt" cliff --config "$ROOT_DIR/cliff.toml" --tag "$RELEASE" "$range")" \
+    || { echo "FATAL: git-cliff failed for '$label' (range ${range}); changelog is incomplete" >&2; exit 1; }
+  body="$(printf '%s\n' "$body" | sed '/^[[:space:]]*$/d')"
   [[ -n "$body" ]] || continue
   echo "<!-- $label -->"
   echo "$body"

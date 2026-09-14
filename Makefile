@@ -120,8 +120,13 @@ publish-push:
 publish-abandon:
 	scripts/publish.sh abandon $(or $(REPO),all)
 
+.PHONY: release-images
+release-images: ## Build, push, and bundle self-host images: RELEASE=<version> [DRY_RUN=1]
+	@test -n "$(RELEASE)" || (echo "usage: make release-images RELEASE=<version> [DRY_RUN=1]" && exit 1)
+	scripts/publish-images.sh "$(RELEASE)" $(if $(filter 1,$(DRY_RUN)),--dry-run,)
+
 ## Draft the CHANGELOG section from the curated commits staged for publish:
-##   make changelog RELEASE=2026.09.10   (prints Markdown; paste and edit into CHANGELOG.md)
+##   make changelog RELEASE=2026.9.10   (prints Markdown; paste and edit into CHANGELOG.md)
 .PHONY: changelog
 changelog:
 	@test -n "$(RELEASE)" || (echo "usage: make changelog RELEASE=<version>" && exit 1)

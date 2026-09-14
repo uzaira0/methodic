@@ -1,8 +1,13 @@
 # Changelog
 
+Release headings use the bundle version: `YYYY.M.D` with no leading zeros (`2026.9.14`),
+matching the `chronicle-selfhost-<version>` bundle, its image tags, and `./chronicle update`.
+One bundle per calendar day: a same-day suffix such as `-2` is a semver prerelease and
+would sort below the day's release, so `./chronicle update` would refuse it.
+
 ## [Unreleased]
 
-## [2026.09.04]
+## [2026.9.4]
 
 ### Added
 
@@ -22,7 +27,7 @@
 
 - Web dependencies: fast-uri 4.1.4, browserslist 4.28.8, and qs 6.16.0 close the advisories reported by `bun audit`.
 
-## [2026.09.03]
+## [2026.9.3]
 
 ### Added
 
