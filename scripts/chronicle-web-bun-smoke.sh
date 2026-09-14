@@ -13,10 +13,6 @@ if ! have_cmd bun; then
   exit 1
 fi
 
-if ! have_cmd node; then
-  printf '[fail] node not found\n' >&2
-  exit 1
-fi
 
 printf 'Chronicle web Bun smoke\n'
 printf 'web: %s\n' "$WEB_DIR"

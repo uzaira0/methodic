@@ -49,6 +49,8 @@ Security/dependency jobs:
   depcheck-locks        Validate/optionally clean stale Dependency-Check locks
   gradle-depcheck       OWASP Dependency-Check with shared NVD update
   bun-audit             Bun high/critical dependency audit
+  deps-freshness        Pins vs upstream releases; fails on unaccepted major lag
+  fluent-bit-config     Every shipped fluent-bit config loads on the manifest-pinned image
   gitleaks              Full-history secrets scan across root and all submodules
   pmd                   PMD bug-pattern scan
   bearer                Bearer SAST data-flow scan
@@ -370,8 +372,22 @@ require_jdk21() {
   if [[ -n "${JAVA_HOME:-}" && -x "$JAVA_HOME/bin/java" ]]; then
     java_bin="$JAVA_HOME/bin/java"
   else
-    require_cmd java "install JDK 21 and set JAVA_HOME"
-    java_bin="$(command -v java)"
+    # Prefer manifest JDK from the usual local install dirs over whatever java is on PATH.
+    local jdk_major cand
+    jdk_major="$(yq -r '.jdk.build_runtime' "$ROOT_DIR/toolchain-manifest.yaml" 2>/dev/null || echo 25)"
+    for cand in "$HOME/.local/jdks/temurin-$jdk_major" "$HOME/.sdkman/candidates/java/current" \
+                "/usr/lib/jvm/temurin-$jdk_major-jdk" "/usr/lib/jvm/java-$jdk_major-openjdk"; do
+      if [[ -x "$cand/bin/java" ]]; then
+        export JAVA_HOME="$cand"
+        break
+      fi
+    done
+    if [[ -n "${JAVA_HOME:-}" && -x "$JAVA_HOME/bin/java" ]]; then
+      java_bin="$JAVA_HOME/bin/java"
+    else
+      require_cmd java "install JDK $jdk_major and set JAVA_HOME"
+      java_bin="$(command -v java)"
+    fi
   fi
 
   local version major
@@ -382,7 +398,7 @@ require_jdk21() {
   fi
   if [[ -z "$major" || "$major" -lt 21 ]]; then
     printf '[local-ci] JDK 21+ is required; found java version %s at %s.\n' "${version:-unknown}" "$java_bin" >&2
-    printf '[local-ci] Try: export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home\n' >&2
+    printf '[local-ci] Try: export JAVA_HOME=$HOME/.local/jdks/temurin-25 (see toolchain-manifest.yaml)\n' >&2
     exit 127
   fi
 }
@@ -1458,6 +1474,40 @@ job_gradle_depcheck() {
   return "$status"
 }
 
+job_deps_freshness() {
+  local report
+  report="$(report_path "$ROOT_DIR/build/reports/deps-freshness.json" "deps-freshness.json")"
+  "$ROOT_DIR/scripts/deps-freshness.sh" --json > "$report" || { cat "$report" >&2; return 1; }
+  "$ROOT_DIR/scripts/deps-freshness.sh"
+}
+
+job_fluent_bit_config() {
+  # Every shipped fluent-bit config must load on the manifest-pinned image (`--dry-run`
+  # validates plugins, parsers and the Lua filter). This is what makes a major bump of the
+  # log shipper safe to take: 4.x -> 5.x was accepted on this check.
+  local image conf rc=0
+  image="$(yq -r '.selfhost_images.fluent_bit' "$ROOT_DIR/toolchain-manifest.yaml")"
+  [[ -n "$image" && "$image" != "null" ]] || { echo "[fail] selfhost_images.fluent_bit missing from toolchain-manifest.yaml" >&2; return 1; }
+  for conf in \
+    selfhost/monitoring/fluent-bit.conf \
+    docker/siem/victorialogs-fluent-bit.conf \
+    docker/siem/fluent-bit-kafka.conf \
+    k8s/observability/victoria-lite/config/fluent-bit.conf \
+    k8s/observability/siem-forwarder/config/fluent-bit.conf; do
+    if docker run --rm --network none \
+        -v "$ROOT_DIR/$(dirname "$conf"):/fluent-bit/etc:ro" \
+        -e KAFKA_USER=ci -e KAFKA_PASSWORD=ci \
+        -e SIEM_HOST=siem.invalid -e SIEM_PORT=514 -e SIEM_URI=/ -e SIEM_AUTHORIZATION_HEADER=none \
+        "$image" --dry-run -c "/fluent-bit/etc/$(basename "$conf")" >/dev/null 2>&1; then
+      echo "[ok] $conf loads on $image"
+    else
+      echo "[fail] $conf does not load on $image" >&2
+      rc=1
+    fi
+  done
+  return "$rc"
+}
+
 job_bun_audit() {
   require_cmd bun "install Bun 1.3.x"
   local json_report text_report
@@ -1643,6 +1693,8 @@ run_job() {
     depcheck-locks) job_depcheck_locks ;;
     gradle-depcheck) job_gradle_depcheck ;;
     bun-audit) job_bun_audit ;;
+    deps-freshness) job_deps_freshness ;;
+    fluent-bit-config) job_fluent_bit_config ;;
     detekt) job_detekt ;;
     pmd) job_pmd ;;
     bearer) job_bearer ;;
@@ -1667,6 +1719,7 @@ run_job() {
     security)
       run_job gradle-depcheck
       run_job bun-audit
+      run_job deps-freshness
       run_job detekt
       run_job pmd
       run_job bearer
@@ -1679,6 +1732,7 @@ run_job() {
       run_job dockerfile-lint
       run_job iac-scan
       run_job container-structure
+      run_job fluent-bit-config
       run_job http-smoke-stack
       ;;
     all)

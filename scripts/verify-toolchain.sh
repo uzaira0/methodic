@@ -30,6 +30,7 @@ PG_DIGEST="$(manifest_value postgres.index_digest)"
 KC_PG_IMAGE="$(manifest_value keycloak_postgres.image)"
 KC_PG_DIGEST="$(manifest_value keycloak_postgres.index_digest)"
 FLYWAY="$(manifest_value flyway.version)"
+PYTHON_MIN="$(manifest_value python)"
 SELFHOST_BACKUP_IMAGE="$(manifest_value selfhost_images.backup)"
 SELFHOST_CADVISOR_IMAGE="$(manifest_value selfhost_images.cadvisor)"
 SELFHOST_VM_IMAGE="$(manifest_value selfhost_images.victoria_metrics)"
@@ -54,6 +55,61 @@ else
   fail "Android wrapper is not Gradle $ANDROID_GRADLE ($f)"
 fi
 
+# ── 1b. Python floor (python3 on PATH runs scripts/, tests/, selfhost/ helpers) ──
+if command -v python3 >/dev/null 2>&1; then
+  PY_VER="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+  if [[ "$(printf '%s\n%s\n' "$PYTHON_MIN" "$PY_VER" | sort -V | head -1)" == "$PYTHON_MIN" ]]; then
+    ok "python3 -> $PY_VER (floor $PYTHON_MIN)"
+    python3 -c 'import yaml' 2>/dev/null || fail "python3 lacks PyYAML (tests/security guardrails need it): uv pip install --system --break-system-packages --python \"\$(command -v python3)\" pyyaml"
+  else
+    fail "python3 is $PY_VER, floor is $PYTHON_MIN ($(command -v python3)); uv python install $PYTHON_MIN --default"
+  fi
+else
+  fail "python3 not on PATH (floor $PYTHON_MIN)"
+fi
+
+# ── 1c. Active JDK major ─────────────────────────────────────────────────────
+# The manifest declared jdk.build_runtime and nothing compared it to the JDK that actually
+# runs the build, so a JDK 21 shell passed every check while the manifest said 25.
+# Resolution mirrors scripts/local-ci.sh require_jdk21: JAVA_HOME wins, then the usual
+# local install dirs for the manifest major, then whatever `java` is on PATH.
+JAVA_BIN=""
+if [[ -n "${JAVA_HOME:-}" && -x "$JAVA_HOME/bin/java" ]]; then
+  JAVA_BIN="$JAVA_HOME/bin/java"
+else
+  for cand in "$HOME/.local/jdks/temurin-$JDK" "$HOME/.sdkman/candidates/java/current" \
+              "/usr/lib/jvm/temurin-$JDK-jdk" "/usr/lib/jvm/java-$JDK-openjdk"; do
+    if [[ -x "$cand/bin/java" ]]; then JAVA_BIN="$cand/bin/java"; break; fi
+  done
+  [[ -n "$JAVA_BIN" ]] || JAVA_BIN="$(command -v java || true)"
+fi
+if [[ -z "$JAVA_BIN" ]]; then
+  fail "no java found (manifest jdk.build_runtime is $JDK): install it or set JAVA_HOME"
+else
+  JAVA_VERSION="$("$JAVA_BIN" -version 2>&1 | awk -F '"' '/version/ { print $2; exit }')"
+  JAVA_MAJOR="${JAVA_VERSION%%.*}"
+  [[ "$JAVA_MAJOR" == "1" ]] && JAVA_MAJOR="$(cut -d. -f2 <<<"$JAVA_VERSION")"
+  if [[ "$JAVA_MAJOR" == "$JDK" ]]; then
+    ok "active JDK -> $JAVA_MAJOR ($JAVA_BIN)"
+  else
+    fail "active JDK is $JAVA_MAJOR (${JAVA_VERSION:-unknown}) at $JAVA_BIN, manifest jdk.build_runtime is $JDK; export JAVA_HOME=\$HOME/.local/jdks/temurin-$JDK"
+  fi
+fi
+
+# The Android dials are separate (AGP certification boundary) and the launcher JDK is an
+# operator choice, but android_bytecode IS declared in the build and was never checked.
+ANDROID_BYTECODE="$(manifest_value jdk.android_bytecode)"
+ANDROID_BUILD="$ROOT_DIR/chronicle/app/build.gradle"
+ANDROID_JVM_STALE="$(grep -Ehn '^[[:space:]]*(source|target)Compatibility[[:space:]]|jvmTarget[[:space:]]*=' \
+  "$ANDROID_BUILD" 2>/dev/null | grep -Ev "(Compatibility ${ANDROID_BYTECODE}\$|JVM_${ANDROID_BYTECODE}\$)" || true)"
+if [[ ! -f "$ANDROID_BUILD" ]]; then
+  ok "chronicle/ submodule not checked out — skipping Android bytecode check"
+elif [[ -z "$ANDROID_JVM_STALE" ]]; then
+  ok "chronicle/app/build.gradle bytecode -> $ANDROID_BYTECODE (launcher JDK $ANDROID_JDK)"
+else
+  fail "Android bytecode drift in chronicle/app/build.gradle (expected $ANDROID_BYTECODE): $(head -1 <<<"$ANDROID_JVM_STALE")"
+fi
+
 # ── 2. Workflow JDK pins (root + submodules) ─────────────────────────────────
 # JDK pins live in the Gradle builds and docker images checked below; there are no hosted workflows.
 
@@ -62,6 +118,13 @@ fi
 # actually passed -- otherwise a drift prints "[fail] ..." immediately followed by
 # "[ok] bun pins checked", and anyone scanning for [ok] reads the green line.
 BUN_FAILURES_BEFORE=$FAILURES
+# Node is not a dependency: bun runs every script and substitutes itself for
+# `#!/usr/bin/env node` bins when node is absent (verified: playwright/biome/eslint
+# run with no node on PATH). Keep it from creeping back in as a declared engine.
+grep -q '"node":' "$ROOT_DIR/chronicle-web/package.json" \
+  && fail "chronicle-web/package.json declares engines.node; Node is not a dependency (bun only)"
+grep -Eq 'have_cmd node|command -v node' "$ROOT_DIR/scripts/chronicle-web-bun-smoke.sh" \
+  && fail "chronicle-web-bun-smoke.sh requires node; bun only"
 # The guard script hardcodes its own Bun literal (they cannot depend on yq);
 # cross-check them against the manifest so the gates cannot contradict each other.
 grep -Eq "^[[:space:]]*BUN_VERSION=[\"']?${BUN}" "$ROOT_DIR/tests/security/supply-chain-guardrails.sh" \
@@ -235,6 +298,38 @@ for f in docker/docker-compose.traefik.yml selfhost/experimental/public-dashboar
       || fail "$f mounts a postgres:18 data volume without naming PGDATA — the cluster would land in an anonymous volume"
   fi
 done
+
+# ── 9. Every manifest-pinned image, everywhere ────────────────────────────────
+# Section 6 only looked at the selfhost overlay, so k8s kept deploying VictoriaMetrics
+# 1.138 and Grafana 12.3 while the manifest said 1.149 and 13.1.3 and this script printed
+# no drift. Sweep every `image:` key under docker/, k8s/ and selfhost/ (Compose, K8s and
+# the Hetzner bundle) for the repositories the manifest pins, and require the exact pin
+# INCLUDING the digest — a tag-only reference is not pinned.
+#
+# Matched on the `image:` key only: docker/Dockerfile.keycloak builds its own Keycloak from
+# a different (non-selfhost) base and is checked by tests/security/kubernetes-guardrails.sh.
+# Images the manifest does not pin (crowdsec, traefik, vault, kafka, opensearch, nginx,
+# alpine, temporal) are out of scope here by construction.
+for pinned in "$SELFHOST_BACKUP_IMAGE" "$SELFHOST_CADVISOR_IMAGE" "$SELFHOST_VM_IMAGE" \
+              "$SELFHOST_VL_IMAGE" "$SELFHOST_FLUENT_BIT_IMAGE" "$SELFHOST_GRAFANA_IMAGE" \
+              "$SELFHOST_KEYCLOAK_IMAGE"; do
+  repo="${pinned%%:*}"
+  IMAGE_STALE="$(grep -rEn "^[[:space:]]*(-[[:space:]]*)?image:[[:space:]]*\"?${repo}[:@]" \
+    "$ROOT_DIR/docker" "$ROOT_DIR/k8s" "$ROOT_DIR/selfhost" 2>/dev/null \
+    | grep -Fv "$pinned" || true)"
+  [[ -z "$IMAGE_STALE" ]] \
+    && ok "$repo -> $pinned (all compose/k8s references)" \
+    || fail "image pin drift for $repo (expected $pinned): $(head -1 <<<"$IMAGE_STALE")"
+done
+
+# The Hetzner bundle rebuilds Percona under a local tag; the tag drifted to 17.10 while the
+# base moved to 18, so restore-drill.sh defaulted to an image that no longer gets built.
+HETZNER_LOCAL_TAG="chronicle-percona:${PG_IMAGE##*:}-hardened"
+HETZNER_TAG_STALE="$(grep -rn 'chronicle-percona:' "$ROOT_DIR/docker/hetzner" 2>/dev/null \
+  | grep -Fv "$HETZNER_LOCAL_TAG" || true)"
+[[ -z "$HETZNER_TAG_STALE" ]] \
+  && ok "hetzner local percona tag -> $HETZNER_LOCAL_TAG" \
+  || fail "hetzner local percona tag drift (expected $HETZNER_LOCAL_TAG): $(head -1 <<<"$HETZNER_TAG_STALE")"
 
 echo
 if [[ "$FAILURES" -gt 0 ]]; then

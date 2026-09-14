@@ -18,7 +18,7 @@ MAX_VUS ?= 200
 
 ## Start the Chronicle backend + Postgres via Docker Compose
 perf-up:
-	cd docker && docker compose -p chronicle -f docker-compose.traefik.yml up -d chronicle-backend chronicle-postgres
+	cd docker && docker compose -p chronicle -f docker-compose.traefik.yml up -d chronicle-backend postgres
 	@echo "Waiting for backend to be healthy..."
 	@timeout 120 bash -c 'until curl -sf http://127.0.0.1:40320/actuator/health >/dev/null 2>&1; do sleep 2; done' || echo "WARN: health check timed out"
 	@echo "Backend is up at $(BASE_URL)"
