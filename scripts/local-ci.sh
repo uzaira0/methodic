@@ -24,6 +24,7 @@ Usage: scripts/local-ci.sh <job> [job...]
 Fast jobs:
   preflight             Validate local toolchain and workspace basics
   architecture          Source ownership, dependency boundaries, negative fixtures
+  migration-safety      Published migration immutability, additive SQL, version ordering
   web                   chronicle-web audit, checks, tests, build, size
   jvm-smoke             Gradle project list, OpenAPI validation, API/server tests, JaCoCo
   repo-automation       Compose config + repo guardrail scripts
@@ -65,9 +66,9 @@ Slow/specialized jobs:
   ios-verify            iOS contract freshness + simulator test suite (macOS)
 
 Groups:
-  fast                  preflight web jvm-smoke repo-automation linkml-ssot cue-k8s dead-code dependency-sbom license-compliance
-  security              gradle-depcheck bun-audit detekt pmd bearer osv grype syft
-  containers            selfhost dockerfile-lint iac-scan container-structure http-smoke-stack
+  fast                  preflight migration-safety web jvm-smoke repo-automation linkml-ssot cue-k8s dead-code dependency-sbom license-compliance
+  security              gradle-depcheck bun-audit deps-freshness detekt pmd bearer osv grype syft
+  containers            selfhost dockerfile-lint iac-scan container-structure fluent-bit-config http-smoke-stack
   all                   fast security containers parity
 
 Environment:
@@ -850,6 +851,10 @@ job_architecture() {
   python3 "$ROOT_DIR/tests/security/selfhost-monitoring.py"
 }
 
+job_migration_safety() {
+  "$ROOT_DIR/scripts/check-migrations-safe.sh" --server-dir "$ROOT_DIR/chronicle-server"
+}
+
 job_selfhost() {
   require_cmd docker "install Docker with Compose v2"
   require_cmd python3 "install Python 3"
@@ -1614,6 +1619,7 @@ run_job() {
   case "$1" in
     preflight) job_preflight ;;
     architecture) job_architecture ;;
+    migration-safety) job_migration_safety ;;
     web) job_web ;;
     jvm-smoke) job_jvm_smoke ;;
     repo-automation) job_repo_automation ;;
@@ -1648,6 +1654,7 @@ run_job() {
     fast)
       run_job preflight
       run_job architecture
+      run_job migration-safety
       run_job web
       run_job jvm-smoke
       run_job repo-automation
