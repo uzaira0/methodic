@@ -112,12 +112,10 @@
 	}
 }
 
-# App-store policy URLs and reviewer enrollment must remain reachable before any internal
+# Reviewer enrollment must remain reachable before any internal
 # dashboard password gate. The reviewer path is exact; lookalikes continue through the
 # ordinary mobile/security chain and receive no reusable-secret authentication.
 (chronicle_public_entrypoints) {
-	redir /privacy /chronicle/privacy permanent
-	redir /withdrawal /chronicle/withdrawal permanent
 	redir /reviewer /chronicle/reviewer permanent
 	reverse_proxy /chronicle/v4/mobile/reviewer-enrollment backend:40320
 }

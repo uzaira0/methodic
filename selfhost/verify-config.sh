@@ -385,8 +385,6 @@ else
 fi
 
 for public_contract in \
-  'redir /privacy /chronicle/privacy permanent' \
-  'redir /withdrawal /chronicle/withdrawal permanent' \
   'redir /reviewer /chronicle/reviewer permanent' \
   'reverse_proxy /chronicle/v4/mobile/reviewer-enrollment backend:40320'; do
   if ! grep -Fq "$public_contract" caddy/snippets.caddy; then
