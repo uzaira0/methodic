@@ -41,6 +41,12 @@ docker info >/dev/null 2>&1 || fail "Docker is unavailable"
 docker compose version >/dev/null 2>&1 || fail "the Docker Compose plugin is unavailable"
 
 umask 077
+# The stack is started with plain `docker compose up` below to keep --wait semantics; the
+# `./chronicle` wrapper exports these so db-backup runs as the operator (overlays/backups.yml),
+# and `./chronicle verify` fails on root-owned dumps without them.
+CHRONICLE_HOST_UID="$(id -u)"
+CHRONICLE_HOST_GID="$(id -g)"
+export CHRONICLE_HOST_UID CHRONICLE_HOST_GID
 /bin/mkdir -p "$RUN_PARENT"
 RUN_DIR="$(/usr/bin/mktemp -d "${RUN_PARENT}/run.XXXXXX")"
 /bin/chmod 0700 "$RUN_DIR"
@@ -57,6 +63,9 @@ cleanup() {
     (
       cd "$BUNDLE" || exit 0
       docker compose -p "$PROJECT" ps --all --format json >"${RUN_DIR}/final-compose-state.jsonl" 2>/dev/null
+      # A failed run's only diagnosis is the container output; the stack is gone after down.
+      [[ "$SMOKE_PASSED" == true ]] ||
+        docker compose -p "$PROJECT" logs --no-color --tail 300 >"${RUN_DIR}/final-compose-logs.txt" 2>&1
       docker compose -p "$PROJECT" down -v --remove-orphans >/dev/null 2>&1
     )
     OLD_BUNDLE_PATH="$OLD_BUNDLE" NEW_BUNDLE_PATH="$NEW_BUNDLE" python3 - <<'PY'
@@ -128,8 +137,10 @@ printf 'Building and extracting source-free previous/current release archives.\n
 (cd "$ARTIFACT_DIR" && sha256sum -c "$(basename "${OLD_ARCHIVE}.sha256")" >/dev/null)
 (cd "$ARTIFACT_DIR" && sha256sum -c "$(basename "${NEW_ARCHIVE}.sha256")" >/dev/null)
 /bin/mkdir "${RUN_DIR}/extracted"
-tar -xzf "$OLD_ARCHIVE" -C "${RUN_DIR}/extracted"
-tar -xzf "$NEW_ARCHIVE" -C "${RUN_DIR}/extracted"
+# -p keeps the archive's 0755 directories under this script's umask 077; config-guard runs
+# as the postgres uid and must search the bind-mounted selfhost/ directory.
+tar -xzpf "$OLD_ARCHIVE" -C "${RUN_DIR}/extracted"
+tar -xzpf "$NEW_ARCHIVE" -C "${RUN_DIR}/extracted"
 OLD_BUNDLE="${RUN_DIR}/extracted/chronicle-selfhost-${OLD_VERSION}/selfhost"
 NEW_BUNDLE="${RUN_DIR}/extracted/chronicle-selfhost-${NEW_VERSION}/selfhost"
 BUNDLE="$OLD_BUNDLE"
