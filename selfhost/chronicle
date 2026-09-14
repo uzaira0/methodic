@@ -1205,7 +1205,9 @@ cmd_up() {
   # lines for this stack, ten of them for the single config-guard that starts and exits.
   # It scrolls the preflight results off the screen and contains nothing an operator can
   # act on. The service table below is the same information, once, in its final form.
-  dc --progress quiet up -d || die "startup failed — see ./chronicle logs"
+  # --wait returns once every service is healthy (or fails), so the table below is final
+  # and `./chronicle verify` run straight after does not race a still-starting backend.
+  dc --progress quiet up -d --wait --wait-timeout 300 || die "startup failed — see ./chronicle logs"
   dc ps --format '{{.Service}}\t{{.Status}}' 2>/dev/null | sort | sed 's/^/  /'
   printf '\n%sStarted.%s Next: ./chronicle verify\n' "$GRN" "$RST"
   operation_succeeded

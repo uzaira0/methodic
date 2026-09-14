@@ -62,8 +62,12 @@ policy tries the readiness sequence again instead of recording a failed initial 
 
 ```bash
 docker compose restart db-backup
-docker compose up -d --wait --wait-timeout 300 db-backup
+./chronicle up
 ```
+
+`./chronicle up` waits for the container to report healthy. A bare `docker compose up`
+would recreate db-backup as root (see `overlays/backups.yml`) and leave dumps the operator
+cannot prune.
 
 The restart-safe wrapper waits for PostgreSQL and the migrated backend, then the pinned
 backup image's `BACKUP_ON_START` path writes an ordinary `.sql.gz` into the same rotated

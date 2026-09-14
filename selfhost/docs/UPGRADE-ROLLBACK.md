@@ -146,7 +146,7 @@ schema.** Prefer forward recovery:
 cd /path/to/chronicle-selfhost-<new-version>/selfhost
 docker compose ps --all
 docker compose logs --tail=200 backend postgres db-init
-docker compose up -d --wait --wait-timeout 300
+./chronicle up
 ./chronicle verify
 ```
 
@@ -190,7 +190,7 @@ cannot make the new release healthy.
    ```bash
    docker compose down
    cd /absolute/path/to/chronicle-selfhost-<old-version>/selfhost
-   docker compose up -d --wait --wait-timeout 300
+   ./chronicle up
    ./chronicle verify
    ```
 
