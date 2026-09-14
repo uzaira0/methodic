@@ -216,6 +216,10 @@ services:
     restart: "no"
     logging: *default-logging
     entrypoint: ["/bin/bash", "/selfhost/restore.sh"]
+    # Same account as db-backup (overlays/backups.yml): ./backups is 0700 and owned by the
+    # operator, so the image's own postgres uid could neither find the dump nor write the
+    # pre-restore safety dump. The `./chronicle` wrapper exports these; bare compose gets root.
+    user: "${CHRONICLE_HOST_UID:-0}:${CHRONICLE_HOST_GID:-0}"
     environment:
       # Which dump to restore. Defaults inside the script to the newest one the backups
       # overlay wrote, /backups/last/chronicle-latest.sql.gz.
