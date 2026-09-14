@@ -94,6 +94,8 @@ For a production version transition, the signed release-bundle `upgrade` workflo
 the preferred path because it quiesces writers and creates a verified rollback dump before
 allowing database migrations.
 
+To switch an existing source installation to release bundles and enable `./chronicle update`, see [Switching from a source checkout to release bundles](docs/UPGRADE-ROLLBACK.md#switching-from-a-source-checkout-to-release-bundles).
+
 `./chronicle setup` is the recommended path for a first-time operator. Copying
 `.env.example` manually remains available for automation.
 It generates deployment secrets directly into a mode-`0600` `.env`, asks you to choose the
@@ -680,6 +682,7 @@ it before giving the reviewer a link, or issue a fresh link afterward.
   and extract the new bundle, then run `./chronicle upgrade --from /path/to/old/selfhost`.
   It validates both bundles, makes a pre-upgrade dump, waits for migrations/health, and
   records the recovery information.
+  Use `./chronicle update --check` or `./chronicle update` for the [one-command update](docs/UPGRADE-ROLLBACK.md#one-command-update).
 - **Secret rotation and crash recovery:**
   [docs/SECRET-ROTATION.md](docs/SECRET-ROTATION.md) — guarded dashboard, JWT, internal,
   metrics, PostgreSQL, Grafana, mobile-overlap, and TDE procedures with automatic rollback.

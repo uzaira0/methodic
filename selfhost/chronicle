@@ -14,6 +14,8 @@
 #   ./chronicle verify    prove from outside that the exposure boundary holds; add
 #                         --dashboard-password to read and verify it without shell history
 #   ./chronicle upgrade   upgrade from a previous release with a verified pre-upgrade dump
+#   ./chronicle update [--check]  fetch the latest release and hand off to upgrade
+#   ./chronicle adopt --from DIR  switch a source checkout to this release bundle
 #   ./chronicle restore   stop every database writer, restore a verified dump, then restart
 #   ./chronicle rotate-secret  rotate one credential with rollback and a mode-0600 receipt
 #   ./chronicle deletion-status STUDY_UUID [OPERATION_UUID]
@@ -2218,6 +2220,398 @@ SQL
   operation_succeeded
 }
 
+cmd_update() {
+  shift || true
+  [[ $# -eq 0 || ( $# -eq 1 && "$1" == --check ) ]] || die "usage: ./chronicle update [--check]"
+  local tool
+  for tool in curl python3 sha256sum; do
+    command -v "$tool" >/dev/null 2>&1 || die "update requires missing tool: $tool"
+  done
+  python3 - "$STATE_ROOT" "${1:-}" \
+    "${CHRONICLE_RELEASES_URL:-https://api.github.com/repos/uzaira0/methodic/releases/latest}" <<'PY'
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import shutil
+import subprocess
+import sys
+import tarfile
+from urllib.parse import urlparse
+
+selfhost = Path(sys.argv[1]).resolve()
+check = sys.argv[2] == "--check"
+downloads = []
+created_bundle = None
+
+
+def fail(message):
+    raise ValueError(message)
+
+
+def version_key(version):
+    if not isinstance(version, str):
+        fail("missing release_version or release tag")
+    match = re.fullmatch(
+        r"v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+        r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
+        r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?", version)
+    if not match:
+        fail(f"invalid semantic release version: {version!r}")
+    pre = match.group(4)
+    parts = []
+    for part in pre.split(".") if pre else []:
+        if part.isdigit() and len(part) > 1 and part.startswith("0"):
+            fail(f"invalid numeric prerelease identifier: {part!r}")
+        parts.append((0, int(part)) if part.isdigit() else (1, part))
+    return (*map(int, match.group(1, 2, 3)), (0, *parts) if pre else (1,))
+
+
+def curl(url, output=subprocess.PIPE):
+    if not isinstance(url, str) or urlparse(url).scheme not in ("http", "https"):
+        fail("release URL must use http or https")
+    return subprocess.run(
+        ["curl", "--fail", "--silent", "--show-error", "--location",
+         "--proto", "=http,https", "--proto-redir", "=http,https",
+         "--connect-timeout", "30", "--max-time", "600", url],
+        stdout=output, check=True).stdout
+
+
+try:
+    manifest = selfhost.parent / "release-manifest.json"
+    if not manifest.is_file():
+        fail(f"missing current release manifest: {manifest}")
+    current = json.loads(manifest.read_text()).get("release_version")
+    current_key = version_key(current)
+    release = json.loads(curl(sys.argv[3]))
+    latest = release.get("tag_name")
+    latest_key = version_key(latest)
+    version = latest.removeprefix("v")
+    name = f"chronicle-selfhost-{version}"
+    archive_name = f"{name}.tar.gz"
+    assets = {}
+    for asset_name in (archive_name, archive_name + ".sha256"):
+        matches = [a for a in release.get("assets", []) if a.get("name") == asset_name]
+        if len(matches) != 1 or not matches[0].get("browser_download_url"):
+            fail(f"missing or ambiguous release asset: {asset_name}")
+        assets[asset_name] = matches[0]["browser_download_url"]
+    print(f"Current: {current}; latest: {latest}", flush=True)
+    newer = latest_key > current_key
+    if check:
+        sys.exit(3 if newer else 0)
+    if not newer:
+        fail("latest release is not newer than the current release")
+
+    parent = selfhost.parent.parent
+    bundle = parent / name
+    # Never merge with a previous extraction, or follow an existing download symlink.
+    for path in (bundle, parent / archive_name, parent / (archive_name + ".sha256")):
+        if os.path.lexists(path):
+            fail(f"refusing to overwrite existing release path: {path}")
+    for asset_name, url in assets.items():
+        path = parent / asset_name
+        with path.open("xb") as output:
+            downloads.append(path)
+            curl(url, output)
+
+    checksum = parent / (archive_name + ".sha256")
+    # Restrict the checksum file to exactly this archive before invoking sha256sum.
+    if not re.fullmatch(r"[0-9a-fA-F]{64} [ *]" + re.escape(archive_name) + r"\n?",
+                        checksum.read_text()):
+        fail("bad checksum file: expected one SHA-256 entry for the release archive")
+    result = subprocess.run(["sha256sum", "-c", checksum.name], cwd=parent, check=False)
+    if result.returncode:
+        fail("bad checksum: release archive verification failed; nothing extracted")
+
+    with tarfile.open(parent / archive_name, "r:gz") as archive:
+        members = archive.getmembers()
+        seen = set()
+        for member in members:
+            path = PurePosixPath(member.name)
+            if (path.is_absolute() or ".." in path.parts or not path.parts
+                    or path.parts[0] != name or not (member.isdir() or member.isfile())
+                    or path in seen):
+                fail(f"unsafe or duplicate release archive member: {member.name!r}")
+            seen.add(path)
+        manifests = [m for m in members if m.name == f"{name}/release-manifest.json" and m.isfile()]
+        if len(manifests) != 1:
+            fail("missing new release manifest in archive")
+        with archive.extractfile(manifests[0]) as source:
+            new_manifest = json.load(source)
+        if new_manifest.get("release_version") != version:
+            fail("new release manifest does not match the requested release version")
+        operators = [m for m in members if m.name == f"{name}/selfhost/chronicle" and m.isfile()]
+        if len(operators) != 1 or not operators[0].mode & 0o111:
+            fail("missing executable selfhost/chronicle in release archive")
+        bundle.mkdir(mode=0o755)
+        created_bundle = bundle
+        # Extract only ordinary files/directories after validating the entire inventory.
+        for member in members:
+            target = parent / member.name
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with archive.extractfile(member) as source, target.open("xb") as output:
+                    shutil.copyfileobj(source, output)
+                target.chmod(member.mode & 0o777)
+    operator = bundle / "selfhost" / "chronicle"
+    print(f"Handing off to {operator} upgrade --from {selfhost}", flush=True)
+    os.execv(str(operator), [str(operator), "upgrade", "--from", str(selfhost)])
+except (OSError, ValueError, KeyError, TypeError, AttributeError, tarfile.TarError,
+        subprocess.CalledProcessError) as error:
+    if created_bundle is not None:
+        shutil.rmtree(created_bundle)
+    for path in downloads:
+        path.unlink(missing_ok=True)
+    sys.exit(f"error: update failed: {error}")
+PY
+}
+
+cmd_adopt() {
+  shift || true
+  [[ $# -eq 2 && "$1" == --from && -n "$2" ]] ||
+    die "usage: ./chronicle adopt --from /absolute/path/to/source/selfhost"
+  command -v python3 >/dev/null || die "adopt requires python3"
+  python3 - "$2" <<'PY'
+from pathlib import Path
+import datetime
+import gzip
+import hashlib
+import json
+import os
+import re
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+
+new = Path.cwd().resolve()
+source = Path(sys.argv[1]).resolve()
+copied = []
+original_dirs = {}
+stopped = started = False
+receipt = None
+assignment = re.compile(r"^([A-Z][A-Z0-9_]*)=(.*)$")
+
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def read_env(path):
+    return dict(match.groups() for line in path.read_text().splitlines()
+                if (match := assignment.match(line)))
+
+
+def value(values, key, default=""):
+    return values.get(key, default).strip().strip("\"'")
+
+
+def run(args, **kwargs):
+    return subprocess.run(args, check=True, **kwargs)
+
+
+def compose(*args, capture=False):
+    return run(["docker", "compose", "--env-file", str(source / ".env"),
+                "--project-name", project, *compose_files, *args], cwd=source,
+               env=child_env, text=True, stdout=subprocess.PIPE if capture else None)
+
+
+def write_receipt(status):
+    payload["status"] = status
+    temporary = receipt.with_suffix(".tmp")
+    try:
+        with temporary.open("x", encoding="utf-8") as handle:
+            os.chmod(temporary, 0o600)
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, receipt)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def interrupted(signum, _frame):
+    raise InterruptedError(f"adopt interrupted by signal {signum}")
+
+
+for signum in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
+    signal.signal(signum, interrupted)
+
+try:
+    require(source.is_dir(), f"source selfhost directory does not exist: {source}")
+    require(source != new and source not in new.parents and new not in source.parents,
+            "--from must name a separate source checkout, outside the new bundle")
+    require(not os.path.lexists(source.parent / "release-manifest.json"),
+            f"source has a release manifest; use ./chronicle upgrade --from '{source}' instead")
+    require(not os.path.lexists(new / ".env"),
+            "new release already has .env; extract a clean bundle")
+    old_env = source / ".env"
+    require(old_env.is_file() and not old_env.is_symlink(),
+            "source .env must be a regular file")
+    require(stat.S_IMODE(old_env.stat().st_mode) == 0o600, "source .env must have mode 0600")
+    for name in ("backups", "tls"):
+        require((source / name).is_dir() and not (source / name).is_symlink(),
+                f"source {name}/ must be a directory, not a symlink")
+        target = new / name
+        require(not os.path.lexists(target) or
+                (target.is_dir() and not target.is_symlink() and not any(target.iterdir())),
+                f"new {name}/ must be absent or empty; extract a clean bundle")
+        if target.exists():
+            original_dirs[name] = stat.S_IMODE(target.stat().st_mode)
+    require((new.parent / "release-manifest.json").is_file(), "new release manifest is missing")
+    manifest = json.loads((new.parent / "release-manifest.json").read_text())
+    old = read_env(old_env)
+    template = (new / ".env.example").read_text()
+    defaults = read_env(new / ".env.example")
+    for key in ("BACKEND_IMAGE", "SELFHOST_FRONTEND_IMAGE", "CADDY_IMAGE"):
+        require(re.fullmatch(r"[^\s@]+@sha256:[0-9a-f]{64}", value(defaults, key)),
+                f"new .env.example must contain a digest-pinned {key}")
+    project = value(old, "COMPOSE_PROJECT_NAME", "chronicle-selfhost")
+    require(re.fullmatch(r"[a-z0-9][a-z0-9_-]*", project), "invalid source COMPOSE_PROJECT_NAME")
+    require((source / value(old, "CHRONICLE_STATE_DIR", ".")).resolve() == source,
+            "source CHRONICLE_STATE_DIR must resolve to the source selfhost directory")
+    require(not any(key.startswith("COMPOSE_") and key not in
+                    {"COMPOSE_FILE", "COMPOSE_PROJECT_NAME"} for key in old),
+            "unsupported source Compose control setting")
+    allowed = {"docker-compose.yml", "overlays/backups.yml", "overlays/monitoring.yml",
+               "overlays/mode-behind-proxy-internal.yml", "overlays/mode-local-https.yml",
+               "overlays/mode-own-tls-internal.yml"}
+    names = []
+    for token in value(old, "COMPOSE_FILE",
+                       "docker-compose.yml:overlays/mode-behind-proxy-internal.yml:overlays/backups.yml").split(":"):
+        path = Path(token)
+        name = str(path.relative_to(source)) if path.is_absolute() else token
+        require(name in allowed and name not in names, "unsupported source COMPOSE_FILE")
+        require((source / name).is_file() and (new / name).is_file(),
+                f"Compose file missing in source or new release: {name}")
+        names.append(name)
+    require("docker-compose.yml" in names and sum(name.startswith("overlays/mode-") for name in names) == 1,
+            "source COMPOSE_FILE must select the base file and exactly one supported mode")
+    compose_files = [arg for name in names for arg in ("-f", str(source / name))]
+    # Like upgrade.sh, remove inherited deployment overrides before using explicit env/files.
+    child_env = {key: val for key, val in os.environ.items()
+                 if key not in old and key not in defaults and not key.startswith("COMPOSE_")}
+    for tool in ("docker", "gzip", "cp"):
+        require(shutil.which(tool), f"required command is unavailable: {tool}")
+    postgres = compose("ps", "-q", "postgres", capture=True).stdout.strip()
+    require(postgres and len(postgres.splitlines()) == 1, "source PostgreSQL container is not running")
+    health = run(["docker", "inspect", "--format",
+                  '{{.State.Running}} {{if .State.Health}}{{.State.Health.Status}}{{end}}', postgres],
+                 text=True, stdout=subprocess.PIPE).stdout.strip()
+    require(health == "true healthy", "source PostgreSQL container must be running and healthy")
+    services = compose("config", "--services", capture=True).stdout.splitlines()
+    require(all(name in services for name in ("postgres", "backend", "web", "db-init")),
+            "source Compose configuration is missing required services")
+    # upgrade.sh executes at top level and cannot be sourced. Keep its quiesce list here.
+    writers = ["backend", "web", "db-init"] + (["db-backup"] if "db-backup" in services else [])
+    stopped = True
+    compose("stop", *writers)
+    running = compose("ps", "--status", "running", "--services", capture=True).stdout.splitlines()
+    require("postgres" in running and not set(writers).intersection(running),
+            "source writers did not stop or PostgreSQL stopped; backup was not started")
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_id = f"{timestamp}-{os.getpid()}"
+    backup = source / "backups" / f"pre-adopt-{run_id}.sql.gz"
+    # Never remove source files, including an incomplete dump if pg_dump fails.
+    with backup.open("xb") as output:
+        os.chmod(backup, 0o600)
+        with subprocess.Popen(["docker", "compose", "--env-file", str(old_env),
+                               "--project-name", project, *compose_files,
+                               "exec", "-T", "postgres", "/bin/bash", "-ceu",
+                               'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h 127.0.0.1 '
+                               '-U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" '
+                               '--no-owner --no-privileges'], cwd=source, env=child_env,
+                              stdout=subprocess.PIPE) as dump:
+            with gzip.GzipFile(fileobj=output, mode="wb") as compressed:
+                shutil.copyfileobj(dump.stdout, compressed)
+            require(dump.wait() == 0, "pre-adopt pg_dump failed; incomplete dump retained in source backups")
+        output.flush()
+        os.fsync(output.fileno())
+    run(["gzip", "-t", str(backup)])
+    with gzip.open(backup, "rb") as handle:
+        require(handle.read(1), "pre-adopt pg_dump was empty")
+    digest = hashlib.sha256()
+    with backup.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    for name in (".env", "backups", "tls"):
+        copied.append(name)
+        if name == ".env":
+            run(["cp", "-a", str(old_env), str(new / name)])
+            os.chmod(new / name, 0o600)
+        else:
+            (new / name).mkdir(exist_ok=True)
+            run(["cp", "-a", str(source / name) + "/.", str(new / name)])
+    # Equivalent to upgrade.sh's embedded merge: template defaults and image/version pins,
+    # old operator values (including unknown non-image settings), normalized Compose paths.
+    old.update(COMPOSE_PROJECT_NAME=project, COMPOSE_FILE=":".join(names), CHRONICLE_STATE_DIR=".")
+    managed = {"RELEASE_VERSION", "POSTGRES_IMAGE"}
+    rendered, seen = [], set()
+    for line in template.splitlines():
+        match = assignment.match(line)
+        if match:
+            key = match[1]
+            require(key not in seen, f"duplicate template setting: {key}")
+            seen.add(key)
+            if key in old and key not in managed and not key.endswith("_IMAGE"):
+                line = f"{key}={old[key]}"
+        rendered.append(line)
+    rendered.extend(f"{key}={old[key]}" for key in sorted(old.keys() - seen - managed)
+                    if not key.endswith("_IMAGE"))
+    require("__CHRONICLE_" not in "\n".join(rendered), "unresolved release placeholders")
+    (new / ".env").write_text("\n".join(rendered) + "\n")
+    receipt_dir = new / "upgrade-receipts"
+    require(not os.path.lexists(receipt_dir), "new upgrade-receipts/ already exists; extract a clean bundle")
+    copied.append("upgrade-receipts")
+    receipt_dir.mkdir(mode=0o700)
+    receipt = receipt_dir / f"{run_id}-adopt.json"
+    payload = {"schema_version": 1, "operation": "adopt", "timestamp_utc": timestamp,
+               "compose_project": project, "from": {"directory": str(source), "kind": "source-checkout"},
+               "to": {"directory": str(new), "version": manifest["release_version"]},
+               "pre_adopt_backup": {"path": str(backup), "sha256": digest.hexdigest()}}
+    write_receipt("starting")
+    # up's project-collision guard rejects containers labelled with the source directory.
+    # Remove the stopped source containers/network while preserving every named volume.
+    compose("down", "--remove-orphans")
+    started = True
+    run(["./chronicle", "up"], env=child_env)
+    write_receipt("verifying")
+    run(["./chronicle", "verify"], env=child_env)
+    write_receipt("succeeded")
+    print(f"Adoption complete. Receipt: {receipt}")
+except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+    print(f"error: adopt failed: {error}", file=sys.stderr)
+    if started:
+        try:
+            write_receipt("failed")
+        except OSError:
+            print("Could not update the adoption receipt.", file=sys.stderr)
+        print(f"The new release may have migrated the database. Restore {backup} before starting "
+              "the source checkout again; see docs/UPGRADE-ROLLBACK.md.", file=sys.stderr)
+    else:
+        if stopped:
+            try:
+                compose("up", "-d", "--wait", "--wait-timeout", "300", "--remove-orphans")
+                print("Source stack restarted.", file=sys.stderr)
+            except (OSError, subprocess.SubprocessError):
+                print("Source restart failed; diagnose the source stack before retrying.", file=sys.stderr)
+        for name in reversed(copied):
+            target = new / name
+            if target.is_dir() and not target.is_symlink():
+                shutil.rmtree(target)
+            else:
+                target.unlink(missing_ok=True)
+            if name in original_dirs:
+                target.mkdir(mode=original_dirs[name])
+    sys.exit(1)
+PY
+}
+
 cmd_upgrade() {
   shift || true
   # upgrade.sh is intentionally run from a freshly extracted release. The new bundle must
@@ -2257,6 +2651,8 @@ case "${1:-help}" in
   restore) cmd_restore "$@" ;;
   deletion-status) cmd_deletion_status "$@" ;;
   upgrade) cmd_upgrade "$@" ;;
+  update) cmd_update "$@" ;;
+  adopt) cmd_adopt "$@" ;;
   rotate-secret) cmd_rotate_secret "$@" ;;
   *) sed -n '2,26p' "$SCRIPT_PATH" | sed 's/^# \{0,1\}//' ;;
 esac

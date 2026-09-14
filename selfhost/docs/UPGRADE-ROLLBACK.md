@@ -5,6 +5,59 @@ by hand and do not run the new backend before the automatic backup completes.
 
 ## Supported automatic upgrade
 
+### One-command update
+
+From the current bundle's `selfhost` directory, run `./chronicle update --check` to
+print the current and latest release versions (exit 0 if up to date, 3 if an update is
+available). Run `./chronicle update` to download the latest bundle and its `.sha256`,
+verify the checksum, extract beside the current bundle, and hand off to the guarded
+upgrade below. It requires `curl`, `python3`, and `sha256sum`, refuses a release that
+is not newer, and never overwrites an existing release directory or download.
+
+### Switching from a source checkout to release bundles
+
+Use `adopt` once when the running installation is a source checkout without a
+`release-manifest.json`. Download a release archive and its `.sha256`, then run:
+
+```bash
+sha256sum -c chronicle-selfhost-<new-version>.tar.gz.sha256
+tar -xzf chronicle-selfhost-<new-version>.tar.gz
+cd chronicle-selfhost-<new-version>/selfhost
+./chronicle adopt --from /absolute/path/to/source-checkout/selfhost
+```
+
+The new bundle must have no `.env`. The source must have a mode-`0600` `.env`,
+`backups/`, `tls/`, and a running healthy PostgreSQL container. Its state directory
+must be its own `selfhost` directory. Adoption preserves `COMPOSE_PROJECT_NAME`
+(default `chronicle-selfhost`) so the release uses the existing database volumes.
+It stops `backend`, `web`, `db-init`, and optional `db-backup`, then creates and
+verifies `backups/pre-adopt-<timestamp>-<pid>.sql.gz` in the source directory.
+It copies `.env` with mode `0600` and copies `backups/` and `tls/` with `cp -a`;
+release defaults and pinned images come from the new bundle's `.env.example`.
+The copied configuration points to the new state directory. No source files are
+moved or deleted. After removing the source containers without deleting volumes,
+it runs `./chronicle up` and `./chronicle verify` in the new bundle and records the
+dump path and SHA-256 in a mode-`0600` `upgrade-receipts/*-adopt.json` receipt.
+
+Failures before the new `up` restart the source stack and remove the copied files.
+Once `up` has been invoked, assume migrations may have run: keep the new files and
+recover forward, or follow the tested rollback procedure below using the receipt's
+`pre_adopt_backup.path` and `pre_adopt_backup.sha256`. Restore that pre-adopt dump
+with `./chronicle restore --no-start` before starting the intact source checkout
+again if migrations ran. Never run both installations at once or delete their
+shared database volumes.
+
+After successful adoption, future updates run from the bundle:
+
+```bash
+./chronicle update --check
+./chronicle update
+```
+
+### Manual release-bundle upgrade
+
+To download and start a release-bundle upgrade manually:
+
 1. Download the new release archive and its `.sha256` file.
 2. Verify the checksum and extract the archive beside—not over—the current release.
 3. Keep the previous release directory. Its `backups/` and `tls/` directories may remain the
