@@ -90,9 +90,20 @@ help:
 i18n-lint: ## Fail on hardcoded English in web/Android/server/iOS UI paths (ast-grep + semgrep rules)
 	scripts/i18n-lint.sh
 
+.PHONY: i18n-sheet-export i18n-sheet-import i18n-sheet-test
+i18n-sheet-export: ## Export translator workbook: LANG=es OUT=<path.xlsx>
+	python3 scripts/i18n-sheet.py export --lang "$(LANG)" --out "$(OUT)"
+
+i18n-sheet-import: ## Import translator workbook: LANG=es IN=<path.xlsx>
+	python3 scripts/i18n-sheet.py import --lang "$(LANG)" --in "$(IN)"
+
+i18n-sheet-test: ## Test translator workbook export/import and placeholder rejection
+	bash scripts/test-i18n-sheet.sh
+
 i18n-lint-proof: ## Prove the i18n guard: per-repo case suites plus the mutation test against the real trees
 	scripts/i18n-lint.sh
 	scripts/i18n-lint-mutation.sh
+	$(MAKE) i18n-sheet-test
 
 .PHONY: publish-stage publish-status publish-push publish-abandon
 ## Publish curated history to the public mirrors (see scripts/publish.sh):
