@@ -57,8 +57,10 @@ services:
     volumes:
       - ./temporal/dynamic-config.yaml:/etc/temporal/dynamic-config.yaml:ro,z
     ports:
-      # gRPC port for SDK workers (internal only — not exposed via Traefik)
-      - "7233:7233"
+      # gRPC port for SDK workers (internal only — not exposed via Traefik).
+      # Loopback-bound: "7233:7233" publishes on every host interface, which puts the
+      # unauthenticated Temporal frontend on the network.
+      - "127.0.0.1:7233:7233"
     networks:
       - chronicle-internal
     depends_on:

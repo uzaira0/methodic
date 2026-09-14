@@ -65,7 +65,9 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "40320:40320"
+      # Loopback only, like the dev database above: the dev backend runs with test
+      # credentials and must not be reachable from the rest of the network.
+      - "127.0.0.1:40320:40320"
 
 volumes:
   postgres_data:
