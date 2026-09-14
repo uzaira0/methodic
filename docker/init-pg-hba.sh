@@ -16,8 +16,8 @@ local   all             all                                     peer
 host    all             all             127.0.0.1/32            scram-sha-256
 host    all             all             ::1/128                 scram-sha-256
 
-# Streaming replication
-host    replication     all             172.16.0.0/12           scram-sha-256
+# Streaming replication — SSL required (pg_hba is first-match; a plain `host` line here
+# would shadow this one and let the replica stream without TLS)
 hostssl replication     all             172.16.0.0/12           scram-sha-256
 
 # Docker network — SSL required
