@@ -5,7 +5,11 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 bundle=${1:?usage: restore-drill.sh BACKUP_BUNDLE}
 bundle=$(realpath "$bundle")
 secrets_dir=${CHRONICLE_SECRETS_DIR:?Set CHRONICLE_SECRETS_DIR}
-image=${CHRONICLE_PERCONA_IMAGE:-localhost/chronicle-percona:17.10-hardened}
+# Must match docker/hetzner/compose.yml — the runtime moved to Percona 18.6.1-1 (see
+# toolchain-manifest.yaml postgres.image); drilling on the old 17 image proves nothing
+# about the deployed cluster. The expected major is asserted against the running server below.
+image=${CHRONICLE_PERCONA_IMAGE:-localhost/chronicle-percona:18.6.1-1-hardened}
+expected_pg_major=${CHRONICLE_PG_EXPECTED_MAJOR:-18}
 test -f "$bundle/complete"
 (cd "$bundle" && sha256sum -c SHA256SUMS)
 
@@ -78,6 +82,15 @@ for _ in $(seq 1 90); do
 done
 if [[ "$status" != running ]]; then
   podman logs "$container" >&2
+  exit 1
+fi
+
+actual_pg_major=$(podman exec "$container" sh -euc '
+  export PGPASSWORD="$(cat /run/secrets/postgres_password)"
+  exec psql -h 127.0.0.1 -U chronicle -d chronicle -X -q -At -c "SHOW server_version_num"
+')
+if [[ "$((actual_pg_major / 10000))" != "$expected_pg_major" ]]; then
+  echo "FATAL: drill image $image runs PostgreSQL server_version_num=$actual_pg_major, expected major $expected_pg_major" >&2
   exit 1
 fi
 

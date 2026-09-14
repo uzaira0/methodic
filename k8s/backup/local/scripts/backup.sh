@@ -61,7 +61,12 @@ tar -czf "${stage}/tde-keyring.tar.gz" -C /source/tde-keyring .
 encrypt_file "${stage}/tde-keyring.tar.gz" "${artifact_dir}/tde-keyring.tar.gz.enc"
 rm -f "${stage}/tde-keyring.tar.gz"
 
-tar --ignore-failed-read --warning=no-file-changed -czf "${stage}/audit-logs.tar.gz" -C /source/audit-logs .
+# Audit logs are appended to while the backup runs, so archive a snapshot rather than the
+# live tree: `cp -a` fails on anything unreadable (no --ignore-failed-read to silently drop
+# it) and the copy cannot change under tar (no --warning=no-file-changed to hide it).
+cp -a /source/audit-logs "${stage}/audit-logs"
+tar -czf "${stage}/audit-logs.tar.gz" -C "${stage}/audit-logs" .
+rm -rf "${stage}/audit-logs"
 encrypt_file "${stage}/audit-logs.tar.gz" "${artifact_dir}/audit-logs.tar.gz.enc"
 rm -f "${stage}/audit-logs.tar.gz"
 

@@ -18,7 +18,6 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_KEY="/etc/chronicle/backup-encryption-key"
 LEGACY_KEY="/opt/chronicle/backups/.backup-encryption-key"
 CONTAINER="chronicle-postgres"
@@ -171,13 +170,22 @@ docker exec "$CONTAINER" psql -U "$DB_USER" -d postgres -c \
 docker cp "$DUMP_TMP" "${CONTAINER}:/tmp/drill-restore.dump"
 docker exec -u root "$CONTAINER" chmod 644 /tmp/drill-restore.dump
 
+# --exit-on-error: without it pg_restore reports errors and still exits 0, so a half-restored
+# archive used to reach the PASS report. Its status is the drill's primary signal.
+RESTORE_STATUS=0
 RESTORE_OUTPUT=$(docker exec "$CONTAINER" pg_restore \
+    --exit-on-error \
     -U "$DB_USER" -d "$DRILL_DB" --no-owner --no-acl \
-    /tmp/drill-restore.dump 2>&1 || true)
+    /tmp/drill-restore.dump 2>&1) || RESTORE_STATUS=$?
 
 docker exec -u root "$CONTAINER" rm -f /tmp/drill-restore.dump
 rm -f "$DUMP_TMP"
 
+if [ "$RESTORE_STATUS" -ne 0 ]; then
+    log_err "pg_restore failed (exit ${RESTORE_STATUS}) — the backup is not restorable"
+    printf '%s\n' "$RESTORE_OUTPUT" >&2
+    exit 1
+fi
 log_ok "Database restore completed"
 
 # ── Step 4: Validate restored data ──────────────────────────────────────────
@@ -216,8 +224,16 @@ for TABLE in "${KEY_TABLES[@]}"; do
         ROW_COUNT=$(docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DRILL_DB" -t -A -c \
             "SELECT COUNT(*) FROM ${TABLE};" 2>/dev/null || echo "ERROR")
         printf "  %-35s %s\n" "$TABLE" "$ROW_COUNT"
+        if [ "$ROW_COUNT" = "ERROR" ]; then
+            log_err "${TABLE} exists but is not readable after restore"
+            ERRORS=$((ERRORS + 1))
+        fi
     else
-        printf "  %-35s %s\n" "$TABLE" "(not present)"
+        # A key table absent from the restore means the archive did not carry the schema
+        # this drill is supposed to prove; that is a failure, not an informational line.
+        printf "  %-35s %s\n" "$TABLE" "(MISSING)"
+        log_err "${TABLE} missing from the restored database"
+        ERRORS=$((ERRORS + 1))
     fi
 done
 
@@ -230,8 +246,9 @@ if [ -f "${BACKUP_DIR}/manifest.json" ]; then
         if [ "$TABLE_COUNT" -eq "$MANIFEST_TABLE_COUNT" ]; then
             log_ok "Table count matches manifest (${TABLE_COUNT})"
         else
-            log_warn "Table count mismatch: restored=${TABLE_COUNT}, manifest=${MANIFEST_TABLE_COUNT}"
-            log_warn "  (Minor differences are normal if pg_restore skipped some objects)"
+            # A skipped object is exactly the data loss this drill exists to catch.
+            log_err "Table count mismatch: restored=${TABLE_COUNT}, manifest=${MANIFEST_TABLE_COUNT}"
+            ERRORS=$((ERRORS + 1))
         fi
     fi
 fi
@@ -281,19 +298,19 @@ echo "  Tables:     ${TABLE_COUNT}"
 echo "  Errors:     ${ERRORS}"
 echo ""
 
-if [ "$ERRORS" -eq 0 ]; then
-    echo -e "  Result:     ${GREEN}${BOLD}PASS${NC}"
-    echo ""
-    echo "  The backup can be successfully decrypted, restored, and contains valid data."
-else
+# Write the drill result to the audit trail BEFORE exiting, so a failed drill is recorded
+# too — HIPAA §164.308(a)(7)(ii)(D) wants the failures, not only the passes.
+DRILL_LOG="/opt/chronicle/backups/drill-results.log"
+mkdir -p "$(dirname "$DRILL_LOG")"
+echo "$(date -Iseconds) | backup=$(basename "$BACKUP_DIR") | tables=${TABLE_COUNT} | errors=${ERRORS} | duration=${DURATION}s | result=$([ "$ERRORS" -eq 0 ] && echo PASS || echo FAIL)" >> "$DRILL_LOG"
+log "Drill result appended to ${DRILL_LOG}"
+
+if [ "$ERRORS" -ne 0 ]; then
     echo -e "  Result:     ${RED}${BOLD}FAIL${NC} (${ERRORS} errors)"
     echo ""
     echo "  Review the errors above and take corrective action."
     exit 1
 fi
-
-# Write drill result to a log file for audit trail
-DRILL_LOG="/opt/chronicle/backups/drill-results.log"
-mkdir -p "$(dirname "$DRILL_LOG")"
-echo "$(date -Iseconds) | backup=$(basename "$BACKUP_DIR") | tables=${TABLE_COUNT} | errors=${ERRORS} | duration=${DURATION}s | result=$([ "$ERRORS" -eq 0 ] && echo PASS || echo FAIL)" >> "$DRILL_LOG"
-log "Drill result appended to ${DRILL_LOG}"
+echo -e "  Result:     ${GREEN}${BOLD}PASS${NC}"
+echo ""
+echo "  The backup can be successfully decrypted, restored, and contains valid data."

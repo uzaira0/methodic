@@ -260,10 +260,17 @@ run_sql "$ROTATE_SQL" || err "Failed to rotate TDE principal key — principal k
 log "New principal key '${NEW_KEY_NAME}' created and set under provider '${KEY_PROVIDER}'"
 log "Internal keys re-wrapped under the new principal key (no table re-encryption)"
 
+# The key rotation itself already succeeded and cannot be undone, so this is a PARTIAL
+# failure, not a full one: report it as exit 2 at the end rather than exit 0, so automation
+# does not record a rotation whose tracking row is stale as entirely successful.
+PARTIAL=0
 log "Updating secret_rotation_tracking for 'tde_principal_key'..."
-run_sql "$UPSERT_SQL" \
-  || warn "Key rotated, but failed to update secret_rotation_tracking — update it manually"
-log "secret_rotation_tracking updated (rotation age reset for backend monitoring)"
+if run_sql "$UPSERT_SQL"; then
+  log "secret_rotation_tracking updated (rotation age reset for backend monitoring)"
+else
+  warn "Key rotated, but failed to update secret_rotation_tracking — update it manually"
+  PARTIAL=1
+fi
 
 if [[ "$PG_TDE_KEY_PROVIDER" == "vault" ]]; then
   update_vault_metadata
@@ -277,3 +284,8 @@ log "Next steps:"
 log "  1. Verify the principal key:  docker exec ${PG_CONTAINER} psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} -c 'SELECT * FROM pg_tde_key_info();'"
 log "  2. Confirm backend monitoring: curl -s http://localhost:40320/internal/health/secrets | grep tde_principal_key"
 log "  3. Record the rotation in the HIPAA key-management log"
+
+if [[ "$PARTIAL" -ne 0 ]]; then
+  warn "PARTIAL SUCCESS: principal key rotated, secret_rotation_tracking NOT updated (exit 2)"
+  exit 2
+fi
