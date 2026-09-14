@@ -1451,7 +1451,9 @@ cmd_verify() {
   reviewer_unauth_code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 -X POST \
     "${pub}${reviewer_path}")
 
-  for public_page in privacy withdrawal reviewer; do
+  # /privacy and /withdrawal were retired with the public research policy page; store
+  # listings point at the institutional privacy URL instead.
+  for public_page in reviewer; do
     expected_page="${pub}/chronicle/${public_page}"
     page_result=$(curl -skL -o /dev/null \
       -w '%{http_code}|%{url_effective}|%{size_download}' --max-time 10 \
