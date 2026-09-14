@@ -84,11 +84,15 @@ build_tree() {
 # gate_tree <label> <tree>: no ignored path survived, no secrets, no banned terms
 gate_tree() {
   local label="$1" tree="$2" dir; dir="$(repo_dir "$label")"
-  local export="$WORK/.tree-$label"; rm -rf "$export"; mkdir -p "$export"
+  local export="$WORK/.tree-$label"; rm -rf "$export"; (umask 077 && mkdir -p "$export")
+  trap 'rm -rf "$WORK"/.tree-* "$WORK"/.gitleaks-*.json "$WORK"/.allow-*' EXIT
   git -C "$dir" archive "$tree" | tar -x -C "$export"
   if [[ -f "$dir/.publishignore" ]]; then
+    # ls-files needs a repo to evaluate patterns against; a throwaway one inside
+    # the export. Command failure here must fail the gate, never pass it.
     local leaked
-    leaked="$(cd "$export" && git -c core.excludesFile=/dev/null ls-files --others -i --exclude-from="$dir/.publishignore" 2>/dev/null || true)"
+    leaked="$(cd "$export" && git init -q . && git ls-files --others -i --exclude-from="$dir/.publishignore" && rm -rf .git)" \
+      || fail "$label: ignored-path check could not run"
     [[ -z "$leaked" ]] || fail "$label: ignored paths survived the filter: $leaked"
   fi
   local allow="$WORK/.allow-$label"; : > "$allow"
