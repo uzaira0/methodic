@@ -64,7 +64,7 @@ services:
           memory: 64M
 
   traefik:
-    image: traefik:v3.6.14@sha256:4cda3393930dceff030e144b46260e96e1337c9cfaa4fed81c90cb8f4d498f57
+    image: traefik:v3.7.12@sha256:9c2a54d87f76f5c2f5f2682c68394af92fb12c0a2686798d6462a3f84bd78eaf
     container_name: edge-traefik
     restart: unless-stopped
     security_opt:
@@ -168,7 +168,7 @@ services:
   # decisions. The Traefik bouncer plugin queries LAPI (:8080) for IP decisions
   # and AppSec (:7422) for request-body inspection.
   chronicle-crowdsec:
-    image: crowdsecurity/crowdsec:v1.7.8
+    image: crowdsecurity/crowdsec:v1.8.1
     container_name: chronicle-crowdsec
     restart: unless-stopped
     security_opt:
@@ -206,7 +206,7 @@ services:
   # Uses Percona Distribution for PostgreSQL with pg_tde extension for HIPAA/GDPR compliance
   # SSL/TLS encryption in transit protects data between application and database
   postgres:
-    image: percona/percona-distribution-postgresql:18.4-5@sha256:40b133dec71f85dbc391bdf686bbc6b745517c2a9ffe49158ff77809f9bf28e4
+    image: percona/percona-distribution-postgresql:18.6.1-1@sha256:18cde978e37580e8bf0bd47945e5d453f7753f3cae2ba7f19700e8f47b9bad27
     container_name: chronicle-postgres
     # The wrapper prepares root-owned named volumes and TLS material, then the
     # upstream Percona entrypoint drops to postgres before starting the server.
@@ -336,7 +336,7 @@ services:
           pids: 512
 
   postgres-replica:
-    image: percona/percona-distribution-postgresql:18.4-5@sha256:40b133dec71f85dbc391bdf686bbc6b745517c2a9ffe49158ff77809f9bf28e4
+    image: percona/percona-distribution-postgresql:18.6.1-1@sha256:18cde978e37580e8bf0bd47945e5d453f7753f3cae2ba7f19700e8f47b9bad27
     container_name: chronicle-postgres-replica
     user: "0:0"
     restart: unless-stopped
@@ -449,7 +449,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.keycloak-postgres
-    image: chronicle-keycloak-postgres:18.4-local
+    image: chronicle-keycloak-postgres:18.6-local
     container_name: chronicle-keycloak-postgres
     profiles: ["sso"]
     restart: unless-stopped
@@ -508,7 +508,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.keycloak
-    image: chronicle-keycloak:26.6.3-local
+    image: chronicle-keycloak:26.7.3-local
     container_name: chronicle-keycloak
     profiles: ["sso"]
     restart: unless-stopped
@@ -1062,7 +1062,7 @@ services:
   # Production: use an external Vault cluster with auto-unseal.
   # Enable with: docker compose --profile vault up -d
   vault:
-    image: hashicorp/vault:1.19
+    image: hashicorp/vault:1.21
     container_name: chronicle-vault
     restart: unless-stopped
     security_opt:
@@ -1258,7 +1258,7 @@ services:
   # MONITORING: VictoriaMetrics + VictoriaLogs
   # ===========================================
   victoria-metrics:
-    image: victoriametrics/victoria-metrics:v1.138.0-scratch@sha256:f154ce0d4c75da39f13a5a56734c91222d6dc65a1f11a1579fb2986250f25352
+    image: victoriametrics/victoria-metrics:v1.149.0@sha256:13b8951e35bb3589626816538483127785a9d8b53f9f5123769db0fcab1d961f
     container_name: chronicle-victoria-metrics
     restart: unless-stopped
     security_opt:
@@ -1353,7 +1353,7 @@ services:
 
   # Fluent Bit ships local audit and access logs to VictoriaLogs.
   fluent-bit:
-    image: fluent/fluent-bit:4.2.1
+    image: fluent/fluent-bit:5.1.1@sha256:a941bdd5ca552b2c6597fc7b3bccf2e61d30873939bab5700963de0e94ac6169
     container_name: chronicle-fluent-bit
     restart: unless-stopped
     security_opt:
@@ -1386,7 +1386,7 @@ services:
           pids: 128
 
   grafana:
-    image: grafana/grafana:12.3.0@sha256:70d9599b186ce287be0d2c5ba9a78acb2e86c1a68c9c41449454d0fc3eeb84e8
+    image: grafana/grafana:13.1.3@sha256:ab5cb380e3ff3172d6c8bd2e7cfd31cce977d2881b260e1f5bc089bf0b759b43
     container_name: chronicle-grafana
     restart: unless-stopped
     security_opt:

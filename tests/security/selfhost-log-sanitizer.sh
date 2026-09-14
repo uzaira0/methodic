@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 RUN_ROOT="${SELFHOST_LOG_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-log-sanitizer}"
-IMAGE='fluent/fluent-bit:4.2.1@sha256:d0ba6ceea4ed1a7cecb15a9184c29cc23159240d8d19b32885268b62dd54155b'
+IMAGE='fluent/fluent-bit:5.1.1@sha256:a941bdd5ca552b2c6597fc7b3bccf2e61d30873939bab5700963de0e94ac6169'
 
 fail() { printf 'self-host log sanitizer test failed: %s\n' "$*" >&2; exit 1; }
 command -v docker >/dev/null 2>&1 || fail "docker is required"

@@ -170,7 +170,7 @@ services:
       retries: 3
 
   fluent-bit:
-    image: fluent/fluent-bit:4.2.1@sha256:d0ba6ceea4ed1a7cecb15a9184c29cc23159240d8d19b32885268b62dd54155b
+    image: fluent/fluent-bit:5.1.1@sha256:a941bdd5ca552b2c6597fc7b3bccf2e61d30873939bab5700963de0e94ac6169
     restart: unless-stopped
     ports:
       - "127.0.0.1:${FLUENT_BIT_FORWARD_PORT:-24224}:24224"

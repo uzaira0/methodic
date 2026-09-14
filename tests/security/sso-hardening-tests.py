@@ -115,7 +115,7 @@ def assert_compose_hardening(config: dict) -> None:
 
     keycloak_build = keycloak.get("build") or {}
     check(
-        keycloak.get("image") == "chronicle-keycloak:26.6.3-local",
+        keycloak.get("image") == "chronicle-keycloak:26.7.3-local",
         "Keycloak runtime must use the local optimized Chronicle image",
     )
     check(
@@ -124,13 +124,13 @@ def assert_compose_hardening(config: dict) -> None:
     )
     dockerfile_text = (ROOT / "docker" / "Dockerfile.keycloak").read_text(encoding="utf-8")
     check(
-        "quay.io/keycloak/keycloak:26.6.3@sha256:" in dockerfile_text,
+        "quay.io/keycloak/keycloak:26.7.3@sha256:" in dockerfile_text,
         "Dockerfile.keycloak must pin the upstream Keycloak base image by digest",
     )
     check("kc.sh build" in dockerfile_text, "Dockerfile.keycloak must pre-build the optimized Keycloak server")
     keycloak_db_build = keycloak_db.get("build") or {}
     check(
-        keycloak_db.get("image") == "chronicle-keycloak-postgres:18.4-local",
+        keycloak_db.get("image") == "chronicle-keycloak-postgres:18.6-local",
         "Keycloak Postgres runtime must use the local patched Chronicle image",
     )
     check(
@@ -139,7 +139,7 @@ def assert_compose_hardening(config: dict) -> None:
     )
     postgres_dockerfile = (ROOT / "docker" / "Dockerfile.keycloak-postgres").read_text(encoding="utf-8")
     check(
-        "postgres:18.4-alpine@sha256:" in postgres_dockerfile,
+        "postgres:18.6-alpine@sha256:" in postgres_dockerfile,
         "Dockerfile.keycloak-postgres must pin the upstream Postgres base image by digest",
     )
     check("apk upgrade --no-cache" in postgres_dockerfile, "Dockerfile.keycloak-postgres must apply Alpine security updates")

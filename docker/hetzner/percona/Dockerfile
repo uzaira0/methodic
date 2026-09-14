@@ -1,4 +1,4 @@
-FROM docker.io/percona/percona-distribution-postgresql:18.4-5@sha256:40b133dec71f85dbc391bdf686bbc6b745517c2a9ffe49158ff77809f9bf28e4 AS curl-builder
+FROM docker.io/percona/percona-distribution-postgresql:18.6.1-1@sha256:18cde978e37580e8bf0bd47945e5d453f7753f3cae2ba7f19700e8f47b9bad27 AS curl-builder
 
 USER 0
 
@@ -59,7 +59,7 @@ RUN curl --proto '=https' --tlsv1.2 --fail --show-error --location \
 
 USER 26
 
-FROM docker.io/percona/percona-distribution-postgresql:18.4-5@sha256:40b133dec71f85dbc391bdf686bbc6b745517c2a9ffe49158ff77809f9bf28e4
+FROM docker.io/percona/percona-distribution-postgresql:18.6.1-1@sha256:18cde978e37580e8bf0bd47945e5d453f7753f3cae2ba7f19700e8f47b9bad27
 
 USER 0
 
@@ -101,7 +101,7 @@ RUN microdnf --disablerepo='*' \
 
 COPY --from=curl-builder /opt/curl/lib64/ /usr/lib64/
 
-LABEL org.opencontainers.image.revision="percona-18.4-5-chronicle-curl-8.21.0-20260809"
+LABEL org.opencontainers.image.revision="percona-18.6.1-1-chronicle-curl-8.21.0-20260903"
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=12 \
     CMD pg_isready -h 127.0.0.1 -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-postgres}" || exit 1

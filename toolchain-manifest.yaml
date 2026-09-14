@@ -19,20 +19,23 @@ jdk:
   android_bytecode: "17"
 
 gradle:
-  wrapper: "9.5.0"          # root, chronicle-server, chronicle-api, rhizome, rhizome-client
+  wrapper: "9.7.1"          # root, chronicle-server, chronicle-api, rhizome, rhizome-client
   android_wrapper: "9.3.0"  # chronicle/ (AGP pairing; do not unify)
 
-kotlin: "2.3.21"
+kotlin: "2.4.10"
 
 bun: "1.3.12"               # sole JS runtime — Node is not a dependency of this repo
 
+python: "3.12"              # floor for scripts/ tests/ selfhost/ helpers; python3 on PATH must be >= this, with PyYAML installed
+                            # (RHEL 9 ships 3.9 as /usr/bin/python3: `uv python install 3.14 --default`; then `uv pip install --system --break-system-packages --python "$(command -v python3)" pyyaml`)
+
 postgres:
-  image: "percona/percona-distribution-postgresql:18.4-5"  # pg_tde pins prod; same image in dev/CI/testcontainers
-  index_digest: "sha256:40b133dec71f85dbc391bdf686bbc6b745517c2a9ffe49158ff77809f9bf28e4"
+  image: "percona/percona-distribution-postgresql:18.6.1-1"  # pg_tde pins prod; same image in dev/CI/testcontainers
+  index_digest: "sha256:18cde978e37580e8bf0bd47945e5d453f7753f3cae2ba7f19700e8f47b9bad27"
   # Percona, not stock Postgres, because pg_tde is a Percona extension and it IS the
   # encryption-at-rest model (init-db-encryption.sh, migrate-tde.sh, selfhost/init-tde.sh,
   # rotate-tde-principal-key.sh, the HIPAA and Ley 21719 evidence). Percona tracks upstream:
-  # 18.4-5 carries PostgreSQL 18.4, the current stable release — 19 is still beta.
+  # 18.6.1-1 carries PostgreSQL 18.6, the current stable release — 19 is still beta.
   #
   # 17.5-3 -> 18.4-5 is a MAJOR jump. Two consequences that are not image-swap-shaped:
   #   - The data directory is not forward-compatible. An existing cluster needs a
@@ -43,15 +46,15 @@ postgres:
   #     do that themselves.
 
 keycloak_postgres:
-  image: "postgres:18.4-alpine"  # SSO tier only — stock Postgres, no pg_tde, no PHI
-  index_digest: "sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"
+  image: "postgres:18.6-alpine"  # SSO tier only — stock Postgres, no pg_tde, no PHI
+  index_digest: "sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2"
 
 selfhost_images:
   backup: "prodrigestivill/postgres-backup-local:18@sha256:f70742ebe42b2277689b028d1fd15aa80f77cffa01da163cc9f85a6ff1866e7f"
   cadvisor: "ghcr.io/google/cadvisor:v0.60.5@sha256:763aecf1c32c2be8a1a75f9abfc2fc461005c9dbbaa39cb356b354aac1296dbe"
   victoria_metrics: "victoriametrics/victoria-metrics:v1.149.0@sha256:13b8951e35bb3589626816538483127785a9d8b53f9f5123769db0fcab1d961f"
   victoria_logs: "victoriametrics/victoria-logs:v1.50.0@sha256:ae9bea8d8a3b0fc47c7f0058bcca410e79c84b4a0acd12d4dac71b9302526590"
-  fluent_bit: "fluent/fluent-bit:4.2.1@sha256:d0ba6ceea4ed1a7cecb15a9184c29cc23159240d8d19b32885268b62dd54155b"
+  fluent_bit: "fluent/fluent-bit:5.1.1@sha256:a941bdd5ca552b2c6597fc7b3bccf2e61d30873939bab5700963de0e94ac6169"
   grafana: "grafana/grafana:13.1.3@sha256:ab5cb380e3ff3172d6c8bd2e7cfd31cce977d2881b260e1f5bc089bf0b759b43"
   keycloak: "quay.io/keycloak/keycloak:26.0@sha256:09a381c715ab0b111835b70f2905955274843a219c6f27efb348e4d9f4086858"
 
@@ -61,3 +64,13 @@ flyway:
 # Deliberately NOT upgraded (a Rust service layer replaces these; see
 # docs/architecture/SENSING-PLAN-LANGUAGE-ROADMAP.md):
 #   spring-framework: 6.2.19   hazelcast: 5.5.0   android-agp: 9.0.1
+#
+# scripts/deps-freshness.sh compares every pin above with upstream and FAILS on a
+# major-version lag unless the component is listed here. Minor/patch lag is reported.
+freshness:
+  accepted_behind:
+    - spring-framework   # 7.x: Spring 7 / Jakarta changes, replaced by Rust layer
+    - hazelcast          # kept on 5.5 with spring 6
+    - android-agp        # 9.0.x pinned to Gradle 9.3 pairing
+    - flyway             # 12/13 changed licensing terms; review before moving
+    - vault              # 2.x is a licence change; stays on 1.x

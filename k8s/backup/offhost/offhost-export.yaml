@@ -51,7 +51,7 @@ spec:
               type: RuntimeDefault
           containers:
             - name: export
-              image: percona/percona-distribution-postgresql:18.4-5@sha256:40b133dec71f85dbc391bdf686bbc6b745517c2a9ffe49158ff77809f9bf28e4
+              image: percona/percona-distribution-postgresql:18.6.1-1@sha256:18cde978e37580e8bf0bd47945e5d453f7753f3cae2ba7f19700e8f47b9bad27
               imagePullPolicy: IfNotPresent
               command:
                 - /bin/bash

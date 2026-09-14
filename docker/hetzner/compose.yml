@@ -6,7 +6,7 @@ services:
   postgres:
     build:
       context: ./percona
-    image: localhost/chronicle-percona:17.10-hardened
+    image: localhost/chronicle-percona:18.6.1-1-hardened
     restart: unless-stopped
     # Rootless Podman maps container root to the invoking host user. Start the
     # image entrypoint as that mapped root only long enough to stage the

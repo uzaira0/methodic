@@ -238,12 +238,12 @@ fi
 
 if ! search_q 'name:[[:space:]]*keycloak' "$K8S_DIR/base/keycloak.yaml" ||
    ! search_q 'ghcr\.io/uzaira0/chronicle/chronicle-keycloak:sha-' "$K8S_DIR/base/keycloak.yaml" ||
-   ! search_q 'postgres:18\.4-alpine@sha256:' "$K8S_DIR/base/keycloak.yaml" ||
+   ! search_q 'postgres:18\.6-alpine@sha256:' "$K8S_DIR/base/keycloak.yaml" ||
    ! search_q 'readOnlyRootFilesystem:[[:space:]]*true' "$K8S_DIR/base/keycloak.yaml"; then
   fail "Keycloak must be rendered with pinned images and restricted writable paths"
 fi
 
-if ! search_q 'FROM[[:space:]]+quay\.io/keycloak/keycloak:26\.6\.3@sha256:' "$ROOT_DIR/docker/Dockerfile.keycloak" ||
+if ! search_q 'FROM[[:space:]]+quay\.io/keycloak/keycloak:26\.7\.3@sha256:' "$ROOT_DIR/docker/Dockerfile.keycloak" ||
    ! search_q 'kc\.sh build' "$ROOT_DIR/docker/Dockerfile.keycloak" ||
    ! search_q 'health-enabled=true' "$ROOT_DIR/docker/Dockerfile.keycloak" ||
    ! search_q 'metrics-enabled=true' "$ROOT_DIR/docker/Dockerfile.keycloak"; then

@@ -121,7 +121,7 @@ services:
 
   # Fluent Bit - Log shipper to Kafka
   fluent-bit:
-    image: fluent/fluent-bit:2.2
+    image: fluent/fluent-bit:5.1.1@sha256:a941bdd5ca552b2c6597fc7b3bccf2e61d30873939bab5700963de0e94ac6169
     container_name: chronicle-fluent-bit
     restart: unless-stopped
     read_only: true

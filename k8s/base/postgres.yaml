@@ -70,7 +70,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: postgres
-          image: percona/percona-distribution-postgresql:18.4-5@sha256:40b133dec71f85dbc391bdf686bbc6b745517c2a9ffe49158ff77809f9bf28e4
+          image: percona/percona-distribution-postgresql:18.6.1-1@sha256:18cde978e37580e8bf0bd47945e5d453f7753f3cae2ba7f19700e8f47b9bad27
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5432
@@ -157,6 +157,10 @@ spec:
             - ssl_min_protocol_version=TLSv1.2
             - -c
             - ssl_prefer_server_ciphers=on
+            # Tables created after init (Flyway migrations) are born encrypted; without this
+            # they land as plain heap until the TDE migration script is rerun.
+            - -c
+            - default_table_access_method=tde_heap
             - -c
             - password_encryption=scram-sha-256
             - -c

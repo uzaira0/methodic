@@ -4,7 +4,7 @@
 
 - Status: temporary, bounded exception
 - Reviewed: 2026-07-19
-- Affected runtime: `localhost/chronicle-percona:17.10-hardened`
+- Affected runtime: `localhost/chronicle-percona:18.6.1-1-hardened`
 - Installed package: `libacl-2.3.1-4.el9.x86_64`
 - Scanner result: HIGH, with no fixed package offered by the current image
   repository at review time

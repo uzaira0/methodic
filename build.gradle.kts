@@ -42,8 +42,8 @@ subprojects {
     // of old stubs can't downgrade the classpath.
     configurations.configureEach {
         resolutionStrategy.force(
-            "org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.3.21",
-            "org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.3.21",
+            "org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.4.10",
+            "org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.4.10",
         )
     }
 

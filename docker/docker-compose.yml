@@ -1,7 +1,7 @@
 
 services:
   postgres:
-    image: percona/percona-distribution-postgresql:18.4-5
+    image: percona/percona-distribution-postgresql:18.6.1-1
     container_name: chronicle-postgres
     environment:
       POSTGRES_USER: oltest

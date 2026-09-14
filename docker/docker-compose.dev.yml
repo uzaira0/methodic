@@ -8,7 +8,7 @@
 
 services:
   postgres:
-    image: percona/percona-distribution-postgresql:18.4-5
+    image: percona/percona-distribution-postgresql:18.6.1-1
     # -dev suffix: the prod stack (docker-compose.traefik.yml) owns the names
     # chronicle-postgres / chronicle-backend on this host — an unsuffixed dev
     # stack cannot start beside it and invites `docker rm -f` against prod.
