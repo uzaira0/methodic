@@ -128,6 +128,13 @@ ENV_EXAMPLE="${BUNDLE}/selfhost/.env.example"
 env_example_mode="$(stat -c '%a' "$ENV_EXAMPLE" 2>/dev/null || stat -f '%Lp' "$ENV_EXAMPLE")"
 [[ "$env_example_mode" == 600 ]] ||
   fail "bundled .env.example mode is ${env_example_mode}; plain cp would expose deployment secrets"
+# Every bundle directory is bind-mounted or searched by a container user (config-guard as the
+# postgres uid, config/ by the backend user); only the runtime dirs are private.
+while IFS= read -r dir; do
+  dir_mode="$(stat -c '%a' "$dir" 2>/dev/null || stat -f '%Lp' "$dir")"
+  [[ "$dir_mode" == 755 ]] ||
+    fail "bundle directory $dir is mode ${dir_mode} under umask 077; container users cannot search it"
+done < <(find "$BUNDLE" -type d ! -path "${BUNDLE}/selfhost/backups" ! -path "${BUNDLE}/selfhost/tls")
 grep -Fqx "BACKEND_IMAGE=${BACKEND_IMAGE}" "$ENV_EXAMPLE" || fail "backend digest was not rendered"
 grep -Fqx "SELFHOST_FRONTEND_IMAGE=${FRONTEND_IMAGE}" "$ENV_EXAMPLE" || fail "frontend digest was not rendered"
 grep -Fqx "CADDY_IMAGE=${CADDY_IMAGE}" "$ENV_EXAMPLE" || fail "Caddy digest was not rendered"

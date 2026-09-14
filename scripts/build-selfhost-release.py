@@ -77,6 +77,10 @@ def resolve_within(root: Path, candidate: Path, *, strict: bool, description: st
 def copy_tree(source: Path, destination: Path) -> None:
     source_root = source.resolve(strict=True)
     destination_root = destination.resolve(strict=False)
+    # Containers bind-mount these directories (config/ as the backend user); mkdir alone
+    # would leave them owner-only under a private umask.
+    destination_root.mkdir(parents=True, exist_ok=True)
+    destination_root.chmod(0o755)
     for path in sorted(source.rglob("*")):
         relative = path.relative_to(source)
         if path.is_symlink():
@@ -154,7 +158,13 @@ def main() -> None:
     staging_parent = Path(tempfile.mkdtemp(prefix=".selfhost-release-", dir=output_dir))
     try:
         bundle = staging_parent / bundle_name
+        # mkdir honours the caller's umask; Compose bind-mounts selfhost/ into containers
+        # that run as their image's own user (config-guard as the postgres uid), so the
+        # directories must be world-searchable whatever umask built the archive.
         bundle.mkdir(mode=0o755)
+        bundle.chmod(0o755)
+        (bundle / "selfhost").mkdir(mode=0o755)
+        (bundle / "selfhost").chmod(0o755)
         copy_tree(SELFHOST / "caddy", bundle / "selfhost" / "caddy")
         copy_tree(SELFHOST / "config", bundle / "selfhost" / "config")
         copy_tree(SELFHOST / "docs", bundle / "selfhost" / "docs")
@@ -206,6 +216,7 @@ def main() -> None:
 
         docker_dir = bundle / "docker"
         docker_dir.mkdir(mode=0o755)
+        docker_dir.chmod(0o755)
         role_sql = ROOT / "docker" / "init-db-roles.sql"
         shutil.copyfile(role_sql, docker_dir / role_sql.name)
         (docker_dir / role_sql.name).chmod(0o644)

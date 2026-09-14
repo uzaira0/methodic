@@ -471,6 +471,14 @@ for r in rows:
     ok "compose project '${PROJECT}' does not collide with another stack"
   fi
 
+  # Compose bind-mounts this directory read-only into containers that run as their image's
+  # own user (config-guard as the postgres uid). An owner-only directory -- an extraction
+  # under a private umask -- fails inside the guard as a bare "Permission denied", so say it
+  # here with the fix.
+  local dir_mode; dir_mode=$(stat -c '%a' . 2>/dev/null || stat -f '%Lp' .)
+  [[ "${dir_mode: -1}" == [57] ]] ||
+    bad "directory mode is ${dir_mode}; containers run as other users and cannot read it. Run: chmod o+rx '$(pwd -P)'"
+
   if [[ -x ./verify-config.sh ]]; then
     if ./verify-config.sh >/dev/null 2>&1; then ok "internal config contract intact"
     else bad "verify-config.sh reports drift — run ./verify-config.sh for detail"; fi
@@ -2345,13 +2353,26 @@ try:
             fail("missing executable selfhost/chronicle in release archive")
         bundle.mkdir(mode=0o755)
         created_bundle = bundle
+        # This script runs under umask 077, so every mkdir would land at 0700. Compose
+        # bind-mounts selfhost/ into containers running as their image's user (config-guard
+        # as the postgres uid): an owner-only directory fails there as a bare "Permission
+        # denied". Set directory modes explicitly; archive members keep their own mode.
+        bundle.chmod(0o755)
+
+        def ensure_dir(path):
+            if not path.is_dir():
+                ensure_dir(path.parent)
+                path.mkdir()
+                path.chmod(0o755)
+
         # Extract only ordinary files/directories after validating the entire inventory.
         for member in members:
             target = parent / member.name
             if member.isdir():
-                target.mkdir(parents=True, exist_ok=True)
+                ensure_dir(target)
+                target.chmod(member.mode & 0o777)
             else:
-                target.parent.mkdir(parents=True, exist_ok=True)
+                ensure_dir(target.parent)
                 with archive.extractfile(member) as source, target.open("xb") as output:
                     shutil.copyfileobj(source, output)
                 target.chmod(member.mode & 0o777)

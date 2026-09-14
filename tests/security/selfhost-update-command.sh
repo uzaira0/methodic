@@ -146,6 +146,10 @@ fixture 1.2.3 v1.2.4 valid
 expect_status 0
 new="$RUN_DIR/releases/chronicle-selfhost-1.2.4"
 [[ -f "$new/release-manifest.json" && -f "$new.tar.gz.sha256" ]] || fail 'new bundle not beside current'
+for dir in "$new" "$new/selfhost"; do
+  mode=$(stat -c '%a' "$dir" 2>/dev/null || stat -f '%Lp' "$dir")
+  [[ "$mode" == 755 ]] || fail "extracted $dir is mode $mode; container users (config-guard) cannot search it"
+done
 cmp "$operator" "$ROOT_DIR/selfhost/chronicle" || fail 'current operator changed'
 python3 - "$UPDATE_EXEC_RECORD" "$new/selfhost/chronicle" "$RUN_DIR/releases/current/selfhost" <<'PY'
 from pathlib import Path
