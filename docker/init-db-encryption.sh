@@ -179,11 +179,20 @@ setup_vault_key_provider() {
 
         -- Create and set the principal key if not exists
         DO \$\$
+        DECLARE
+            principal_exists boolean := false;
         BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM pg_tde_key_info()
-                WHERE key_name = 'chronicle-principal-key'
-            ) THEN
+            BEGIN
+                PERFORM 1 FROM pg_tde_key_info()
+                WHERE key_name = 'chronicle-principal-key';
+                principal_exists := FOUND;
+            EXCEPTION
+                WHEN object_not_in_prerequisite_state THEN
+                    -- pg_tde raises this before any principal key is set.
+                    principal_exists := false;
+            END;
+
+            IF NOT principal_exists THEN
                 PERFORM pg_tde_create_key_using_database_key_provider(
                     'chronicle-principal-key',
                     'chronicle-vault'

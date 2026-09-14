@@ -17,6 +17,9 @@ echo "=========================================="
 PG_TDE_KEY_PROVIDER="${PG_TDE_KEY_PROVIDER:-file}"
 PG_TDE_VAULT_URL="${PG_TDE_VAULT_URL:-}"
 PG_TDE_VAULT_TOKEN="${PG_TDE_VAULT_TOKEN:-}"
+# pg_tde reads the Vault token from a FILE (vault_token_path), never as a literal.
+# The keyring volume is the only writable, non-world-readable path in this pod.
+PG_TDE_VAULT_TOKEN_PATH="${PG_TDE_VAULT_TOKEN_PATH:-/var/lib/postgresql/tde-keyring/.vault-token}"
 PG_TDE_VAULT_MOUNT_PATH="${PG_TDE_VAULT_MOUNT_PATH:-secret}"
 PG_TDE_VAULT_CA_PATH="${PG_TDE_VAULT_CA_PATH:-}"
 POSTGRES_DB="${POSTGRES_DB:-chronicle}"
@@ -89,11 +92,20 @@ setup_file_key_provider() {
 
         -- Create and set the principal key if not exists
         DO \$\$
+        DECLARE
+            principal_exists boolean := false;
         BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM pg_tde_key_info()
-                WHERE key_name = 'chronicle-principal-key'
-            ) THEN
+            BEGIN
+                PERFORM 1 FROM pg_tde_key_info()
+                WHERE key_name = 'chronicle-principal-key';
+                principal_exists := FOUND;
+            EXCEPTION
+                WHEN object_not_in_prerequisite_state THEN
+                    -- pg_tde raises this before any principal key is set.
+                    principal_exists := false;
+            END;
+
+            IF NOT principal_exists THEN
                 PERFORM pg_tde_create_key_using_database_key_provider(
                     'chronicle-principal-key',
                     'chronicle-file-vault'
@@ -126,47 +138,56 @@ setup_vault_key_provider() {
         exit 1
     fi
 
-    if [ -z "${PG_TDE_VAULT_TOKEN}" ]; then
-        echo "[ERROR] PG_TDE_VAULT_TOKEN is required for Vault key provider"
-        exit 1
+    # pg_tde's vault_v2 provider takes a token FILE PATH, not the token itself.
+    # Materialise the token from the pod secret if a file was not mounted directly.
+    if [ ! -s "${PG_TDE_VAULT_TOKEN_PATH}" ]; then
+        if [ -z "${PG_TDE_VAULT_TOKEN}" ]; then
+            echo "[ERROR] PG_TDE_VAULT_TOKEN or a nonempty PG_TDE_VAULT_TOKEN_PATH is required for Vault key provider"
+            exit 1
+        fi
+        mkdir -p "$(dirname "${PG_TDE_VAULT_TOKEN_PATH}")"
+        ( umask 077; printf '%s' "${PG_TDE_VAULT_TOKEN}" > "${PG_TDE_VAULT_TOKEN_PATH}" )
+        chmod 600 "${PG_TDE_VAULT_TOKEN_PATH}"
     fi
 
-    # Build Vault connection options
-    VAULT_OPTIONS="url '${PG_TDE_VAULT_URL}', token '${PG_TDE_VAULT_TOKEN}', mount_path '${PG_TDE_VAULT_MOUNT_PATH}'"
-
-    if [ -n "${PG_TDE_VAULT_CA_PATH}" ]; then
-        VAULT_OPTIONS="${VAULT_OPTIONS}, ca_path '${PG_TDE_VAULT_CA_PATH}'"
-    fi
-
-    psql -v ON_ERROR_STOP=1 --username "${POSTGRES_USER:-postgres}" --dbname "${POSTGRES_DB}" <<-EOSQL
-        -- Add Vault key provider
-        DO \$\$
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM pg_tde_list_all_database_key_providers()
-                WHERE name = 'chronicle-vault'
-            ) THEN
-                PERFORM pg_tde_add_database_key_provider_vault_v2(
-                    'chronicle-vault',
-                    '${PG_TDE_VAULT_URL}',
-                    '${PG_TDE_VAULT_TOKEN}',
-                    '${PG_TDE_VAULT_MOUNT_PATH}',
-                    '${PG_TDE_VAULT_CA_PATH}'
-                );
-                RAISE NOTICE 'Vault key provider created';
-            ELSE
-                RAISE NOTICE 'Vault key provider already exists';
-            END IF;
-        END
-        \$\$;
+    # Argument order is (provider_name, url, mount_path, token_path, ca_path) at every
+    # pg_tde version (1.0 through 2.2). Passing the token third makes pg_tde open the
+    # mount path as the token file: 'could not open file "secret" for "vault_token"'.
+    psql -v ON_ERROR_STOP=1 \
+        --username "${POSTGRES_USER:-postgres}" \
+        --dbname "${POSTGRES_DB}" \
+        -v vault_url="${PG_TDE_VAULT_URL}" \
+        -v vault_token_path="${PG_TDE_VAULT_TOKEN_PATH}" \
+        -v vault_mount_path="${PG_TDE_VAULT_MOUNT_PATH}" \
+        -v vault_ca_path="${PG_TDE_VAULT_CA_PATH}" <<-EOSQL
+        -- Add Vault key provider (psql variables are not expanded inside dollar-quoting,
+        -- so generate the call as SQL to keep every argument safely quoted).
+        SELECT format(
+            'SELECT pg_tde_add_database_key_provider_vault_v2(%L, %L, %L, %L, %s)',
+            'chronicle-vault', :'vault_url', :'vault_mount_path', :'vault_token_path',
+            CASE WHEN :'vault_ca_path' = '' THEN 'NULL' ELSE quote_literal(:'vault_ca_path') END
+        )
+        WHERE NOT EXISTS (
+            SELECT 1 FROM pg_tde_list_all_database_key_providers()
+            WHERE name = 'chronicle-vault'
+        ) \gexec
 
         -- Create and set the principal key if not exists
         DO \$\$
+        DECLARE
+            principal_exists boolean := false;
         BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM pg_tde_key_info()
-                WHERE key_name = 'chronicle-principal-key'
-            ) THEN
+            BEGIN
+                PERFORM 1 FROM pg_tde_key_info()
+                WHERE key_name = 'chronicle-principal-key';
+                principal_exists := FOUND;
+            EXCEPTION
+                WHEN object_not_in_prerequisite_state THEN
+                    -- pg_tde raises this before any principal key is set.
+                    principal_exists := false;
+            END;
+
+            IF NOT principal_exists THEN
                 PERFORM pg_tde_create_key_using_database_key_provider(
                     'chronicle-principal-key',
                     'chronicle-vault'
