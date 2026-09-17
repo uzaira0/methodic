@@ -624,6 +624,10 @@ cmd_setup() {
     2) tls_mode=own-tls ;;
     3) tls_mode=local-https ;;
   esac
+  # A re-setup that leaves the trial mode must not carry the trial's private-IP
+  # CHRONICLE_PUBLIC_BASE_URL into a production .env; guard-config rejects it and names a
+  # variable this wizard never asked about. Only the local-https branch below sets it.
+  [[ "$tls_mode" == local-https ]] || keep_public_base_url=""
 
   local domain http_bind=127.0.0.1 exposure=internal internal_bind=127.0.0.1
 
