@@ -174,8 +174,11 @@ whether the bind address is one this host actually has, whether the port is alre
 and whether another Compose project of the same name would be adopted. On the plain
 `docker compose up -d` path, Docker's own bind error is the fallback for the first two.
 
-Then browse to `https://<your-domain>/chronicle`. Point a Chronicle app build (see
-[Mobile apps](#mobile-apps)) at the same domain to enroll a device.
+Then browse to the dashboard on the **internal** listener: `https://<INTERNAL_BIND>:8081/chronicle`
+(e.g. `https://127.0.0.1:8081/chronicle`, reachable over an SSH tunnel). The dashboard API is
+absent from the public listener by design, so the SPA loads on `https://<your-domain>` but every
+call it makes returns 404 — that domain is the participant/mobile origin only. Point a Chronicle
+app build (see [Mobile apps](#mobile-apps)) at the domain to enroll a device.
 
 Other `./chronicle` subcommands: `up` (check, then `docker compose up -d`), `upgrade`
 (validated previous-release upgrade plus automatic backup), `restore` (stop every writer,

@@ -12,8 +12,10 @@
 
 ## Managing studies
 
-Everything is done from the web dashboard at `https://<your-domain>/chronicle` — there is
-no admin CLI.
+Everything is done from the web dashboard on the **internal** listener,
+`https://<INTERNAL_BIND>:8081/chronicle` (default `https://127.0.0.1:8081/chronicle`, reachable
+over an SSH tunnel) — there is no admin CLI. `https://<your-domain>` is the participant/mobile
+origin only: the SPA loads there, but the dashboard API answers 404 by design.
 
 1. **Create a study.** Give it a name; it gets a study ID (UUID).
 2. **Choose data-collection modules.** Each module (app usage, accelerometer, step count,
