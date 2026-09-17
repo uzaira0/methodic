@@ -477,12 +477,12 @@ for r in rows:
   # umask leaves every directory 0700 and every file 0600, which fails inside the container
   # as a bare "Permission denied", so say it here with the fix. ./backups,
   # ./operator-receipts, ./tls and .env are deliberately owner-only and are left alone.
-  local -a keep_private=( '(' -path ./backups -o -path ./operator-receipts -o -path ./tls -o -name '.env*' -o -name .git ')' -prune )
+  local -a keep_private=( '(' -path ./backups -o -path ./operator-receipts -o -path ./upgrade-receipts -o -path ./tls -o -name '.env*' -o -name .git ')' -prune )
   local unreadable
   unreadable=$(find . "${keep_private[@]}" -o \
     '(' '(' -type d ! -perm -0005 ')' -o '(' -type f ! -perm -0004 ')' ')' -print 2>/dev/null | sort | head -5 | tr '\n' ' ')
   if [[ -n "$unreadable" ]]; then
-    bad "bundle paths the container users cannot read (a private umask on extraction does this): ${unreadable}. Run: find '$(pwd -P)' \\( -path '*/backups' -o -path '*/operator-receipts' -o -path '*/tls' -o -name '.env*' \\) -prune -o -exec chmod a+rX {} +"
+    bad "bundle paths the container users cannot read (a private umask on extraction does this): ${unreadable}. Run: find '$(pwd -P)' \\( -path '*/backups' -o -path '*/operator-receipts' -o -path '*/upgrade-receipts' -o -path '*/tls' -o -name '.env*' \\) -prune -o -exec chmod a+rX {} +"
   else
     ok "bundle files and directories are readable by the container users"
   fi
