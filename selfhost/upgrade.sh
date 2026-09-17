@@ -434,6 +434,12 @@ compose_for_release() {
       unset "$variable" 2>/dev/null ||
         fail "could not isolate inherited Compose setting: $variable"
     done
+    # The isolation loops above unset every ${VAR} the YAML references, which includes the
+    # host account ids only the ./chronicle wrapper exports. Restore them so db-backup and
+    # restore are recreated under the invoking operator instead of root.
+    export CHRONICLE_HOST_UID CHRONICLE_HOST_GID
+    CHRONICLE_HOST_UID="$(id -u)"
+    CHRONICLE_HOST_GID="$(id -g)"
     docker compose "${compose_options[@]}" "$@"
   )
 }
@@ -666,7 +672,7 @@ grep -Fxq postgres <<<"$old_running_services" ||
 
 printf 'Taking a consistent pre-upgrade SQL dump with application writers stopped.\n'
 if ! compose_old exec -T postgres /bin/bash -ceu \
-    'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h 127.0.0.1 -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" --no-owner --no-privileges' \
+    'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h 127.0.0.1 -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" --no-owner --no-privileges --exclude-schema=chronicle_restore_continuity' \
     | gzip -c >"$backup_partial"; then
   fail "pre-upgrade database dump failed; the previous release will be restarted"
 fi
