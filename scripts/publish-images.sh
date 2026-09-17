@@ -49,6 +49,16 @@ if [[ -z "$dry_run" ]]; then
   for tool in docker gh git python3; do
     command -v "$tool" >/dev/null || { echo "error: missing tool: $tool" >&2; exit 1; }
   done
+  # The build tars the working tree but the release attests git rev-parse HEAD, so a dirty
+  # tree or a submodule off its gitlink would ship bytes that exist in no commit.
+  [[ -z $(git status --porcelain --untracked-files=no --ignore-submodules=none) ]] || {
+    echo 'error: working tree is dirty; commit or clean before publishing' >&2
+    exit 1
+  }
+  ! git submodule status --recursive | grep -qE '^[+-]' || {
+    echo 'error: submodules do not match their gitlinks; sync before publishing' >&2
+    exit 1
+  }
   # Match the builder before any registry side effects (calendar-style 09 is invalid).
   python3 - "$release" <<'PY'
 import sys
