@@ -1269,7 +1269,7 @@ cmd_verify() {
   hit() { # url path -> status code, retrying past rate-limit windows
     local code i
     for i in 1 2 3 4; do
-      code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "$1$2")
+      code=$(curl --noproxy '*' -sk -o /dev/null -w '%{http_code}' --max-time 10 "$1$2")
       [[ "$code" != 429 ]] && break
       sleep "${RATE_LIMIT_RETRY_SLEEP:-1.2}"
     done
@@ -1296,7 +1296,7 @@ cmd_verify() {
     # blank screen. Follow redirects, because the documented path is a redirect by design.
     local out code size i
     for i in 1 2 3 4; do
-      out=$(curl -skL -o /dev/null -w '%{http_code} %{size_download}' --max-time 10 "$1$2")
+      out=$(curl --noproxy '*' -skL -o /dev/null -w '%{http_code} %{size_download}' --max-time 10 "$1$2")
       [[ "${out%% *}" != 429 ]] && break
       sleep "${RATE_LIMIT_RETRY_SLEEP:-1.2}"
     done
@@ -1321,7 +1321,7 @@ cmd_verify() {
     escaped="${credentials//\\/\\\\}"
     escaped="${escaped//\"/\\\"}"
     printf 'user = "%s"\n' "$escaped" |
-      curl --config - -sk -o /dev/null -w '%{http_code}' --max-time 10 "$3"
+      curl --config - --noproxy '*' -sk -o /dev/null -w '%{http_code}' --max-time 10 "$3"
   }
   curl_header_code() { # header-name header-value method url -> status, value delivered over stdin
     local name="$1" value="$2" method="$3" url="$4" escaped
@@ -1332,7 +1332,7 @@ cmd_verify() {
     escaped="${value//\\/\\\\}"
     escaped="${escaped//\"/\\\"}"
     printf 'header = "%s: %s"\n' "$name" "$escaped" |
-      curl --config - -sk -o /dev/null -w '%{http_code}' --max-time 10 -X "$method" "$url"
+      curl --config - --noproxy '*' -sk -o /dev/null -w '%{http_code}' --max-time 10 -X "$method" "$url"
   }
   postgres_scalar() { # SQL -> one scalar result; DB password delivered over stdin
     local sql="$1"
@@ -1353,7 +1353,7 @@ cmd_verify() {
   # so against a listener that is not reachable at all they each burn ~40s and `verify`
   # appears to hang for ten minutes before reporting anything. Fail in five seconds with the
   # one thing worth saying instead.
-  if [[ "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 "${pub}/health")" == 000 ]]; then
+  if [[ "$(curl --noproxy '*' -sk -o /dev/null -w '%{http_code}' --max-time 5 "${pub}/health")" == 000 ]]; then
     printf '%sCannot reach %s at all.%s\n\n' "$RED" "$pub" "$RST" >&2
     printf 'Nothing was probed. Usual causes, in order:\n' >&2
     printf '  * the published port is held by another process — run: ./chronicle check\n' >&2
@@ -1384,7 +1384,7 @@ cmd_verify() {
     local int="https://${INTERNAL_BIND}:${INTERNAL_PORT}"
 
     # TLS must actually be on, or the password would cross the wire in the clear.
-    if curl -sk -o /dev/null --max-time 10 "$int/health"; then
+    if curl --noproxy '*' -sk -o /dev/null --max-time 10 "$int/health"; then
       printf '  %sok%s   internal listener is HTTPS (credentials are not sent in clear)\n' "$GRN" "$RST"
     else
       printf '  %sFAIL%s internal listener did not answer over HTTPS\n' "$RED" "$RST"; fail=1
@@ -1392,8 +1392,8 @@ cmd_verify() {
 
     # No credentials -> must be refused, and must actually be the password gate.
     local code hdrs
-    code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "$int/chronicle/api/web/study")
-    hdrs=$(curl -sk -sI --max-time 10 "$int/chronicle/api/web/study" | tr -d '\r')
+    code=$(curl --noproxy '*' -sk -o /dev/null -w '%{http_code}' --max-time 10 "$int/chronicle/api/web/study")
+    hdrs=$(curl --noproxy '*' -sk -sI --max-time 10 "$int/chronicle/api/web/study" | tr -d '\r')
     if [[ "$code" == 401 ]] && grep -qi '^WWW-Authenticate:' <<<"$hdrs"; then
       printf '  %sok%s   401 dashboard API demands the global password\n' "$GRN" "$RST"
     else
@@ -1453,20 +1453,20 @@ cmd_verify() {
   settings_path="/chronicle/v3/study/00000000-0000-0000-0000-000000000000/settings/type/DataCollection"
   enrollment_path="/chronicle/v4/study/00000000-0000-0000-0000-000000000000/participant/reviewer/enroll"
   reviewer_path="/chronicle/v4/mobile/reviewer-enrollment"
-  settings_code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "${pub}${settings_path}")
-  enrollment_code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 -X POST \
+  settings_code=$(curl --noproxy '*' -sk -o /dev/null -w '%{http_code}' --max-time 10 "${pub}${settings_path}")
+  enrollment_code=$(curl --noproxy '*' -sk -o /dev/null -w '%{http_code}' --max-time 10 -X POST \
     -H 'Content-Type: application/json' \
     -H 'X-Chronicle-Device-Id: selfhost-verifier' \
     --data '{"@class":"com.openlattice.chronicle.sources.AndroidDevice","device":"selfhost-verifier","model":"selfhost-verifier","codename":"selfhost-verifier","brand":"selfhost-verifier","osVersion":"1","sdkVersion":"1","product":"selfhost-verifier","deviceId":"selfhost-verifier"}' \
     "${pub}${enrollment_path}")
-  reviewer_unauth_code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 -X POST \
+  reviewer_unauth_code=$(curl --noproxy '*' -sk -o /dev/null -w '%{http_code}' --max-time 10 -X POST \
     "${pub}${reviewer_path}")
 
   # /privacy and /withdrawal were retired with the public research policy page; store
   # listings point at the institutional privacy URL instead.
   for public_page in reviewer; do
     expected_page="${pub}/chronicle/${public_page}"
-    page_result=$(curl -skL -o /dev/null \
+    page_result=$(curl --noproxy '*' -skL -o /dev/null \
       -w '%{http_code}|%{url_effective}|%{size_download}' --max-time 10 \
       "${pub}/${public_page}")
     case "$page_result" in
@@ -1531,7 +1531,7 @@ cmd_verify() {
   # keeping the total bounded by the configured event limit.
   burst_codes="$({
     for ((i=0; i<burst; i++)); do
-      curl -sk -o /dev/null -w '%{http_code}\n' --max-time 10 \
+      curl --noproxy '*' -sk -o /dev/null -w '%{http_code}\n' --max-time 10 \
         "${pub}/chronicle/v4/study/x/upload" &
     done
     wait
@@ -1622,7 +1622,7 @@ cmd_verify() {
     printf '\n%sNot covered by this check:%s these probes ran from this host. They cannot tell\n' "$YEL" "$RST"
     printf 'you whether your load balancer reaches the stack. Two different things to confirm:\n'
     printf '  1. your proxy can reach this stack — run this ON THE PROXY host:\n'
-    printf '       curl -sS -o /dev/null -w '"'"'%%{http_code}\\n'"'"' http://%s:%s/health   # expect 200\n' "$HTTP_BIND" "$HTTP_PORT"
+    printf '       curl --noproxy '"'"'*'"'"' -sS -o /dev/null -w '"'"'%%{http_code}\\n'"'"' http://%s:%s/health   # expect 200\n' "$HTTP_BIND" "$HTTP_PORT"
     printf '  2. the world can reach your proxy — run this from anywhere outside:\n'
     printf '       curl -sS -o /dev/null -w '"'"'%%{http_code}\\n'"'"' %s/health   # expect 200\n' "$external_origin"
     # Naming the upstream address matters: this stack listens on plain HTTP at
@@ -1869,7 +1869,7 @@ cmd_monitoring() {
       printf '%sPrivate monitoring%s (%s)\n' "$BLD" "$RST" "$base"
       dc ps monitoring-config cadvisor operational-probe metrics-exporter victoriametrics victorialogs fluent-bit grafana ||
         die "could not inspect monitoring service status"
-      if curl -fsS --max-time 8 "$base/api/health" >/dev/null 2>&1; then
+      if curl --noproxy '*' -fsS --max-time 8 "$base/api/health" >/dev/null 2>&1; then
         printf '  %sok%s   Grafana answers on the configured private listener\n' "$GRN" "$RST"
       else
         die "Grafana is not reachable at $base; run ./chronicle doctor"
