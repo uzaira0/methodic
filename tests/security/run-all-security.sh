@@ -406,6 +406,12 @@ case "$LAYER" in
       "selfhost-combination-matrix.txt" "" -- "$ROOT_DIR/tests/security/selfhost-combination-matrix.sh"
     run_security_step "deploy.selfhost-release-bundle" "Deploy: source-free self-host release bundle contract" "guardrail" \
       "selfhost-release-bundle.txt" "" -- "$ROOT_DIR/tests/security/selfhost-release-bundle.sh"
+    run_security_step "deploy.selfhost-update-command" "Deploy: self-host update command contract" "guardrail" \
+      "selfhost-update-command.txt" "" -- "$ROOT_DIR/tests/security/selfhost-update-command.sh"
+    run_security_step "deploy.selfhost-adopt-command" "Deploy: self-host adopt command contract" "guardrail" \
+      "selfhost-adopt-command.txt" "" -- "$ROOT_DIR/tests/security/selfhost-adopt-command.sh"
+    run_security_step "deploy.failure-propagation" "Deploy: failure propagation guardrails" "guardrail" \
+      "failure-propagation-guardrails.txt" "" -- "$ROOT_DIR/tests/security/failure-propagation-guardrails.sh"
     run_security_step "deploy.observability" "Deploy: observability fallback guardrails" "guardrail" \
       "observability-guardrails.txt" "observability" -- "$ROOT_DIR/tests/security/observability-guardrails.sh" "$REPORT_DIR/observability"
     run_security_step "deploy.operator-access" "Deploy: operator access and secret custody guardrails" "guardrail" \

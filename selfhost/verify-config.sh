@@ -598,6 +598,48 @@ else
   ok "db-init byte-verifies the recoverable keyring copy"
 fi
 
+# Round-2 sweep guardrails (2026-09-17): each locks in a fix that a review found.
+# 1. Every curl that probes THIS deployment must bypass HTTP_PROXY, or a proxied host lets
+#    the university proxy answer for Caddy. Only cmd_update's downloader may egress.
+update_start=$(grep -nE '^cmd_update\(\) \{' chronicle | cut -d: -f1)
+update_end=$(awk -v s="$update_start" 'NR>s && /^cmd_[a-z_]+\(\) \{/ {print NR; exit}' chronicle)
+proxied=$(awk -v s="$update_start" -v e="$update_end" \
+  'NR>=s && NR<e {next} /^[[:space:]]*#/ {next} /[[:space:]"(]curl[[:space:]]/ && !/--noproxy/ && !/external_origin/ {print NR": "$0}' chronicle)
+if [[ -n "$proxied" ]]; then
+  fail "deployment probes honour HTTP_PROXY (add --noproxy '*'): ${proxied}"
+else
+  ok "every deployment probe in ./chronicle bypasses HTTP_PROXY"
+fi
+# 2. macOS has no sha256sum; python3 is already required by both scripts.
+if grep -q 'sha256sum' upgrade.sh rotate-secret.sh; then
+  fail "upgrade.sh/rotate-secret.sh depend on sha256sum (absent on macOS)"
+else
+  ok "upgrade.sh and rotate-secret.sh compute digests without sha256sum"
+fi
+# 3. upgrade-receipts/ is created 0700 by upgrade.sh and adopt; the readability guard must
+#    skip it or every check/up after an upgrade fails, and the printed fix must not chmod it.
+if grep -q -- "-path ./upgrade-receipts" chronicle && grep -q -- "'\*/upgrade-receipts'" chronicle; then
+  ok "readability guard and its remediation leave upgrade-receipts/ private"
+else
+  fail "readability guard does not prune upgrade-receipts/ (check/up fail after every upgrade)"
+fi
+# 4. config-guard writes configuration.prom into the root-owned textfile volume.
+if awk '/^  config-guard:/{f=1;next} f&&/^  [a-z]/{f=0} f' overlays/monitoring.yml | grep -q 'user: "0:0"'; then
+  ok "monitoring overlay runs config-guard as root for the textfile volume"
+else
+  fail "monitoring overlay config-guard is not user 0:0; configuration.prom can never be written"
+fi
+# 5. The internal listener is :8081 over the self-signed internal cert in every Caddyfile
+#    variant; :80 matches by host in own-tls/local-https and answers an empty 200.
+if grep -q 'INTERNAL_HEALTH_URL: https://web:8081/health' overlays/monitoring.yml &&
+   grep -q 'curl -kfsS --max-time 8 "$INTERNAL_HEALTH_URL"' monitoring/probe.sh &&
+   grep -q 'wget --no-check-certificate -q --spider -T 8 "$INTERNAL_HEALTH_URL"' monitoring/probe.sh &&
+   grep -q '"https://127.0.0.1:8081/health"' docker-compose.yml; then
+  ok "web healthcheck and monitoring probe hit the :8081 internal listener over TLS"
+else
+  fail "web healthcheck/monitoring probe do not target https://…:8081/health (vacuous health)"
+fi
+
 echo
 if [[ $FAILED -ne 0 ]]; then
   echo "Config verification FAILED"

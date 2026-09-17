@@ -869,6 +869,7 @@ job_architecture() {
 
 job_migration_safety() {
   "$ROOT_DIR/scripts/check-migrations-safe.sh" --server-dir "$ROOT_DIR/chronicle-server"
+  "$ROOT_DIR/tests/security/migration-safety.sh"
 }
 
 job_selfhost() {
