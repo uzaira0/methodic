@@ -135,6 +135,12 @@ while IFS= read -r dir; do
   [[ "$dir_mode" == 755 ]] ||
     fail "bundle directory $dir is mode ${dir_mode} under umask 077; container users cannot search it"
 done < <(find "$BUNDLE" -type d ! -path "${BUNDLE}/selfhost/backups" ! -path "${BUNDLE}/selfhost/tls")
+for pair in "backups:700" "tls:755"; do
+  dir="${BUNDLE}/selfhost/${pair%%:*}"
+  dir_mode="$(stat -c '%a' "$dir" 2>/dev/null || stat -f '%Lp' "$dir")"
+  [[ "$dir_mode" == "${pair##*:}" ]] ||
+    fail "bundle directory $dir is mode ${dir_mode}; expected ${pair##*:} (dumps private, tls searchable by cert-init consumers)"
+done
 grep -Fqx "BACKEND_IMAGE=${BACKEND_IMAGE}" "$ENV_EXAMPLE" || fail "backend digest was not rendered"
 grep -Fqx "SELFHOST_FRONTEND_IMAGE=${FRONTEND_IMAGE}" "$ENV_EXAMPLE" || fail "frontend digest was not rendered"
 grep -Fqx "CADDY_IMAGE=${CADDY_IMAGE}" "$ENV_EXAMPLE" || fail "Caddy digest was not rendered"

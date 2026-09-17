@@ -211,8 +211,11 @@ def main() -> None:
             else:
                 target.chmod(0o755 if os.access(source, os.X_OK) else 0o644)
 
-        for runtime_dir in (bundle / "selfhost" / "backups", bundle / "selfhost" / "tls"):
-            runtime_dir.mkdir(mode=0o700)
+        # backups holds dumps, so it stays private; tls must be traversable by the
+        # unprivileged config-guard/cert-init containers (cert-init locks key.pem down).
+        (bundle / "selfhost" / "backups").mkdir(mode=0o700)
+        (bundle / "selfhost" / "tls").mkdir(mode=0o755)
+        (bundle / "selfhost" / "tls").chmod(0o755)
 
         docker_dir = bundle / "docker"
         docker_dir.mkdir(mode=0o755)
