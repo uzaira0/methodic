@@ -29,7 +29,7 @@ EOF
 
 [[ "$#" -eq 2 && "$1" == --from ]] || { usage >&2; exit 2; }
 
-for command in docker python3 gzip sha256sum awk date stat; do
+for command in docker python3 gzip awk date stat; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is unavailable: $command"
 done
 docker compose version >/dev/null 2>&1 || fail "the Docker Compose plugin is unavailable"
@@ -695,7 +695,12 @@ finally:
     os.close(directory_fd)
 PY
 backup_partial=""
-backup_sha256="$(sha256sum "$backup_path" | awk '{print $1}')"
+backup_sha256="$(python3 -c 'import hashlib,sys
+h=hashlib.sha256()
+with open(sys.argv[1],"rb") as handle:
+    for chunk in iter(lambda: handle.read(1 << 20), b""):
+        h.update(chunk)
+print(h.hexdigest())' "$backup_path")"
 printf '  verified pre-upgrade backup: %s\n' "$backup_path"
 
 RECEIPT_DIR="${STATE_ROOT}/upgrade-receipts"

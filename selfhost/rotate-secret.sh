@@ -602,7 +602,6 @@ PY
 
 take_pre_rotation_backup() {
   command -v gzip >/dev/null 2>&1 || fail "gzip is required for the pre-rotation backup"
-  command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is required for backup verification"
   local directory="${STATE_ROOT}/backups/secret-rotation"
   local timestamp partial final checksum
   timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -628,7 +627,12 @@ take_pre_rotation_backup() {
   /bin/mv "$partial" "$final"
   BACKUP_PARTIAL=""
   /bin/chmod 0600 "$final"
-  checksum="$(sha256sum "$final" | awk '{print $1}')"
+  checksum="$(python3 -c 'import hashlib,sys
+h=hashlib.sha256()
+with open(sys.argv[1],"rb") as handle:
+    for chunk in iter(lambda: handle.read(1 << 20), b""):
+        h.update(chunk)
+print(h.hexdigest())' "$final")"
   RECEIPT_DETAIL="backup=${final};sha256=${checksum}"
 }
 
