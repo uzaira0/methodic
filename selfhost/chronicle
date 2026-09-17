@@ -806,7 +806,8 @@ cmd_setup() {
       if [[ "$reuse_answer" =~ ^[Yy]$ ]]; then
         keep_mob="$adopt_key"
         printf 'Reusing it. Fingerprint %s.\n' \
-          "$(printf '%s' "$adopt_key" | sha256sum | cut -c1-12)"
+          "$(printf '%s' "$adopt_key" | python3 -c \
+            'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest()[:12])')"
       fi
     fi
   fi
@@ -2244,11 +2245,12 @@ cmd_update() {
   shift || true
   [[ $# -eq 0 || ( $# -eq 1 && "$1" == --check ) ]] || die "usage: ./chronicle update [--check]"
   local tool
-  for tool in curl python3 sha256sum; do
+  for tool in curl python3; do
     command -v "$tool" >/dev/null 2>&1 || die "update requires missing tool: $tool"
   done
   python3 - "$STATE_ROOT" "${1:-}" \
     "${CHRONICLE_RELEASES_URL:-https://api.github.com/repos/uzaira0/methodic/releases/latest}" <<'PY'
+import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -2335,12 +2337,17 @@ try:
             curl(url, output)
 
     checksum = parent / (archive_name + ".sha256")
-    # Restrict the checksum file to exactly this archive before invoking sha256sum.
-    if not re.fullmatch(r"[0-9a-fA-F]{64} [ *]" + re.escape(archive_name) + r"\n?",
-                        checksum.read_text()):
+    # Restrict the checksum file to exactly this archive, then verify it in-process:
+    # macOS has no sha256sum, and the rest of this script supports macOS.
+    entry = re.fullmatch(r"([0-9a-fA-F]{64}) [ *]" + re.escape(archive_name) + r"\n?",
+                         checksum.read_text())
+    if not entry:
         fail("bad checksum file: expected one SHA-256 entry for the release archive")
-    result = subprocess.run(["sha256sum", "-c", checksum.name], cwd=parent, check=False)
-    if result.returncode:
+    digest = hashlib.sha256()
+    with (parent / archive_name).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != entry[1].lower():
         fail("bad checksum: release archive verification failed; nothing extracted")
 
     with tarfile.open(parent / archive_name, "r:gz") as archive:
