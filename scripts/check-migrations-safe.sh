@@ -50,6 +50,21 @@ printf '%s immutability (a): baseline %s\n' "$immutable" "$since"
 
 additive=PASS
 numbering=PASS
+# Two added migrations sharing a version both beat the published maximum, so check them against each other too.
+duplicates=$(for file in "${added[@]}"; do
+  name=${file##*/}
+  [[ "$name" == V*__*.sql ]] || continue
+  version=${name#V}; version=${version%%__*}
+  awk -v v="$version" 'BEGIN { n=split(v,p,/[._]/); out=""
+    for (i=1; i<=n; i++) { sub(/^0+/, "", p[i]); out = out (i>1 ? "." : "") (p[i] == "" ? "0" : p[i]) }
+    print out }'
+done | sort | uniq -d)
+if [[ -n "$duplicates" ]]; then
+  numbering=FAIL
+  while IFS= read -r version; do
+    printf 'FAIL numbering: duplicate version V%s among added migrations\n' "$version"
+  done <<< "$duplicates"
+fi
 for file in "${added[@]}"; do
   [[ "$file" == *.sql ]] || continue
   if [[ ! -f "$file" || -L "$file" ]]; then
