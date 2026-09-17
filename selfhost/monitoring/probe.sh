@@ -59,11 +59,11 @@ EOF
   unset PGPASSWORD
 
   if command -v curl >/dev/null 2>&1; then
-    curl -fsS --max-time 8 "$INTERNAL_HEALTH_URL" >/dev/null 2>&1 && web_up=1 || true
+    curl -kfsS --max-time 8 "$INTERNAL_HEALTH_URL" >/dev/null 2>&1 && web_up=1 || true
     curl -kfsS --max-time 10 "$PUBLIC_HEALTH_URL" >/dev/null 2>&1 && public_up=1 || true
     curl -fsS --max-time 8 "$LOGS_HEALTH_URL" >/dev/null 2>&1 && logs_up=1 || true
   elif command -v wget >/dev/null 2>&1; then
-    wget -q --spider -T 8 "$INTERNAL_HEALTH_URL" >/dev/null 2>&1 && web_up=1 || true
+    wget --no-check-certificate -q --spider -T 8 "$INTERNAL_HEALTH_URL" >/dev/null 2>&1 && web_up=1 || true
     wget --no-check-certificate -q --spider -T 10 "$PUBLIC_HEALTH_URL" >/dev/null 2>&1 && public_up=1 || true
     wget -q --spider -T 8 "$LOGS_HEALTH_URL" >/dev/null 2>&1 && logs_up=1 || true
   fi

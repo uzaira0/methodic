@@ -582,7 +582,12 @@ services:
       cert-init:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      # Probe the internal listener, not :80. Only the behind-proxy variant has a port-only
+      # :80 catch-all; the own-tls and local-https Caddyfiles match :80 by host, so a
+      # Host: localhost request falls through to an empty 200 and reports healthy even when
+      # nothing behind it works. `:8081` is port-only in all three variants and carries
+      # chronicle_health, which proxies to the backend. Self-signed cert, hence --no-check-certificate.
+      test: ["CMD", "wget", "-q", "--spider", "--no-check-certificate", "https://127.0.0.1:8081/health"]
       interval: 30s
       timeout: 10s
       retries: 3
