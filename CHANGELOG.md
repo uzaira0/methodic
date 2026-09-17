@@ -7,6 +7,23 @@ would sort below the day's release, so `./chronicle update` would refuse it.
 
 ## [Unreleased]
 
+## [2026.9.17]
+
+### Self-host
+- `./chronicle adopt`: copies `backups/` and `tls/` through a root container from the source PostgreSQL image, so the root-owned TLS key and dumps arrive intact; refuses a source with a preserved restore, upgrade or rotation lock.
+- `./chronicle up` readability guard walks the whole bundle instead of one directory and prints the `chmod a+rX` remediation.
+- `./chronicle update` verifies the bundle sha256 in-process; `sha256sum` no longer required.
+- `upgrade.sh` runs release Compose commands as the operator uid/gid, so db-backup and restore containers do not leave root-owned dumps; pre-upgrade dump excludes `chronicle_restore_continuity` like restore does.
+- Bundle ships `backups/` 0700 and `tls/` 0755 explicitly; release-bundle test asserts both.
+- Migration gate rejects duplicate Flyway version numbers.
+- Docs: extract bundles with `tar -xzpf`; `./chronicle up` named wherever the stack is started.
+
+### Server
+- Upload diagnostics batches answered 500: the service forced autocommit back on inside the halt recheck, so the guard's commit failed. Previous autocommit restored; regression test on a real PostgreSQL.
+
+### Android
+- OEM background-guidance dialog: vendor settings packages declared in `<queries>` for every flavor, so `resolveActivity` finds them on API 30+ instead of landing on the Settings root.
+
 ## [2026.9.14]
 
 ### Self-host
