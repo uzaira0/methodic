@@ -2,8 +2,8 @@
 
 This file is the release compatibility contract. A combination is supported only when it
 appears below. `tests/security/selfhost-combination-matrix.sh` renders every row twice—once
-without monitoring and once with monitoring—and executes the same `guard-config.sh` used by
-`docker compose up -d`.
+without monitoring and once with monitoring—and executes the same `guard-config.sh` that
+`./chronicle up` runs.
 
 ## Components and status
 

@@ -11,7 +11,7 @@ From the current bundle's `selfhost` directory, run `./chronicle update --check`
 print the current and latest release versions (exit 0 if up to date, 3 if an update is
 available). Run `./chronicle update` to download the latest bundle and its `.sha256`,
 verify the checksum, extract beside the current bundle, and hand off to the guarded
-upgrade below. It requires `curl`, `python3`, and `sha256sum`, refuses a release that
+upgrade below. It requires `curl` and `python3`, refuses a release that
 is not newer, and never overwrites an existing release directory or download.
 
 ### Switching from a source checkout to release bundles
@@ -21,7 +21,7 @@ Use `adopt` once when the running installation is a source checkout without a
 
 ```bash
 sha256sum -c chronicle-selfhost-<new-version>.tar.gz.sha256
-tar -xzf chronicle-selfhost-<new-version>.tar.gz
+tar -xzpf chronicle-selfhost-<new-version>.tar.gz
 cd chronicle-selfhost-<new-version>/selfhost
 ./chronicle adopt --from /absolute/path/to/source-checkout/selfhost
 ```
@@ -66,7 +66,7 @@ To download and start a release-bundle upgrade manually:
 
    ```bash
    sha256sum -c chronicle-selfhost-<new-version>.tar.gz.sha256
-   tar -xzf chronicle-selfhost-<new-version>.tar.gz
+   tar -xzpf chronicle-selfhost-<new-version>.tar.gz
    cd chronicle-selfhost-<new-version>/selfhost
    ./chronicle upgrade --from /absolute/path/to/chronicle-selfhost-<old-version>/selfhost
    ```

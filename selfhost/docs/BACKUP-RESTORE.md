@@ -27,7 +27,7 @@ COMPOSE_FILE=docker-compose.yml:overlays/mode-behind-proxy-internal.yml:overlays
 
 ```bash
 ./chronicle check
-docker compose up -d
+./chronicle up
 ```
 
 Dumps land in `${CHRONICLE_STATE_DIR:-.}/backups/` on the host, rotated
