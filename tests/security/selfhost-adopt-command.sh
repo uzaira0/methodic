@@ -33,6 +33,15 @@ elif "down" in args:
     sys.exit(1 if failure == "down" else 0)
 elif "up" in args:
     pass  # Source rollback only; new up/verify are intercepted by the fixture launcher.
+elif args[0] == "run":
+    # Stand in for the root copy container: replicate the two bind mounts' contents.
+    mounts = dict(args[i + 1].split(":")[:2] for i, a in enumerate(args) if a == "-v")
+    source = next(host for host, target in mounts.items() if target == "/from")
+    target = next(host for host, target in mounts.items() if target == "/to")
+    assert args[args.index("--user") + 1] == "0:0" and args[args.index("--entrypoint") + 1] == "/bin/cp", args
+    assert args[-3:] == ["-a", "/from/.", "/to/"], args
+    import shutil
+    shutil.copytree(source, target, dirs_exist_ok=True)
 elif "config" in args:
     print("postgres\nbackend\nweb\ndb-init\ndb-backup")
 elif "ps" in args:
@@ -78,7 +87,8 @@ EOF
 from pathlib import Path
 import sys
 Path(sys.argv[1]).write_text("RELEASE_VERSION=1.2.3\nCOMPOSE_PROJECT_NAME=chronicle-selfhost\n"
-    "CHRONICLE_STATE_DIR=.\nCOMPOSE_FILE=docker-compose.yml\nNEW_DEFAULT=enabled\n" +
+    "CHRONICLE_STATE_DIR=.\nCOMPOSE_FILE=docker-compose.yml\nNEW_DEFAULT=enabled\n"
+    "POSTGRES_IMAGE=registry/postgres:fixture\n" +
     "".join(f"{key}=registry/{image}@sha256:{'a' * 64}\n" for key, image in
             [("BACKEND_IMAGE", "backend"), ("SELFHOST_FRONTEND_IMAGE", "frontend"), ("CADDY_IMAGE", "caddy")]))
 PY
@@ -137,6 +147,12 @@ expect_failure 'new backups/ must be absent or empty' --from "$source_dir"
 fixture
 rm "$RUN_DIR/release/release-manifest.json"
 expect_failure 'new release manifest is missing' --from "$source_dir"
+for lock in .chronicle-restore.lock .chronicle-upgrade.lock .chronicle-secret-rotation; do
+  fixture
+  mkdir "$source_dir/$lock"
+  expect_failure 'incomplete operation preserved' --from "$source_dir"
+  [[ ! -s "$ADOPT_RECORD" ]] || fail "$lock reached docker"
+done
 echo 'PASS: arguments, release source, missing/private env, state directories, and existing destination refused'
 
 for failure in health missing-postgres stop writers-running dump empty-dump down; do
@@ -190,7 +206,11 @@ up = next(i for i, row in enumerate(rows) if row[1:] == ["chronicle", "up"])
 assert stop < dump < down < up
 assert rows[stop][-4:] == ["backend", "web", "db-init", "db-backup"]
 assert all("--project-name" not in row or row[row.index("--project-name") + 1] == "pilot-project" for row in rows)
-assert all("-v" not in row and "--volumes" not in row for row in rows)
+assert not any("down" in row and ("-v" in row or "--volumes" in row) for row in rows)
+copies = [row for row in rows if row[1] == "run"]
+assert len(copies) == 2 and all(row[row.index("--user") + 1] == "0:0" for row in copies), rows
+assert all(row[-4] == "registry/postgres:fixture" and ":/from:ro" in " ".join(row) for row in copies), rows
+assert all(":source" not in " ".join(row) for row in copies), rows
 assert [row[-1] for row in rows if row[1] == "chronicle"] == (["up"] if failure == "up" else ["up", "verify"])
 assert all(row[0] == str(new) for row in rows if row[1] == "chronicle")
 assert not any("up" in row and row[1] == "compose" for row in rows)

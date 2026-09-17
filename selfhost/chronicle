@@ -2475,6 +2475,12 @@ try:
             f"source has a release manifest; use ./chronicle upgrade --from '{source}' instead")
     require(not os.path.lexists(new / ".env"),
             "new release already has .env; extract a clean bundle")
+    # Same fail-closed interlocks as up/upgrade/rotate-secret: adopting a source checkout
+    # must not launder a preserved lock by leaving it behind in the old directory.
+    for lock in (".chronicle-restore.lock", ".chronicle-upgrade.lock", ".chronicle-secret-rotation"):
+        require(not os.path.lexists(source / lock),
+                f"source has an incomplete operation preserved at {source / lock}; "
+                "follow its recovery runbook before adopting")
     old_env = source / ".env"
     require(old_env.is_file() and not old_env.is_symlink(),
             "source .env must be a regular file")
@@ -2564,6 +2570,11 @@ try:
     with backup.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
+    # cert-init leaves tls/*key.pem root-owned 0600 and db-backup writes root-owned dumps,
+    # so the operator account cannot read either tree. Copy them through a root container,
+    # reusing the image the source PostgreSQL service is already running.
+    copy_image = value(old, "POSTGRES_IMAGE") or value(defaults, "POSTGRES_IMAGE")
+    require(copy_image, "could not resolve the PostgreSQL image to copy source state with")
     for name in (".env", "backups", "tls"):
         copied.append(name)
         if name == ".env":
@@ -2571,7 +2582,9 @@ try:
             os.chmod(new / name, 0o600)
         else:
             (new / name).mkdir(exist_ok=True)
-            run(["cp", "-a", str(source / name) + "/.", str(new / name)])
+            run(["docker", "run", "--rm", "--user", "0:0", "--entrypoint", "/bin/cp",
+                 "-v", f"{source / name}:/from:ro", "-v", f"{new / name}:/to",
+                 copy_image, "-a", "/from/.", "/to/"])
     # Equivalent to upgrade.sh's embedded merge: template defaults and image/version pins,
     # old operator values (including unknown non-image settings), normalized Compose paths.
     old.update(COMPOSE_PROJECT_NAME=project, COMPOSE_FILE=":".join(names), CHRONICLE_STATE_DIR=".")
