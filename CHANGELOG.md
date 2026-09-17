@@ -7,6 +7,29 @@ would sort below the day's release, so `./chronicle update` would refuse it.
 
 ## [Unreleased]
 
+## [2026.9.18]
+
+### Self-host
+- `./chronicle check`/`up` failed on every deployment after an upgrade: the readability guard flagged the private `upgrade-receipts/` directory. Pruned, and the printed `chmod` remediation leaves it private. `adopt` could never reach a healthy stack for the same reason.
+- `verify` and monitoring status probe the local stack with `--noproxy '*'`; on a host with `HTTP_PROXY` set the proxy answered instead of Caddy.
+- Re-running `setup` out of the trial mode no longer carries the trial's private `CHRONICLE_PUBLIC_BASE_URL` into a production `.env`.
+- `upgrade.sh` and `rotate-secret.sh` compute digests with python3; `sha256sum` no longer required (macOS).
+- Web healthcheck and monitoring probe target the `:8081` internal listener over TLS; the `:80` probe answered an empty 200 in own-tls and local-https modes.
+- Monitoring overlay runs config-guard as root so `configuration.prom` can be written; the "configuration validation failed" alert no longer fires forever.
+- README and CONFIGURATION name the internal listener for the dashboard; the public origin serves participants only.
+- Release script refuses a dirty tree or out-of-sync submodules. Local CI runs the migration-safety fixture suite; the security runner registers the update, adopt and failure-propagation suites.
+
+### Server
+- Creating an organization seeds the creator as OWNER in `organization_members`; every organization-scoped endpoint was 403 for a new organization once the authorization aspect was registered.
+- Settings reads take the revision before the settings map, so the `ETag` can never be newer than the map it accompanies.
+
+### Dashboard
+- A 412 on a settings write stops the remaining writes instead of sending them unguarded.
+- Clearing every limit field no longer PUTs `{}`, which the server read as the default limits.
+
+### Android
+- Open flavor declares `SCHEDULE_EXACT_ALARM`; without it every launch bounced enrolled participants into system Settings.
+
 ## [2026.9.17]
 
 ### Self-host
