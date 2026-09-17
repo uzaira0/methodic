@@ -265,6 +265,7 @@ services:
         fluentd-sub-second-precision: "true"
         tag: chronicle.web
   config-guard:
+    user: "0:0"
     environment:
       MONITORING_ENABLED: "true"
       GRAFANA_BIND: ${GRAFANA_BIND:-127.0.0.1}
