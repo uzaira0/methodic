@@ -63,7 +63,7 @@ afterEvaluate {
 // it eagerly (the closure runs immediately for already-created configurations).
 // Single shared pin for the BouncyCastle family: consumed by the force block here
 // and by chronicle-models' explicit bcprov dependency.
-ext.bouncycastle_version='1.84'
+ext.bouncycastle_version='1.85'
 
 configurations.all {
   // check for updates every build
