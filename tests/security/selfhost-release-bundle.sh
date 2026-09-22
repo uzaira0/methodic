@@ -288,6 +288,15 @@ for relative, expected in manifest["files"].items():
 PY
 
 setup_password='turnkey-dashboard-password-123!'
+# A non-public hostname must stop the wizard at the hostname question, not at `up`.
+if printf '1\nstudy.pilot.test\n' | (cd "${BUNDLE}/selfhost" && ./chronicle setup) \
+    >"${RUN_DIR}/turnkey-setup-badhost.log" 2>&1; then
+  fail "setup accepted a non-public hostname"
+fi
+grep -Fq 'is not a public DNS name' "${RUN_DIR}/turnkey-setup-badhost.log" || fail "setup did not explain the refused hostname"
+[[ ! -e "${BUNDLE}/selfhost/.env" ]] || fail "setup wrote .env for a refused hostname"
+# The refusal leaves its own failed-setup receipt; the assertions below want the real one.
+/bin/rm -rf -- "${BUNDLE}/selfhost/operator-receipts"
 printf '1\nturnkey.example.org\n\n\n%s\n%s\n\n\n\n\n\n' "$setup_password" "$setup_password" |
   (cd "${BUNDLE}/selfhost" && \
     CADDY_SETUP_HASH_IMAGE='caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d' \

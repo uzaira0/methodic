@@ -653,6 +653,10 @@ cmd_setup() {
   else
     read -rp "Hostname participants' phones and researchers will use (e.g. study.example.org): " domain
     [[ -n "$domain" ]] || die "a hostname is required"
+    # The same classifier `up` runs in config-guard. Asked here, a mistyped or private name
+    # costs one question, not the whole wizard.
+    bash ./guard-config.sh --validate-public-host "$domain" ||
+      die "$domain is not a public DNS name or globally routable address; production modes need one (use choice 3 for a trial on this network)"
 
     # Ask where the proxy will connect. Defaulting this to 127.0.0.1 is a trap when the load
     # balancer lives on another host: the stack starts, `check` passes, and `verify` passes
