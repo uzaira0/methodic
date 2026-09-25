@@ -1,0 +1,12 @@
+# Accepted findings for scripts/publish-images.sh. Each entry: one advisory, the exact artifact,
+# why it is not reachable, and an expiry that forces a re-check.
+vulnerabilities:
+  - id: GHSA-r7wm-3cxj-wff9
+    paths:
+      - "server/lib/hazelcast-5.5.0.jar"
+    expired_at: 2026-12-31
+    statement: >-
+      jackson-core 2.17.2 shaded (relocated to com.hazelcast.shaded) inside Hazelcast 5.5.0.
+      The advisory affects only the non-blocking async parser; no Hazelcast class outside the
+      shaded package calls createNonBlocking*, and application code cannot reach the relocated
+      classes. Chronicle's own jackson-core is 2.22.0. Drop when Hazelcast ships a patched shade.

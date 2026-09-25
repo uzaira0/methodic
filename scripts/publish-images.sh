@@ -108,7 +108,8 @@ build_image . selfhost/Dockerfile.frontend "$frontend" --build-arg "GIT_SHA=$rev
 build_image selfhost Dockerfile.caddy "$caddy"
 # Nothing reaches the registry with a fixable HIGH or CRITICAL finding.
 for image in "$backend" "$frontend" "$caddy"; do
-  run trivy image --quiet --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$image"
+  run trivy image --quiet --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+    --ignorefile "$root/.trivyignore.yaml" "$image"
 done
 run docker push "$backend"
 run docker push "$frontend"
