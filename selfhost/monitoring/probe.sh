@@ -13,7 +13,7 @@ set -Eeuo pipefail
 : "${INTERNAL_HEALTH_URL:=http://web/health}"
 : "${LOGS_HEALTH_URL:=http://victorialogs:9428/health}"
 : "${COMPOSE_FILE_SELECTION:=}"
-: "${ENABLE_ENCRYPTION:=false}"
+: "${ENABLE_ENCRYPTION:=true}"
 : "${METRICS_DISK_BUDGET_BYTES:=5368709120}"
 : "${LOGS_DISK_BUDGET_BYTES:=5368709120}"
 [[ -n "$PUBLIC_HEALTH_URL" ]] || PUBLIC_HEALTH_URL="https://${DOMAIN}/health"

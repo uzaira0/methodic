@@ -102,6 +102,31 @@ def main() -> None:
             anchor = rule["annotations"]["runbook_url"].rsplit("#", 1)[1]
             assert f'id="{anchor}"' in runbooks, f"missing runbook anchor: {anchor}"
 
+    rules = {rule["uid"]: rule for group in alerts["groups"] for rule in group["rules"]}
+    # Failed erasure/retention deletion and failed restore/upgrade are data-integrity failures.
+    for uid in ("deletion-failures", "operation-failed"):
+        assert rules[uid]["labels"]["severity"] == "critical", f"{uid} must be critical"
+    login_expr = rules["failed-login-spike"]["data"][0]["model"]["expr"]
+    for needle in ("chronicle_api_errors_total", "dashboard-login", "401"):
+        assert needle in login_expr, f"failed-login-spike expr lacks {needle}"
+    permission_expr = rules["permission-change"]["data"][0]["model"]["expr"]
+    for needle in ("/v3/permissions", 'method="PATCH"', "(roles|permissions)", "POST|DELETE"):
+        assert needle in permission_expr, f"permission-change expr lacks {needle}"
+
+    policies_text = (ROOT / "selfhost/monitoring/grafana-alerting/notification-policies.yml").read_text()
+    json.loads(policies_text)
+    assert "mute_time_intervals" not in policies_text and "muteTimes" not in policies_text, \
+        "notification routing must not be muted; an attached channel has to receive alerts"
+    contact_points = json.loads((ROOT / "selfhost/monitoring/grafana-alerting/contactpoints.yml").read_text())
+    receiver = contact_points["contactPoints"][0]["receivers"][0]
+    assert receiver["settings"]["url"] == "$CHRONICLE_ALERT_WEBHOOK_URL"
+    overlay = (ROOT / "selfhost/overlays/monitoring.yml").read_text()
+    assert "CHRONICLE_ALERT_WEBHOOK_URL: ${CHRONICLE_ALERT_WEBHOOK_URL:-" in overlay
+    assert "CHRONICLE_ALERT_WEBHOOK_URL=" in (ROOT / "selfhost/.env.example").read_text()
+    runbook_md = (ROOT / "selfhost/docs/MONITORING-RUNBOOK.md").read_text()
+    assert "## Attach a notification channel" in runbook_md
+    assert "permanently muted" not in runbook_md
+
     alert_text = json.dumps(alerts)
     assert "chronicle_tde_expected * (1 - chronicle_tde_healthy)" in alert_text
     assert "database-connection-pressure" in alert_text

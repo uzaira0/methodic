@@ -9,9 +9,9 @@
           "uid": "chronicle-dashboard-only",
           "type": "webhook",
           "settings": {
-            "url": "http://127.0.0.1:9/dashboard-only",
+            "url": "$CHRONICLE_ALERT_WEBHOOK_URL",
             "httpMethod": "POST",
-            "title": "Dashboard-only placeholder"
+            "title": "Chronicle self-host alert"
           },
           "disableResolveMessage": true
         }

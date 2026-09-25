@@ -1317,7 +1317,7 @@
           },
           "labels": {
             "service": "operations",
-            "severity": "warning",
+            "severity": "critical",
             "scope": "selfhost"
           }
         },
@@ -1682,7 +1682,7 @@
           },
           "labels": {
             "service": "deletion",
-            "severity": "warning",
+            "severity": "critical",
             "scope": "selfhost"
           }
         },
@@ -1901,6 +1901,152 @@
           },
           "labels": {
             "service": "postgres",
+            "severity": "warning",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "failed-login-spike",
+          "title": "Chronicle dashboard sign-in failures are spiking",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "sum(increase(chronicle_api_errors_total{endpoint=~\".*/v3/auth/(dashboard-login|oidc/callback)\",status=~\"401|429\"}[15m]))",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B > 20",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "0s",
+          "annotations": {
+            "summary": "Chronicle dashboard sign-in failures are spiking",
+            "runbook_url": "/public/runbooks/index.html#failed-login-spike"
+          },
+          "labels": {
+            "service": "backend",
+            "severity": "warning",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "permission-change",
+          "title": "A Chronicle study permission or role assignment changed",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "sum(increase(chronicle_api_request_duration_seconds_count{endpoint=~\".*/v3/permissions(/update)?/?\",method=\"PATCH\"}[15m]) or increase(chronicle_api_request_duration_seconds_count{endpoint=~\".*/study/[^/]+/(roles|permissions)\",method=~\"POST|DELETE\"}[15m]))",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B > 0",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "0s",
+          "annotations": {
+            "summary": "A Chronicle study permission or role assignment changed",
+            "runbook_url": "/public/runbooks/index.html#permission-change"
+          },
+          "labels": {
+            "service": "backend",
             "severity": "warning",
             "scope": "selfhost"
           }
