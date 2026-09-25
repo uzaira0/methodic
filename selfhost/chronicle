@@ -13,7 +13,7 @@
 #   ./chronicle up        check, then `docker compose up -d`
 #   ./chronicle verify    prove from outside that the exposure boundary holds; add
 #                         --dashboard-password to read and verify it without shell history
-#   ./chronicle upgrade   upgrade from a previous release with a verified pre-upgrade dump
+#   ./chronicle upgrade --from DIR  upgrade from a previous release with a verified pre-upgrade dump
 #   ./chronicle update [--check]  fetch the latest release and hand off to upgrade
 #   ./chronicle adopt --from DIR  switch a source checkout to this release bundle
 #   ./chronicle restore   stop every database writer, restore a verified dump, then restart
@@ -307,6 +307,7 @@ write_operation_receipt() {
   OPERATION_RECEIPT_OUTCOME="$outcome" \
   OPERATION_RECEIPT_CATEGORY="$category" \
   OPERATION_RECEIPT_VERSION="${RELEASE_VERSION:-unknown}" \
+  OPERATION_RECEIPT_DURATION="$(( SECONDS - ${OPERATION_STARTED_SECONDS:-$SECONDS} ))" \
     python3 - "$temporary" <<'PY' || return 1
 import datetime
 import json
@@ -319,6 +320,7 @@ receipt = {
     "releaseVersion": os.environ["OPERATION_RECEIPT_VERSION"],
     "outcome": os.environ["OPERATION_RECEIPT_OUTCOME"],
     "failureCategory": os.environ["OPERATION_RECEIPT_CATEGORY"],
+    "durationSeconds": int(os.environ["OPERATION_RECEIPT_DURATION"]),
 }
 with open(sys.argv[1], "x", encoding="utf-8") as handle:
     json.dump(receipt, handle, separators=(",", ":"), sort_keys=True)
@@ -349,6 +351,7 @@ operation_exit() {
 
 begin_operation() {
   ACTIVE_OPERATION="$1"
+  OPERATION_STARTED_SECONDS=$SECONDS
   ACTIVE_OPERATION_OUTCOME=failure
   ACTIVE_OPERATION_CATEGORY="${2:-command_failed}"
   trap operation_exit EXIT
@@ -485,6 +488,32 @@ for r in rows:
     bad "bundle paths the container users cannot read (a private umask on extraction does this): ${unreadable}. Run: find '$(pwd -P)' \\( -path '*/backups' -o -path '*/operator-receipts' -o -path '*/upgrade-receipts' -o -path '*/tls' -o -name '.env*' \\) -prune -o -exec chmod a+rX {} +"
   else
     ok "bundle files and directories are readable by the container users"
+  fi
+
+  # Signed mobile requests are accepted within a 5-minute window with 30 s of skew, and TLS
+  # validity and scheduled backups also read the clock. An unsynchronized host rejects
+  # uploads with no other visible cause, so say so here.
+  local ntp_synced=""
+  if command -v timedatectl >/dev/null 2>&1; then
+    ntp_synced=$(timedatectl show -p NTPSynchronized --value 2>/dev/null || true)
+  elif command -v chronyc >/dev/null 2>&1; then
+    chronyc tracking 2>/dev/null | grep -q 'Leap status *: Normal' && ntp_synced=yes || ntp_synced=no
+  fi
+  case "$ntp_synced" in
+    yes) ok "host clock is NTP-synchronized" ;;
+    no)  warn "host clock is not NTP-synchronized; signed uploads fail beyond 30 s of skew. Run: sudo timedatectl set-ntp true (or enable chronyd)" ;;
+    *)   warn "could not confirm NTP synchronization (no timedatectl or chronyc); keep the host clock within 30 s" ;;
+  esac
+
+  # Postgres stops hard when the disk fills and does not come back on its own. Refuse to
+  # start below a floor so operators without the monitoring overlay are still stopped
+  # before that happens.
+  local free_kb min_free_gib="${MIN_FREE_DISK_GIB:-5}"
+  free_kb=$(df -Pk "${STATE_ROOT:-.}" 2>/dev/null | awk 'NR == 2 { print $4 }')
+  if [[ "$free_kb" =~ ^[0-9]+$ ]] && (( free_kb < min_free_gib * 1048576 )); then
+    bad "only $(( free_kb / 1048576 )) GiB free under ${STATE_ROOT:-.} (floor MIN_FREE_DISK_GIB=${min_free_gib}); free space with df -h / docker system df before starting"
+  elif [[ "$free_kb" =~ ^[0-9]+$ ]]; then
+    ok "$(( free_kb / 1048576 )) GiB free under the state directory"
   fi
 
   if [[ -x ./verify-config.sh ]]; then
@@ -647,11 +676,15 @@ cmd_setup() {
     esac
     host_addrs | grep -qx "$domain" ||
       die "$domain is not an address on this machine; choose one of: $(host_addrs | tr '\n' ' ')"
+    # config-guard refuses the trial on a public address; say so here, not at `up`.
+    if bash ./guard-config.sh --validate-public-host "$domain"; then
+      die "$domain is a public address; the trial mode is only for a private LAN address (use choice 1 or 2 for a public host)"
+    fi
     # Everything else is forced: a trial mode whose CA nobody trusts has no public variant,
     # and the dashboard has no reason to leave this machine.
     printf '\nThe dashboard will be at https://127.0.0.1:%s on this machine only.\n' "${INTERNAL_PORT:-8081}"
   else
-    read -rp "Hostname participants' phones and researchers will use (e.g. study.example.org): " domain
+    read -rp "Hostname participants' phones and researchers will use (e.g. chronicle.your-university.edu): " domain
     [[ -n "$domain" ]] || die "a hostname is required"
     # The same classifier `up` runs in config-guard. Asked here, a mistyped or private name
     # costs one question, not the whole wizard.
@@ -834,6 +867,16 @@ cmd_setup() {
     die "no free internal listener port was found near ${INTERNAL_PORT:-8081}"
   [[ "$http_port" == "${HTTP_PORT:-8080}" && "$internal_port" == "${INTERNAL_PORT:-8081}" ]] ||
     printf '\nPorts %s and %s are free on this host; using those.\n' "$http_port" "$internal_port"
+  local grafana_port="${GRAFANA_PORT:-3000}"
+  if [[ "$monitoring_enabled" == true ]]; then
+    grafana_port=$(free_port "${GRAFANA_PORT:-3000}" "$grafana_bind" "$http_port") ||
+      die "no free Grafana port was found near ${GRAFANA_PORT:-3000}"
+    [[ "$grafana_port" != "$internal_port" ]] ||
+      grafana_port=$(free_port "$((internal_port + 1))" "$grafana_bind" "$http_port") ||
+      die "no free Grafana port was found near ${GRAFANA_PORT:-3000}"
+    [[ "$grafana_port" == "${GRAFANA_PORT:-3000}" ]] ||
+      printf 'Grafana port %s is free on this host; using that.\n' "$grafana_port"
+  fi
 
   if [[ "$tls_mode" == local-https ]]; then
     # A VPN or management service may legitimately own :443 on one of this host's other
@@ -862,7 +905,7 @@ cmd_setup() {
       "$keep_mob_previous" "$grafana_bind" "$metrics_retention" "$logs_retention" \
       "$project" "$http_port" "$internal_port" "$keep_reviewer_enabled" \
       "$keep_reviewer_secret" "$keep_reviewer_study" "$keep_reviewer_participant" \
-      "$keep_public_base_url" "$local_https_port" "$local_http_port" \
+      "$keep_public_base_url" "$local_https_port" "$local_http_port" "$grafana_port" \
     | python3 /dev/fd/3 3<<'PY'
 import os
 import re
@@ -872,14 +915,14 @@ import tempfile
 raw = sys.stdin.buffer.read().split(b"\0")
 if raw and raw[-1] == b"":
     raw.pop()
-if len(raw) != 31:
-    raise SystemExit(f"expected 31 setup values, received {len(raw)}")
+if len(raw) != 32:
+    raise SystemExit(f"expected 32 setup values, received {len(raw)}")
 (domain, compose_file, exposure, internal_bind, testing_login, pg, mob, mob_enabled,
  mob_required, jwt, metrics,
  dash_hash, http_bind, require_mfa, internal_web, state_dir, grafana, mob_previous,
  grafana_bind, metrics_retention, logs_retention, project, http_port,
  internal_port, reviewer_enabled, reviewer_secret, reviewer_study,
- reviewer_participant, public_base_url, local_https_port, local_http_port) = [
+ reviewer_participant, public_base_url, local_https_port, local_http_port, grafana_port) = [
     value.decode("utf-8") for value in raw
 ]
 s = open('.env.example', encoding='utf-8').read()
@@ -911,8 +954,22 @@ for k, v in [('DOMAIN', domain), ('COMPOSE_FILE', compose_file), ('HTTP_BIND', h
              ('LOCAL_HTTPS_PORT', local_https_port),
              ('LOCAL_HTTP_PORT', local_http_port),
              ('GRAFANA_ADMIN_PASSWORD', grafana), ('GRAFANA_BIND', grafana_bind),
+             ('GRAFANA_PORT', grafana_port),
              ('METRICS_RETENTION', metrics_retention), ('LOGS_RETENTION', logs_retention)]:
     s = setkv(s, k, fmt(k, v))
+# The shipped ceilings (6.25 GB) assume an 8 GB host. On a smaller Linux host, size them to
+# the documented 4 GB pilot minimum so load cannot push the stack into the OOM killer.
+try:
+    with open(os.environ.get('CHRONICLE_MEMINFO', '/proc/meminfo'), encoding='utf-8') as meminfo:
+        mem_kb = next(int(line.split()[1]) for line in meminfo if line.startswith('MemTotal:'))
+except (OSError, StopIteration, ValueError, IndexError):
+    mem_kb = None
+if mem_kb is not None and mem_kb < 7_500_000:
+    for k, v in (('POSTGRES_MEM_LIMIT', '1g'), ('POSTGRES_SHARED_BUFFERS', '256MB'),
+                 ('POSTGRES_EFFECTIVE_CACHE_SIZE', '768MB'), ('BACKEND_MEM_LIMIT', '1536m'),
+                 ('BACKEND_XMX', '-Xmx1g')):
+        s = setkv(s, k, v)
+    print(f"Host has {mem_kb // 1024} MiB of memory; sized backend/Postgres limits for a 4 GB host (see README Sizing).")
 descriptor, temporary = tempfile.mkstemp(prefix='.env.setup-', dir='.')
 try:
     os.fchmod(descriptor, 0o600)
@@ -942,7 +999,7 @@ PY
   fi
   if [[ "$monitoring_enabled" == true ]]; then
     printf '%sMonitoring:%s Grafana will listen on http://%s:%s with %s metrics and %s sanitized logs.\n' \
-      "$BLD" "$RST" "$grafana_bind" "${GRAFANA_PORT:-3000}" "$metrics_retention" "$logs_retention"
+      "$BLD" "$RST" "$grafana_bind" "$grafana_port" "$metrics_retention" "$logs_retention"
     printf '  After startup: ./chronicle monitoring add-viewer NAME\n\n'
   fi
 
@@ -1664,6 +1721,8 @@ cmd_status() {
 }
 cmd_logs()   { need_env; shift || true; dc logs -f --tail=100 "$@"; }
 cmd_down() {
+  shift || true
+  [[ $# -eq 0 ]] || die "usage: ./chronicle down (takes no arguments)"
   need_env
   begin_operation down shutdown_failed
   dc down || die "Compose shutdown failed"
@@ -1789,12 +1848,12 @@ PY
         doctor_add "monitor-${monitor_service}" fail "${monitor_service} is not running" "Run ./chronicle logs ${monitor_service}, correct the first error, then docker compose up -d ${monitor_service}"
       fi
     done
-    if dc exec -T grafana wget -qO- http://victoriametrics:8428/api/v1/targets 2>/dev/null | grep -q '"health":"up"'; then
+    if dc exec -T grafana wget -T 8 -qO- http://victoriametrics:8428/api/v1/targets 2>/dev/null | grep -q '"health":"up"'; then
       doctor_add metrics-pipeline ok "VictoriaMetrics has a live scrape target" "none"
     else
       doctor_add metrics-pipeline fail "No live VictoriaMetrics scrape target was found" "Run ./chronicle logs victoriametrics monitoring-config"
     fi
-    if dc exec -T grafana wget -q --spider http://victorialogs:9428/health 2>/dev/null; then
+    if dc exec -T grafana wget -T 8 -q --spider http://victorialogs:9428/health 2>/dev/null; then
       doctor_add logs-pipeline ok "VictoriaLogs is healthy" "none"
     else
       doctor_add logs-pipeline fail "VictoriaLogs is unavailable" "Run ./chronicle logs victorialogs fluent-bit"
@@ -2023,6 +2082,7 @@ cmd_restore() {
 
   need_env
   ACTIVE_OPERATION=restore
+  OPERATION_STARTED_SECONDS=$SECONDS
   command -v gzip >/dev/null 2>&1 || die "required command is unavailable: gzip"
   : "${RESTORE_START_WAIT_TIMEOUT_SECONDS:=300}"
   [[ "$RESTORE_START_WAIT_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] ||
@@ -2181,6 +2241,7 @@ cmd_restore() {
     die "restore completed, but its operation lock could not be released"
   fi
   trap - EXIT HUP INT TERM
+  printf 'Restore took %s seconds.\n' "$(( SECONDS - OPERATION_STARTED_SECONDS ))"
   if [[ "$no_start" == true ]]; then
     printf '%sRestore complete.%s The Chronicle application remains stopped.\n' "$GRN" "$RST"
   else
@@ -2297,12 +2358,20 @@ def version_key(version):
     return (*map(int, match.group(1, 2, 3)), (0, *parts) if pre else (1,))
 
 
-def curl(url, output=subprocess.PIPE):
+# Bound every download and the archive inventory before anything is parsed or extracted.
+MAX_METADATA_BYTES = 1024 * 1024
+MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 20000
+MAX_UNPACKED_BYTES = 2 * 1024 * 1024 * 1024
+
+
+def curl(url, output=subprocess.PIPE, max_bytes=MAX_METADATA_BYTES):
     if not isinstance(url, str) or urlparse(url).scheme not in ("http", "https"):
         fail("release URL must use http or https")
     return subprocess.run(
         ["curl", "--fail", "--silent", "--show-error", "--location",
          "--proto", "=http,https", "--proto-redir", "=http,https",
+         "--max-filesize", str(max_bytes),
          "--connect-timeout", "30", "--max-time", "600", url],
         stdout=output, check=True).stdout
 
@@ -2326,6 +2395,8 @@ try:
             fail(f"missing or ambiguous release asset: {asset_name}")
         assets[asset_name] = matches[0]["browser_download_url"]
     print(f"Current: {current}; latest: {latest}", flush=True)
+    print("Release notes:", flush=True)
+    print(release.get("body") or "(no release notes)", flush=True)
     newer = latest_key > current_key
     if check:
         sys.exit(3 if newer else 0)
@@ -2342,7 +2413,7 @@ try:
         path = parent / asset_name
         with path.open("xb") as output:
             downloads.append(path)
-            curl(url, output)
+            curl(url, output, MAX_ARCHIVE_BYTES if asset_name == archive_name else MAX_METADATA_BYTES)
 
     checksum = parent / (archive_name + ".sha256")
     # Restrict the checksum file to exactly this archive, then verify it in-process:
@@ -2359,7 +2430,15 @@ try:
         fail("bad checksum: release archive verification failed; nothing extracted")
 
     with tarfile.open(parent / archive_name, "r:gz") as archive:
-        members = archive.getmembers()
+        members = []
+        unpacked = 0
+        for member in archive:
+            members.append(member)
+            unpacked += member.size
+            if len(members) > MAX_ARCHIVE_MEMBERS:
+                fail(f"release archive has too many members (> {MAX_ARCHIVE_MEMBERS})")
+            if unpacked > MAX_UNPACKED_BYTES:
+                fail(f"release archive unpacks to more than {MAX_UNPACKED_BYTES} bytes")
         seen = set()
         for member in members:
             path = PurePosixPath(member.name)
@@ -2699,6 +2778,8 @@ cmd_rotate_secret() {
   operation_succeeded
 }
 
+print_help() { awk 'NR == 1 { next } !/^#/ { exit } { sub(/^# ?/, ""); print }' "$SCRIPT_PATH"; }
+
 case "${1:-help}" in
   setup)  cmd_setup ;;
   up)     cmd_up ;;
@@ -2708,12 +2789,13 @@ case "${1:-help}" in
   doctor) cmd_doctor "$@" ;;
   monitoring) cmd_monitoring "$@" ;;
   logs)   cmd_logs "$@" ;;
-  down)   cmd_down ;;
+  down)   cmd_down "$@" ;;
   restore) cmd_restore "$@" ;;
   deletion-status) cmd_deletion_status "$@" ;;
   upgrade) cmd_upgrade "$@" ;;
   update) cmd_update "$@" ;;
   adopt) cmd_adopt "$@" ;;
   rotate-secret) cmd_rotate_secret "$@" ;;
-  *) sed -n '2,26p' "$SCRIPT_PATH" | sed 's/^# \{0,1\}//' ;;
+  help|-h|--help) print_help ;;
+  *) printf '%s\n\n' "${RED}error:${RST} unknown command '$1'" >&2; print_help >&2; exit 2 ;;
 esac

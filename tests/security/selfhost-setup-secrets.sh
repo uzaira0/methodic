@@ -26,7 +26,7 @@ trap '/bin/rm -rf -- "$RUN_DIR"' EXIT
 FIXTURE_SELFHOST="${RUN_DIR}/selfhost"
 COMMAND_DIR="${RUN_DIR}/commands"
 /bin/mkdir -p "$FIXTURE_SELFHOST" "$COMMAND_DIR"
-/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_SELFHOST/"
+/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_SELFHOST/"
 /bin/chmod 0755 "${FIXTURE_SELFHOST}/chronicle"
 
 PASSWORD='fixture-dashboard-password-never-print-9472'
@@ -121,13 +121,15 @@ EOF
   "${COMMAND_DIR}/ss"
 
 OUTPUT="${RUN_DIR}/setup-output.txt"
+printf 'MemTotal:        3900000 kB\n' >"${RUN_DIR}/meminfo-4g"
+OUTPUT="${RUN_DIR}/setup-output.txt"
 if ! (
   # Deliberately remove the caller's protection. The operator script itself must set its
   # private umask before the first generated secret or sibling publication file is created.
   umask 000
   {
     printf '1\n'                         # behind an institutional proxy
-    printf 'chronicle.example.test\n'    # hostname
+    printf 'chronicle.study-host.org\n'    # hostname
     printf '\n'                          # loopback proxy bind
     printf '\n'                          # loopback dashboard bind
     printf '%s\n' "$PASSWORD"
@@ -140,6 +142,7 @@ if ! (
       SELFHOST_SETUP_TEST_DOCKER_ARGS="$DOCKER_ARGS" \
       SELFHOST_SETUP_TEST_PYTHON_ARGS="$PYTHON_ARGS" \
       SELFHOST_SETUP_TEST_REAL_PYTHON="$REAL_PYTHON" \
+      CHRONICLE_MEMINFO="${RUN_DIR}/meminfo-4g" \
       /bin/bash "${FIXTURE_SELFHOST}/chronicle" setup >"$OUTPUT" 2>&1
 ); then
   fail "interactive setup fixture failed"
@@ -193,6 +196,12 @@ if values.get("HTTP_PORT") != "8082":
     raise SystemExit("setup did not move the occupied public listener to port 8082")
 if values.get("INTERNAL_PORT") != "8083":
     raise SystemExit("setup reused the selected public port for the internal listener")
+# A 4 GB host gets memory ceilings that fit it (README sizing: pilot minimum 2 vCPU / 4 GB).
+for key, expected in (("BACKEND_MEM_LIMIT", "1536m"), ("BACKEND_XMX", "-Xmx1g"),
+                      ("POSTGRES_MEM_LIMIT", "1g"), ("POSTGRES_SHARED_BUFFERS", "256MB"),
+                      ("POSTGRES_EFFECTIVE_CACHE_SIZE", "768MB")):
+    if values.get(key) != expected:
+        raise SystemExit(f"setup on a 4 GB host left {key}={values.get(key)!r}, expected {expected}")
 if not values.get("DASHBOARD_PASSWORD_HASH", "").startswith("'$2"):
     raise SystemExit("setup did not store a single-quoted bcrypt hash")
 PY
@@ -202,7 +211,7 @@ grep -Fq 'Legacy shared-HMAC compatibility is disabled; no deployment-wide mobil
 
 FIXTURE_LOCAL_SELFHOST="${RUN_DIR}/selfhost-local"
 /bin/mkdir -p "$FIXTURE_LOCAL_SELFHOST"
-/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_LOCAL_SELFHOST/"
+/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_LOCAL_SELFHOST/"
 /bin/chmod 0755 "${FIXTURE_LOCAL_SELFHOST}/chronicle"
 LOCAL_OUTPUT="${RUN_DIR}/setup-local-output.txt"
 if ! (
@@ -247,14 +256,14 @@ grep -Fq 'Trial HTTPS/CA ports 444 and 81 are free; using those.' "$LOCAL_OUTPUT
 
 FIXTURE_LEGACY_SELFHOST="${RUN_DIR}/selfhost-legacy"
 /bin/mkdir -p "$FIXTURE_LEGACY_SELFHOST"
-/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_LEGACY_SELFHOST/"
+/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_LEGACY_SELFHOST/"
 /bin/chmod 0755 "${FIXTURE_LEGACY_SELFHOST}/chronicle"
 LEGACY_OUTPUT="${RUN_DIR}/setup-legacy-output.txt"
 if ! (
   umask 000
   {
     printf '1\n'                         # behind an institutional proxy
-    printf 'legacy.example.test\n'       # hostname
+    printf 'legacy.study-host.org\n'       # hostname
     printf '\n'                          # loopback proxy bind
     printf '\n'                          # loopback dashboard bind
     printf '%s\n' "$PASSWORD"

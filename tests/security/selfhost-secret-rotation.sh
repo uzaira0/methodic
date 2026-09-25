@@ -614,4 +614,24 @@ fi
 [[ "$(cat "$TDE_STATE_FILE")" == 'chronicle_key|chronicle_keyring' ]] \
   || fail "TDE key changed after the pre-rotation backup failed"
 
+# The pre-rotation dump is full PHI: it must never be written into a directory whose 0700
+# mode could not be enforced (e.g. a backups tree still owned by an old root-run container).
+if [[ "$(id -u)" -ne 0 ]]; then
+  setup_case tde-backup-dir-not-private
+  /bin/mkdir -p "${SELFHOST_DIR}/backups"
+  # A directory this user cannot chmod stands in for the root-owned backups tree.
+  /bin/ln -s /usr/share "${SELFHOST_DIR}/backups/secret-rotation"
+  set +e
+  run_rotation false --yes tde
+  backup_dir_status=$?
+  set -e
+  [[ "$backup_dir_status" -ne 0 ]] || fail "TDE rotation ran with a non-private backup directory"
+  ! grep -Fq 'pg_dump' "$ARGS_LOG" 2>/dev/null \
+    || fail "pre-rotation PHI dump started although the backup directory could not be made 0700"
+  grep -Fq 'backup directory' "$OUTPUT" \
+    || fail "non-private backup directory failure did not name the backup directory"
+  [[ "$(cat "$TDE_STATE_FILE")" == 'chronicle_key|chronicle_keyring' ]] \
+    || fail "TDE key changed although the pre-rotation backup was refused"
+fi
+
 echo "self-host secret-rotation test passed"

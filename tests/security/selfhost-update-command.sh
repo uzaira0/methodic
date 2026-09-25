@@ -74,6 +74,8 @@ with tarfile.open(archive_path, "w:gz") as archive:
                       json.dumps({"release_version": latest.removeprefix("v")}).encode(), 0o644))
     if mode == "traversal":
         files.append((name + "/../escaped", b"must not extract", 0o644))
+    if mode == "too-many-members":
+        files.extend((f"{name}/filler/{i}", b"", 0o644) for i in range(20001))
     for path, data, permissions in files:
         member = tarfile.TarInfo(path)
         member.size = len(data)
@@ -85,7 +87,9 @@ if mode == "corrupt":
 archive_path.with_suffix(".gz.sha256").write_text(f"{digest}  {archive_path.name}\n")
 assets = [{"name": filename, "browser_download_url": f"http://127.0.0.1:{port}/{filename}"}
           for filename in (archive_path.name, archive_path.name + ".sha256")]
-(root / "http/latest.json").write_text(json.dumps({"tag_name": latest, "assets": assets}))
+(root / "http/latest.json").write_text(json.dumps({
+    "tag_name": latest, "assets": assets,
+    "body": "### Security\n- BREAKING: fixture release note"}))
 PY
 }
 
@@ -102,6 +106,7 @@ expect_status() {
 fixture 1.2.3 v1.2.3 valid
 expect_status 0 --check
 grep -Fq 'Current: 1.2.3; latest: v1.2.3' "$RUN_DIR/output" || fail 'missing version report'
+grep -Fq 'BREAKING: fixture release note' "$RUN_DIR/output" || fail '--check did not print release notes'
 expect_status 1
 grep -Fq 'not newer' "$RUN_DIR/output" || fail 'equal release was not refused'
 echo 'PASS: equal version --check exits 0; update refuses equal version'
@@ -140,7 +145,12 @@ fixture 1.2.3 v1.2.4 traversal
 expect_status 1
 [[ ! -e "$RUN_DIR/releases/escaped" && ! -e "$UPDATE_EXEC_RECORD" ]] || fail 'unsafe archive extracted'
 grep -Fq 'unsafe or duplicate' "$RUN_DIR/output" || fail 'missing unsafe archive diagnostic'
-echo 'PASS: missing new manifest and archive traversal rejected before extraction'
+fixture 1.2.3 v1.2.4 too-many-members
+expect_status 1
+grep -Fq 'too many members' "$RUN_DIR/output" || fail 'oversized archive inventory was not refused'
+[[ ! -e "$RUN_DIR/releases/chronicle-selfhost-1.2.4" && ! -e "$UPDATE_EXEC_RECORD" ]] \
+  || fail 'oversized archive extracted'
+echo 'PASS: missing new manifest, archive traversal and oversized inventory rejected before extraction'
 
 fixture 1.2.3 v1.2.4 valid
 expect_status 0

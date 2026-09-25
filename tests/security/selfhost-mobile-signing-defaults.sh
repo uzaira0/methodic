@@ -63,7 +63,7 @@ guard_case() {
     AUTH_OVERLAY_ENABLED=false \
     MONITORING_ENABLED=false \
     ENABLE_ENCRYPTION=false \
-    DOMAIN=mobile-signing.example.org \
+    DOMAIN=mobile-signing.study-host.org \
     POSTGRES_PASSWORD=fixture-postgres-password-not-a-secret \
     MOBILE_SIGNING_ENABLED="$enabled" \
     MOBILE_SIGNING_REQUIRED="$required" \
@@ -132,14 +132,14 @@ entrypoint_case missing-secret reject true true '' '' 'MOBILE_SIGNING_SECRET mus
 entrypoint_case disabled-secret reject false false "$legacy_current" '' 'must stay blank unless controlled legacy compatibility is enabled'
 
 if ! env -i PATH="${PATH}" \
-  CHRONICLE_PUBLIC_BASE_URL=https://participants.example.org \
+  CHRONICLE_PUBLIC_BASE_URL=https://participants.study-host.org \
   MOBILE_SIGNING_ENABLED=false MOBILE_SIGNING_REQUIRED=false \
   MOBILE_SIGNING_SECRET='' MOBILE_SIGNING_SECRET_PREVIOUS='' \
   /bin/sh "$ENTRYPOINT" --validate-mobile-signing >/dev/null 2>&1; then
   fail "entrypoint rejected a distinct valid public application origin"
 fi
 if env -i PATH="${PATH}" \
-  CHRONICLE_PUBLIC_BASE_URL='https://participants.example.org/path' \
+  CHRONICLE_PUBLIC_BASE_URL='https://participants.study-host.org/path' \
   MOBILE_SIGNING_ENABLED=false MOBILE_SIGNING_REQUIRED=false \
   MOBILE_SIGNING_SECRET='' MOBILE_SIGNING_SECRET_PREVIOUS='' \
   /bin/sh "$ENTRYPOINT" --validate-mobile-signing >"$RUN_DIR/invalid-public-origin.log" 2>&1; then
@@ -149,7 +149,7 @@ grep -Fq 'CHRONICLE_PUBLIC_BASE_URL must be an exact HTTPS root origin' \
   "$RUN_DIR/invalid-public-origin.log" ||
   fail "entrypoint public-origin rejection omitted the exact validation failure"
 if env -i PATH="${PATH}" \
-  CHRONICLE_PUBLIC_BASE_URL=$'https://participants.example.org\n  - "https://attacker.invalid"' \
+  CHRONICLE_PUBLIC_BASE_URL=$'https://participants.study-host.org\n  - "https://attacker.invalid"' \
   MOBILE_SIGNING_ENABLED=false MOBILE_SIGNING_REQUIRED=false \
   MOBILE_SIGNING_SECRET='' MOBILE_SIGNING_SECRET_PREVIOUS='' \
   /bin/sh "$ENTRYPOINT" --validate-mobile-signing >/dev/null 2>&1; then

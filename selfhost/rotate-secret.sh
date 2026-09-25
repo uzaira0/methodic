@@ -606,7 +606,8 @@ take_pre_rotation_backup() {
   local timestamp partial final checksum
   timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
   /bin/mkdir -p "$directory"
-  /bin/chmod 0700 "${STATE_ROOT}/backups" "$directory" 2>/dev/null || true
+  /bin/chmod 0700 "${STATE_ROOT}/backups" "$directory" ||
+    fail "cannot make the backup directory ${directory} private (mode 0700); fix its ownership before rotating"
   final="${directory}/chronicle-pre-tde-${timestamp}-$$.sql.gz"
   partial="${final}.partial"
   BACKUP_PARTIAL="$partial"

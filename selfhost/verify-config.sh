@@ -201,7 +201,7 @@ echo "Public origin validation"
 
 public_host_validation_ok=true
 for accepted_host in \
-  'research.example.org' \
+  'research.study-host.org' \
   '8.8.8.8' \
   '[2606:4700:4700::1111]'; do
   if ! ./guard-config.sh --validate-public-host "$accepted_host"; then
@@ -223,10 +223,10 @@ for rejected_host in \
   '198.18.0.1' \
   '224.0.0.1' \
   '255.255.255.255' \
-  'https://research.example.org' \
-  'research.example.org/path' \
-  'research.example.org:0' \
-  'research.example.org:65536' \
+  'https://research.study-host.org' \
+  'research.study-host.org/path' \
+  'research.study-host.org:0' \
+  'research.study-host.org:65536' \
   'https://localhost' \
   'https://reviewer.local' \
   'https://[::1]' \
@@ -235,14 +235,19 @@ for rejected_host in \
   'https://[fd00::1]' \
   'https://[fe80::1]' \
   'https://[ff02::1]' \
-  '999.999.999.999'; do
+  '999.999.999.999' \
+  'study.example.org' \
+  'example.com' \
+  'lab.internal' \
+  'router.home.arpa' \
+  'nas.lan'; do
   if ./guard-config.sh --validate-public-host "$rejected_host"; then
     fail "configuration guard accepts clearly non-public host ${rejected_host}"
     public_host_validation_ok=false
   fi
 done
 for accepted_origin in \
-  'https://research.example.org' \
+  'https://research.study-host.org' \
   'https://8.8.8.8' \
   'https://1.1.1.1:8443' \
   'https://[2606:4700:4700::1111]'; do
@@ -252,16 +257,16 @@ for accepted_origin in \
   fi
 done
 for rejected_origin in \
-  'research.example.org' \
-  'http://research.example.org' \
-  'ftp://research.example.org' \
-  'https://user@research.example.org' \
-  'https://research.example.org/' \
-  'https://research.example.org/path' \
-  'https://research.example.org?query=1' \
-  'https://research.example.org#fragment' \
-  'https://research.example.org:0' \
-  'https://research.example.org:65536'; do
+  'research.study-host.org' \
+  'http://research.study-host.org' \
+  'ftp://research.study-host.org' \
+  'https://user@research.study-host.org' \
+  'https://research.study-host.org/' \
+  'https://research.study-host.org/path' \
+  'https://research.study-host.org?query=1' \
+  'https://research.study-host.org#fragment' \
+  'https://research.study-host.org:0' \
+  'https://research.study-host.org:65536'; do
   if ./guard-config.sh --validate-public-origin "$rejected_origin"; then
     fail "configuration guard accepts invalid public root origin ${rejected_origin}"
     public_host_validation_ok=false
@@ -638,6 +643,117 @@ if grep -q 'INTERNAL_HEALTH_URL: https://web:8081/health' overlays/monitoring.ym
   ok "web healthcheck and monitoring probe hit the :8081 internal listener over TLS"
 else
   fail "web healthcheck/monitoring probe do not target https://…:8081/health (vacuous health)"
+fi
+
+echo
+echo "Launch-audit guardrails (2026-09-24)"
+
+# C1: every operator-tunable variable Compose reads is documented, and every documented
+# setting is read. Set internally by ./chronicle or the image, or source-only experimental.
+compose_internal_vars=$'CHRONICLE_HOST_GID\nCHRONICLE_HOST_UID\nCHRONICLE_SERVER_ARGS\nHEALTHCHECK_PORT\nOIDC_CLIENT_SECRET\nRESTORE_FILE'
+undocumented_compose=$(comm -23 \
+  <(grep -ohE '\$\{[A-Z_][A-Z0-9_]*' docker-compose.yml overlays/*.yml | sed 's/\${//' | sort -u) \
+  <(sort -u <(echo "$ENV_EXAMPLE_VARS") <(echo "$compose_internal_vars")))
+if [[ -n "$undocumented_compose" ]]; then
+  fail "Compose reads settings that .env.example does not document: $(echo "$undocumented_compose" | tr '\n' ' ')"
+else
+  ok "every setting Compose reads is documented in .env.example"
+fi
+unread_example=""
+for k in $ENV_EXAMPLE_VARS; do
+  grep -rqw -- "$k" docker-compose.yml overlays chronicle upgrade.sh rotate-secret.sh restore.sh \
+    guard-config.sh backend-entrypoint.sh config monitoring cert-init.sh db-init.sh caddy \
+    Caddyfile.split Caddyfile.split.local Caddyfile.split.tls || unread_example+="$k "
+done
+if [[ -n "$unread_example" ]]; then
+  fail ".env.example documents settings nothing reads: ${unread_example}"
+else
+  ok "every .env.example setting is read by the bundle"
+fi
+
+# C8: one default for ENABLE_ENCRYPTION everywhere, or the probe stops watching TDE health.
+encryption_defaults=$(grep -ohE 'ENABLE_ENCRYPTION:-[a-z]+' docker-compose.yml overlays/*.yml | sort -u)
+if [[ "$encryption_defaults" != 'ENABLE_ENCRYPTION:-true' ]] ||
+   ! grep -Fq ': "${ENABLE_ENCRYPTION:=true}"' monitoring/probe.sh; then
+  fail "ENABLE_ENCRYPTION fallbacks disagree: $(echo "$encryption_defaults" | tr '\n' ' ') (probe.sh must default to true too)"
+else
+  ok "every ENABLE_ENCRYPTION fallback is true"
+fi
+
+# L4: a hung query, an idle open transaction, or a stuck lock cannot hold one of the backend's
+# pooled connections forever; the one-shot jobs that rewrite or reload whole tables opt out.
+postgres_service=$(service_block postgres)
+for timeout_setting in statement_timeout idle_in_transaction_session_timeout lock_timeout; do
+  grep -Fq -- "- ${timeout_setting}=" <<<"$postgres_service" \
+    || fail "postgres runs without a server-side ${timeout_setting}"
+done
+for long_job in db-init restore; do
+  grep -Fq 'PGOPTIONS: "-c statement_timeout=0 -c lock_timeout=0 -c idle_in_transaction_session_timeout=0"' \
+    <<<"$(service_block "$long_job")" || fail "${long_job} would inherit the server statement/lock timeouts"
+done
+[[ $FAILED -eq 0 ]] && ok "postgres bounds statements, idle transactions and lock waits; restore and db-init opt out"
+
+# Per-service contract across the base file and every overlay: log caps (B4, R5, CH16) and
+# container hardening (R1, CH10-CH14). A service that only overrides a base service is
+# checked through the base definition.
+service_contract_violations=$(python3 - docker-compose.yml overlays/*.yml <<'PY'
+import sys
+try:
+    import yaml
+except ImportError:  # PyYAML is not an operator-host requirement; source CI has it.
+    print("__NO_YAML__")
+    sys.exit(0)
+
+base = {}
+defined = {}
+for path in sys.argv[1:]:
+    with open(path, encoding="utf-8") as handle:
+        document = yaml.safe_load(handle) or {}
+    for name, service in (document.get("services") or {}).items():
+        if path.endswith("docker-compose.yml"):
+            base[name] = service
+        if "image" in service:
+            defined[(path, name)] = service
+problems = []
+for (path, name), service in sorted(defined.items()):
+    label = f"{path}:{name}"
+    if "logging" not in service:
+        problems.append(f"{label} has no logging cap")
+    if "no-new-privileges:true" not in (service.get("security_opt") or []):
+        problems.append(f"{label} lacks no-new-privileges")
+    if "ALL" not in (service.get("cap_drop") or []):
+        problems.append(f"{label} does not drop all capabilities")
+    if "pids_limit" not in service or "mem_limit" not in service:
+        problems.append(f"{label} has no pid or memory limit")
+    for volume in service.get("volumes") or []:
+        source = volume.split(":", 1)[0] if isinstance(volume, str) else volume.get("source", "")
+        if source in ("/var/run", "/var/run/docker.sock", "/run", "/run/docker.sock"):
+            # Only the GET-only proxy on its internal network may hold the socket.
+            environment = service.get("environment") or {}
+            if name != "docker-socket-proxy" or str(environment.get("POST")) != "0" \
+                    or service.get("networks") != ["docker-api"]:
+                problems.append(f"{label} mounts the Docker socket directory {source}")
+    if service.get("restart") not in (None, "no") and "healthcheck" not in service:
+        problems.append(f"{label} is long-running with no healthcheck")
+networks = {}
+for path in sys.argv[1:]:
+    with open(path, encoding="utf-8") as handle:
+        networks.update((yaml.safe_load(handle) or {}).get("networks") or {})
+if "docker-api" in networks and (networks["docker-api"] or {}).get("internal") is not True:
+    problems.append("the docker-api network that carries the Docker API proxy is not internal")
+for name in ("frontend", "web"):
+    if base.get(name, {}).get("read_only") is not True:
+        problems.append(f"docker-compose.yml:{name} root filesystem is writable")
+print("\n".join(problems))
+PY
+)
+if [[ "$service_contract_violations" == __NO_YAML__ ]]; then
+  echo "  --   per-service hardening/logging contract not checked (python3 PyYAML is not installed)"
+elif [[ -n "$service_contract_violations" ]]; then
+  fail "service hardening/logging contract violations:"
+  echo "$service_contract_violations" | sed 's/^/         /'
+else
+  ok "every service caps its logs, drops capabilities, sets no-new-privileges and limits, and mounts no Docker socket"
 fi
 
 echo

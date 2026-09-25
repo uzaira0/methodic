@@ -29,7 +29,7 @@
       "owners": ["researcher-web", "participant-web"],
       "evidence": [
         "chronicle-web/src/modern/routes/study-participants-page.tsx:participants.deletion_status",
-        "chronicle-web/src/modern/routes/public-research-policy-page.tsx:initialSection === 'withdrawal'"
+        "chronicle-web/src/modern/routes/public-enrollment-page.tsx:enrollment.withdrawal_link"
       ]
     },
     {
