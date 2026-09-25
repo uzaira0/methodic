@@ -10,7 +10,7 @@ with an operator-reviewed path on the deployment being upgraded.
 
 ## Before the maintenance window
 
-1. Read the [backup and restore runbook](../../selfhost/docs/BACKUP-RESTORE.md) and rehearse
+1. Read the [backup and restore runbook](BACKUP-RESTORE.md) and rehearse
    a restore on a disposable host.
 2. Confirm the current stack is healthy with `./chronicle doctor --json` and
    `./chronicle verify`.

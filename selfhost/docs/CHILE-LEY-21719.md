@@ -56,14 +56,31 @@ contact and a written procedure ready.
   them.
 - **International transfers** if any processor/host sits outside Chile.
 
+## Data the platform records regardless of modules
+
+Turning collection modules off does not stop the platform from recording the items below.
+Your privacy notice and the study's "Data use and sharing" text must disclose them.
+
+| What | Where it is stored | How long |
+|---|---|---|
+| Client IP address and User-Agent of every audited request | `audit_logs.ip_address`, `audit_logs.user_agent` in Postgres. Caddy masks IPs only in its own access log; the database copy is not masked. | Indefinitely. There is no purge job; the table is append-only by design (V44). |
+| Android device model, brand, product name, Android release and SDK level | Sent by the Android app at enrollment and kept with the device record | Until the participant or study is deleted |
+| Participant ID, enrollment device ID, study ID | Participant and device tables, and every data row | Until the participant or study is deleted |
+| Questionnaire, survey and time-use diary answers | Form response tables | Until the participant or study is deleted |
+
+If you need a shorter retention for the audit IP, decide it in your EIPD and plan it with the
+maintainers: deleting audit rows conflicts with the HIPAA six-year audit retention and with the
+table's immutability rules.
+
 ## Practical checklist for the deploying team
 
 - [ ] Complete an **EIPD** for the study before enrolling anyone.
 - [ ] Confirm the **consent** text in the app meets Chilean "explicit consent" for sensitive data.
 - [ ] Enable only the **collection modules the study needs** (data minimization).
-- [ ] Turn on **TLS** (automatic with Caddy) and a **dashboard gate** (basic_auth or Keycloak).
+- [ ] Disclose the [data the platform always records](#data-the-platform-records-regardless-of-modules) in the study's privacy text.
+- [ ] Turn on **TLS** (automatic with Caddy) and the built-in **dashboard login on an internal listener** (Keycloak is experimental and source-only).
 - [ ] Enable the **backups overlay**; store copies **encrypted and off-box**.
-- [ ] Write a **breach-response** procedure with the ~72h Agencia notification.
+- [ ] Adapt [INCIDENT-RESPONSE.md](INCIDENT-RESPONSE.md) into your **breach-response** procedure, with the ~72h Agencia notification.
 - [ ] Check whether a **DPO** is required for your organization.
 - [ ] Decide on **at-rest encryption** based on your risk assessment (OS/volume encryption
       preferred over database TDE).

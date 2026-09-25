@@ -19,10 +19,10 @@ This Docker Compose setup runs the legacy all-in-one Chronicle stack locally for
 cd docker
 
 # Build and start all services
-docker-compose up --build
+docker compose up --build
 
 # Or run in background
-docker-compose up --build -d
+docker compose up --build -d
 ```
 
 The application will be available at: **http://localhost**
@@ -85,37 +85,37 @@ The backend configuration is in `rhizome-docker.yaml`. Key settings:
 
 ```bash
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # View logs for specific service
-docker-compose logs -f backend
+docker compose logs -f backend
 
 # Restart a service
-docker-compose restart backend
+docker compose restart backend
 
 # Stop all services
-docker-compose down
+docker compose down
 
 # Stop and remove volumes (clean slate)
-docker-compose down -v
+docker compose down -v
 
 # Rebuild a specific service
-docker-compose build backend
-docker-compose up -d backend
+docker compose build backend
+docker compose up -d backend
 ```
 
 ## Troubleshooting
 
 ### Backend fails to start
-- Check if PostgreSQL is ready: `docker-compose logs postgres`
+- Check if PostgreSQL is ready: `docker compose logs postgres`
 - The backend waits for postgres health check before starting
 
 ### Frontend not loading
-- Check nginx logs: `docker-compose logs nginx`
-- Verify frontend build completed: `docker-compose logs frontend`
+- Check nginx logs: `docker compose logs nginx`
+- Verify frontend build completed: `docker compose logs frontend`
 
 ### Database connection issues
-- Ensure postgres container is healthy: `docker-compose ps`
+- Ensure postgres container is healthy: `docker compose ps`
 - Check `rhizome-docker.yaml` for correct connection settings
 
 ### Port conflicts
@@ -132,7 +132,7 @@ For active frontend development, you may prefer running the frontend locally:
 
 ```bash
 # Start only backend services
-docker-compose up postgres backend nginx
+docker compose up postgres backend nginx
 
 # Run frontend dev server separately (with hot reload)
 cd ../chronicle-web

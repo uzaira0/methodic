@@ -34,10 +34,16 @@ independent: you bring your own domain, your own database, and your own users.
 
 - A Linux host with **Docker** and the **Docker Compose plugin**. The `./chronicle` script
   also runs on macOS (tested against Docker via OrbStack), which is useful for trying the
-  stack out locally; deploy it on Linux.
+  stack out locally; deploy it on Linux. See [Supported hosts](#supported-hosts).
+- An **operator account** in the `docker` group, or a rootless Docker installation.
+  Membership of the `docker` group is **root-equivalent** on that host, so give it only to
+  the people who run Chronicle. Nothing else on the normal path needs `sudo`:
+  `setup`, `check`, `up`, `verify`, `upgrade`, `restore` and `rotate-secret` run as that
+  account, and every file they create (`.env`, `backups/`, receipts) is owned by its uid.
+  Installing Docker itself, and `timedatectl set-ntp`, need root once.
 - **~4 vCPU / 8 GB RAM** is comfortable; a pilot with a handful of devices runs on
   **2 vCPU / 4 GB**. See [Sizing](#sizing).
-- A **hostname** (e.g. `study.example.org`) and a **TLS certificate** for it. On an
+- A **hostname** (e.g. `chronicle.your-university.edu`) and a **TLS certificate** for it. On an
   institutional server this is normally your institution's load balancer + institutional
   cert; you do **not** need a public Let's Encrypt setup. See
   [Required configuration](#required-configuration).
@@ -46,7 +52,46 @@ independent: you bring your own domain, your own database, and your own users.
   The source-clone path below additionally needs Git and outbound build dependency access;
   Java, Bun, and Gradle still run inside the image builds rather than on the host.
 
-## Quick start from the Methodic repository
+### Supported hosts
+
+| Host | Tested | Bash | SELinux | Notes |
+|---|---|---|---|---|
+| RHEL 9 / Rocky / Alma 9, Docker CE | yes (release smoke, launch audit) | 5.1 | Enforcing on the host; Docker daemon without `selinux-enabled` | Supported production host |
+| Ubuntu 22.04 / 24.04, Docker CE | not in the release smoke | 5.1 / 5.2 | n/a (AppArmor) | Expected to work; report issues |
+| macOS with OrbStack or Docker Desktop | trial only | 3.2 (`/bin/bash`) | n/a | `setup`'s host checks run under bash 3.2 (tested in `tests/security/deploy-guardrails.sh`); deploy on Linux |
+
+**SELinux:** the bind mounts in `docker-compose.yml` and the overlays carry no `:z`/`:Z`
+relabel options, so the bundle has not been exercised with the Docker daemon's
+`selinux-enabled: true`. Run the daemon with SELinux support off (the RHEL default for
+Docker CE), or test the relabelling on a staging host before production.
+
+## Quick start
+
+From a published release bundle (download the archive and its `.sha256` from the
+repository's GitHub Releases page):
+
+```bash
+# 1. Verify and extract the bundle. It contains no source and builds nothing:
+#    `up` pulls the digest-pinned images. On macOS use:
+#    shasum -a 256 -c chronicle-selfhost-<version>.tar.gz.sha256
+sha256sum -c chronicle-selfhost-<version>.tar.gz.sha256
+tar -xzpf chronicle-selfhost-<version>.tar.gz
+cd chronicle-selfhost-<version>/selfhost
+
+# 2. Configure interactively. Secrets are generated and never printed.
+./chronicle setup
+
+# 3. Validate the host, pull the digest-pinned images, and start.
+./chronicle up
+
+# 4. Prove the server is exposed the way you intended.
+./chronicle verify
+
+# 5. Confirm backups and monitoring are visible and actionable.
+./chronicle doctor
+```
+
+### From a source checkout
 
 ```bash
 # 1. Clone the public repository. The operator script initializes only the server
@@ -68,7 +113,7 @@ cd chronicle/selfhost
 ./chronicle monitoring status    # when monitoring was selected during setup
 ```
 
-The first `up` builds the backend, dashboard, and proxy images from the checked-out source,
+On a source checkout the first `up` builds the backend, dashboard, and proxy images from the checked-out source,
 so it takes longer than a restart. Each local tag contains the exact Methodic revision, and
 the backend/dashboard metadata records that revision too; after a fast-forward pull and
 submodule update, the next `up` builds new tags instead of silently reusing stale `:source`
@@ -345,8 +390,9 @@ never appear in command arguments or receipts:
 ./chronicle monitoring remove-viewer alice
 ```
 
-No notification leaves the host. Self-host alert routing is permanently muted, while firing and
-historical states remain visible in Grafana. Start diagnosis with `./chronicle doctor`; each
+Firing and historical alert states are visible in Grafana. By default no notification leaves
+the host; set `CHRONICLE_ALERT_WEBHOOK_URL` to deliver alerts to a person (see the runbook
+section "Attach a notification channel"). Start diagnosis with `./chronicle doctor`; each
 alert links to the bundled [monitoring runbook](docs/MONITORING-RUNBOOK.md).
 
 Backend and Caddy emit structured JSON envelopes, PostgreSQL emits a parseable timestamp and
@@ -515,12 +561,13 @@ Two things worth understanding before you deploy it:
 Verify after starting — the first two must 404 and the rest must succeed:
 
 ```bash
-PUB=http://<public-host>:8080; INT=http://<internal-ip>:8081
+# The internal listener is always HTTPS (self-signed by default, hence -k).
+PUB=http://<public-host>:8080; INT=https://<internal-ip>:8081
 curl -o /dev/null -w '%{http_code} api/web\n'    $PUB/chronicle/api/web/study        # 404
 curl -o /dev/null -w '%{http_code} tud-data\n'   $PUB/chronicle/v3/time-use-diary/S/data  # 404
 curl -o /dev/null -w '%{http_code} survey\n'     $PUB/chronicle/survey               # 200
 curl -o /dev/null -w '%{http_code} ingest\n'     $PUB/chronicle/v4/                  # not 404
-curl -o /dev/null -w '%{http_code} dashboard\n'  $INT/chronicle/api/web/study        # 200
+curl -k -u "$DASHBOARD_USER" -o /dev/null -w '%{http_code} dashboard\n'  $INT/chronicle/api/web/study  # 200
 ```
 
 ## Rate limiting
@@ -600,7 +647,11 @@ public **"open" sideload build** both accept any valid public-HTTPS Chronicle se
 - **Android from Google Play:** open the one-time enrollment link issued by your dashboard.
   The link supplies your server URL, which remains visible on the enrollment screen for the
   participant to verify before continuing.
-- **Android sideload:** build the `open` product flavor — `./gradlew :app:assembleOpenRelease`.
+- **Android sideload:** build the `open` product flavor from the `chronicle/` submodule. A
+  release build needs `app/signing.properties` and a non-debug keystore first (copy
+  `app/signing.properties.example` and point it at your keystore), then
+  `cd chronicle && ./gradlew :app:assembleOpenRelease` and
+  `adb install -r app/build/outputs/apk/open/release/app-open-release.apk`.
   Like Play, it trusts any `https` server using the device system trust store
   (`ALLOW_ANY_SERVER`).
 - **iOS:** set `CHRONICLE_ALLOW_ANY_SERVER = YES` in `Chronicle.local.xcconfig` and build.
@@ -680,7 +731,23 @@ it before giving the reviewer a link, or issue a fresh link afterward.
 
 ## Day-2 operations
 
+- **Troubleshooting** (port in use, wrong bind, expired certificate, disk full, failed
+  migration): [docs/MONITORING-RUNBOOK.md#troubleshooting](docs/MONITORING-RUNBOOK.md#troubleshooting)
+- **Clock:** keep the host NTP-synchronized. Signed mobile requests are accepted only
+  within a 5-minute window with 30 s of clock skew, and certificate validity and backup
+  schedules read the same clock. `./chronicle check` and `up` warn when the host clock is
+  not synchronized (`timedatectl`/`chronyc`); fix with `sudo timedatectl set-ntp true`.
+- **Free disk floor:** `./chronicle check` and `up` refuse to start with less than
+  `MIN_FREE_DISK_GIB` (default 5) free under the state directory, because Postgres stops
+  hard on a full disk. Without the monitoring overlay this is the only disk warning, so
+  also run `./chronicle doctor` from cron.
+- **Converge after a host or daemon restart:** Docker does not restart an unhealthy
+  container, and a restart after a failed start (for example a full disk) is not retried.
+  Run `./chronicle up` at boot and periodically; it is idempotent. Example crontab for the
+  operator account: `@reboot cd /path/to/selfhost && ./chronicle up` and
+  `*/15 * * * * cd /path/to/selfhost && ./chronicle up >/dev/null 2>&1`.
 - **Backups & restore:** [docs/BACKUP-RESTORE.md](docs/BACKUP-RESTORE.md)
+- **Security incident:** [docs/INCIDENT-RESPONSE.md](docs/INCIDENT-RESPONSE.md)
 - **Upgrades and rollback:** [docs/UPGRADE-ROLLBACK.md](docs/UPGRADE-ROLLBACK.md) — verify
   and extract the new bundle, then run `./chronicle upgrade --from /path/to/old/selfhost`.
   It validates both bundles, makes a pre-upgrade dump, waits for migrations/health, and
@@ -776,6 +843,52 @@ health/behavioral data is *sensitive*, which triggers **explicit consent** and a
 **Data Protection Impact Assessment (EIPD)** you must complete before collecting. Confirm
 specifics with your institution's data-protection officer; this document is not legal advice.
 
+## Your legal obligations as operator
+
+The organization that runs this bundle is the data **controller** (GDPR, Ley 21.719) and,
+for US health data, the HIPAA **covered entity or business associate**. Nobody else
+operates it for you. At minimum:
+
+- **HIPAA:** a Business Associate Agreement with any host or backup provider that stores
+  PHI; breach notification to affected individuals without unreasonable delay and no
+  later than 60 days after discovery, and to HHS (and media for 500+ residents of a state).
+- **GDPR:** notify the supervisory authority within 72 hours of becoming aware of a
+  personal-data breach; run a DPIA before collecting health data; put Art. 28 processor
+  contracts in place with hosts; honor data-subject rights.
+- **Chile:** see [docs/CHILE-LEY-21719.md](docs/CHILE-LEY-21719.md).
+- **Disclose what the platform always records** (client IP in the audit log, kept
+  indefinitely; device model and OS; participant IDs; form answers), whatever modules you
+  enable: see
+  [docs/CHILE-LEY-21719.md](docs/CHILE-LEY-21719.md#data-the-platform-records-regardless-of-modules).
+- **Retention and deletion:** see
+  [docs/UNINSTALL-DATA-DELETION.md](docs/UNINSTALL-DATA-DELETION.md); backup retention
+  bounds how long deleted data survives.
+
+This is a checklist, not legal advice; confirm duties with your institution's counsel or IRB.
+
+## Security updates
+
+- **How you learn of a fix:** watch the public repository on GitHub (Watch -> Custom ->
+  Releases and Security advisories). Security fixes ship only as new releases; their
+  `CHANGELOG.md` entry has a `### Security` heading. Also run a daily check from cron:
+  `./chronicle update --check` exits `3` when a newer release exists, for example
+  `0 6 * * * cd /path/to/selfhost && ./chronicle update --check >/dev/null || [ $? -ne 3 ] || echo "Chronicle update available" | mail -s chronicle ops@your-institution`.
+- **How fast to apply:** critical within 72 hours, high within 14 days, others with the
+  next planned maintenance. Upgrade with `./chronicle update` (it verifies the checksum
+  and takes a pre-upgrade dump).
+- **If you think you were affected:** follow [docs/INCIDENT-RESPONSE.md](docs/INCIDENT-RESPONSE.md).
+
+## Support
+
+- **Supported releases:** the latest release, plus the previous release as an upgrade
+  source. Fixes, including security fixes, ship only as new releases; check with
+  `./chronicle update --check`.
+- **Bugs:** open an issue on the public repository's GitHub issue tracker. Include
+  `./chronicle doctor --json` output; it contains no secrets.
+- **Vulnerabilities:** report privately as described in `SECURITY.md` at the bundle root.
+  Do not open a public issue.
+- **Out of scope:** see [docs/DEPLOYMENT-COMPATIBILITY.md](docs/DEPLOYMENT-COMPATIBILITY.md).
+
 ## FAQ
 
 **Is 8 CPU / 16 GB required?** No — that figure is for the larger hardened reference stack. This
@@ -864,7 +977,16 @@ Caddy ~40 MB, backup sidecar ~30 MB → **~1.1 GB actually resident**.
 
 Limits are ceilings, not reservations, so the stack starts fine on a smaller box — but
 nothing stops it growing into them under load, and then the kernel OOM-kills a container.
-On a 4 GB host, lower `BACKEND_MEM_LIMIT`/`BACKEND_XMX` and `POSTGRES_MEM_LIMIT` to fit.
+On a Linux host with less than ~7.5 GB of memory, `./chronicle setup` sizes them for a 4 GB
+host automatically (backend 1.5 GB with a 1 GB heap, Postgres 1 GB with 256 MB shared
+buffers). The monitoring overlay adds about 2.2 GB of ceilings on top; leave it off on a
+4 GB host or add memory.
+
+**Base disk before any study data:** container images ~2 GB, Postgres WAL up to ~1 GB, local
+backups (14 daily + 8 weekly + 6 monthly dumps, each roughly the compressed database size),
+container logs up to 50 MB per service, and with monitoring on, the metrics and logs
+budgets (`METRICS_MAX_DISK_BYTES` and `LOGS_MAX_DISK_BYTES`, 5 GB each by default). Plan
+at least 20 GB before study data.
 
 | Scenario | Suggested |
 |---|---|
