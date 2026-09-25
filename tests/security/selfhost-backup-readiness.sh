@@ -136,4 +136,33 @@ grep -Fq 'BACKUP_STARTUP_INTERVAL_SECONDS must not exceed 60' \
   "${RUN_DIR}/oversized-interval.log" ||
   fail "oversized readiness-interval rejection was not comprehensible"
 
+# Pre-operation safety dumps sit outside the image's daily/weekly/monthly rotation. The
+# post-backup hook bounds them by PRE_OP_BACKUP_KEEP_DAYS (launch audit D6, K3, D4).
+PRUNE_HOOK="${ROOT_DIR}/selfhost/backup-prune-hook.sh"
+[[ -x "$PRUNE_HOOK" ]] || fail "pre-operation dump prune hook is missing or not executable"
+grep -Fq './backup-prune-hook.sh:/hooks/50-prune-pre-operation-dumps:ro' "${ROOT_DIR}/selfhost/overlays/backups.yml" ||
+  fail "backups overlay does not mount the prune hook into /hooks"
+PRUNE_DIR="${RUN_DIR}/prune"
+/bin/mkdir -p "${PRUNE_DIR}/daily"
+for name in pre-upgrade-1.0.0-to-1.1.0-a.sql.gz pre-restore-20260101T000000Z.abc123.sql.gz \
+            pre-restore-20260101T000000Z.abc123.continuity.sql.gz; do
+  : >"${PRUNE_DIR}/${name}"; touch -d '40 days ago' "${PRUNE_DIR}/${name}"
+done
+: >"${PRUNE_DIR}/pre-restore-20260920T000000Z.def456.sql.gz"
+: >"${PRUNE_DIR}/daily/chronicle-20260101.sql.gz"; touch -d '40 days ago' "${PRUNE_DIR}/daily/chronicle-20260101.sql.gz"
+: >"${PRUNE_DIR}/unrelated.sql.gz"; touch -d '40 days ago' "${PRUNE_DIR}/unrelated.sql.gz"
+BACKUP_DIR="$PRUNE_DIR" PRE_OP_BACKUP_KEEP_DAYS=30 "$PRUNE_HOOK" error >/dev/null
+[[ -e "${PRUNE_DIR}/pre-upgrade-1.0.0-to-1.1.0-a.sql.gz" ]] || fail "prune hook acted on a failed backup run"
+BACKUP_DIR="$PRUNE_DIR" PRE_OP_BACKUP_KEEP_DAYS=30 "$PRUNE_HOOK" post-backup >"${RUN_DIR}/prune.log"
+for gone in pre-upgrade-1.0.0-to-1.1.0-a.sql.gz pre-restore-20260101T000000Z.abc123.sql.gz \
+            pre-restore-20260101T000000Z.abc123.continuity.sql.gz; do
+  [[ ! -e "${PRUNE_DIR}/${gone}" ]] || fail "expired pre-operation dump survived: ${gone}"
+done
+for kept in pre-restore-20260920T000000Z.def456.sql.gz daily/chronicle-20260101.sql.gz unrelated.sql.gz; do
+  [[ -e "${PRUNE_DIR}/${kept}" ]] || fail "prune hook removed a file it does not own: ${kept}"
+done
+if BACKUP_DIR="$PRUNE_DIR" PRE_OP_BACKUP_KEEP_DAYS=0 "$PRUNE_HOOK" post-backup >/dev/null 2>&1; then
+  fail "prune hook accepted PRE_OP_BACKUP_KEEP_DAYS=0"
+fi
+
 echo "self-host backup readiness test passed"

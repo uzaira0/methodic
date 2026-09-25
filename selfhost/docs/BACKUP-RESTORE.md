@@ -11,6 +11,15 @@ the dumps are a complete copy that needs no key. It also means the dumps are as 
 as the database itself: `${CHRONICLE_STATE_DIR:-.}/backups` is `0700` and owned by the deploying account, and you
 should treat anywhere you copy it the same way.
 
+Two links are not encrypted, as an **accepted residual risk** for a single-host install:
+the dumps above (plain SQL on the host disk, protected only by the `0700` directory and
+host access control), and the traffic between containers on the stack's private Docker
+network (backend to PostgreSQL uses `sslmode=prefer` against a server with no certificate,
+and Caddy reaches the backend over HTTP). That network is not published outside the host;
+anyone who can read it already has the Docker access that reads the database directly.
+Encrypt dumps before they leave the host (below), and use full-disk encryption on the host
+if the disk itself may leave your control.
+
 A copy of the encryption keyring is kept at `backups/keyring/chronicle-keyring.per` under
 that state directory so the backup set can also remount the data volume itself. **Back up
 the whole state-directory `backups/` tree as one unit**,
@@ -109,7 +118,14 @@ hashes and credential values are never copied into this checkpoint.
 
 The command also writes a mode-`0600` companion next to the safety dump, named
 `pre-restore-<timestamp>.<suffix>.continuity.sql.gz`. Keep the safety dump and companion
-together in the same protected backup set until reconciliation succeeds. The companion is
+together in the same protected backup set until reconciliation succeeds.
+
+These safety dumps, and the `pre-upgrade-*.sql.gz` dumps that `./chronicle upgrade` writes
+to the same `backups/` root, are outside the daily/weekly/monthly rotation. The backup
+sidecar deletes them after each successful backup once they are older than
+`PRE_OP_BACKUP_KEEP_DAYS` (default 30). Raise it in `.env` if an incident needs them
+longer, or copy them elsewhere first; restore and upgrade stop the sidecar while they run,
+so a dump in use is never pruned. The companion is
 the recovery copy of the owner-only checkpoint if the database volume is lost before the
 current backend records its reconciliation receipt; it is not an ordinary application dump
 and must never be restored into a running or previous-release backend.
@@ -125,6 +141,13 @@ physically re-erases the rows. It appends an immutable
 transaction. A conflict, missing relation, changed digest, active retention-hold mismatch,
 or incomplete erasure proof leaves the backend unhealthy and stopped with the checkpoint
 preserved for diagnosis. Do not remove `chronicle_restore_continuity` manually.
+
+**Restore time.** The command prints `Restore took N seconds.`, and every operation receipt
+under `operator-receipts/operations/` records `durationSeconds`. The release smoke test
+records `clean_restore_seconds` for the fixture database. Rehearse on a copy of your own
+data and write down that figure as your recovery-time estimate; it grows with database size.
+Measured 2026-09-24 by the release smoke: 61 s for a fixture database of 91 tables and
+65,705 rows, including the bounded restart to a healthy stack.
 
 On success, the command starts the complete stack with a bounded health wait; `db-init`
 encrypts anything that arrived on plain heap. Confirm the restore receipt before reopening
@@ -210,7 +233,40 @@ all 86 tables and every row present and identical.
 - `caddy_data` volume — the TLS certificates. Not essential (Caddy re-issues them), but
   restoring it avoids re-hitting Let's Encrypt rate limits on a rebuild.
 
+## Verify off-host copies
+
+A copy you have never compared is a guess. After each sync, and at least monthly:
+
+```bash
+# 1. The remote copy matches the host copy, file by file (size and checksum).
+rclone check /absolute/chronicle-state/backups remote:chronicle-backups
+#    Without rclone: compare checksum manifests from both sides.
+( cd /absolute/chronicle-state/backups && find . -name '*.sql.gz*' -type f -exec sha256sum {} + | sort -k2 ) >host.sha256
+
+# 2. An encrypted copy decrypts and is a complete gzip stream (run where the key lives).
+rclone copy remote:chronicle-backups/last/chronicle-latest.sql.gz.gpg ./check/
+gpg --decrypt ./check/chronicle-latest.sql.gz.gpg | gzip -t && echo "decrypts and is intact"
+```
+
 ## Test your restore
 
 A backup you have never restored is a guess. Periodically restore the latest dump into a
-throwaway Postgres container and confirm the row counts look right.
+throwaway Postgres that has no network and no connection to the running stack:
+
+```bash
+docker run --rm -d --name chronicle-restore-check --network none \
+  -e POSTGRES_USER=chronicle -e POSTGRES_DB=chronicle -e POSTGRES_HOST_AUTH_METHOD=trust \
+  postgres:18-alpine
+sleep 5
+docker exec chronicle-restore-check psql -U chronicle -d chronicle \
+  -c 'CREATE ROLE chronicle_app; CREATE ROLE chronicle_admin;'
+gunzip -c /absolute/chronicle-state/backups/last/chronicle-latest.sql.gz |
+  docker exec -i chronicle-restore-check psql -q -U chronicle -d chronicle >/dev/null
+docker exec chronicle-restore-check psql -U chronicle -d chronicle -c \
+  "SELECT 'studies' AS t, count(*) FROM studies UNION ALL SELECT 'audit_logs', count(*) FROM audit_logs;"
+docker rm -f chronicle-restore-check
+```
+
+Expect two errors about the missing `pg_tde` extension and access method (stock Postgres
+has neither), then non-zero counts that match what the dashboard shows. The same check
+works on a decrypted off-host copy.

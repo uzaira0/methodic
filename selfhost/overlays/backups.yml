@@ -55,6 +55,12 @@ services:
       options:
         max-size: "${LOG_MAX_SIZE:-10m}"
         max-file: "${LOG_MAX_FILES:-5}"
+    security_opt:
+      - no-new-privileges:true
+    # Inert for the operator uid; bounds the bare-compose root fallback, which still needs
+    # to write into the operator-owned 0700 ./backups.
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_DB: ${POSTGRES_DB:-chronicle}
@@ -64,6 +70,9 @@ services:
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
       BACKUP_KEEP_WEEKS: ${BACKUP_KEEP_WEEKS:-8}
       BACKUP_KEEP_MONTHS: ${BACKUP_KEEP_MONTHS:-6}
+      PRE_OP_BACKUP_KEEP_DAYS: ${PRE_OP_BACKUP_KEEP_DAYS:-30}
+      # pg_dump waits for table locks instead of failing after the server's lock_timeout.
+      PGOPTIONS: "-c lock_timeout=0"
       HEALTHCHECK_PORT: 8080
       BACKUP_STARTUP_TIMEOUT_SECONDS: ${BACKUP_STARTUP_TIMEOUT_SECONDS:-300}
       BACKUP_STARTUP_INTERVAL_SECONDS: ${BACKUP_STARTUP_INTERVAL_SECONDS:-2}
@@ -75,6 +84,8 @@ services:
       BACKUP_ON_START: "TRUE"
     volumes:
       - ./backup-entrypoint.sh:/selfhost/backup-entrypoint.sh:ro
+      # Bounds the pre-upgrade/pre-restore safety dumps that the rotation below never sees.
+      - ./backup-prune-hook.sh:/hooks/50-prune-pre-operation-dumps:ro
       - "${CHRONICLE_STATE_DIR:-.}/backups:/backups"
     depends_on:
       # A healthy BACKEND, not a healthy postgres. Flyway creates the schema when the backend
