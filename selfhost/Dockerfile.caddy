@@ -9,8 +9,14 @@
 
 FROM caddy:2.11.4-builder-alpine@sha256:2b9f32cbba6045e79212bb253f595588d20be8f7d1edf61582c519e124e0d2d8 AS builder
 
+# Go dependencies raised past the versions Caddy 2.11.4 pins, for fixed HIGH advisories
+# (trivy gate in scripts/publish-images.sh). Drop each once Caddy's go.mod reaches it.
 RUN xcaddy build v2.11.4 \
-    --with github.com/mholt/caddy-ratelimit@v0.1.0
+    --with github.com/mholt/caddy-ratelimit@v0.1.0 \
+    --replace golang.org/x/crypto=golang.org/x/crypto@v0.55.0 \
+    --replace golang.org/x/net=golang.org/x/net@v0.56.0 \
+    --replace golang.org/x/text=golang.org/x/text@v0.39.0 \
+    --replace google.golang.org/grpc=google.golang.org/grpc@v1.83.2
 
 FROM caddy:2.11.4-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
 
