@@ -408,6 +408,8 @@ case "$LAYER" in
       "selfhost-release-bundle.txt" "" -- "$ROOT_DIR/tests/security/selfhost-release-bundle.sh"
     run_security_step "deploy.selfhost-update-command" "Deploy: self-host update command contract" "guardrail" \
       "selfhost-update-command.txt" "" -- "$ROOT_DIR/tests/security/selfhost-update-command.sh"
+    run_security_step "deploy.selfhost-cli-surface" "Deploy: self-host operator CLI and edge-guard contract" "guardrail" \
+      "selfhost-cli-surface.txt" "" -- "$ROOT_DIR/tests/security/selfhost-cli-surface.sh"
     run_security_step "deploy.selfhost-adopt-command" "Deploy: self-host adopt command contract" "guardrail" \
       "selfhost-adopt-command.txt" "" -- "$ROOT_DIR/tests/security/selfhost-adopt-command.sh"
     run_security_step "deploy.failure-propagation" "Deploy: failure propagation guardrails" "guardrail" \

@@ -63,6 +63,7 @@ build_bundle() {
   "$BUILDER" \
     --version v9.8.7-test.1 \
     --source-revision 0123456789abcdef0123456789abcdef01234567 \
+    --public-revision fedcba9876543210fedcba9876543210fedcba98 \
     --source-date-epoch 1700000000 \
     --backend-image "$BACKEND_IMAGE" \
     --frontend-image "$FRONTEND_IMAGE" \
@@ -98,8 +99,33 @@ second_hash="$(sha256sum "${RUN_DIR}/second/$(basename "$ARCHIVE")" | awk '{prin
   || fail "published archive checksum does not verify"
 
 tar -tzf "$ARCHIVE" >"${RUN_DIR}/archive-members.txt"
+python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); sys.exit(m.get("public_revision") != "fedcba9876543210fedcba9876543210fedcba98")' \
+  "${BUNDLE}/release-manifest.json" || fail "manifest does not record the public source revision"
+publish_plan="$(cd "$ROOT_DIR" && bash scripts/publish-images.sh 9.8.7 --dry-run 2>&1)" \
+  || fail "publish-images dry run failed"
+grep -Fq -- '--public-revision' <<<"$publish_plan" || fail "publish does not pass the public revision to the builder"
+grep -Eq 'gh release create .*--target' <<<"$publish_plan" || fail "GitHub release is not pinned to the public revision"
+# Launch audit I1: no image reaches the registry with a fixable HIGH/CRITICAL finding.
+for image_name in chronicle-backend chronicle-selfhost-frontend chronicle-selfhost-caddy; do
+  scan_line=$(grep -n "trivy image .*--exit-code 1 .*${image_name}:" <<<"$publish_plan" | head -1 | cut -d: -f1 || true)
+  push_line=$(grep -n "docker push .*${image_name}:" <<<"$publish_plan" | head -1 | cut -d: -f1 || true)
+  [[ -n "$scan_line" && -n "$push_line" && "$scan_line" -lt "$push_line" ]] \
+    || fail "publish pushes ${image_name} without a blocking trivy HIGH/CRITICAL scan first"
+done
+grep -Eq -- '--severity HIGH[\\]?,CRITICAL' <<<"$publish_plan" || fail "publish scan does not gate HIGH and CRITICAL"
+# Launch audit I5: a dedicated write:packages token, never the operator's general gh token.
+! grep -Fq 'gh auth token' "$ROOT_DIR/scripts/publish-images.sh" || fail "publish logs in to GHCR with the general gh token"
+grep -Fq 'GHCR_TOKEN' <<<"$publish_plan" || fail "publish does not log in with GHCR_TOKEN"
+unset_token_out="$(cd "$ROOT_DIR" && env -u GHCR_TOKEN bash scripts/publish-images.sh 9.8.7 2>&1)" \
+  && fail "publish ran without GHCR_TOKEN"
+grep -Fq 'GHCR_TOKEN' <<<"$unset_token_out" || fail "publish without GHCR_TOKEN did not name the missing token"
 grep -Fqx 'chronicle-selfhost-9.8.7-test.1/selfhost/docker-compose.yml' "${RUN_DIR}/archive-members.txt" \
   || fail "archive lacks selfhost/docker-compose.yml"
+for shipped in CHANGELOG.md SECURITY.md LICENSE selfhost/docs/POSTGRES-18-UPGRADE.md \
+               selfhost/docs/INCIDENT-RESPONSE.md selfhost/backup-prune-hook.sh; do
+  grep -Fqx "chronicle-selfhost-9.8.7-test.1/${shipped}" "${RUN_DIR}/archive-members.txt" \
+    || fail "archive lacks ${shipped}"
+done
 grep -Fqx 'chronicle-selfhost-9.8.7-test.1/docker/init-db-roles.sql' "${RUN_DIR}/archive-members.txt" \
   || fail "archive lacks the database role bootstrap dependency"
 grep -Fqx 'chronicle-selfhost-9.8.7-test.1/selfhost/backup-entrypoint.sh' "${RUN_DIR}/archive-members.txt" \
@@ -297,7 +323,7 @@ grep -Fq 'is not a public DNS name' "${RUN_DIR}/turnkey-setup-badhost.log" || fa
 [[ ! -e "${BUNDLE}/selfhost/.env" ]] || fail "setup wrote .env for a refused hostname"
 # The refusal leaves its own failed-setup receipt; the assertions below want the real one.
 /bin/rm -rf -- "${BUNDLE}/selfhost/operator-receipts"
-printf '1\nturnkey.example.org\n\n\n%s\n%s\n\n\n\n\n\n' "$setup_password" "$setup_password" |
+printf '1\nturnkey.study-host.org\n\n\n%s\n%s\n\n\n\n\n\n' "$setup_password" "$setup_password" |
   (cd "${BUNDLE}/selfhost" && \
     CADDY_SETUP_HASH_IMAGE='caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d' \
     ./chronicle setup) >"${RUN_DIR}/turnkey-setup.log" 2>&1 \
@@ -315,7 +341,8 @@ receipt = json.load(open(sys.argv[1], encoding="utf-8"))
 assert receipt["operation"] == "setup"
 assert receipt["outcome"] == "success"
 assert receipt["failureCategory"] == "none"
-assert set(receipt) == {"operation", "timestamp", "releaseVersion", "outcome", "failureCategory"}
+assert set(receipt) == {"operation", "timestamp", "releaseVersion", "outcome", "failureCategory", "durationSeconds"}
+assert isinstance(receipt["durationSeconds"], int) and receipt["durationSeconds"] >= 0
 PY
 
 (cd "${BUNDLE}/selfhost" && ./verify-config.sh >/dev/null) \

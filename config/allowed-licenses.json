@@ -66,6 +66,7 @@
     { "moduleLicense": "Public Domain, per Creative Commons CC0" },
     { "moduleName": "com.geekbeast:rhizome" },
     { "moduleName": "com.geekbeast:rhizome-client" },
+    { "moduleName": "com.openlattice:chronicle-models" },
     { "moduleName": "org.antlr:antlr-runtime" }
   ]
 }

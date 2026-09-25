@@ -33,6 +33,7 @@ FLYWAY="$(manifest_value flyway.version)"
 PYTHON_MIN="$(manifest_value python)"
 SELFHOST_BACKUP_IMAGE="$(manifest_value selfhost_images.backup)"
 SELFHOST_CADVISOR_IMAGE="$(manifest_value selfhost_images.cadvisor)"
+SELFHOST_SOCKET_PROXY_IMAGE="$(manifest_value selfhost_images.docker_socket_proxy)"
 SELFHOST_VM_IMAGE="$(manifest_value selfhost_images.victoria_metrics)"
 SELFHOST_VL_IMAGE="$(manifest_value selfhost_images.victoria_logs)"
 SELFHOST_FLUENT_BIT_IMAGE="$(manifest_value selfhost_images.fluent_bit)"
@@ -240,6 +241,7 @@ grep -Fq "POSTGRES_IMAGE=${PG_IMAGE}@${PG_DIGEST}" "$ROOT_DIR/selfhost/.env.exam
 for image_contract in \
   "overlays/backups.yml|$SELFHOST_BACKUP_IMAGE" \
   "overlays/monitoring.yml|$SELFHOST_CADVISOR_IMAGE" \
+  "overlays/monitoring.yml|$SELFHOST_SOCKET_PROXY_IMAGE" \
   "overlays/monitoring.yml|$SELFHOST_VM_IMAGE" \
   "overlays/monitoring.yml|$SELFHOST_VL_IMAGE" \
   "overlays/monitoring.yml|$SELFHOST_FLUENT_BIT_IMAGE" \

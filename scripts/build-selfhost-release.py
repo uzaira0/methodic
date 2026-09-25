@@ -43,6 +43,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--version", required=True)
     parser.add_argument("--source-revision", required=True)
+    # The private checkout's HEAD never exists in the public mirror; this is the public commit
+    # the release tag points at, so a self-hoster can map the bundle to published source.
+    parser.add_argument("--public-revision")
     parser.add_argument("--source-date-epoch", required=True, type=int)
     parser.add_argument("--backend-image", required=True)
     parser.add_argument("--frontend-image", required=True)
@@ -132,6 +135,8 @@ def main() -> None:
                 fail("--version numeric prerelease identifiers must not contain leading zeroes")
     if not REVISION_RE.fullmatch(args.source_revision):
         fail("--source-revision must be a full lowercase Git SHA")
+    if args.public_revision is not None and not REVISION_RE.fullmatch(args.public_revision):
+        fail("--public-revision must be a full lowercase Git SHA")
     if not 0 <= args.source_date_epoch <= 0xFFFFFFFF:
         fail("--source-date-epoch must fit the gzip timestamp range (0 through 4294967295)")
 
@@ -168,11 +173,6 @@ def main() -> None:
         copy_tree(SELFHOST / "caddy", bundle / "selfhost" / "caddy")
         copy_tree(SELFHOST / "config", bundle / "selfhost" / "config")
         copy_tree(SELFHOST / "docs", bundle / "selfhost" / "docs")
-        shutil.copyfile(
-            ROOT / "docs" / "db" / "POSTGRES-18-UPGRADE.md",
-            bundle / "selfhost" / "docs" / "POSTGRES-18-UPGRADE.md",
-        )
-        (bundle / "selfhost" / "docs" / "POSTGRES-18-UPGRADE.md").chmod(0o644)
         copy_tree(SELFHOST / "monitoring", bundle / "selfhost" / "monitoring")
         copy_tree(SELFHOST / "overlays", bundle / "selfhost" / "overlays")
 
@@ -185,6 +185,7 @@ def main() -> None:
             "README.md",
             "backend-entrypoint.sh",
             "backup-entrypoint.sh",
+            "backup-prune-hook.sh",
             "ca-export.sh",
             "cert-init.sh",
             "chronicle",
@@ -223,8 +224,10 @@ def main() -> None:
         role_sql = ROOT / "docker" / "init-db-roles.sql"
         shutil.copyfile(role_sql, docker_dir / role_sql.name)
         (docker_dir / role_sql.name).chmod(0o644)
-        shutil.copyfile(ROOT / "LICENSE", bundle / "LICENSE")
-        (bundle / "LICENSE").chmod(0o644)
+        # Operators read release notes and the vulnerability-reporting policy offline.
+        for name in ("LICENSE", "CHANGELOG.md", "SECURITY.md"):
+            shutil.copyfile(ROOT / name, bundle / name)
+            (bundle / name).chmod(0o644)
 
         env_path = bundle / "selfhost" / ".env.example"
         env_text = env_path.read_text(encoding="utf-8")
@@ -253,6 +256,7 @@ def main() -> None:
             "schema_version": 1,
             "release_version": normalized_version,
             "source_revision": args.source_revision,
+            **({"public_revision": args.public_revision} if args.public_revision else {}),
             "source_date_epoch": args.source_date_epoch,
             "images": images,
             "files": file_hashes,

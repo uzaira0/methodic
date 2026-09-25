@@ -59,6 +59,10 @@ require_file "$MODELS_DIR/scripts/check-domain-contracts.sh"
 "$ROOT_DIR/scripts/generate-chronicle-contracts.py" --check
 pass "LinkML-generated Chronicle contract artifacts are fresh"
 
+python3 "$ROOT_DIR/tests/security/contract-drift-diff.py" "$ROOT_DIR" ||
+  fail "shared value sets drift across LinkML, chronicle-models, web, OpenAPI or the ast-grep rule"
+pass "Shared value sets agree across LinkML, chronicle-models, web, OpenAPI and Android"
+
 require_file "$ROOT_DIR/scripts/generate-chronicle-payload-contracts.py"
 CHRONICLE_MODELS_DIR="$MODELS_DIR" CHRONICLE_API_SPEC="$API_SPEC" \
   "$ROOT_DIR/scripts/generate-chronicle-payload-contracts.py" \
@@ -310,6 +314,29 @@ if [[ -f "$WEB_DIR/src/modern/lib/study-constants.test.ts" ]]; then
   else
     skip "bun/web dependencies unavailable here; descriptor coverage test runs in chronicle-web CI (build.yml bun test)"
   fi
+fi
+
+# ai-built-code C7: which modules honor a collection interval is written by hand twice, the
+# Android pull schedule and the web form's interval control. Diff them so adding a module
+# on one side cannot silently drop (or fake) the dashboard control.
+ANDROID_PULL_SCHEDULE="${CHRONICLE_ANDROID_DIR:-$ROOT_DIR/chronicle}/app/src/main/java/com/openlattice/chronicle/collection/device/ExpansionPullSchedule.kt"
+WEB_STUDY_CONSTANTS="$WEB_DIR/src/modern/lib/study-constants.ts"
+if [[ -f "$ANDROID_PULL_SCHEDULE" && -f "$WEB_STUDY_CONSTANTS" ]]; then
+  python3 - "$ANDROID_PULL_SCHEDULE" "$WEB_STUDY_CONSTANTS" <<'PY' || fail "interval-configurable modules differ between Android INTERVAL_GATED_MODULES and web INTERVAL_CONFIGURABLE_MODULES"
+import re, sys
+android_src, web_src = (open(path, encoding="utf-8").read() for path in sys.argv[1:3])
+android_block = re.search(r"INTERVAL_GATED_MODULES[^=]*=\s*listOf\((.*?)\)", android_src, re.S)
+web_block = re.search(r"INTERVAL_CONFIGURABLE_MODULES[^=]*=\s*new Set<[^>]*>\(\[(.*?)\]\)", web_src, re.S)
+if not android_block or not web_block:
+    sys.exit("could not find both interval module lists")
+android = {name.lower() for name in re.findall(r"CollectionModuleId\.([A-Z_]+)", android_block.group(1))}
+web = set(re.findall(r"'([a-z_]+)'", web_block.group(1)))
+if not android or android != web:
+    sys.exit(f"android only: {sorted(android - web)}; web only: {sorted(web - android)}")
+PY
+  pass "interval-configurable modules match between Android and web"
+else
+  skip "Android or web checkout missing; interval module parity not checked"
 fi
 
 require_file_contains "$ROOT_DIR/chronicle/settings.gradle" \

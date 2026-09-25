@@ -11,6 +11,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 BUILDER="${ROOT_DIR}/scripts/build-selfhost-release.py"
 RUN_PARENT="${SELFHOST_SMOKE_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-release-smoke}"
 BACKEND_IMAGE="${SELFHOST_SMOKE_BACKEND_IMAGE:-}"
+# Backend the "previous" bundle runs. Point it at the last published release's digest
+# (release-manifest.json images.backend) so the upgrade applies real Flyway steps; empty
+# keeps the previous and current bundles on the same backend.
+PREVIOUS_BACKEND_IMAGE="${SELFHOST_SMOKE_PREVIOUS_BACKEND_IMAGE:-$BACKEND_IMAGE}"
 FRONTEND_IMAGE="${SELFHOST_SMOKE_FRONTEND_IMAGE:-}"
 CADDY_IMAGE="${SELFHOST_SMOKE_CADDY_IMAGE:-}"
 MONITORING="${SELFHOST_SMOKE_MONITORING:-true}"
@@ -149,6 +153,7 @@ RUN_DIR="$RUN_DIR" \
 OLD_BUNDLE="$OLD_BUNDLE" \
 NEW_BUNDLE="$NEW_BUNDLE" \
 RUNTIME_BACKEND_IMAGE="$BACKEND_IMAGE" \
+RUNTIME_PREVIOUS_BACKEND_IMAGE="$PREVIOUS_BACKEND_IMAGE" \
 RUNTIME_FRONTEND_IMAGE="$FRONTEND_IMAGE" \
 RUNTIME_CADDY_IMAGE="$CADDY_IMAGE" \
 ENABLE_MONITORING="$MONITORING" \
@@ -205,7 +210,7 @@ values = {
     # The behind-proxy fixture is a production-mode shape. Its public identity must
     # therefore pass the same globally routable-host guard as a real deployment even
     # though this smoke test reaches the bound listener through 127.0.0.1.
-    "DOMAIN": "selfhost.example.org",
+    "DOMAIN": "selfhost.study-host.org",
     "COMPOSE_PROJECT_NAME": project,
     "COMPOSE_FILE": compose_file,
     "HTTP_PORT": str(http_port),
@@ -221,7 +226,7 @@ values = {
     "GRAFANA_ADMIN_PASSWORD": secrets.token_urlsafe(48),
     "GRAFANA_BIND": "127.0.0.1",
     "GRAFANA_PORT": str(grafana_port),
-    "BACKEND_IMAGE": os.environ["RUNTIME_BACKEND_IMAGE"],
+    "BACKEND_IMAGE": os.environ["RUNTIME_PREVIOUS_BACKEND_IMAGE"],
     "SELFHOST_FRONTEND_IMAGE": os.environ["RUNTIME_FRONTEND_IMAGE"],
     "CADDY_IMAGE": os.environ["RUNTIME_CADDY_IMAGE"],
     "TESTING_LOGIN_ENABLED": "true",
@@ -235,7 +240,8 @@ runtime_images = {
 }
 
 
-def use_runtime_images(bundle: Path) -> None:
+def use_runtime_images(bundle: Path, backend_image: str) -> None:
+    runtime_images["BACKEND_IMAGE"] = backend_image
     env_path = bundle / ".env.example"
     lines = env_path.read_text(encoding="utf-8").splitlines()
     rendered = []
@@ -266,8 +272,8 @@ def use_runtime_images(bundle: Path) -> None:
 # correctly rejects mutable refs. The archive checksum/source-free checks happen first;
 # only the extracted runtime fixtures are then pointed at already-built local images. CI
 # passes registry digests, so these replacements are byte-identical there.
-use_runtime_images(old_bundle)
-use_runtime_images(new_bundle)
+use_runtime_images(old_bundle, os.environ["RUNTIME_PREVIOUS_BACKEND_IMAGE"])
+use_runtime_images(new_bundle, os.environ["RUNTIME_BACKEND_IMAGE"])
 
 lines = (old_bundle / ".env.example").read_text(encoding="utf-8").splitlines()
 rendered: list[str] = []
@@ -592,9 +598,65 @@ docker logs "$backup_container" 2>&1 | grep -F 'Backup dependencies are ready' >
 verify_with_dashboard_password >/dev/null
 
 printf 'Restoring the newest generated dump into the isolated database.\n'
+restore_started=$SECONDS
 ./chronicle restore --yes
+clean_restore_seconds=$((SECONDS - restore_started))
 [[ ! -e "${OLD_BUNDLE}/.chronicle-restore.lock" ]] || fail "clean restore lock was not released"
 verify_with_dashboard_password >/dev/null
+
+printf 'Checking dashboard response headers on the internal listener.\n'
+dashboard_user="$(sed -n 's/^DASHBOARD_USER=//p' .env | head -1)"
+curl_internal() { # curl_internal <path> [curl args...]
+  local path="$1"; shift
+  curl -sk --max-time 10 "$@" "https://127.0.0.1:${internal_port}${path}"
+}
+shell_headers="$(curl_internal /chronicle/ -u "${dashboard_user}:${SMOKE_PASSWORD}" -D - -o /dev/null)"
+grep -qi "^content-security-policy: default-src 'self'" <<<"$shell_headers" || fail "dashboard shell lacks a CSP"
+grep -qi '^cache-control: no-cache' <<<"$shell_headers" || fail "dashboard shell is cacheable"
+chunk_path="$(curl_internal /chronicle/ -u "${dashboard_user}:${SMOKE_PASSWORD}" | grep -oE '/chronicle/chunk-[a-z0-9]+\.js' | head -1)"
+[[ -n "$chunk_path" ]] || fail "dashboard shell references no hashed chunk"
+curl_internal "$chunk_path" -u "${dashboard_user}:${SMOKE_PASSWORD}" -D - -o /dev/null |
+  grep -qi '^cache-control: public, max-age=31536000, immutable' || fail "hashed chunk is not immutable"
+
+printf 'Auditing the running self-host containers.\n'
+# Recorded, not gating: the audit's dogfood-oriented checks still flag known self-host
+# container-hardening gaps tracked separately; the result lands in result.txt.
+container_security_audit=pass
+COMPOSE_PROJECT="$PROJECT" "${ROOT_DIR}/tests/security/container-security-tests.sh" \
+  >"${RUN_DIR}/container-security.txt" 2>&1 || container_security_audit=fail
+
+printf 'Proving the TDE data volume is unreadable without its keyring.\n'
+postgres_query() {
+  docker compose exec -T postgres /bin/bash -ceu \
+    'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -qAt -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT marker FROM upgrade_smoke_sentinel WHERE id = 1;"'
+}
+keyring_path=/var/lib/postgresql/tde-keyring/chronicle-keyring.per
+docker compose stop backend db-backup postgres >/dev/null
+docker compose run --rm --no-deps --entrypoint /bin/sh postgres -ceu "mv '$keyring_path' '$keyring_path.smoke-aside'" \
+  || fail "could not move the keyring aside"
+docker compose start postgres >/dev/null 2>&1 || true
+sleep 5
+keyless_output="$(postgres_query 2>&1 || true)"
+keyless_output+="$(docker compose logs --tail=50 postgres 2>&1)"
+! grep -qx 'before-upgrade' <<<"$(postgres_query 2>/dev/null || true)" ||
+  fail "encrypted data was readable without the keyring"
+grep -Eqi 'key provider|principal key' <<<"$keyless_output" ||
+  fail "keyless start did not report the missing TDE key"
+docker compose stop postgres >/dev/null
+docker compose run --rm --no-deps --entrypoint /bin/sh postgres -ceu "mv '$keyring_path.smoke-aside' '$keyring_path'" \
+  || fail "could not put the keyring back"
+docker compose up -d --wait --wait-timeout 300 >/dev/null
+[[ "$(postgres_query)" == before-upgrade ]] || fail "data did not recover after the keyring was restored"
+verify_with_dashboard_password >/dev/null
+
+printf 'Proving the internal password guard rate-limits repeated failures.\n'
+sed -i 's/^RATE_LIMIT_GUARD_EVENTS=.*/RATE_LIMIT_GUARD_EVENTS=5/' .env
+grep -q '^RATE_LIMIT_GUARD_EVENTS=5$' .env || printf 'RATE_LIMIT_GUARD_EVENTS=5\n' >>.env
+docker compose up -d --wait --wait-timeout 120 web >/dev/null
+guard_codes="$(for _ in 1 2 3 4 5 6 7 8; do
+  curl_internal /chronicle/ -u "${dashboard_user}:wrong-password" -o /dev/null -w '%{http_code}\n'
+done)"
+grep -qx 429 <<<"$guard_codes" || fail "repeated wrong passwords were never rate-limited: $(tr '\n' ' ' <<<"$guard_codes")"
 
 {
   echo 'status=passed'
@@ -611,6 +673,11 @@ verify_with_dashboard_password >/dev/null
   echo 'external_boundary_verify=pass'
   echo 'restart_order_recovery=pass'
   echo 'clean_restore=pass'
+  echo "clean_restore_seconds=${clean_restore_seconds}"
+  echo 'dashboard_headers=pass'
+  echo "container_security_audit=${container_security_audit}"
+  echo 'keyless_volume_fails=pass'
+  echo 'internal_guard_rate_limit=pass'
   echo 'post_restore_verify=pass'
   echo "monitoring=${MONITORING}"
   [[ "$MONITORING" != true ]] || echo 'monitoring_data_path=pass'

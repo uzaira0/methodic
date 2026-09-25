@@ -26,6 +26,7 @@ Fast jobs:
   architecture          Source ownership, dependency boundaries, negative fixtures
   migration-safety      Published migration immutability, additive SQL, version ordering
   web                   chronicle-web audit, checks, tests, build, size
+  web-a11y              chronicle-web axe WCAG 2 A/AA scans in Chromium (Playwright)
   jvm-smoke             Gradle project list, OpenAPI validation, API/server tests, JaCoCo
   repo-automation       Compose config + repo guardrail scripts
   linkml-ssot           LinkML schema freshness and domain contract drift checks
@@ -918,6 +919,20 @@ job_web() {
   (cd "$WEB_DIR" && bun run size)
 }
 
+job_web_a11y() {
+  require_cmd bun "install Bun 1.3.x"
+  local args=()
+  # The theme-menu and mobile-nav scans need the signed-in shell, so a backend harness
+  # (CHRONICLE_BACKEND_URL, see chronicle-web/README.md). Without one, scan every route that
+  # renders unauthenticated: landing, login, 404, participant forms and the session panels.
+  if [[ -z "${CHRONICLE_BACKEND_URL:-}" ]]; then
+    log "CHRONICLE_BACKEND_URL unset: skipping the signed-in shell scans"
+    args=(--grep-invert "dark mode|mobile nav overlay")
+  fi
+  log "web accessibility (axe WCAG 2 A/AA)"
+  (cd "$WEB_DIR" && bunx playwright test e2e/pa11y.spec.ts e2e/accessibility.spec.ts --project=desktop-chromium "${args[@]}")
+}
+
 job_jvm_smoke() {
   require_jdk21
   log "Gradle project listing"
@@ -1237,7 +1252,7 @@ job_http_smoke_stack() {
   # A first boot applies the full Flyway corpus onto encrypted tables. Keep this
   # bounded, but allow enough time for a cold runner rather than racing startup.
   for i in $(seq 1 60); do
-    if curl -sf "${backend_url}/chronicle/internal/health/ready" >/dev/null 2>&1; then
+    if curl -sf --max-time 10 "${backend_url}/chronicle/internal/health/ready" >/dev/null 2>&1; then
       break
     fi
     if [[ "$i" -eq 60 ]]; then
@@ -1672,6 +1687,7 @@ run_job() {
     architecture) job_architecture ;;
     migration-safety) job_migration_safety ;;
     web) job_web ;;
+    web-a11y) job_web_a11y ;;
     jvm-smoke) job_jvm_smoke ;;
     repo-automation) job_repo_automation ;;
     linkml-ssot) job_linkml_ssot ;;
@@ -1709,6 +1725,7 @@ run_job() {
       run_job architecture
       run_job migration-safety
       run_job web
+      run_job web-a11y
       run_job jvm-smoke
       run_job repo-automation
       run_job linkml-ssot

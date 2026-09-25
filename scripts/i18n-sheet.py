@@ -130,7 +130,7 @@ def read_sheet(source, rows):
         if "Strings" not in workbook.sheetnames:
             raise ValueError("Workbook has no Strings sheet")
         sheet = workbook["Strings"]
-        if tuple(cell.value for cell in next(sheet.iter_rows(max_row=1))) != HEADERS:
+        if tuple(cell.value for cell in next(sheet.iter_rows(max_row=1, max_col=len(HEADERS)))) != HEADERS:
             raise ValueError(f"Expected columns: {', '.join(HEADERS)}")
         seen = set()
         for number, cells in enumerate(sheet.iter_rows(min_row=2, max_col=6), 2):

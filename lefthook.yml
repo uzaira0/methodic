@@ -63,6 +63,10 @@ pre-push:
       glob: "**/*.{ts,tsx,js,jsx}"
       run: bun run check
 
+    domain-contract-guardrails:
+      glob: "{chronicle-api/chronicle.yaml,chronicle-models/**,chronicle-web/src/modern/generated/**,chronicle-web/src/modern/types/**,generated/domain-contracts/**,tests/security/ast-grep/**,tests/security/contract-drift-diff.py}"
+      run: tests/security/domain-contract-guardrails.sh
+
     kotlin-compile:
       glob: "**/*.kt"
       run: ./gradlew :chronicle-server:compileKotlin --no-daemon -q

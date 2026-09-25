@@ -39,7 +39,7 @@ postgres:
   #
   # 17.5-3 -> 18.4-5 is a MAJOR jump. Two consequences that are not image-swap-shaped:
   #   - The data directory is not forward-compatible. An existing cluster needs a
-  #     dump/restore; see docs/db/POSTGRES-18-UPGRADE.md.
+  #     dump/restore; see selfhost/docs/POSTGRES-18-UPGRADE.md.
   #   - pg_tde goes 1.0 -> 2.2. Nothing we call was removed (the 1.0->2.0 step only ADDS
   #     vault_v2 provider functions), but a cluster restored from a 17 dump carries
   #     extension version 1.0 and needs ALTER EXTENSION pg_tde UPDATE. The TDE scripts
@@ -51,6 +51,9 @@ keycloak_postgres:
 
 selfhost_images:
   backup: "prodrigestivill/postgres-backup-local:18@sha256:f70742ebe42b2277689b028d1fd15aa80f77cffa01da163cc9f85a6ff1866e7f"
+  # GET-only Docker API for cadvisor (monitoring overlay). Not in the stale-image sweep:
+  # the dogfood compose still references it by tag.
+  docker_socket_proxy: "tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2"
   cadvisor: "ghcr.io/google/cadvisor:v0.60.5@sha256:763aecf1c32c2be8a1a75f9abfc2fc461005c9dbbaa39cb356b354aac1296dbe"
   victoria_metrics: "victoriametrics/victoria-metrics:v1.149.0@sha256:13b8951e35bb3589626816538483127785a9d8b53f9f5123769db0fcab1d961f"
   victoria_logs: "victoriametrics/victoria-logs:v1.50.0@sha256:ae9bea8d8a3b0fc47c7f0058bcca410e79c84b4a0acd12d4dac71b9302526590"

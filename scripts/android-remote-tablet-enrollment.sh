@@ -120,7 +120,8 @@ if [[ ! -f "$ACCESS_CODE_FILE" || -L "$ACCESS_CODE_FILE" || ! -r "$ACCESS_CODE_F
   echo "access-code file must be a readable, non-symlink regular file" >&2
   exit 2
 fi
-access_code_mode="$(stat -f '%Lp' "$ACCESS_CODE_FILE" 2>/dev/null || stat -c '%a' "$ACCESS_CODE_FILE")"
+# GNU stat first: GNU `stat -f` is filesystem status and succeeds with the wrong answer.
+access_code_mode="$(stat -c '%a' "$ACCESS_CODE_FILE" 2>/dev/null || stat -f '%Lp' "$ACCESS_CODE_FILE")"
 if [[ ! "$access_code_mode" =~ ^[0-7]{3,4}$ ]] || (( (8#$access_code_mode & 077) != 0 )); then
   echo "access-code file must not grant group or other permissions (use chmod 600)" >&2
   exit 2
@@ -142,9 +143,9 @@ shell_escape() {
   printf '%q' "$1"
 }
 
-curl_args=()
+curl_args=(--max-time 10)
 if [[ -n "$HOST_HEADER" ]]; then
-  curl_args=(-H "Host: ${HOST_HEADER}")
+  curl_args+=(-H "Host: ${HOST_HEADER}")
 fi
 
 curl_code() {

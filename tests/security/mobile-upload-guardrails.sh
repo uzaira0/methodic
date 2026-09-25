@@ -57,7 +57,7 @@ with open(sys.argv[1], "w", encoding="utf-8") as handle:
 PY
 chmod 600 "$enrollment_code_file"
 enrollment_helper_output="$($REMOTE_ENROLLMENT_HELPER \
-  --server-url https://study.example.org \
+  --server-url https://study.study-host.org \
   --study-id 11111111-2222-4333-8444-555555555555 \
   --participant-id security-regression \
   --access-code-file "$enrollment_code_file" \
@@ -82,7 +82,7 @@ fi
 [[ "${1:-}" == shell && "${2:-}" == *"read -r invitation"* ]] || exit 10
 [[ "$*" != *"#accessCode="* ]] || exit 13
 IFS= read -r invitation
-[[ "$invitation" == https://study.example.org/chronicle/enroll\?studyId=11111111-2222-4333-8444-555555555555\&participantId=security-regression#accessCode=* ]] || exit 11
+[[ "$invitation" == https://study.study-host.org/chronicle/enroll\?studyId=11111111-2222-4333-8444-555555555555\&participantId=security-regression#accessCode=* ]] || exit 11
 : > "${ADB_CONTRACT_MARKER:?}"
 '''
 with open(path, "w", encoding="utf-8") as handle:
@@ -91,7 +91,7 @@ os.chmod(path, 0o700)
 PY
 adb_helper_output="$(ADB="$fake_adb" ADB_CONTRACT_MARKER="$adb_contract_marker" \
   "$REMOTE_ENROLLMENT_HELPER" \
-  --server-url https://study.example.org \
+  --server-url https://study.study-host.org \
   --study-id 11111111-2222-4333-8444-555555555555 \
   --participant-id security-regression \
   --access-code-file "$enrollment_code_file" \
@@ -104,7 +104,7 @@ fi
 pass "Remote-tablet adb execution opens the arbitrary HTTPS origin without argv/output credential exposure"
 
 if "$REMOTE_ENROLLMENT_HELPER" \
-  --server-url https://study.example.org/chronicle \
+  --server-url https://study.study-host.org/chronicle \
   --study-id 11111111-2222-4333-8444-555555555555 \
   --participant-id security-regression \
   --access-code-file "$enrollment_code_file" \
@@ -113,7 +113,7 @@ if "$REMOTE_ENROLLMENT_HELPER" \
 fi
 chmod 644 "$enrollment_code_file"
 if "$REMOTE_ENROLLMENT_HELPER" \
-  --server-url https://study.example.org \
+  --server-url https://study.study-host.org \
   --study-id 11111111-2222-4333-8444-555555555555 \
   --participant-id security-regression \
   --access-code-file "$enrollment_code_file" \
