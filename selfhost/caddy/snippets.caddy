@@ -78,6 +78,10 @@
 		Referrer-Policy "same-origin"
 		Cross-Origin-Opener-Policy "same-origin"
 		Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+		# The dashboard is same-origin only: hashed module chunks, runtime-config.js and one
+		# stylesheet. React and Radix set inline style attributes, hence style-src
+		# 'unsafe-inline'; enrollment QR codes render as data:/blob: images.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
 	}
 	@https header X-Forwarded-Proto https
 	header @https Strict-Transport-Security "max-age=31536000; includeSubDomains"
@@ -100,7 +104,7 @@
 	respond /prometheus/* 404
 }
 
-# Certificate files YOU provide, mounted from ./tls by overlays/tls.yml. Never ACME.
+# Certificate files YOU provide, mounted from ./tls by the mode-*-tls/-internal overlays. Never ACME.
 (chronicle_tls) {
 	tls /etc/caddy/certs/cert.pem /etc/caddy/certs/key.pem
 }
@@ -162,6 +166,19 @@
 	@not_allowed not remote_ip {$DASHBOARD_ALLOWED_IPS}
 	respond @not_allowed "Forbidden" 403 {
 		close
+	}
+
+	# Basic auth has no lockout, and the edge `dashboard` zone meters only the API prefixes,
+	# so SPA and static paths would otherwise accept unmetered password guesses. Meter every
+	# request per TCP peer (the listener is reached directly, so remote_ip is the real
+	# client) BEFORE the password check. A full dashboard load is ~60 requests; the default
+	# leaves room for normal use while bounding guessing to a few per second.
+	rate_limit {
+		zone internal_guard {
+			key {remote_ip}
+			events {$RATE_LIMIT_GUARD_EVENTS:300}
+			window {$RATE_LIMIT_GUARD_WINDOW:1m}
+		}
 	}
 
 	basic_auth {
@@ -251,6 +268,12 @@
 	respond @runtimeConfig `window.__CHRONICLE_RUNTIME_CONFIG__ = Object.freeze({serverUrl: "{$CHRONICLE_PUBLIC_BASE_URL}", allowPrivateServerUrl: {$CHRONICLE_ALLOW_PRIVATE_ENROLLMENT_ORIGIN:false}});` 200
 
 	handle_path /chronicle/* {
+		# index.html must be revalidated so a browser never keeps a shell that points at
+		# chunks a newer release removed; the content-hashed chunks never change.
+		@hashed path_regexp ^/chunk-[a-z0-9]+\.(js|css)$
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		@shell not path_regexp ^/chunk-[a-z0-9]+\.(js|css)$
+		header @shell Cache-Control "no-cache"
 		root * /srv
 		try_files {path} /index.html
 		file_server
