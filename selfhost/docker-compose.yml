@@ -78,6 +78,11 @@ services:
       AUTH_OVERLAY_ENABLED: "false"
       MONITORING_ENABLED: "false"
       RELEASE_VERSION: ${RELEASE_VERSION:-development}
+      # Checked for digest pinning outside source checkouts (guard-config.sh).
+      BACKEND_IMAGE: ${BACKEND_IMAGE:-}
+      SELFHOST_FRONTEND_IMAGE: ${SELFHOST_FRONTEND_IMAGE:-}
+      CADDY_IMAGE: ${CADDY_IMAGE:-}
+      POSTGRES_IMAGE: ${POSTGRES_IMAGE:-}
       ENABLE_ENCRYPTION: ${ENABLE_ENCRYPTION:-true}
       DOMAIN: ${DOMAIN:-}
       CHRONICLE_PUBLIC_BASE_URL: ${CHRONICLE_PUBLIC_BASE_URL:-}
@@ -126,6 +131,7 @@ services:
     image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE to the digest-pinned release image from .env.example}
     restart: "no"
     user: "0:0"
+    logging: *default-logging
     entrypoint: ["/bin/bash", "-euc"]
     command: ["install -d -m 0700 -o 100 -g 101 /exports"]
     volumes:
@@ -161,6 +167,11 @@ services:
       - "${CHRONICLE_STATE_DIR:-.}/tls:/tls"
     security_opt:
       - no-new-privileges:true
+    # Root only for chown/chmod of mounted paths; none of Docker's other default capabilities.
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
+    read_only: true
+    tmpfs: ["/tmp:size=8m,mode=1777"]
     mem_limit: 128m
     pids_limit: 64
     depends_on:
@@ -185,6 +196,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-chronicle}
       POSTGRES_USER: ${POSTGRES_USER:-chronicle}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      # init-tde.sh rewrites whole tables; never cut it off with the server's timeouts.
+      PGOPTIONS: "-c statement_timeout=0 -c lock_timeout=0 -c idle_in_transaction_session_timeout=0"
     volumes:
       # Read-only, and also the reference for who owns ./backups: nothing in a container
       # knows the operator's uid, but this directory is theirs.
@@ -193,6 +206,10 @@ services:
       - postgres_tde_keyring:/var/lib/postgresql/tde-keyring
     security_opt:
       - no-new-privileges:true
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
+    read_only: true
+    tmpfs: ["/tmp:size=8m,mode=1777"]
     mem_limit: 256m
     pids_limit: 64
     depends_on:
@@ -230,12 +247,20 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-chronicle}
       POSTGRES_USER: ${POSTGRES_USER:-chronicle}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      # A large table's COPY can run for many minutes; a timeout mid-restore after the schema
+      # was dropped would leave only the safety dump.
+      PGOPTIONS: "-c statement_timeout=0 -c lock_timeout=0 -c idle_in_transaction_session_timeout=0"
     volumes:
       - .:/selfhost:ro
       # Read-write: the script writes a pre-restore snapshot here before it drops anything.
       - "${CHRONICLE_STATE_DIR:-.}/backups:/backups"
     security_opt:
       - no-new-privileges:true
+    # Inert for the operator uid; bounds the bare-compose root fallback.
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
     mem_limit: 512m
     pids_limit: 64
     depends_on:
@@ -304,6 +329,15 @@ services:
       # the raw PostgreSQL message and statement text are never sent to shared monitoring.
       - -c
       - "log_line_prefix=chronicle_pg timestamp_ms=%n sqlstate=%e "
+      # A hung query, an idle open transaction, or a stuck lock otherwise holds one of the
+      # backend's pooled connections forever. Same values as the reference deployment.
+      # pg_dump sets its own statement timeout; db-init and restore opt out via PGOPTIONS.
+      - -c
+      - statement_timeout=${POSTGRES_STATEMENT_TIMEOUT:-300000}
+      - -c
+      - idle_in_transaction_session_timeout=${POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT:-60000}
+      - -c
+      - lock_timeout=${POSTGRES_LOCK_TIMEOUT:-30000}
     volumes:
       # /data/db, NOT /var/lib/postgresql/data. This image sets PGDATA=/data/db and
       # declares /data/db as a VOLUME, so mounting the conventional Postgres path stored
@@ -515,6 +549,10 @@ services:
     logging: *default-logging
     security_opt:
       - no-new-privileges:true
+    # Copies as root into a root-owned volume, which needs no capabilities.
+    cap_drop: ["ALL"]
+    read_only: true
+    pids_limit: 32
     mem_limit: ${FRONTEND_MEM_LIMIT:-512m}
     volumes:
       - frontend_build:/out
@@ -557,6 +595,8 @@ services:
       RATE_LIMIT_MOBILE_WINDOW: ${RATE_LIMIT_MOBILE_WINDOW:-1s}
       RATE_LIMIT_WEB_EVENTS: ${RATE_LIMIT_WEB_EVENTS:-20}
       RATE_LIMIT_WEB_WINDOW: ${RATE_LIMIT_WEB_WINDOW:-1s}
+      RATE_LIMIT_GUARD_EVENTS: ${RATE_LIMIT_GUARD_EVENTS:-300}
+      RATE_LIMIT_GUARD_WINDOW: ${RATE_LIMIT_GUARD_WINDOW:-1m}
     volumes:
       - ./caddy/snippets.caddy:/etc/caddy/snippets.caddy:ro
       - frontend_build:/srv:ro
@@ -569,6 +609,10 @@ services:
     cap_add:
       # Needed only when rebound to a privileged port, e.g. the tls overlay's :443.
       - NET_BIND_SERVICE
+    # Caddy writes only to the caddy_data/caddy_config volumes (the monitoring overlay runs
+    # the same image read-only).
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
     mem_limit: ${WEB_MEM_LIMIT:-256m}
     pids_limit: 256
     depends_on:

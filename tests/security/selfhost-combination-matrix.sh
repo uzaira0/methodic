@@ -82,7 +82,8 @@ import sys
 source, output, compose_file, encryption, state_dir, project = sys.argv[1:]
 text = Path(source).read_text(encoding="utf-8")
 values = {
-    "DOMAIN": "matrix.example.org",
+    # The trial mode must be addressed by a LAN address; production modes by a public name.
+    "DOMAIN": "192.168.1.50" if "mode-local-https.yml" in compose_file else "study.research-matrix.org",
     "COMPOSE_PROJECT_NAME": project,
     "CHRONICLE_STATE_DIR": state_dir,
     "COMPOSE_FILE": compose_file,
@@ -137,7 +138,7 @@ if mode == "mode-local-https.yml":
 if backups:
     expected.add("db-backup")
 if monitoring:
-    expected.update({"monitoring-config", "cadvisor", "operational-probe", "metrics-exporter",
+    expected.update({"monitoring-config", "docker-socket-proxy", "cadvisor", "operational-probe", "metrics-exporter",
                      "victoriametrics", "victorialogs", "fluent-bit", "grafana"})
 if set(services) != expected:
     raise SystemExit(f"service set mismatch: expected {sorted(expected)}, got {sorted(services)}")
@@ -173,6 +174,7 @@ for key, value in expected_guard.items():
 optional = {
     "db-backup": backups,
     "cadvisor": monitoring,
+    "docker-socket-proxy": monitoring,
     "monitoring-config": monitoring,
     "operational-probe": monitoring,
     "metrics-exporter": monitoring,
@@ -271,6 +273,7 @@ config = json.loads(Path(config_path).read_text(encoding="utf-8"))
 base = {key: str(value) for key, value in config["services"]["config-guard"]["environment"].items()}
 base["PATH"] = os.environ.get("PATH", "/usr/bin:/bin")
 base["CHRONICLE_GUARD_TLS_DIR"] = tls_dir
+base["DASHBOARD_PASSWORD_HASH"] = base.get("DASHBOARD_PASSWORD_HASH", "").replace("$$", "$")
 
 cases = [
     ("production-without-backups", {"BACKUPS_ENABLED": "false", "ENABLE_ENCRYPTION": "false"}, "production deployment modes require"),
@@ -279,7 +282,29 @@ cases = [
     ("invalid-boolean", {"ENABLE_ENCRYPTION": "treu"}, "must be exactly true or false"),
     ("duplicate-mode", {"COMPOSE_FILE_SELECTION": "docker-compose.yml:overlays/mode-behind-proxy-internal.yml:overlays/mode-own-tls-internal.yml:overlays/backups.yml"}, "exactly one mode overlay"),
     ("public-without-auth", {"TLS_MODE": "behind-proxy", "DASHBOARD_EXPOSURE": "public", "TESTING_LOGIN_ENABLED": "false", "REQUIRE_MFA": "true", "AUTH_OVERLAY_ENABLED": "false", "COMPOSE_FILE_SELECTION": "docker-compose.yml:experimental/public-dashboard/mode-behind-proxy-public.yml:overlays/backups.yml"}, "public dashboard requires"),
+    # One mutation per guard rule that had no FAIL-line test (launch audit S7, S8, CH17, C3, CH18).
+    ("internal-bind-any-v4", {"INTERNAL_BIND": "0.0.0.0"}, "INTERNAL_BIND=0.0.0.0 exposes"),
+    ("internal-bind-any-v6", {"INTERNAL_BIND": "::"}, "INTERNAL_BIND=:: exposes"),
+    ("internal-bind-any-v6-bracketed", {"INTERNAL_BIND": "[::]"}, "INTERNAL_BIND=[::] exposes"),
+    ("jwt-short", {"JWT_SECRET": "only-twenty-chars-xx"}, "JWT_SECRET is only 20 characters"),
+    ("allowlist-empty", {"DASHBOARD_ALLOWED_IPS": ""}, "DASHBOARD_ALLOWED_IPS is empty"),
+    ("allowlist-any-v4", {"DASHBOARD_ALLOWED_IPS": "10.0.0.0/8 0.0.0.0/0"}, "DASHBOARD_ALLOWED_IPS contains 0.0.0.0/0"),
+    ("allowlist-any-v6", {"DASHBOARD_ALLOWED_IPS": "::/0"}, "DASHBOARD_ALLOWED_IPS contains ::/0"),
+    ("password-hash-empty", {"DASHBOARD_PASSWORD_HASH": ""}, "DASHBOARD_PASSWORD_HASH is empty"),
+    ("password-hash-cleartext", {"DASHBOARD_PASSWORD_HASH": "correct horse battery staple"}, "not a bcrypt hash"),
+    ("domain-localhost", {"DOMAIN": "localhost"}, "DOMAIN must be a public DNS name"),
+    ("domain-documentation-example", {"DOMAIN": "study.example.org"}, "DOMAIN must be a public DNS name"),
+    ("metrics-password-short", {"METRICS_PASSWORD": "m" * 20}, "METRICS_PASSWORD is 20 characters"),
+    ("own-tls-without-certificates", {"TLS_MODE": "own-tls", "COMPOSE_FILE_SELECTION": "docker-compose.yml:overlays/mode-own-tls-internal.yml:overlays/backups.yml", "CHRONICLE_GUARD_TLS_DIR": tls_dir + "-absent"}, "./tls/cert.pem or ./tls/key.pem is missing"),
+    ("compose-file-empty", {"COMPOSE_FILE_SELECTION": ""}, "COMPOSE_FILE is empty"),
+    ("trial-public-hostname", {"TLS_MODE": "local-https", "COMPOSE_FILE_SELECTION": "docker-compose.yml:overlays/mode-local-https.yml:overlays/backups.yml", "DOMAIN": "study.research-matrix.org"}, "local trial mode must use a private LAN address"),
+    ("trial-public-ip", {"TLS_MODE": "local-https", "COMPOSE_FILE_SELECTION": "docker-compose.yml:overlays/mode-local-https.yml:overlays/backups.yml", "DOMAIN": "8.8.8.8"}, "local trial mode must use a private LAN address"),
+    ("release-image-by-tag", {"RELEASE_VERSION": "2026.9.22", "BACKEND_IMAGE": "ghcr.io/example/chronicle-backend:latest"}, "BACKEND_IMAGE must be digest-pinned"),
 ]
+errors = []
+for image_key in ("BACKEND_IMAGE", "SELFHOST_FRONTEND_IMAGE", "CADDY_IMAGE", "POSTGRES_IMAGE"):
+    if "@sha256:" not in base.get(image_key, ""):
+        errors.append(f"config-guard does not receive a digest-pinned {image_key}")
 for name, changes, expected in cases:
     environment = dict(base)
     environment.update(changes)
@@ -294,9 +319,28 @@ for name, changes, expected in cases:
         check=False,
     )
     if completed.returncode == 0:
-        raise SystemExit(f"guard accepted rejected shape {name}")
-    if expected not in completed.stdout:
-        raise SystemExit(f"guard rejection for {name} omitted {expected!r}:\n{completed.stdout}")
+        errors.append(f"guard accepted rejected shape {name}")
+    elif expected not in completed.stdout:
+        errors.append(f"guard rejection for {name} omitted {expected!r}:\n{completed.stdout}")
+
+# Accepted shapes that must still say something. A warn line is the only signal the operator gets.
+warn_cases = [
+    ("http-bind-any-v4", {"HTTP_BIND": "0.0.0.0"}, "HTTP_BIND=0.0.0.0 serves plain HTTP"),
+    ("http-bind-any-v6", {"HTTP_BIND": "::"}, "HTTP_BIND=:: serves plain HTTP"),
+    ("plaintext-dumps", {}, "SQL dumps in ./backups are unencrypted"),
+    ("trial-lan-address", {"TLS_MODE": "local-https", "COMPOSE_FILE_SELECTION": "docker-compose.yml:overlays/mode-local-https.yml:overlays/backups.yml", "DOMAIN": "192.168.1.50"}, "phones will reach this stack at https://192.168.1.50"),
+]
+for name, changes, expected in warn_cases:
+    environment = dict(base)
+    environment.update(changes)
+    completed = subprocess.run([guard], cwd=str(Path(guard).parent), env=environment, text=True,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10, check=False)
+    if completed.returncode != 0:
+        errors.append(f"guard rejected accepted shape {name}:\n{completed.stdout}")
+    elif expected not in completed.stdout:
+        errors.append(f"guard output for {name} omitted {expected!r}")
+if errors:
+    raise SystemExit("\n".join(errors))
 PY
 
 echo "self-host combination matrix passed (${case_count} supported renders plus rejected-shape checks)"

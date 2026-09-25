@@ -31,7 +31,9 @@ RUN bun run build
 RUN find /app/dist -name '*.map' -delete 2>/dev/null; true
 RUN echo "{\"version\":\"${GIT_SHA}\",\"buildTime\":\"$(date -Iseconds)\"}" > /app/dist/version.json
 
-FROM alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
+
+RUN apk upgrade --no-cache
 
 COPY --from=builder /app/dist /dist
 

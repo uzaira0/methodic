@@ -65,6 +65,8 @@ services:
       - caddy_data:/data:ro
     security_opt:
       - no-new-privileges:true
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
     mem_limit: 64m
     pids_limit: 32
     depends_on:

@@ -32,7 +32,7 @@ info() { echo -e "  \033[0;36m[INFO]\033[0m $*"; }
 # ---------------------------------------------------------------------------
 # Discover containers belonging to the chronicle compose project
 # ---------------------------------------------------------------------------
-COMPOSE_PROJECT="chronicle"
+COMPOSE_PROJECT="${COMPOSE_PROJECT:-chronicle}"
 
 mapfile -t CONTAINERS < <(
   docker ps --filter "label=com.docker.compose.project=${COMPOSE_PROJECT}" \

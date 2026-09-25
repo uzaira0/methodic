@@ -7,12 +7,12 @@
 #
 # Pinned by digest and version so a rebuild cannot silently pull a different plugin.
 
-FROM caddy:2.10.2-builder-alpine@sha256:4cff3ae272ea05842adb4546e35961e4947aeea65f80fa1eb62a35b960e84971 AS builder
+FROM caddy:2.11.4-builder-alpine@sha256:2b9f32cbba6045e79212bb253f595588d20be8f7d1edf61582c519e124e0d2d8 AS builder
 
-RUN xcaddy build v2.10.2 \
+RUN xcaddy build v2.11.4 \
     --with github.com/mholt/caddy-ratelimit@v0.1.0
 
-FROM caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+FROM caddy:2.11.4-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
 
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
 
@@ -20,8 +20,10 @@ COPY --from=builder /usr/bin/caddy /usr/bin/caddy
 # stack's own CA before it will talk to it, and a LAN URL is error-prone to type into a
 # phone by hand. The ca-export service renders the download URL as
 # a QR code in the logs. ~60 KB, and nothing else in the image depends on it.
-RUN apk add --no-cache libqrencode-tools
+# apk upgrade picks up Alpine security fixes published after the base digest was cut.
+RUN apk upgrade --no-cache && apk add --no-cache libqrencode-tools
 
+SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Fail the build rather than the deployment if the plugin did not make it in.
 RUN caddy list-modules | grep -q '^http.handlers.rate_limit$' \
     || (echo "FATAL: rate_limit module missing from build" >&2; exit 1)

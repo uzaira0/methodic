@@ -77,8 +77,12 @@ is_non_global_ipv4_literal() {
   return 1
 }
 
+# bash 3.2 (macOS /bin/bash) has no case-modifying parameter expansion; lowercase portably.
+lowercase() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+
 is_non_global_ipv6_literal() {
-  local host="${1,,}" first_hextet first_value
+  local host first_hextet first_value
+  host="$(lowercase "$1")"
   [[ "$host" == *:* ]] || return 1
   case "$host" in
     ::|::1|::ffff:*|2001:db8:*|ff*) return 0 ;;
@@ -92,7 +96,8 @@ is_non_global_ipv6_literal() {
 }
 
 is_valid_ipv6_literal() {
-  local host="${1,,}" left right piece
+  local host left right piece
+  host="$(lowercase "$1")"
   local -a pieces=()
   local count=0
   [[ "$host" == *:* && "$host" != *[^0-9a-f:]* && "$host" != *:::* ]] || return 1
@@ -127,7 +132,8 @@ is_valid_ipv6_literal() {
 }
 
 is_valid_public_dns_name() {
-  local host="${1,,}" label
+  local host label
+  host="$(lowercase "$1")"
   local -a labels
   [[ ${#host} -le 253 && "$host" == *.* && "$host" != .* && "$host" != *. ]] || return 1
   [[ "$host" =~ ^[a-z0-9.-]+$ ]] || return 1
@@ -138,6 +144,9 @@ is_valid_public_dns_name() {
   done
   case "$host" in
     localhost|*.localhost|local|*.local|invalid|*.invalid|test|*.test) return 1 ;;
+    # RFC 2606 documentation names, and private-use names (RFC 8375, ICANN .internal, .lan).
+    example|*.example|example.com|*.example.com|example.net|*.example.net|example.org|*.example.org) return 1 ;;
+    internal|*.internal|home.arpa|*.home.arpa|lan|*.lan) return 1 ;;
   esac
   return 0
 }
@@ -145,7 +154,7 @@ is_valid_public_dns_name() {
 public_host_is_allowed() {
   local host="$1" normalized
   [[ -n "$host" ]] || return 1
-  normalized="${host,,}"
+  normalized="$(lowercase "$host")"
   normalized="${normalized%.}"
   if [[ "$host" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
     is_valid_ipv4_literal "$host" || return 1
@@ -369,6 +378,10 @@ if [[ "$TLS_MODE" == local-https ]]; then
       printf '       In this mode DOMAIN is the address the phones dial. Set it to this\n'
       printf '       machine'"'"'s address on the wifi, e.g. DOMAIN=192.168.1.50.\n' ;;
     *)
+      if public_deployment_host_is_allowed "$DOMAIN"; then
+        bad "local trial mode must use a private LAN address, not a public hostname or routable IP (DOMAIN=${DOMAIN})"
+        printf '       For a public name use overlays/mode-behind-proxy-internal.yml or mode-own-tls-internal.yml.\n'
+      fi
       local_trial_origin="https://${DOMAIN}"
       [[ "$local_https_port" == 443 ]] || local_trial_origin+=":${local_https_port}"
       if [[ -n "$CHRONICLE_PUBLIC_BASE_URL" && "$CHRONICLE_PUBLIC_BASE_URL" != "$local_trial_origin" ]]; then
@@ -524,6 +537,9 @@ elif [[ "$ENABLE_ENCRYPTION" == true ]]; then
 else
   warn "encryption at rest is OFF (ENABLE_ENCRYPTION=false)"
 fi
+if [[ "$BACKUPS_ENABLED" == true ]]; then
+  warn "SQL dumps in ./backups are unencrypted PHI on this host (directory 0700, operator-owned). Encrypt before any off-host copy: docs/BACKUP-RESTORE.md"
+fi
 
 # ------------------------------------------------------------------ dashboard login
 # testing-login mints an admin session; it is only defensible when the auth endpoints are
@@ -587,8 +603,13 @@ if [[ "$DASHBOARD_EXPOSURE" == internal ]]; then
   if [[ -z "$DASHBOARD_ALLOWED_IPS" ]]; then
     bad "DASHBOARD_ALLOWED_IPS is empty — no source address would be allowed to reach the dashboard"
   fi
-  if [[ "$INTERNAL_BIND" == "0.0.0.0" ]]; then
-    bad "INTERNAL_BIND=0.0.0.0 exposes the dashboard API to every network, defeating the internal mode"
+  for cidr in $DASHBOARD_ALLOWED_IPS; do
+    case "$cidr" in
+      0.0.0.0/0|::/0|0::/0) bad "DASHBOARD_ALLOWED_IPS contains ${cidr}, which allows every source" ;;
+    esac
+  done
+  if [[ "$INTERNAL_BIND" == "0.0.0.0" || "$INTERNAL_BIND" == "::" || "$INTERNAL_BIND" == "[::]" ]]; then
+    bad "INTERNAL_BIND=${INTERNAL_BIND} exposes the dashboard API to every network, defeating the internal mode"
   fi
   # The dashboard gate is one control with three parts -- bcrypt password, source allowlist,
   # private bind. Each part still fails on its own line with its own remedy, but when all
@@ -599,6 +620,16 @@ if [[ "$DASHBOARD_EXPOSURE" == internal ]]; then
   fi
 elif [[ -n "$DASHBOARD_EXPOSURE" ]]; then
   warn "DASHBOARD_EXPOSURE=public — the dashboard API is reachable wherever this stack is. Prefer an internal mode unless something else restricts access."
+fi
+
+# ------------------------------------------------------------------ image pinning
+# `docker compose up -d` is a supported path, so the digest rule cannot live only in the
+# ./chronicle wrapper. Source checkouts (RELEASE_VERSION=development) build local tags.
+if [[ "$RELEASE_VERSION" != development ]]; then
+  for image_var in BACKEND_IMAGE SELFHOST_FRONTEND_IMAGE CADDY_IMAGE POSTGRES_IMAGE; do
+    [[ "${!image_var:-}" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]] ||
+      bad "${image_var} must be digest-pinned (name@sha256:...) in a release; copy it from the release .env.example"
+  done
 fi
 
 # ------------------------------------------------------------------ TLS material
@@ -618,8 +649,8 @@ elif [[ -n "$TLS_MODE" ]]; then
   # No ok line: the "deployment mode:" check above already stated TLS_MODE, and repeating
   # it here is a second green line about a setting the operator has already been told.
   :
-  if [[ "$HTTP_BIND" == "0.0.0.0" ]]; then
-    warn "HTTP_BIND=0.0.0.0 serves plain HTTP to your whole network. Use 127.0.0.1 (or the address only your proxy can reach) unless you intend that."
+  if [[ "$HTTP_BIND" == "0.0.0.0" || "$HTTP_BIND" == "::" || "$HTTP_BIND" == "[::]" ]]; then
+    warn "HTTP_BIND=${HTTP_BIND} serves plain HTTP to your whole network. Use 127.0.0.1 (or the address only your proxy can reach) unless you intend that."
   elif [[ "$HTTP_BIND" =~ ^127\. ]]; then
     # Nothing here can prove where the proxy runs, so this cannot be a hard failure -- a
     # proxy on this same host is a legitimate setup. It is still worth saying loudly,
