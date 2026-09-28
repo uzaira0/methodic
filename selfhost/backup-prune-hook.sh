@@ -11,6 +11,12 @@ set -euo pipefail
 
 [[ "${1:-}" == post-backup ]] || exit 0
 
+# The image writes every dump 0644 and ignores UMASK. The 0700 parent is the access control;
+# this keeps a dump private after it is copied or synced out of that directory. Only files
+# this account owns: the keyring copy belongs to postgres and keeps its own mode.
+find "${BACKUP_DIR:-/backups}" -path "${BACKUP_DIR:-/backups}/keyring" -prune -o \
+  -type f -user "$(id -u)" -perm /077 -exec chmod 600 {} +
+
 keep_days="${PRE_OP_BACKUP_KEEP_DAYS:-30}"
 [[ "$keep_days" =~ ^[1-9][0-9]{0,3}$ ]] || {
   echo "ERROR: PRE_OP_BACKUP_KEEP_DAYS must be a whole number of days from 1 to 9999" >&2

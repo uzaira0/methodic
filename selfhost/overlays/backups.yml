@@ -41,9 +41,9 @@ services:
     #
     # Nothing about confidentiality rests on this. The image ignores UMASK/BACKUP_UMASK --
     # neither /backup.sh nor /env.sh ever calls umask, so the file mode cannot be set from
-    # compose and the dumps land 0644 regardless. Access is denied one level up instead:
-    # db-init.sh holds ./backups at 0700 owned by the operator, so no other local account can
-    # traverse in. Verified by `./chronicle verify`.
+    # compose and the dumps land 0644; backup-prune-hook.sh sets them 0600 after each run.
+    # Access is denied one level up regardless: db-init.sh holds ./backups at 0700 owned by
+    # the operator, so no other local account can traverse in. Verified by `./chronicle verify`.
     user: "${CHRONICLE_HOST_UID:-0}:${CHRONICLE_HOST_GID:-0}"
     #
     # The logging cap is spelled out rather than using the x-logging anchor from
