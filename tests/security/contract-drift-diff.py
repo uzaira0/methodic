@@ -37,6 +37,7 @@ TUPLES = {
     "consentTriggers": "CONSENT_TRIGGERS",
     "androidSensorTypes": "ANDROID_SENSOR_TYPES",
     "iosSensorTypes": "IOS_SENSOR_TYPES",
+    "intervalGatedCollectionModuleIds": "INTERVAL_GATED_COLLECTION_MODULE_IDS",
 }
 
 failures: list[str] = []

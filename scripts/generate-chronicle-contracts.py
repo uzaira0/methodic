@@ -148,6 +148,7 @@ def render_typescript(schema: dict) -> str:
             "  readonly defaultEnabled: boolean;",
             "  readonly androidSensorModule: boolean;",
             "  readonly activeDefaultEnabled: boolean;",
+            "  readonly intervalGated: boolean;",
             "};",
             "",
             "export const COLLECTION_MODULE_CONTRACTS = [",
@@ -167,6 +168,7 @@ def render_typescript(schema: dict) -> str:
                 f"    defaultEnabled: {str(module['defaultEnabled']).lower()},",
                 f"    androidSensorModule: {str(module['androidSensorModule']).lower()},",
                 f"    activeDefaultEnabled: {str(module['activeDefaultEnabled']).lower()},",
+                f"    intervalGated: {str(module['intervalGated']).lower()},",
                 "  },",
             ]
         )
@@ -212,6 +214,11 @@ def render_typescript(schema: dict) -> str:
         ),
         ("INACTIVE_COLLECTION_MODULE_IDS", "InactiveCollectionModuleId", contract["inactiveCollectionModuleIds"]),
         ("ANDROID_SENSOR_MODULE_IDS", "AndroidSensorModuleId", contract["androidSensorModuleIds"]),
+        (
+            "INTERVAL_GATED_COLLECTION_MODULE_IDS",
+            "IntervalGatedCollectionModuleId",
+            contract["intervalGatedCollectionModuleIds"],
+        ),
     ]:
         lines.append(f"export const {export_name} = [")
         for value in values:
@@ -300,6 +307,7 @@ def collection_modules(schema: dict) -> list[dict[str, Any]]:
                 "defaultEnabled": annotation_bool(body, "defaultEnabled"),
                 "androidSensorModule": annotation_bool(body, "androidSensorModule"),
                 "activeDefaultEnabled": annotation_bool(body, "activeDefaultEnabled"),
+                "intervalGated": annotation_bool(body, "intervalGated"),
             }
         )
     return modules
@@ -356,6 +364,7 @@ def domain_contract(schema: dict) -> dict[str, Any]:
             ],
             "inactiveCollectionModuleIds": [module["id"] for module in modules if not module["active"]],
             "androidSensorModuleIds": [module["id"] for module in modules if module["androidSensorModule"]],
+            "intervalGatedCollectionModuleIds": [module["id"] for module in modules if module["intervalGated"]],
             "privacyClasses": privacy_classes(schema),
             "androidSensorTypes": [value for value, _ in enum_values(schema, "AndroidSensorType")],
             "androidSensorMappings": mappings,

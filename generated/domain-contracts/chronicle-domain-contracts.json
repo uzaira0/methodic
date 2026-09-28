@@ -6,7 +6,7 @@
   "sourceFiles": {
     "linkml": {
       "path": "ontology/chronicle.linkml.yaml",
-      "sha256": "b58054ed39ff7530d98e10fac469488db33b4fea5725a90ff6efbb804ff6ed18"
+      "sha256": "9c7b73668f3d21b16c25698909133d4b81606530e34766664cada25fee3729fd"
     }
   },
   "contracts": {
@@ -19,7 +19,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": true,
         "androidSensorModule": false,
-        "activeDefaultEnabled": true
+        "activeDefaultEnabled": true,
+        "intervalGated": false
       },
       {
         "enumName": "IN_APP_ACTIVITY_CLASS",
@@ -29,7 +30,8 @@
         "defaultEnabledOverride": false,
         "defaultEnabled": false,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "DEVICE_LIFECYCLE",
@@ -39,7 +41,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": true,
         "androidSensorModule": false,
-        "activeDefaultEnabled": true
+        "activeDefaultEnabled": true,
+        "intervalGated": false
       },
       {
         "enumName": "USER_IDENTIFICATION",
@@ -49,7 +52,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "UPLOAD_TELEMETRY",
@@ -59,7 +63,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": true,
         "androidSensorModule": false,
-        "activeDefaultEnabled": true
+        "activeDefaultEnabled": true,
+        "intervalGated": false
       },
       {
         "enumName": "SENSOR_AVAILABILITY",
@@ -69,7 +74,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": true,
         "androidSensorModule": false,
-        "activeDefaultEnabled": true
+        "activeDefaultEnabled": true,
+        "intervalGated": false
       },
       {
         "enumName": "QUESTIONNAIRE",
@@ -79,7 +85,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": true,
         "androidSensorModule": false,
-        "activeDefaultEnabled": true
+        "activeDefaultEnabled": true,
+        "intervalGated": false
       },
       {
         "enumName": "BATTERY_TELEMETRY",
@@ -89,7 +96,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": true,
         "androidSensorModule": false,
-        "activeDefaultEnabled": true
+        "activeDefaultEnabled": true,
+        "intervalGated": true
       },
       {
         "enumName": "SENSOR_ACCELEROMETER",
@@ -99,7 +107,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "SENSOR_GYROSCOPE",
@@ -109,7 +118,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "SENSOR_MAGNETOMETER",
@@ -119,7 +129,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "SENSOR_GRAVITY",
@@ -129,7 +140,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "SENSOR_LINEAR_ACCELERATION",
@@ -139,7 +151,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "SENSOR_ROTATION_VECTOR",
@@ -149,7 +162,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "SENSOR_STEP_COUNTER",
@@ -159,7 +173,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "SENSOR_LIGHT",
@@ -169,7 +184,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "SENSOR_PROXIMITY",
@@ -179,7 +195,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "SENSOR_SIGNIFICANT_MOTION",
@@ -189,7 +206,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "SENSOR_TILT_DETECTOR",
@@ -199,7 +217,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "SENSOR_SCREEN_ORIENTATION",
@@ -209,7 +228,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "SENSOR_SAMSUNG_GRIP_WIFI",
@@ -219,7 +239,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "SENSOR_SAMSUNG_MOTION",
@@ -229,7 +250,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "INTERACTION_EVENTS",
@@ -239,7 +261,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "AUDIO_ACTIVITY",
@@ -249,7 +272,8 @@
         "defaultEnabledOverride": false,
         "defaultEnabled": false,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "AUDIO_CONTENT",
@@ -259,7 +283,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "NOTIFICATION_ACTIVITY",
@@ -269,7 +294,8 @@
         "defaultEnabledOverride": false,
         "defaultEnabled": false,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "AMBIENT_AUDIO",
@@ -279,7 +305,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "SLEEP",
@@ -289,7 +316,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "ACTIVITY_RECOGNITION",
@@ -299,7 +327,8 @@
         "defaultEnabledOverride": false,
         "defaultEnabled": false,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "HEALTH_CONNECT",
@@ -309,7 +338,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": true
       },
       {
         "enumName": "CONNECTIVITY_STATE",
@@ -319,7 +349,8 @@
         "defaultEnabledOverride": false,
         "defaultEnabled": false,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": true
       },
       {
         "enumName": "APP_NETWORK_USAGE",
@@ -329,7 +360,8 @@
         "defaultEnabledOverride": false,
         "defaultEnabled": false,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": true
       },
       {
         "enumName": "DEVICE_SETTINGS",
@@ -339,7 +371,8 @@
         "defaultEnabledOverride": false,
         "defaultEnabled": false,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": true
       },
       {
         "enumName": "TIME_USE_DIARY",
@@ -349,7 +382,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": true,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "APP_INVENTORY",
@@ -359,7 +393,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": true,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "GAZE_TRACKING",
@@ -369,7 +404,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "INTERACTION_CONTENT",
@@ -379,7 +415,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "LOCATION",
@@ -389,7 +426,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "COMMUNICATION_LOG",
@@ -399,7 +437,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       },
       {
         "enumName": "HARDWARE_SENSORS",
@@ -409,7 +448,8 @@
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
-        "activeDefaultEnabled": false
+        "activeDefaultEnabled": false,
+        "intervalGated": false
       }
     ],
     "activeCollectionModuleIds": [
@@ -479,6 +519,13 @@
       "sensor_screen_orientation",
       "sensor_samsung_grip_wifi",
       "sensor_samsung_motion"
+    ],
+    "intervalGatedCollectionModuleIds": [
+      "battery_telemetry",
+      "health_connect",
+      "connectivity_state",
+      "app_network_usage",
+      "device_settings"
     ],
     "privacyClasses": [
       {

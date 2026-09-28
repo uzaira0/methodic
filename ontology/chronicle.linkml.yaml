@@ -194,6 +194,8 @@ enums:
             value: 'true'
           androidSensorModule:
             value: 'false'
+          intervalGated:
+            value: 'false'
       in_app_activity_class:
         annotations:
           enumName:
@@ -207,6 +209,8 @@ enums:
           activeDefaultEnabled:
             value: 'false'
           androidSensorModule:
+            value: 'false'
+          intervalGated:
             value: 'false'
           defaultEnabledOverride:
             value: 'false'
@@ -224,6 +228,8 @@ enums:
             value: 'true'
           androidSensorModule:
             value: 'false'
+          intervalGated:
+            value: 'false'
       user_identification:
         annotations:
           enumName:
@@ -237,6 +243,8 @@ enums:
           activeDefaultEnabled:
             value: 'false'
           androidSensorModule:
+            value: 'false'
+          intervalGated:
             value: 'false'
       upload_telemetry:
         annotations:
@@ -252,6 +260,8 @@ enums:
             value: 'true'
           androidSensorModule:
             value: 'false'
+          intervalGated:
+            value: 'false'
       sensor_availability:
         annotations:
           enumName:
@@ -265,6 +275,8 @@ enums:
           activeDefaultEnabled:
             value: 'true'
           androidSensorModule:
+            value: 'false'
+          intervalGated:
             value: 'false'
       questionnaire:
         annotations:
@@ -280,6 +292,8 @@ enums:
             value: 'true'
           androidSensorModule:
             value: 'false'
+          intervalGated:
+            value: 'false'
       battery_telemetry:
         annotations:
           enumName:
@@ -294,6 +308,8 @@ enums:
             value: 'true'
           androidSensorModule:
             value: 'false'
+          intervalGated:
+            value: 'true'
       sensor_accelerometer:
         annotations:
           enumName:
@@ -308,6 +324,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'true'
+          intervalGated:
+            value: 'false'
           androidSensorType:
             value: accelerometer
           sensorDisplayOrder:
@@ -326,6 +344,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'true'
+          intervalGated:
+            value: 'false'
           androidSensorType:
             value: gyroscope
           sensorDisplayOrder:
@@ -344,6 +364,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'true'
+          intervalGated:
+            value: 'false'
           androidSensorType:
             value: magnetometer
           sensorDisplayOrder:
@@ -362,6 +384,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'true'
+          intervalGated:
+            value: 'false'
           androidSensorType:
             value: gravity
           sensorDisplayOrder:
@@ -380,6 +404,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'true'
+          intervalGated:
+            value: 'false'
           androidSensorType:
             value: linearAcceleration
           sensorDisplayOrder:
@@ -398,6 +424,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'true'
+          intervalGated:
+            value: 'false'
           androidSensorType:
             value: rotationVector
           sensorDisplayOrder:
@@ -416,6 +444,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'true'
+          intervalGated:
+            value: 'false'
           androidSensorType:
             value: stepCounter
           sensorDisplayOrder:
@@ -434,6 +464,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'true'
+          intervalGated:
+            value: 'false'
           androidSensorType:
             value: light
           sensorDisplayOrder:
@@ -452,6 +484,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'true'
+          intervalGated:
+            value: 'false'
           androidSensorType:
             value: proximity
           sensorDisplayOrder:
@@ -470,6 +504,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'true'
+          intervalGated:
+            value: 'false'
           androidSensorType:
             value: significantMotion
           sensorDisplayOrder:
@@ -488,6 +524,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'true'
+          intervalGated:
+            value: 'false'
           androidSensorType:
             value: tiltDetector
           sensorDisplayOrder:
@@ -506,6 +544,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'true'
+          intervalGated:
+            value: 'false'
           androidSensorType:
             value: screenOrientation
           sensorDisplayOrder:
@@ -524,6 +564,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'true'
+          intervalGated:
+            value: 'false'
           androidSensorType:
             value: samsungGripWifi
           sensorDisplayOrder:
@@ -542,6 +584,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'true'
+          intervalGated:
+            value: 'false'
           androidSensorType:
             value: samsungMotion
           sensorDisplayOrder:
@@ -560,6 +604,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'false'
+          intervalGated:
+            value: 'false'
       audio_activity:
         annotations:
           enumName:
@@ -573,6 +619,8 @@ enums:
           activeDefaultEnabled:
             value: 'false'
           androidSensorModule:
+            value: 'false'
+          intervalGated:
             value: 'false'
           defaultEnabledOverride:
             value: 'false'
@@ -590,6 +638,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'false'
+          intervalGated:
+            value: 'false'
       notification_activity:
         annotations:
           enumName:
@@ -603,6 +653,8 @@ enums:
           activeDefaultEnabled:
             value: 'false'
           androidSensorModule:
+            value: 'false'
+          intervalGated:
             value: 'false'
           defaultEnabledOverride:
             value: 'false'
@@ -620,6 +672,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'false'
+          intervalGated:
+            value: 'false'
       sleep:
         annotations:
           enumName:
@@ -634,6 +688,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'false'
+          intervalGated:
+            value: 'false'
       activity_recognition:
         annotations:
           enumName:
@@ -647,6 +703,8 @@ enums:
           activeDefaultEnabled:
             value: 'false'
           androidSensorModule:
+            value: 'false'
+          intervalGated:
             value: 'false'
           defaultEnabledOverride:
             value: 'false'
@@ -664,6 +722,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'false'
+          intervalGated:
+            value: 'true'
       connectivity_state:
         annotations:
           enumName:
@@ -678,6 +738,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'false'
+          intervalGated:
+            value: 'true'
           defaultEnabledOverride:
             value: 'false'
       app_network_usage:
@@ -694,6 +756,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'false'
+          intervalGated:
+            value: 'true'
           defaultEnabledOverride:
             value: 'false'
       device_settings:
@@ -710,6 +774,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'false'
+          intervalGated:
+            value: 'true'
           defaultEnabledOverride:
             value: 'false'
       time_use_diary:
@@ -726,6 +792,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'false'
+          intervalGated:
+            value: 'false'
       app_inventory:
         annotations:
           enumName:
@@ -739,6 +807,8 @@ enums:
           activeDefaultEnabled:
             value: 'false'
           androidSensorModule:
+            value: 'false'
+          intervalGated:
             value: 'false'
       gaze_tracking:
         annotations:
@@ -754,6 +824,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'false'
+          intervalGated:
+            value: 'false'
       interaction_content:
         annotations:
           enumName:
@@ -767,6 +839,8 @@ enums:
           activeDefaultEnabled:
             value: 'false'
           androidSensorModule:
+            value: 'false'
+          intervalGated:
             value: 'false'
       location:
         annotations:
@@ -782,6 +856,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'false'
+          intervalGated:
+            value: 'false'
       communication_log:
         annotations:
           enumName:
@@ -796,6 +872,8 @@ enums:
             value: 'false'
           androidSensorModule:
             value: 'false'
+          intervalGated:
+            value: 'false'
       hardware_sensors:
         annotations:
           enumName:
@@ -809,6 +887,8 @@ enums:
           activeDefaultEnabled:
             value: 'false'
           androidSensorModule:
+            value: 'false'
+          intervalGated:
             value: 'false'
   AuditAction:
     description: HIPAA/security audit actions mirrored from chronicle-api.

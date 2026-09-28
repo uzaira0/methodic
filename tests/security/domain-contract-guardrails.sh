@@ -316,27 +316,20 @@ if [[ -f "$WEB_DIR/src/modern/lib/study-constants.test.ts" ]]; then
   fi
 fi
 
-# ai-built-code C7: which modules honor a collection interval is written by hand twice, the
-# Android pull schedule and the web form's interval control. Diff them so adding a module
-# on one side cannot silently drop (or fake) the dashboard control.
+# ai-built-code C7: which modules honor a collection interval lives once, in
+# chronicle-models CollectionCadenceModules (web reads it via the generated contracts;
+# contract-drift-diff.py compares the lists). Fail if either side goes back to a hand copy.
 ANDROID_PULL_SCHEDULE="${CHRONICLE_ANDROID_DIR:-$ROOT_DIR/chronicle}/app/src/main/java/com/openlattice/chronicle/collection/device/ExpansionPullSchedule.kt"
 WEB_STUDY_CONSTANTS="$WEB_DIR/src/modern/lib/study-constants.ts"
 if [[ -f "$ANDROID_PULL_SCHEDULE" && -f "$WEB_STUDY_CONSTANTS" ]]; then
-  python3 - "$ANDROID_PULL_SCHEDULE" "$WEB_STUDY_CONSTANTS" <<'PY' || fail "interval-configurable modules differ between Android INTERVAL_GATED_MODULES and web INTERVAL_CONFIGURABLE_MODULES"
-import re, sys
-android_src, web_src = (open(path, encoding="utf-8").read() for path in sys.argv[1:3])
-android_block = re.search(r"INTERVAL_GATED_MODULES[^=]*=\s*listOf\((.*?)\)", android_src, re.S)
-web_block = re.search(r"INTERVAL_CONFIGURABLE_MODULES[^=]*=\s*new Set<[^>]*>\(\[(.*?)\]\)", web_src, re.S)
-if not android_block or not web_block:
-    sys.exit("could not find both interval module lists")
-android = {name.lower() for name in re.findall(r"CollectionModuleId\.([A-Z_]+)", android_block.group(1))}
-web = set(re.findall(r"'([a-z_]+)'", web_block.group(1)))
-if not android or android != web:
-    sys.exit(f"android only: {sorted(android - web)}; web only: {sorted(web - android)}")
-PY
-  pass "interval-configurable modules match between Android and web"
+  grep -Eq 'INTERVAL_GATED_MODULES[^=]*=[[:space:]]*CollectionCadenceModules\.intervalGated' "$ANDROID_PULL_SCHEDULE" ||
+    fail "Android INTERVAL_GATED_MODULES no longer reads CollectionCadenceModules.intervalGated"
+  tr -d '[:space:]' < "$WEB_STUDY_CONSTANTS" |
+    grep -Eq 'INTERVAL_CONFIGURABLE_MODULES[^=]*=newSet<[^>]*>\(INTERVAL_GATED_COLLECTION_MODULE_IDS,?\)' ||
+    fail "web INTERVAL_CONFIGURABLE_MODULES no longer reads INTERVAL_GATED_COLLECTION_MODULE_IDS"
+  pass "Android and web interval-gated modules both read the chronicle-models list"
 else
-  skip "Android or web checkout missing; interval module parity not checked"
+  skip "Android or web checkout missing; interval module source not checked"
 fi
 
 require_file_contains "$ROOT_DIR/chronicle/settings.gradle" \
