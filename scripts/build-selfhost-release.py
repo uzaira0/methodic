@@ -225,7 +225,7 @@ def main() -> None:
         shutil.copyfile(role_sql, docker_dir / role_sql.name)
         (docker_dir / role_sql.name).chmod(0o644)
         # Operators read release notes and the vulnerability-reporting policy offline.
-        for name in ("LICENSE", "CHANGELOG.md", "SECURITY.md"):
+        for name in ("LICENSE", "THIRD-PARTY.md", "CHANGELOG.md", "SECURITY.md"):
             shutil.copyfile(ROOT / name, bundle / name)
             (bundle / name).chmod(0o644)
 

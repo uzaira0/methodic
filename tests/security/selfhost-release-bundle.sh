@@ -121,7 +121,7 @@ unset_token_out="$(cd "$ROOT_DIR" && env -u GHCR_TOKEN bash scripts/publish-imag
 grep -Fq 'GHCR_TOKEN' <<<"$unset_token_out" || fail "publish without GHCR_TOKEN did not name the missing token"
 grep -Fqx 'chronicle-selfhost-9.8.7-test.1/selfhost/docker-compose.yml' "${RUN_DIR}/archive-members.txt" \
   || fail "archive lacks selfhost/docker-compose.yml"
-for shipped in CHANGELOG.md SECURITY.md LICENSE selfhost/docs/POSTGRES-18-UPGRADE.md \
+for shipped in CHANGELOG.md SECURITY.md LICENSE THIRD-PARTY.md selfhost/docs/POSTGRES-18-UPGRADE.md \
                selfhost/docs/INCIDENT-RESPONSE.md selfhost/backup-prune-hook.sh; do
   grep -Fqx "chronicle-selfhost-9.8.7-test.1/${shipped}" "${RUN_DIR}/archive-members.txt" \
     || fail "archive lacks ${shipped}"
