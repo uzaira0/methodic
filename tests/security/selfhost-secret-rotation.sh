@@ -403,6 +403,19 @@ grep -Fqx "JWT_SECRET='$GENERATED'" "${SELFHOST_DIR}/.env" || fail "JWT secret w
 grep -Fq 'compose-up:' "$ARGS_LOG" || fail "JWT rotation did not recreate the backend"
 assert_custody "$OUTPUT" "$ARGS_LOG"
 
+setup_case metrics
+run_rotation false --yes metrics
+grep -Fqx "METRICS_PASSWORD='$GENERATED'" "${SELFHOST_DIR}/.env" || fail "metrics password was not updated"
+grep -Fq 'compose-up:' "$ARGS_LOG" || fail "metrics rotation did not recreate the backend"
+assert_custody "$OUTPUT" "$ARGS_LOG"
+
+setup_case internal-web
+run_rotation false --yes internal-web
+grep -Fqx "CHRONICLE_INTERNAL_WEB_SECRET='$GENERATED'" "${SELFHOST_DIR}/.env" \
+  || fail "internal web secret was not updated"
+grep -Fq 'compose-up:' "$ARGS_LOG" || fail "internal-web rotation did not recreate backend and web"
+assert_custody "$OUTPUT" "$ARGS_LOG"
+
 setup_case dashboard
 {
   printf '%s\n' "$DASHBOARD_PASSWORD"

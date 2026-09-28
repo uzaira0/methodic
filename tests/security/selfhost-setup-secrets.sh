@@ -254,6 +254,31 @@ PY
 grep -Fq 'Trial HTTPS/CA ports 444 and 81 are free; using those.' "$LOCAL_OUTPUT" \
   || fail "local setup did not explain its selected fallback ports"
 
+# Re-running setup to leave the trial must not carry the trial's private-address origin into
+# a production .env: guard-config rejects it and names a variable setup never asked about.
+RESETUP_OUTPUT="${RUN_DIR}/setup-resetup-output.txt"
+if ! (
+  {
+    printf 'y\n'                         # overwrite the trial .env
+    printf '1\n'                         # behind an institutional proxy
+    printf 'chronicle.study-host.org\n'    # hostname
+    printf '\n'                          # loopback proxy bind
+    printf '\n'                          # loopback dashboard bind
+    printf '\n'                          # public per-device-key flow
+    printf 'n\n'                         # monitoring off
+  } | PATH="${COMMAND_DIR}:${PATH}" \
+      SELFHOST_SETUP_TEST_PASSWORD="$PASSWORD" \
+      SELFHOST_SETUP_TEST_GENERATED="$GENERATED" \
+      SELFHOST_SETUP_TEST_DOCKER_ARGS="$DOCKER_ARGS" \
+      SELFHOST_SETUP_TEST_PYTHON_ARGS="$PYTHON_ARGS" \
+      SELFHOST_SETUP_TEST_REAL_PYTHON="$REAL_PYTHON" \
+      /bin/bash "${FIXTURE_LOCAL_SELFHOST}/chronicle" setup >"$RESETUP_OUTPUT" 2>&1
+); then
+  fail "re-setup from the local HTTPS trial failed"
+fi
+! grep -Eq "^CHRONICLE_PUBLIC_BASE_URL=.*192\.168\.50\.10" "${FIXTURE_LOCAL_SELFHOST}/.env" \
+  || fail "re-setup into production kept the trial's private-address CHRONICLE_PUBLIC_BASE_URL"
+
 FIXTURE_LEGACY_SELFHOST="${RUN_DIR}/selfhost-legacy"
 /bin/mkdir -p "$FIXTURE_LEGACY_SELFHOST"
 /bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_LEGACY_SELFHOST/"
