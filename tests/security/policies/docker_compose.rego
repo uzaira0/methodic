@@ -45,6 +45,16 @@ deny contains msg if {
 	msg := sprintf("Service '%s' has no tag on image '%s'. Pin to a specific version.", [name, image])
 }
 
+# A tag can be repointed upstream; only a digest names the bytes that were reviewed.
+deny contains msg if {
+	service := input.services[name]
+	image := service.image
+	not _is_build_image(image)
+	not endswith(image, "-local")
+	not contains(image, "@sha256:")
+	msg := sprintf("Service '%s' image '%s' is not pinned by digest. Add @sha256:<digest>.", [name, image])
+}
+
 _is_build_image(image) if {
 	some b in build_images
 	contains(image, b)

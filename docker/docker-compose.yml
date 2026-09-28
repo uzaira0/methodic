@@ -76,7 +76,7 @@ services:
       - frontend_build:/app/build
 
   nginx:
-    image: nginx:alpine
+    image: nginx:alpine@sha256:62ff2089abf5a9ed33bd232895bef5e22f7bb4b200675cec49a5ebc48e3d4ac8
     container_name: chronicle-nginx
     ports:
       - "80:80"

@@ -32,7 +32,7 @@ services:
   # Docker Socket Proxy — limits Traefik's access to the Docker API
   # Only allows read-only container and network queries; blocks write operations
   docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:0.3.0
+    image: tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2
     container_name: chronicle-docker-proxy
     restart: unless-stopped
     security_opt:
@@ -168,7 +168,7 @@ services:
   # decisions. The Traefik bouncer plugin queries LAPI (:8080) for IP decisions
   # and AppSec (:7422) for request-body inspection.
   chronicle-crowdsec:
-    image: crowdsecurity/crowdsec:v1.8.1
+    image: crowdsecurity/crowdsec:v1.8.1@sha256:0f2523fa61ef507f15d953045cface490cc880670c62f2755ced17524107f71a
     container_name: chronicle-crowdsec
     restart: unless-stopped
     security_opt:
@@ -1062,7 +1062,7 @@ services:
   # Production: use an external Vault cluster with auto-unseal.
   # Enable with: docker compose --profile vault up -d
   vault:
-    image: hashicorp/vault:1.21
+    image: hashicorp/vault:1.21@sha256:4e33b126a59c0c333b76fb4e894722462659a6bec7c48c9ee8cea56fccfd2569
     container_name: chronicle-vault
     restart: unless-stopped
     security_opt:
@@ -1201,7 +1201,7 @@ services:
       - "traefik.http.services.chronicle-preprocessing-frontend.loadbalancer.server.port=8080"
 
   chronicle-apk-download:
-    image: nginx:alpine
+    image: nginx:alpine@sha256:62ff2089abf5a9ed33bd232895bef5e22f7bb4b200675cec49a5ebc48e3d4ac8
     container_name: chronicle-apk-download
     restart: unless-stopped
     user: "101:101"
