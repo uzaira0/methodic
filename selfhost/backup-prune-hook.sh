@@ -27,3 +27,9 @@ find "${BACKUP_DIR:-/backups}" -maxdepth 1 -type f \
   \( -name 'pre-upgrade-*.sql.gz' -o -name 'pre-restore-*.sql.gz' \) \
   -mtime "+${keep_days}" -print -delete |
   sed 's/^/Pruned pre-operation safety dump older than '"${keep_days}"' days: /'
+
+if [[ -d "${BACKUP_DIR:-/backups}/secret-rotation" ]]; then
+  find "${BACKUP_DIR:-/backups}/secret-rotation" -maxdepth 1 -type f -name '*.sql.gz' \
+    -mtime "+${keep_days}" -print -delete |
+    sed 's/^/Pruned secret-rotation dump older than '"${keep_days}"' days: /'
+fi

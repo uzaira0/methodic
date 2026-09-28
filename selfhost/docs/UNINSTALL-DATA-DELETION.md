@@ -116,9 +116,10 @@ deletion can contain the deleted rows until that dump ages out. Defaults are 14 
 weekly, and 6 monthly copies (`BACKUP_KEEP_DAYS`, `BACKUP_KEEP_WEEKS`, and
 `BACKUP_KEEP_MONTHS`). Off-host copies may have a different policy.
 
-Two kinds of full-database dump in the `backups/` root are **not** in that rotation:
+Full-database dumps in the `backups/` root and `backups/secret-rotation/` are **not** in that rotation:
 `pre-upgrade-*.sql.gz` (written by `./chronicle upgrade`) and `pre-restore-*.sql.gz` with
-its `*.continuity.sql.gz` companion (written by `./chronicle restore`). Each keeps every row
+its `*.continuity.sql.gz` companion (written by `./chronicle restore`), and secret-rotation
+`*.sql.gz` dumps (written by `./chronicle rotate-secret tde`). Each keeps every row
 that existed when it was taken. The backup sidecar deletes them once they are older than
 `PRE_OP_BACKUP_KEEP_DAYS` (default 30; see [BACKUP-RESTORE.md](BACKUP-RESTORE.md)), so
 the longest a deleted row survives on the host is the later of that window and the
@@ -129,7 +130,7 @@ longer need a way back.
 For each deletion request:
 
 - record when the last pre-deletion backup expires or is approved for destruction,
-  including any `pre-upgrade-*` and `pre-restore-*` dumps taken before the deletion;
+  including any `pre-upgrade-*`, `pre-restore-*`, and `secret-rotation/*.sql.gz` dumps taken before the deletion;
 - include off-host backup systems and manually copied dumps in that decision; and
 - preserve any required deletion proof separately before removing the installation.
 
