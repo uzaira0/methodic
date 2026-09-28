@@ -7,6 +7,40 @@ would sort below the day's release, so `./chronicle update` would refuse it.
 
 ## [Unreleased]
 
+## [2026.9.27]
+
+### Server
+- Participant deletion also removes usage-event annotations and participant pseudonyms; both were left behind before. V105 hides them while a deletion is in quarantine. A test now fails on any table with a `participant_id` column that deletion neither covers nor deliberately keeps.
+- Dashboard login and the OIDC callback write `LOGIN` / `LOGIN_FAILED` audit events.
+- V106 accepts three Android diagnostic counts: sensor samples expired by age, sensor samples dropped at the row cap, usage rows evicted on low storage. Counts only.
+- `GET /chronicle/v3/study/{studyId}/participants/android/data-drops`: per participant, the data each Android device discarded in the last 30 days.
+
+### Dashboard
+- An expanded participant row shows the data the device discarded (last 30 days).
+- Preprocessing opens the published preprocessing app when the deployment does not run its own (self-host); before, the button was disabled.
+- Interval-configurable modules come from the shared module contract instead of a copy in the dashboard.
+
+### Self-host
+- Re-running `./chronicle setup` keeps HTTP, internal and Grafana ports held by this deployment's own containers instead of reporting them taken.
+- Setup asks again until a bind address is on this host; the dashboard and Grafana never bind to all interfaces.
+- Preflight checks host tools and Docker Compose >= 2.17, and warns on low memory.
+- Backup dumps are readable by their owner only (`0600`).
+- The bundle ships `THIRD-PARTY.md`.
+- `docs/BACKUP-RESTORE.md` names host disk encryption as the control for dumps at rest and lists the connections between containers that are not encrypted (reach Grafana through an SSH tunnel). `docs/DEPLOYMENT-COMPATIBILITY.md` maps each server release to its Android build.
+
+### Security
+- Keycloak realm templates no longer allow `http://localhost` redirects or web origins.
+- Release images are scanned one by one right after each build, so a fixable HIGH/CRITICAL finding stops the release before the next build.
+
+### Android (open flavor, versionCode 62, 2026.09.27-internal.open.1)
+- Settings -> Open-source licenses lists every bundled library with its license text.
+- Discarded data is counted and reported to the server: sensor samples expired by age or dropped at the row cap. With less than 200 MiB free, each upload pass evicts the oldest 10% of queued usage rows and counts them; before, the queue grew until the disk was full.
+- A request rejected for clock skew (> 25 s) is re-signed with the server's clock and retried once.
+- Responses larger than 8 MiB are refused.
+- Sensor age cleanup pauses while uploads are failing; the row cap still bounds storage.
+- Notification details survive release minification; sleep-activity writes log their outcome; settings refresh branches on the HTTP status, not error text.
+- Release dependencies locked in `app/gradle.lockfile`; Gradle wrapper checksum pinned.
+
 ## [2026.9.25]
 
 ### Self-host
