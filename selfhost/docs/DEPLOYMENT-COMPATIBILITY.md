@@ -91,3 +91,19 @@ An experimental or absent component becomes supported only after it is dependenc
 included in the release builder, documented here, rendered by the matrix test, exercised in
 the source-free smoke test when runtime behavior matters, and covered by upgrade/restore
 behavior. Moving a Compose file into `overlays/` without those changes is not promotion.
+
+## Server and app versions
+
+The dashboard is the frontend image of the same release; it is never mixed across releases.
+
+| Server release | Android build shipped with it | Server change the app depends on |
+|---|---|---|
+| 2026.9.27 | versionCode 62 (Play internal) | V106 accepts the discarded-data diagnostic codes |
+| 2026.9.25 | versionCode 61 (Play internal) | V104 accepts sensor dead-letter, crash and ANR diagnostic codes |
+| 2026.9.17, 2026.9.18, 2026.9.22 | versionCode 60 (Play internal); 61 carries the 2026.9.18 exact-alarm fix | none |
+| 2026.9.14 | versionCode 59 (not published) | V103 settings `ETag`/`If-Match` (optional on the server) |
+
+Newer apps work against older servers: a server before V106 or V104 answers the newer
+diagnostic codes with 400, and the app then drops only those counts, newest first
+(`LocalUploadDiagnosticsStore.dropUnsupportedByLegacyServer`). Update the server first
+anyway, so no diagnostics are lost.

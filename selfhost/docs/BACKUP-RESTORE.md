@@ -12,13 +12,19 @@ as the database itself: `${CHRONICLE_STATE_DIR:-.}/backups` is `0700` and owned 
 should treat anywhere you copy it the same way.
 
 Two links are not encrypted, as an **accepted residual risk** for a single-host install:
-the dumps above (plain SQL on the host disk, protected only by the `0700` directory and
-host access control), and the traffic between containers on the stack's private Docker
-network (backend to PostgreSQL uses `sslmode=prefer` against a server with no certificate,
-and Caddy reaches the backend over HTTP). That network is not published outside the host;
-anyone who can read it already has the Docker access that reads the database directly.
-Encrypt dumps before they leave the host (below), and use full-disk encryption on the host
-if the disk itself may leave your control.
+
+- **Dumps at rest.** Plain SQL on the host disk, in a `0700` directory; each dump is set to
+  `0600` after every backup run. The control for the disk itself is **host full-disk
+  encryption** (LUKS or your provider's encrypted volumes): use it whenever the disk may
+  leave your control. The stack does not encrypt dumps itself, because a lost dump key
+  would make the backups unrestorable. Encrypt dumps before they leave the host (below).
+- **Traffic between containers on the stack's private Docker network.** Backend to
+  PostgreSQL uses `sslmode=prefer` against a server with no certificate; Caddy reaches the
+  backend over HTTP; with the monitoring overlay, VictoriaMetrics scrapes the backend over
+  HTTP and Grafana listens on plain HTTP (bound to `127.0.0.1` unless setup was given a host
+  address). The container links are not published outside the host, and anyone who can read
+  them already has the Docker access that reads the database directly. Keep Grafana on
+  `127.0.0.1` and reach it through an SSH tunnel.
 
 A copy of the encryption keyring is kept at `backups/keyring/chronicle-keyring.per` under
 that state directory so the backup set can also remount the data volume itself. **Back up
