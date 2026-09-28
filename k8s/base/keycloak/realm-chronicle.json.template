@@ -34,12 +34,10 @@
       "serviceAccountsEnabled": false,
       "secret": "__CLIENT_SECRET__",
       "redirectUris": [
-        "https://__DOMAIN__/chronicle/v3/auth/oidc/callback",
-        "http://localhost/chronicle/v3/auth/oidc/callback"
+        "https://__DOMAIN__/chronicle/v3/auth/oidc/callback"
       ],
       "webOrigins": [
-        "https://__DOMAIN__",
-        "http://localhost"
+        "https://__DOMAIN__"
       ],
       "attributes": {
         "pkce.code.challenge.method": "S256",

@@ -37,6 +37,9 @@ def compose_config() -> dict:
             "compose",
             "-f",
             str(COMPOSE),
+            # The host's own docker/.env would otherwise override the defaults under test.
+            "--env-file",
+            os.devnull,
             "--profile",
             "sso",
             "config",
