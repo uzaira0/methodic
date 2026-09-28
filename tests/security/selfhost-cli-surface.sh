@@ -44,8 +44,11 @@ done < <(grep -E 'dc exec -T grafana wget' "$CLI")
 echo 'PASS: doctor wget probes carry -T'
 
 # 4. Setup picks a free Grafana port like the other listeners (C4-1).
-grep -Eq 'grafana_port=\$\(free_port "\$\{GRAFANA_PORT:-3000\}"' "$CLI" \
+grep -Eq 'grafana_port=\$\(setup_port "\$project" grafana "\$keep_grafana_port" "\$\{GRAFANA_PORT:-3000\}"' "$CLI" \
   || fail 'setup does not choose a free GRAFANA_PORT'
+# A rerun keeps the ports this deployment's own running containers hold (I2).
+grep -Eq 'http_port=\$\(setup_port "\$project" web "\$keep_http_port"' "$CLI" \
+  || fail 'setup rerun does not keep the running deployment HTTP_PORT'
 grep -Fq "('GRAFANA_PORT', grafana_port)" "$CLI" || fail 'setup does not write GRAFANA_PORT to .env'
 echo 'PASS: setup selects and writes a free Grafana port'
 

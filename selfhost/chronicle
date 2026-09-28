@@ -601,6 +601,41 @@ free_port() {
   return 1
 }
 
+# The port an existing .env gave <service> when this project's own container for it is
+# running and so holds that port; otherwise free_port from the saved value or the default.
+# Without this, re-running setup on a live deployment moves it to the next free port.
+setup_port() { # <project> <service> <saved> <default> <addr> [excluded]
+  local project="$1" service="$2" saved="$3" default="$4" addr="$5" excluded="${6:-}"
+  if [[ -n "$saved" && "$saved" != "$excluded" ]] &&
+    docker ps --filter "label=com.docker.compose.project=${project}" \
+      --filter "label=com.docker.compose.service=${service}" --format '{{.Names}}' 2>/dev/null |
+    grep -q .; then
+    printf '%s\n' "$saved"
+    return 0
+  fi
+  free_port "${saved:-$default}" "$addr" "$excluded"
+}
+
+# Prompts until the answer is an address this host has, so setup never writes a bind that
+# `check` refuses later. [wildcard] allows 0.0.0.0 (the load-balancer listener only).
+ask_bind_addr() { # <default> [wildcard]
+  local answer
+  while true; do
+    read -rp "Address [$1]: " answer
+    answer="${answer:-$1}"
+    case "$answer" in
+      0.0.0.0|::|\[::\])
+        [[ "${2:-}" == wildcard && "$answer" == 0.0.0.0 ]] && { printf '%s\n' "$answer"; return; }
+        printf 'This listener may not bind every interface; give one address.\n' >&2 ;;
+      127.0.0.1) printf '%s\n' "$answer"; return ;;
+      *)
+        host_addrs | grep -qx "$answer" && { printf '%s\n' "$answer"; return; }
+        printf '%s is not an address on this host. This host has: %s\n' \
+          "$answer" "$(host_addrs | tr '\n' ' ')" >&2 ;;
+    esac
+  done
+}
+
 # ------------------------------------------------------------------------------- setup
 cmd_setup() {
   begin_operation setup setup_failed
@@ -621,6 +656,7 @@ cmd_setup() {
   local keep_reviewer_enabled="false" keep_reviewer_secret="" keep_reviewer_study=""
   local keep_reviewer_participant=""
   local keep_grafana="" keep_dash_hash="" keep_state="."
+  local keep_http_port="" keep_internal_port="" keep_grafana_port=""
   if [[ -f .env ]]; then
     read -rp "$(printf '%s.env already exists. Overwrite? [y/N] %s' "$YEL" "$RST")" a
     [[ "$a" =~ ^[Yy]$ ]] || {
@@ -648,6 +684,9 @@ cmd_setup() {
     keep_grafana=$(sed -n 's/^GRAFANA_ADMIN_PASSWORD=//p' .env | head -1 | tr -d "'\"")
     keep_dash_hash=$(sed -n 's/^DASHBOARD_PASSWORD_HASH=//p' .env | head -1 | tr -d "'\"")
     keep_state=$(sed -n 's/^CHRONICLE_STATE_DIR=//p' .env | head -1 | tr -d "'\"")
+    keep_http_port=$(sed -n 's/^HTTP_PORT=//p' .env | head -1 | tr -d "'\"")
+    keep_internal_port=$(sed -n 's/^INTERNAL_PORT=//p' .env | head -1 | tr -d "'\"")
+    keep_grafana_port=$(sed -n 's/^GRAFANA_PORT=//p' .env | head -1 | tr -d "'\"")
     case "$keep_pg" in *CHANGE_ME*|"") keep_pg="" ;; esac
     validate_legacy_mobile_values \
       "$keep_mob_enabled" "$keep_mob_required" "$keep_mob" "$keep_mob_previous"
@@ -726,16 +765,14 @@ cmd_setup() {
       printf '\nWhich address will your load balancer connect to?\n'
       printf '  This host has: %s\n' "$(host_addrs | tr '\n' ' ')"
       printf '  Use 127.0.0.1 ONLY if the proxy runs on this same machine.\n'
-      read -rp "Address [127.0.0.1]: " hb
-      http_bind="${hb:-127.0.0.1}"
+      http_bind=$(ask_bind_addr 127.0.0.1 wildcard)
     fi
 
     printf '\nThe supported release always keeps the researcher dashboard on a private listener.\n'
     printf 'Which address should the dashboard listen on?\n'
     printf '  Your VPN or management interface, e.g. 10.0.0.5.\n'
     printf '  Leave blank for 127.0.0.1 (reach it over an SSH tunnel).\n'
-    read -rp "Address [127.0.0.1]: " ib
-    internal_bind="${ib:-127.0.0.1}"
+    internal_bind=$(ask_bind_addr 127.0.0.1)
   fi
 
   # With the dashboard internal-only, the built-in login is safe and saves them standing
@@ -817,9 +854,7 @@ cmd_setup() {
     compose_file+=":overlays/monitoring.yml"
     printf 'Which private address should Grafana listen on?\n'
     printf '  Use 127.0.0.1 for an SSH tunnel, or a VPN/management address for viewers.\n'
-    read -rp "Address [${internal_bind}]: " grafana_answer
-    grafana_bind="${grafana_answer:-$internal_bind}"
-    case "$grafana_bind" in 0.0.0.0|::|\[::\]) die "Grafana may not bind every interface" ;; esac
+    grafana_bind=$(ask_bind_addr "$internal_bind")
     read -rp "Metrics retention [30d]: " metrics_answer
     metrics_retention="${metrics_answer:-30d}"
     [[ "$metrics_retention" =~ ^[1-9][0-9]*d$ ]] || die "metrics retention must be whole days, for example 30d"
@@ -888,15 +923,18 @@ cmd_setup() {
   fi
 
   local http_port internal_port local_https_port=443 local_http_port=80
-  http_port=$(free_port "${HTTP_PORT:-8080}" "$http_bind") ||
-    die "no free public listener port was found near ${HTTP_PORT:-8080}"
-  internal_port=$(free_port "${INTERNAL_PORT:-8081}" "$internal_bind" "$http_port") ||
-    die "no free internal listener port was found near ${INTERNAL_PORT:-8081}"
-  [[ "$http_port" == "${HTTP_PORT:-8080}" && "$internal_port" == "${INTERNAL_PORT:-8081}" ]] ||
+  local want_http="${keep_http_port:-${HTTP_PORT:-8080}}" want_internal="${keep_internal_port:-${INTERNAL_PORT:-8081}}"
+  http_port=$(setup_port "$project" web "$keep_http_port" "${HTTP_PORT:-8080}" "$http_bind") ||
+    die "no free public listener port was found near ${want_http}"
+  internal_port=$(setup_port "$project" web "$keep_internal_port" "${INTERNAL_PORT:-8081}" \
+    "$internal_bind" "$http_port") ||
+    die "no free internal listener port was found near ${want_internal}"
+  [[ "$http_port" == "$want_http" && "$internal_port" == "$want_internal" ]] ||
     printf '\nPorts %s and %s are free on this host; using those.\n' "$http_port" "$internal_port"
   local grafana_port="${GRAFANA_PORT:-3000}"
   if [[ "$monitoring_enabled" == true ]]; then
-    grafana_port=$(free_port "${GRAFANA_PORT:-3000}" "$grafana_bind" "$http_port") ||
+    grafana_port=$(setup_port "$project" grafana "$keep_grafana_port" "${GRAFANA_PORT:-3000}" \
+      "$grafana_bind" "$http_port") ||
       die "no free Grafana port was found near ${GRAFANA_PORT:-3000}"
     [[ "$grafana_port" != "$internal_port" ]] ||
       grafana_port=$(free_port "$((internal_port + 1))" "$grafana_bind" "$http_port") ||
