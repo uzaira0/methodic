@@ -6,7 +6,7 @@
   "sourceFiles": {
     "linkml": {
       "path": "ontology/chronicle.linkml.yaml",
-      "sha256": "9c7b73668f3d21b16c25698909133d4b81606530e34766664cada25fee3729fd"
+      "sha256": "2fd067ed189ae38a7bfb908445a94a91d127a57333191846533f5a70daec29f7"
     }
   },
   "contracts": {
@@ -738,7 +738,9 @@
       "HealthMetrics",
       "ConnectivityState",
       "AppNetworkUsage",
-      "DeviceSettings"
+      "DeviceSettings",
+      "UploadDiagnostics",
+      "DataQualityAlerts"
     ],
     "participationStatuses": [
       "ENROLLED",

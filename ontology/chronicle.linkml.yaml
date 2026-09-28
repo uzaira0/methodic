@@ -68,6 +68,8 @@ enums:
       ConnectivityState: {}
       AppNetworkUsage: {}
       DeviceSettings: {}
+      UploadDiagnostics: {}
+      DataQualityAlerts: {}
   ParticipationStatus:
     description: Participant enrollment/collection status values mirrored from chronicle-models.
     permissible_values:
