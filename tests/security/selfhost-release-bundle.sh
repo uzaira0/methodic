@@ -112,6 +112,11 @@ for image_name in chronicle-backend chronicle-selfhost-frontend chronicle-selfho
   [[ -n "$scan_line" && -n "$push_line" && "$scan_line" -lt "$push_line" ]] \
     || fail "publish pushes ${image_name} without a blocking trivy HIGH/CRITICAL scan first"
 done
+# Fail fast: the first image is scanned before the last one is built.
+first_scan=$(grep -n 'trivy image .*--exit-code 1' <<<"$publish_plan" | head -1 | cut -d: -f1)
+last_build=$(grep -n 'docker build ' <<<"$publish_plan" | tail -1 | cut -d: -f1)
+[[ -n "$first_scan" && -n "$last_build" && "$first_scan" -lt "$last_build" ]] \
+  || fail "publish builds every image before scanning any"
 grep -Eq -- '--severity HIGH[\\]?,CRITICAL' <<<"$publish_plan" || fail "publish scan does not gate HIGH and CRITICAL"
 # Launch audit I5: a dedicated write:packages token, never the operator's general gh token.
 ! grep -Fq 'gh auth token' "$ROOT_DIR/scripts/publish-images.sh" || fail "publish logs in to GHCR with the general gh token"

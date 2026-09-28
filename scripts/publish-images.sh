@@ -45,6 +45,9 @@ capture() {
   fi
 }
 
+# Phase timestamps on stderr: the 2026.9.25 run lost ~45 min that no log could place.
+stamp() { printf '[%(%H:%M:%S)T] %s\n' -1 "$*" >&2; }
+
 run cd "$root"
 if [[ -z "$dry_run" ]]; then
   [[ -n "${GHCR_TOKEN:-}" ]] || {
@@ -75,6 +78,10 @@ if (any(len(p) > 1 and p.startswith("0") for p in core.split("."))
     sys.exit("error: release must use semantic versioning without numeric leading zeroes")
 PY
 fi
+# Fetch the vulnerability DBs first so a slow or failed download shows up before any build.
+stamp 'trivy db download'
+run trivy image --quiet --download-db-only
+run trivy image --quiet --download-java-db-only
 capture login gh api user -q .login
 if [[ -n "$dry_run" ]]; then
   # shellcheck disable=SC2016 # The dry-run login is intentionally literal.
@@ -103,14 +110,23 @@ build_image() { # build_image <context dir> <dockerfile in context> <tag> [docke
       docker build -f "$dockerfile" -t "$tag" "$@" -
   fi
 }
-build_image . docker/Dockerfile.backend "$backend" --build-arg "VCS_REF=$revision"
-build_image . selfhost/Dockerfile.frontend "$frontend" --build-arg "GIT_SHA=$revision"
-build_image selfhost Dockerfile.caddy "$caddy"
-# Nothing reaches the registry with a fixable HIGH or CRITICAL finding.
-for image in "$backend" "$frontend" "$caddy"; do
+# Nothing reaches the registry with a fixable HIGH or CRITICAL finding. Each image is scanned
+# right after its build, smallest first, so a finding fails the run before the next build.
+scan_image() {
+  stamp "scan $1"
   run trivy image --quiet --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
-    --ignorefile "$root/.trivyignore.yaml" "$image"
-done
+    --skip-db-update --skip-java-db-update --ignorefile "$root/.trivyignore.yaml" "$1"
+}
+stamp "build $caddy"
+build_image selfhost Dockerfile.caddy "$caddy"
+scan_image "$caddy"
+stamp "build $frontend"
+build_image . selfhost/Dockerfile.frontend "$frontend" --build-arg "GIT_SHA=$revision"
+scan_image "$frontend"
+stamp "build $backend"
+build_image . docker/Dockerfile.backend "$backend" --build-arg "VCS_REF=$revision"
+scan_image "$backend"
+stamp push
 run docker push "$backend"
 run docker push "$frontend"
 run docker push "$caddy"
@@ -119,6 +135,7 @@ capture frontend_digest docker inspect --format '{{index .RepoDigests 0}}' "$fro
 capture caddy_digest docker inspect --format '{{index .RepoDigests 0}}' "$caddy"
 # The private HEAD exists in no public repository. Record and tag the curated public commit
 # (scripts/publish.sh push must have run first) so the bundle maps to published source.
+stamp 'bundle and GitHub release'
 run git fetch public main
 capture public_revision git rev-parse refs/remotes/public/main
 run python3 scripts/build-selfhost-release.py --version "$release" \
@@ -153,3 +170,4 @@ run gh release create "$release" --repo "$public_repo" --target "$public_revisio
 if [[ -n "$dry_run" ]]; then
   run rm -rf -- "$notes_dir"
 fi
+stamp 'done'
