@@ -169,6 +169,7 @@ check_dependency_integrity_files() {
   require_file "chronicle-api/gradle.lockfile"
   require_file "chronicle-models/gradle.lockfile"
   require_file "chronicle-server/gradle.lockfile"
+  require_file "chronicle/app/gradle.lockfile"
   require_file "rhizome-client/gradle.lockfile"
   require_file "rhizome/gradle.lockfile"
   require_file "chronicle-web/bun.lock"

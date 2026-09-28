@@ -67,6 +67,11 @@
     { "moduleName": "com.geekbeast:rhizome" },
     { "moduleName": "com.geekbeast:rhizome-client" },
     { "moduleName": "com.openlattice:chronicle-models" },
-    { "moduleName": "org.antlr:antlr-runtime" }
+    { "moduleName": "org.antlr:antlr-runtime" },
+    { "moduleName": "net.zetetic:sqlcipher-android" },
+    { "moduleName": "com.google.android.gms:play-services-base" },
+    { "moduleName": "com.google.android.gms:play-services-basement" },
+    { "moduleName": "com.google.android.gms:play-services-location" },
+    { "moduleName": "com.google.android.gms:play-services-tasks" }
   ]
 }
