@@ -98,12 +98,15 @@ The dashboard is the frontend image of the same release; it is never mixed acros
 
 | Server release | Android build shipped with it | Server change the app depends on |
 |---|---|---|
+| 2026.9.28 | versionCode 63 (Play internal) | V107 accepts the full diagnostic catalog and keeps diagnostics for the life of the study |
 | 2026.9.27 | versionCode 62 (Play internal) | V106 accepts the discarded-data diagnostic codes |
 | 2026.9.25 | versionCode 61 (Play internal) | V104 accepts sensor dead-letter, crash and ANR diagnostic codes |
 | 2026.9.17, 2026.9.18, 2026.9.22 | versionCode 60 (Play internal); 61 carries the 2026.9.18 exact-alarm fix | none |
 | 2026.9.14 | versionCode 59 (not published) | V103 settings `ETag`/`If-Match` (optional on the server) |
 
-Newer apps work against older servers: a server before V106 or V104 answers the newer
-diagnostic codes with 400, and the app then drops only those counts, newest first
-(`LocalUploadDiagnosticsStore.dropUnsupportedByLegacyServer`). Update the server first
-anyway, so no diagnostics are lost.
+Newer apps work against older servers: a server before V107 answers the newer diagnostic
+codes with 400, and the app parks those counts on the phone and offers them again on every
+upload, so an upgraded server receives them
+(`LocalUploadDiagnosticsStore.parkUnsupportedByLegacyServer`). Servers before V107 also delete
+diagnostics after 30 days; the phone keeps its copy and re-sends it once a day. Update the
+server first anyway.

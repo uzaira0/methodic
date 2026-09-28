@@ -7,6 +7,34 @@ would sort below the day's release, so `./chronicle update` would refuse it.
 
 ## [Unreleased]
 
+## [2026.9.28]
+
+### Server
+- Upload diagnostics and data-quality alerts are kept for the life of the study; the 30-day deletes are gone. Explicit participant or study erasure still removes them. V107 widens the diagnostic vocabularies to the shared Android catalog and adds deletion guards on `upload_diagnostics`.
+- Diagnostics that started before a completed participant erasure are acknowledged but not stored again.
+- V105 tables `usage_event_annotations` and `participant_pseudonyms` carry deletion guards; a registry test requires guards on every registry table.
+- `GET /chronicle/v3/study/{studyId}/participants/android/diagnostics`: paged diagnostics and alert history per participant. Bulk and per-participant downloads offer `UploadDiagnostics` and `DataQualityAlerts`; the alert export adds `evaluation_start`, `evaluation_end` and `threshold`.
+- Every export uses an inclusive start and an exclusive end.
+- Study settings, details and limits are saved in sequence, each revision-guarded (`If-Match`).
+- Public study settings for an unknown study return 404.
+- Retention expiry only revokes non-admin access. It never starts an erasure, so a date or clock fault cannot destroy data.
+
+### Dashboard
+- Participant rows show the retained Android diagnostics history with filters and a download.
+- Participant downloads need both dates and send the local offset; the default range is the last 30 days, 31 at most.
+- A participant list that fills the last page is reported as an error instead of being cut off silently.
+
+### Self-host
+- `backups/secret-rotation/*.sql.gz` dumps are pruned after `PRE_OP_BACKUP_KEEP_DAYS` like the other pre-operation dumps.
+
+### Android (open flavor, versionCode 63, 2026.09.28-internal.open.1)
+- Diagnostics are kept on the phone until the server stores them, never expired or capped. Counts a legacy server rejects are parked and offered again; delivered history is replayed once a day.
+- Low storage pauses collection and reports it, instead of evicting queued usage rows.
+- Malformed rows are quarantined one by one; the rest of the batch still uploads.
+- The usage upload cursor and the upload count commit together.
+- Direct-boot records drain under the enrollment that owns them; a failure there no longer throws from the sensor callback.
+- Research build: Delete Server now withdraws. Collection stops at once; the server is asked to delete the enrollment's data, and data on the phone is erased only after the server confirms.
+
 ## [2026.9.27]
 
 ### Server
