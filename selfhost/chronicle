@@ -516,6 +516,33 @@ for r in rows:
     ok "$(( free_kb / 1048576 )) GiB free under the state directory"
   fi
 
+  local tool missing_tools=""
+  for tool in openssl python3 curl; do
+    command -v "$tool" >/dev/null 2>&1 || missing_tools+=" $tool"
+  done
+  if [[ -n "$missing_tools" ]]; then
+    bad "missing host tools:${missing_tools}. Install them with the system package manager (apt/dnf/brew)"
+  else
+    ok "host tools present (curl, openssl, python3)"
+  fi
+
+  # up/restore use --wait-timeout, which Compose added in 2.17.
+  local compose_version
+  compose_version=$(docker compose version --short 2>/dev/null | sed 's/^v//')
+  if printf '2.17.0\n%s\n' "${compose_version%%-*}" | sort -V -C 2>/dev/null; then
+    ok "docker compose ${compose_version}"
+  else
+    bad "docker compose ${compose_version:-not found} is older than 2.17.0; install the current Docker Compose plugin"
+  fi
+
+  # 3.5 GiB: a "4 GB" VM reports a little under 4 GiB of MemTotal after kernel reservations.
+  local mem_kb
+  mem_kb=$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo 2>/dev/null ||
+    sysctl -n hw.memsize 2>/dev/null | awk '{ print int($1 / 1024) }')
+  if [[ "$mem_kb" =~ ^[0-9]+$ ]] && (( mem_kb < 3670016 )); then
+    warn "$(( mem_kb / 1048576 )) GiB of memory; below the 4 GB minimum the stack is sized for (README Sizing), so containers may be OOM-killed. Use a host with 4 GB or more"
+  fi
+
   if [[ -x ./verify-config.sh ]]; then
     if ./verify-config.sh >/dev/null 2>&1; then ok "internal config contract intact"
     else bad "verify-config.sh reports drift — run ./verify-config.sh for detail"; fi
