@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 RUN_PARENT="${SELFHOST_VERIFY_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-verify-secrets}"
+REAL_PYTHON="$(command -v python3)"
 
 fail() {
   echo "self-host verify secret-custody test failed: $*" >&2
@@ -99,6 +100,8 @@ write_status=false
 write_format=''
 head_request=false
 read_config=false
+read_config_fd=false
+body_stdin=false
 device_header=false
 request_body=''
 previous=""
@@ -120,13 +123,23 @@ for argument in "$@"; do
     request_body="$argument"
   fi
   [[ "$argument" == -sI || "$argument" == -I || "$argument" == --head ]] && head_request=true
-  [[ "$previous" == --config && "$argument" == - ]] && read_config=true
+  if [[ "$previous" == --config && "$argument" == - ]]; then read_config=true; fi
+  if [[ "$previous" == --config && "$argument" == /dev/fd/3 ]]; then read_config_fd=true; fi
+  if [[ "$previous" == --data-binary && "$argument" == @- ]]; then body_stdin=true; fi
   previous="$argument"
 done
 [[ -n "$url" ]] || exit 93
 
-if [[ "$read_config" == true ]]; then
-  IFS= read -r config_line || exit 94
+if [[ "$body_stdin" == true ]]; then
+  request_body="$(cat)"
+fi
+
+if [[ "$read_config" == true || "$read_config_fd" == true ]]; then
+  if [[ "$read_config_fd" == true ]]; then
+    IFS= read -r config_line <&3 || exit 94
+  else
+    IFS= read -r config_line || exit 94
+  fi
   escaped="${expected//\\/\\\\}"
   escaped="${escaped//\"/\\\"}"
   case "$url" in
@@ -137,6 +150,13 @@ if [[ "$read_config" == true ]]; then
     https://127.0.0.1:18081/chronicle/api/web/study)
       [[ "$config_line" == 'user = "researcher:not-the-'*'-password"' ]] || exit 96
       printf '%s\n' wrong >>"${SELFHOST_VERIFY_TEST_AUTH_MARKERS}"
+      ;;
+    https://127.0.0.1:18081/chronicle/v3/auth/dashboard-login)
+      [[ "$read_config_fd" == true ]] || exit 97
+      [[ "$config_line" == "user = \"researcher:${escaped}\"" ]] || exit 98
+      expected_body="$(printf '%s' "$expected" | "${SELFHOST_VERIFY_TEST_REAL_PYTHON}" -c 'import json,sys; print(json.dumps({"password": sys.stdin.read()}), end="")')"
+      [[ "$request_body" == "$expected_body" ]] || exit 99
+      printf '%s\n' session-login >>"${SELFHOST_VERIFY_TEST_AUTH_MARKERS}"
       ;;
     *) exit 97 ;;
   esac
@@ -206,6 +226,9 @@ case "$url" in
   https://127.0.0.1:18081/chronicle/)
     [[ "$read_config" == true ]] && code=200
     ;;
+  https://127.0.0.1:18081/chronicle/v3/auth/dashboard-login)
+    [[ "$read_config_fd" == true && "$body_stdin" == true ]] && code=200
+    ;;
 esac
 
 if [[ "$write_status" == true ]]; then
@@ -270,6 +293,7 @@ OUTPUT="${RUN_DIR}/verify-output.txt"
 set +e
 printf '%s\n' "$PASSWORD" | PATH="${COMMAND_DIR}:${PATH}" \
   SELFHOST_VERIFY_TEST_PASSWORD_FILE="$PASSWORD_FILE" \
+  SELFHOST_VERIFY_TEST_REAL_PYTHON="$REAL_PYTHON" \
   SELFHOST_VERIFY_TEST_POSTGRES_PASSWORD_FILE="$POSTGRES_PASSWORD_FILE" \
   SELFHOST_VERIFY_TEST_CURL_ARGS="$CURL_ARGS" \
   SELFHOST_VERIFY_TEST_DOCKER_ARGS="$DOCKER_ARGS" \
@@ -301,7 +325,11 @@ fi
   || fail "correct password was not delivered once through curl config stdin"
 [[ "$(grep -Fxc wrong "$CURL_AUTH_MARKERS")" == 1 ]] \
   || fail "wrong-password probe did not use curl config stdin"
+[[ "$(grep -Fxc session-login "$CURL_AUTH_MARKERS")" == 1 ]] \
+  || fail "backend dashboard-login did not receive the password and mint a session"
 grep -Fqx -- '--config' "$CURL_ARGS" || fail "curl config stdin was not used"
+grep -Fq 'backend issued an authenticated dashboard session' "$OUTPUT" \
+  || fail "verify did not confirm a backend-issued dashboard session"
 grep -Fq 'Verified' "$OUTPUT" || fail "verify did not reach its success postcondition"
 
 if grep -En 'curl[^#]*(--user|-u)[[:space:]].*DASHBOARD_PASSWORD' \

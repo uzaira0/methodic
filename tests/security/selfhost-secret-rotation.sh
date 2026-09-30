@@ -42,6 +42,7 @@ OLD_GRAFANA='fixture-old-grafana-password-0123456789'
 DASHBOARD_PASSWORD='fixture-"quoted\dashboard-password-0123456789'
 GENERATED='abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789'
 BCRYPT='$2a$14$fixturebcryptvalueabcdefghijklmnopqrstuv0123456789ABCDE'
+NEW_BCRYPT='$2a$14$fixtureforwardhashvalueabcdefghijklmnopqrst0123456789'
 
 write_secret_file() {
   local path="$1" value="$2"
@@ -67,6 +68,16 @@ setup_case() {
   /bin/mkdir -p "$SELFHOST_DIR" "$COMMAND_DIR"
   /bin/cp "${ROOT_DIR}/selfhost/rotate-secret.sh" "$SELFHOST_DIR/"
   /bin/chmod 0755 "${SELFHOST_DIR}/rotate-secret.sh"
+  cat >"${SELFHOST_DIR}/chronicle" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$*" == 'verify --dashboard-password' ]] || exit 80
+password="$(cat)"
+expected="$(cat "${SELFHOST_ROTATION_TEST_DASHBOARD_FILE}")"
+[[ "$password" == "$expected" ]] || exit 81
+printf 'verify-dashboard-password\n' >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
+EOF
+  /bin/chmod 0755 "${SELFHOST_DIR}/chronicle"
   write_secret_file "$DB_PASSWORD_FILE" "$OLD_POSTGRES"
   write_secret_file "$GRAFANA_PASSWORD_FILE" "$OLD_GRAFANA"
   write_secret_file "$TDE_STATE_FILE" 'chronicle_key|chronicle_keyring'
@@ -185,12 +196,17 @@ case "${1:-}" in
     printf 'compose-up:%s\n' "$*" >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
     ;;
   exec)
+    printf 'compose-exec:%s\n' "$*" >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
     if [[ "$*" == *'pg_dump'* ]]; then
       if [[ "${SELFHOST_ROTATION_TEST_PG_DUMP_FAIL:-false}" == true ]]; then
         printf '%s\n' '-- truncated fixture SQL dump'
         exit 98
       fi
       printf '%s\n' '-- fixture SQL dump'
+      exit 0
+    fi
+    if [[ "$*" == *'grafana wget'*'/api/v1/targets'* ]]; then
+      printf '%s\n' '{"status":"success","data":{"activeTargets":[{"labels":{"job":"chronicle-backend"},"health":"up"}]}}'
       exit 0
     fi
     IFS= read -r -d '' auth_password || exit 88
@@ -222,10 +238,15 @@ case "${1:-}" in
     fi
     ;;
   run)
-    [[ "$*" == *'--rm --no-deps db-init'* ]] || exit 97
-    /bin/mkdir -p "$(dirname "${SELFHOST_ROTATION_TEST_KEYRING_BACKUP_FILE}")"
-    printf 'fixture-current-live-keyring\n' >"${SELFHOST_ROTATION_TEST_KEYRING_BACKUP_FILE}"
-    /bin/chmod 0600 "${SELFHOST_ROTATION_TEST_KEYRING_BACKUP_FILE}"
+    if [[ "$*" == *'--rm --no-deps monitoring-config'* ]]; then
+      printf 'compose-run:%s\n' "$*" >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
+    elif [[ "$*" == *'--rm --no-deps db-init'* ]]; then
+      /bin/mkdir -p "$(dirname "${SELFHOST_ROTATION_TEST_KEYRING_BACKUP_FILE}")"
+      printf 'fixture-current-live-keyring\n' >"${SELFHOST_ROTATION_TEST_KEYRING_BACKUP_FILE}"
+      /bin/chmod 0600 "${SELFHOST_ROTATION_TEST_KEYRING_BACKUP_FILE}"
+    else
+      exit 97
+    fi
     ;;
   *) exit 91 ;;
 esac
@@ -256,6 +277,16 @@ done
 
 config="$(cat <&3)"
 url="${@: -1}"
+if [[ "$url" == *'/chronicle/v3/auth/dashboard-login' ]]; then
+  escaped="${dashboard//\\/\\\\}"
+  escaped="${escaped//\"/\\\"}"
+  [[ "$config" == "user = \"researcher:${escaped}\"" ]] || exit 96
+  "${SELFHOST_ROTATION_TEST_REAL_PYTHON}" -c 'import json,sys; sys.exit(0 if json.load(sys.stdin) == {"password": open(sys.argv[1]).read().rstrip("\n")} else 97)' \
+    "${SELFHOST_ROTATION_TEST_DASHBOARD_FILE}" || exit 97
+  printf 'dashboard-login-ok\n' >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
+  printf '200'
+  exit 0
+fi
 if [[ "$url" == *'/chronicle/' ]]; then
   escaped="${dashboard//\\/\\\\}"
   escaped="${escaped//\"/\\\"}"
@@ -406,7 +437,12 @@ assert_custody "$OUTPUT" "$ARGS_LOG"
 setup_case metrics
 run_rotation false --yes metrics
 grep -Fqx "METRICS_PASSWORD='$GENERATED'" "${SELFHOST_DIR}/.env" || fail "metrics password was not updated"
-grep -Fq 'compose-up:' "$ARGS_LOG" || fail "metrics rotation did not recreate the backend"
+grep -Fq 'compose-run:run --rm --no-deps monitoring-config' "$ARGS_LOG" ||
+  fail "metrics rotation did not refresh the scraper config and secret"
+grep -Fq 'compose-up:up -d --wait --wait-timeout 300 --no-deps --force-recreate backend victoriametrics' "$ARGS_LOG" ||
+  fail "metrics rotation did not recreate the backend and scraper"
+grep -Fq 'compose-exec:exec -T grafana wget -T 8 -qO- http://victoriametrics:8428/api/v1/targets' "$ARGS_LOG" ||
+  fail "metrics rotation did not verify the backend scrape target"
 assert_custody "$OUTPUT" "$ARGS_LOG"
 
 setup_case internal-web
@@ -436,6 +472,12 @@ setup_case dashboard
 grep -Fqx "DASHBOARD_PASSWORD_HASH='$BCRYPT'" "${SELFHOST_DIR}/.env" \
   || fail "dashboard bcrypt hash was not updated"
 assert_custody "$OUTPUT" "$ARGS_LOG"
+grep -Fq 'dashboard-login-ok' "$ARGS_LOG" ||
+  fail "dashboard rotation did not verify a backend dashboard session"
+grep -Fq '/chronicle/v3/auth/dashboard-login' "${ROOT_DIR}/selfhost/chronicle" ||
+  fail "chronicle verify does not exercise the backend dashboard-login endpoint"
+grep -Fq 'compose-up:up -d --wait --wait-timeout 300 --no-deps --force-recreate backend web' "$ARGS_LOG" ||
+  fail "dashboard rotation did not recreate both backend and web"
 
 setup_case reviewer
 run_rotation false --yes reviewer
@@ -521,6 +563,54 @@ replace_env_value CHRONICLE_INTERNAL_WEB_SECRET "$GENERATED"
 run_rotation false --yes recover --rollback
 grep -Fqx "CHRONICLE_INTERNAL_WEB_SECRET='$OLD_INTERNAL'" "${SELFHOST_DIR}/.env" \
   || fail "internal-web rollback recovery did not restore the saved secret"
+assert_custody "$OUTPUT" "$ARGS_LOG"
+
+setup_case recover-dashboard-forward
+write_transaction dashboard rotate env-published
+replace_env_value DASHBOARD_PASSWORD_HASH "$NEW_BCRYPT"
+run_rotation false --yes recover --forward
+grep -Fqx "DASHBOARD_PASSWORD_HASH='$NEW_BCRYPT'" "${SELFHOST_DIR}/.env" ||
+  fail "dashboard forward recovery did not retain the published hash"
+grep -Fq 'compose-up:up -d --wait --wait-timeout 300 --no-deps --force-recreate backend web' "$ARGS_LOG" ||
+  fail "dashboard forward recovery did not recreate backend and web"
+grep -Fq 'rerun ./chronicle verify --dashboard-password' "$OUTPUT" ||
+  fail "dashboard recovery did not request the lost cleartext password for operator verification"
+assert_custody "$OUTPUT" "$ARGS_LOG"
+
+setup_case recover-dashboard-rollback
+write_transaction dashboard rotate env-published
+replace_env_value DASHBOARD_PASSWORD_HASH "$NEW_BCRYPT"
+run_rotation false --yes recover --rollback
+grep -Fqx "DASHBOARD_PASSWORD_HASH='$BCRYPT'" "${SELFHOST_DIR}/.env" ||
+  fail "dashboard rollback recovery did not restore the saved hash"
+grep -Fq 'compose-up:up -d --wait --wait-timeout 300 --no-deps --force-recreate backend web' "$ARGS_LOG" ||
+  fail "dashboard rollback recovery did not recreate backend and web"
+assert_custody "$OUTPUT" "$ARGS_LOG"
+
+setup_case recover-metrics-forward
+write_transaction metrics rotate env-published
+replace_env_value METRICS_PASSWORD "$GENERATED"
+run_rotation false --yes recover --forward
+grep -Fq 'compose-run:run --rm --no-deps monitoring-config' "$ARGS_LOG" ||
+  fail "metrics forward recovery did not refresh the scraper credential"
+grep -Fq 'compose-up:up -d --wait --wait-timeout 300 --no-deps --force-recreate backend victoriametrics' "$ARGS_LOG" ||
+  fail "metrics forward recovery did not recreate the backend and scraper"
+grep -Fq 'compose-exec:exec -T grafana wget -T 8 -qO- http://victoriametrics:8428/api/v1/targets' "$ARGS_LOG" ||
+  fail "metrics forward recovery did not verify the backend scrape target"
+assert_custody "$OUTPUT" "$ARGS_LOG"
+
+setup_case recover-metrics-rollback
+write_transaction metrics rotate env-published
+replace_env_value METRICS_PASSWORD "$GENERATED"
+run_rotation false --yes recover --rollback
+grep -Fqx "METRICS_PASSWORD='$OLD_METRICS'" "${SELFHOST_DIR}/.env" ||
+  fail "metrics rollback recovery did not restore the saved credential"
+grep -Fq 'compose-run:run --rm --no-deps monitoring-config' "$ARGS_LOG" ||
+  fail "metrics rollback recovery did not refresh the scraper credential"
+grep -Fq 'compose-up:up -d --wait --wait-timeout 300 --no-deps --force-recreate backend victoriametrics' "$ARGS_LOG" ||
+  fail "metrics rollback recovery did not recreate the backend and scraper"
+grep -Fq 'compose-exec:exec -T grafana wget -T 8 -qO- http://victoriametrics:8428/api/v1/targets' "$ARGS_LOG" ||
+  fail "metrics rollback recovery did not verify the backend scrape target"
 assert_custody "$OUTPUT" "$ARGS_LOG"
 
 setup_case recover-postgres-forward

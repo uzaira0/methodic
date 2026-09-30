@@ -10,12 +10,11 @@
 # `localhost` — a phone cannot reach that. `./chronicle setup` also chooses free host
 # ports and writes the exact participant-facing HTTPS origin. Then:
 #
-#   docker compose up -d
-#   docker compose logs ca-export     # scan the QR code with the phone
+#   ./chronicle up                   # scan the QR code printed after services are healthy
 #
-# For a real study, move to overlays/mode-behind-proxy-internal.yml (your institution's
-# load balancer) or overlays/mode-own-tls-internal.yml (your own certificate). Nothing
-# else in .env has to change.
+# For a real deployment, rerun `./chronicle setup`, choose option 1 or 2, and enter the
+# public hostname and TLS choice. Setup replaces this LAN DOMAIN and COMPOSE_FILE, clears
+# the trial participant-origin override, and keeps CHRONICLE_STATE_DIR on the existing data.
 services:
   config-guard:
     environment:

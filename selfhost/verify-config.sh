@@ -499,15 +499,13 @@ echo "Deployment modes"
 #    names in COMPOSE_FILE, so nothing regenerates it and nothing else can correct it.
 #    A drifting overlay is silent -- it mounts a real Caddyfile and starts a real stack,
 #    just not the one the operator chose.
-declare -A MODE_CADDYFILE=(
-  [behind-proxy-internal]=Caddyfile.split
-  [own-tls-internal]=Caddyfile.split.tls
-  [local-https]=Caddyfile.split.local
-)
+MODE_NAMES=(behind-proxy-internal own-tls-internal local-https)
+MODE_CADDYFILES=(Caddyfile.split Caddyfile.split.tls Caddyfile.split.local)
 seen_caddyfiles=""
-for mode in "${!MODE_CADDYFILE[@]}"; do
+for ((mode_index=0; mode_index<${#MODE_NAMES[@]}; mode_index++)); do
+  mode="${MODE_NAMES[$mode_index]}"
   f="overlays/mode-${mode}.yml"
-  want="${MODE_CADDYFILE[$mode]}"
+  want="${MODE_CADDYFILES[$mode_index]}"
   if [[ ! -f "$f" ]]; then
     fail "$f is missing — .env.example and docker-compose.yml both offer this mode"
     continue

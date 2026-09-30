@@ -425,9 +425,49 @@ apply_configuration() {
     dc up -d --wait --wait-timeout "$SECRET_ROTATION_WAIT_TIMEOUT_SECONDS" --remove-orphans
   else
     ((${#APPLY_SERVICES[@]} > 0)) || fail "internal error: no services selected for rotation"
+    local -a running_services=()
+    local service refresh_monitoring=false
+    for service in "${APPLY_SERVICES[@]}"; do
+      if [[ "$service" == monitoring-config ]]; then
+        dc run --rm --no-deps monitoring-config || return 1
+        refresh_monitoring=true
+      else
+        running_services+=("$service")
+      fi
+    done
+    ((${#running_services[@]} > 0)) || fail "internal error: no running services selected for rotation"
     dc up -d --wait --wait-timeout "$SECRET_ROTATION_WAIT_TIMEOUT_SECONDS" \
-      --no-deps --force-recreate "${APPLY_SERVICES[@]}"
+      --no-deps --force-recreate "${running_services[@]}" || return 1
+    if [[ "$refresh_monitoring" == true ]] && ! wait_for_metrics_target; then
+      printf 'ERROR: VictoriaMetrics did not report the chronicle-backend target up after credential refresh\n' >&2
+      return 1
+    fi
   fi
+}
+
+wait_for_metrics_target() {
+  local targets deadline=$((SECONDS + SECRET_ROTATION_WAIT_TIMEOUT_SECONDS))
+  while (( SECONDS < deadline )); do
+    if targets="$(dc exec -T grafana wget -T 8 -qO- \
+        http://victoriametrics:8428/api/v1/targets 2>/dev/null)" &&
+      printf '%s' "$targets" | python3 -c '
+import json
+import sys
+
+try:
+    targets = json.load(sys.stdin).get("data", {}).get("activeTargets", [])
+except (ValueError, AttributeError):
+    raise SystemExit(1)
+raise SystemExit(0 if any(
+    target.get("labels", {}).get("job") == "chronicle-backend" and target.get("health") == "up"
+    for target in targets if isinstance(target, dict)
+) else 1)
+'; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
 }
 
 escape_curl_config_value() {
@@ -445,6 +485,16 @@ curl_basic_code() {
   escape_curl_config_value "${username}:${password}" || return 2
   curl --config /dev/fd/3 -sk -o /dev/null -w '%{http_code}' --max-time 15 "$url" \
     3< <(printf 'user = "%s"\n' "$CURL_CONFIG_VALUE")
+}
+
+dashboard_login_code() { # username password url -> status; password goes as JSON on stdin
+  local username="$1" password="$2" url="$3"
+  escape_curl_config_value "${username}:${password}" || return 2
+  printf '%s' "$password" |
+    python3 -c 'import json,sys; sys.stdout.write(json.dumps({"password": sys.stdin.read()}))' |
+    curl --config /dev/fd/3 -sk -o /dev/null -w '%{http_code}' --max-time 15 \
+      -H 'Content-Type: application/json' --data-binary @- "$url" \
+      3< <(printf 'user = "%s"\n' "$CURL_CONFIG_VALUE")
 }
 
 grafana_change_password() {
@@ -868,8 +918,14 @@ configure_recovery_apply() {
   APPLY_MODE=services
   APPLY_SERVICES=()
   case "$SAVED_ROTATION_KIND" in
-    dashboard) APPLY_SERVICES=(web) ;;
-    jwt|reviewer|metrics|mobile) APPLY_SERVICES=(backend) ;;
+    dashboard) APPLY_SERVICES=(backend web) ;;
+    jwt|reviewer|mobile) APPLY_SERVICES=(backend) ;;
+    metrics)
+      APPLY_SERVICES=(backend)
+      if [[ "${COMPOSE_FILE:-}" == *overlays/monitoring.yml* ]]; then
+        APPLY_SERVICES+=(victoriametrics monitoring-config)
+      fi
+      ;;
     internal-web) APPLY_SERVICES=(backend web) ;;
     postgres) APPLY_MODE=full ;;
     grafana) APPLY_SERVICES=(grafana) ;;
@@ -1133,8 +1189,9 @@ rotate_dashboard() {
     *mode-*-internal.yml*) ;;
     *) fail "the dashboard password exists only in an internal-dashboard mode" ;;
   esac
+  service_running backend
   service_running web
-  local password confirmation hash image host code
+  local password confirmation hash image
   printf 'Choose a new dashboard password (at least 16 characters). It is read silently,\n'
   printf 'sent to the digest-pinned Caddy image over stdin, and never printed.\n'
   read -rsp 'New dashboard password: ' password; printf '\n'
@@ -1151,7 +1208,7 @@ rotate_dashboard() {
     --entrypoint caddy "$image" hash-password | tr -d '\r\n')"
   [[ "$hash" == \$2* ]] || fail "Caddy did not return a bcrypt password hash"
 
-  APPLY_SERVICES=(web)
+  APPLY_SERVICES=(backend web)
   OLD_SECRET="${DASHBOARD_PASSWORD_HASH:-}"
   NEW_SECRET="$hash"
   begin_transaction dashboard rotate
@@ -1159,12 +1216,23 @@ rotate_dashboard() {
   write_phase env-published
   apply_configuration
 
+  # Check only what this rotation changed: the Caddy gate and the backend login, both on the
+  # internal listener. A full `verify` would also fail on unrelated public-listener problems.
+  local host code deadline
   host="${INTERNAL_BIND:-127.0.0.1}"
   [[ "$host" == 0.0.0.0 ]] && host=127.0.0.1
   code="$(curl_basic_code "${DASHBOARD_USER:-researcher}" "$password" \
     "https://${host}:${INTERNAL_PORT:-8081}/chronicle/")"
   [[ "$code" == 200 ]] || fail "new dashboard credential did not pass the internal HTTPS gate (HTTP $code)"
-  RECEIPT_DETAIL="internal_dashboard_auth=verified"
+  deadline=$((SECONDS + 75))
+  while :; do
+    code="$(dashboard_login_code "${DASHBOARD_USER:-researcher}" "$password" \
+      "https://${host}:${INTERNAL_PORT:-8081}/chronicle/v3/auth/dashboard-login")" || code=000
+    [[ "$code" == 429 && $SECONDS -lt $deadline ]] || break
+    sleep 15
+  done
+  [[ "$code" == 200 ]] || fail "new dashboard credential did not establish a backend session (HTTP $code)"
+  RECEIPT_DETAIL="dashboard_application_session=verified"
   complete_transaction dashboard rotate
   password=""; confirmation=""; hash=""; NEW_SECRET=""; OLD_SECRET=""
   log "Dashboard password rotated and verified."
@@ -1238,8 +1306,21 @@ rotate_reviewer() {
 rotate_metrics() {
   [[ "$ROTATION_ACTION" == rotate ]] || fail "metrics accepts no action argument"
   service_running backend
-  confirm "Rotate the backend metrics credential and recreate the backend?"
+  local monitoring_enabled=false
+  if [[ "${COMPOSE_FILE:-}" == *overlays/monitoring.yml* ]]; then
+    monitoring_enabled=true
+    service_running victoriametrics
+    service_running grafana
+  fi
+  if [[ "$monitoring_enabled" == true ]]; then
+    confirm "Rotate the backend metrics credential and refresh the monitoring scraper?"
+  else
+    confirm "Rotate the backend metrics credential and recreate the backend?"
+  fi
   APPLY_SERVICES=(backend)
+  if [[ "$monitoring_enabled" == true ]]; then
+    APPLY_SERVICES+=(victoriametrics monitoring-config)
+  fi
   OLD_SECRET="${METRICS_PASSWORD:?METRICS_PASSWORD is not set}"
   NEW_SECRET="$(openssl rand -hex 32)"
   begin_transaction metrics rotate
@@ -1247,9 +1328,14 @@ rotate_metrics() {
   write_phase env-published
   apply_configuration
   RECEIPT_DETAIL="backend_health=verified"
+  [[ "$monitoring_enabled" != true ]] || RECEIPT_DETAIL="${RECEIPT_DETAIL};backend_scrape_target=verified"
   complete_transaction metrics rotate
   NEW_SECRET=""; OLD_SECRET=""
-  log "Metrics credential rotated. Update any separately configured scraper from the mode-0600 .env file."
+  if [[ "$monitoring_enabled" == true ]]; then
+    log "Metrics credential rotated and the monitoring backend target is healthy."
+  else
+    log "Metrics credential rotated. Update any separately configured scraper from the mode-0600 .env file."
+  fi
 }
 
 rotate_postgres() {

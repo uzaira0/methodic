@@ -1083,8 +1083,7 @@ PY
   if [[ "$tls_mode" == local-https ]]; then
     printf '%sThis is a trial setup.%s The certificate will be signed by a CA that exists\n' "$YEL" "$RST"
     printf 'only inside this stack, so each test phone has to install it first. After\n'
-    printf 'starting, run this and scan the QR code with the phone:\n\n'
-    printf '  docker compose logs ca-export\n\n'
+    printf 'starting, scan the QR code printed by ./chronicle up.\n\n'
     printf 'Do not ask study participants to install it — for a real study, re-run setup\n'
     printf 'and choose option 1 or 2.\n\n'
   fi
@@ -1309,10 +1308,7 @@ PY
 }
 
 # ---------------------------------------------------------------------------------- up
-# Exactly `docker compose up -d` with the host-only checks in front of it. Those
-# checks are the only thing this adds -- the certificate, the backups directory, encryption
-# at rest and the first dump are all services in the compose file now, so there is nothing
-# left here that plain compose would skip.
+# Start the configured services after host checks, then run the trial CA export separately.
 assert_no_incomplete_mutation() {
   local path label
   for label in restore upgrade secret-rotation; do
@@ -1344,9 +1340,27 @@ cmd_up() {
   # lines for this stack, ten of them for the single config-guard that starts and exits.
   # It scrolls the preflight results off the screen and contains nothing an operator can
   # act on. The service table below is the same information, once, in its final form.
-  # --wait returns once every service is healthy (or fails), so the table below is final
-  # and `./chronicle verify` run straight after does not race a still-starting backend.
-  dc --progress quiet up -d --wait --wait-timeout 300 || die "startup failed — see ./chronicle logs"
+  # ca-export exits after it writes the local CA. Run it after the long-running services are
+  # healthy, because Compose --wait treats an exited one-shot service as a startup failure.
+  local configured_services service has_ca_export=false
+  local -a startup_services=()
+  if ! configured_services="$(dc config --services)"; then
+    die "could not resolve the Compose service list"
+  fi
+  while IFS= read -r service; do
+    [[ -n "$service" ]] || continue
+    if [[ "$service" == ca-export ]]; then
+      has_ca_export=true
+    else
+      startup_services+=("$service")
+    fi
+  done <<<"$configured_services"
+  ((${#startup_services[@]} > 0)) || die "Compose has no long-running services to start"
+  dc --progress quiet up -d --wait --wait-timeout 300 "${startup_services[@]}" ||
+    die "startup failed — see ./chronicle logs"
+  if [[ "$has_ca_export" == true ]]; then
+    dc run --rm --no-deps ca-export || die "local trial CA export failed; review the CA export error above"
+  fi
   dc ps --format '{{.Service}}\t{{.Status}}' 2>/dev/null | sort | sed 's/^/  /'
   printf '\n%sStarted.%s Next: ./chronicle verify\n' "$GRN" "$RST"
   operation_succeeded
@@ -1452,6 +1466,19 @@ cmd_verify() {
     escaped="${escaped//\"/\\\"}"
     printf 'user = "%s"\n' "$escaped" |
       curl --config - --noproxy '*' -sk -o /dev/null -w '%{http_code}' --max-time 10 "$3"
+  }
+  curl_dashboard_login_code() { # username password url -> status, password sent as JSON on stdin
+    local credentials="${1}:${2}" escaped
+    case "$credentials" in
+      *$'\n'*|*$'\r'*) return 2 ;;
+    esac
+    escaped="${credentials//\\/\\\\}"
+    escaped="${escaped//\"/\\\"}"
+    printf '%s' "$2" |
+      python3 -c 'import json,sys; sys.stdout.write(json.dumps({"password": sys.stdin.read()}))' |
+      curl --config /dev/fd/3 --noproxy '*' -sk -o /dev/null -w '%{http_code}' --max-time 15 \
+        -H 'Content-Type: application/json' --data-binary @- "$3" \
+        3< <(printf 'user = "%s"\n' "$escaped")
   }
   curl_header_code() { # header-name header-value method url -> status, value delivered over stdin
     local name="$1" value="$2" method="$3" url="$4" escaped
@@ -1559,13 +1586,27 @@ cmd_verify() {
 
     # Only if the operator supplies it at run time -- it is deliberately not stored.
     if [[ -n "$dashboard_password" ]]; then
-      # Probe the dashboard ASSETS, not the API: the API answers 401 from the application
-      # itself even once the password gate has opened, so it cannot tell the two apart.
+      # First check Caddy's Basic Auth gate, then ask the backend to mint an authenticated
+      # cookie session using the same hash. The session endpoint returns 200 only after the
+      # password matches and a local dashboard token has been issued.
       code=$(curl_basic_code "${DASHBOARD_USER:-researcher}" "$dashboard_password" "$int/chronicle/")
       if [[ "$code" == 200 ]]; then
-        printf '  %sok%s   200 correct password opens the dashboard\n' "$GRN" "$RST"
+        printf '  %sok%s   200 correct password passes the dashboard gate\n' "$GRN" "$RST"
       else
         printf '  %sFAIL%s correct password produced %s (expected 200)\n' "$RED" "$RST" "$code"; fail=1
+      fi
+      # The backend allows 5 logins a minute; wait out a 429 instead of reporting a bad password.
+      local login_deadline=$((SECONDS + 75))
+      while :; do
+        code=$(curl_dashboard_login_code "${DASHBOARD_USER:-researcher}" "$dashboard_password" \
+          "$int/chronicle/v3/auth/dashboard-login") || code=000
+        [[ "$code" == 429 && $SECONDS -lt $login_deadline ]] || break
+        sleep 15
+      done
+      if [[ "$code" == 200 ]]; then
+        printf '  %sok%s   200 backend issued an authenticated dashboard session\n' "$GRN" "$RST"
+      else
+        printf '  %sFAIL%s dashboard login produced %s (expected 200)\n' "$RED" "$RST" "$code"; fail=1
       fi
     else
       printf '  %s--%s   rerun with --dashboard-password to also check the correct password\n' "$YEL" "$RST"
