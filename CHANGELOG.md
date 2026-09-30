@@ -7,13 +7,54 @@ would sort below the day's release, so `./chronicle update` would refuse it.
 
 ## [Unreleased]
 
+## [2026.9.30]
+
+Self-host scripts and documentation, and Android build 65. The server and dashboard code are
+unchanged from 2026.9.29.
+
+### Self-host
+- `rotate-secret dashboard` also restarts the backend, which checks the same password; before, the new
+  password opened the dashboard page but sign-in failed. The rotation now confirms a backend sign-in.
+- `rotate-secret metrics` with monitoring on also updates the monitoring scraper and confirms it can
+  read the backend again.
+- `./chronicle verify --dashboard-password` also confirms a backend sign-in, and waits out the
+  sign-in rate limit instead of reporting a wrong password.
+- A local trial no longer reports "startup failed" after exporting its CA; `./chronicle up` prints the
+  QR code after the stack is healthy.
+- Monitoring alerts on the public and internal certificates separately, and keeps alerting after a
+  certificate has expired.
+- `pre-adopt-*` safety dumps are pruned after `PRE_OP_BACKUP_KEEP_DAYS` like the other safety dumps.
+- The configuration check runs under the Bash 3.2 that ships with macOS.
+- Documentation:
+  - Off-host backups: encrypt the whole backup directory before it leaves the host.
+  - Certificate renewal: run `cert-init` so the web server can read the new key.
+  - Moving from a trial to production: rerun `./chronicle setup`.
+  - The incident audit export command authenticates to PostgreSQL.
+  - Only the pinned Percona PostgreSQL image is supported.
+  - New "Which Android build" table: modules, certificates and upload diagnostics per build.
+  - Legal checklists, developer notes and descriptions of unshipped components removed.
+- The GitHub release page lists the install and update steps.
+
+### Android (open flavor, versionCode 65, 2026.09.30-internal.open.1)
+- After enrollment, the app opens Data Sharing when an accepted module still needs Android access
+  (Usage Access for app usage), and Overview says so. Before, a participant who never opened Data
+  Sharing had no app usage collected.
+- Questionnaire reminders are delivered again, including when the alarm starts the app. Build 64
+  dropped all of them.
+- Reopening the app after Android stopped it no longer shows the enrollment screen.
+- Rotating the phone during enrollment keeps the invitation and the consent answers given so far.
+- Lifecycle events refused for low storage are counted as lost.
+- A storage pause is not recorded under a different study or participant.
+- A start-up recovery path no longer uses an API missing on Android 6.
+
 ## [2026.9.29]
 
 Fixes found in a review of release 2026.9.28 and in a codebase-wide sweep for hangs, crashes and
 erasure/consent races. Most sweep findings predate 2026.9.28.
 
 ### Server
-- V108 records the IDs of erased upload diagnostics (opaque UUIDs only). A device that replays an erased diagnostic, for example with a clock that runs ahead, no longer stores it again. Study erasure removes these records too. Diagnostics erased before V108 have no such record.
+- V108 records erased upload diagnostics by event ID, study ID and an MD5 of study and participant ID; these records
+  stay until the study is erased. A device that replays an erased diagnostic, for example with a clock that runs ahead, no longer stores it again. Study erasure removes these records too. Diagnostics erased before V108 have no such record.
 - Data-quality alert generation holds the study deletion lock until its inserts commit; a purge can no longer leave alerts behind.
 - Participant diagnostics downloads through the published client request JSON; the OpenAPI query names match the server.
 - V109: a collected-data purge records a per-participant cutoff. Uploads and buffer drains drop rows observed before
@@ -24,14 +65,15 @@ erasure/consent races. Most sweep findings predate 2026.9.28.
   scope are dropped. Consent acknowledgments and the notification delivery log are kept.
 - Connection leaks in imports and nested pool borrows are fixed; drains, purge finalizers and notification writes take
   table locks in one order. ID allocation can no longer block forever when its producer fails.
-- A malformed sample in an iOS batch is quarantined alone; the rest of the batch is stored.
+- Draining the iOS upload buffer quarantines a malformed sample alone and stores the rest. A new iOS upload containing
+  a malformed sample is still rejected whole (HTTP 400).
 - Researcher notifications without a participant no longer fail the V74 upgrade.
 - Jackson 2.22.3 (CVE-2026-68497: CPU denial of service through unbounded numeric parsing).
 
 ### Dashboard
 - Clearing every study limit is refused with an explanation instead of silently keeping the old limits.
 - Studies with legacy iOS sensor settings can be saved again.
-- Date-only values show the calendar date in every timezone (Chile showed the previous day).
+- Date-only values show the calendar date in every timezone (zones behind UTC showed the previous day).
 - Each study-settings save sends the revision returned by the save before it.
 - A diagnostics export ending on a day whose midnight is skipped (DST) no longer includes the following day.
 
@@ -46,9 +88,10 @@ erasure/consent races. Most sweep findings predate 2026.9.28.
 - Sensor, accessibility, notification and broadcast callbacks never wait on the database or the persistence lock, so
   a withdrawal or settings change can no longer freeze the app (ANR).
 - Storage, encryption or WorkManager start-up failures no longer crash the app; collection stays closed and retries.
-- Data captured before a module is switched off, a withdrawal or an enrollment change is never stored or uploaded
-  afterwards. Switching a module off also clears its read cursors, queued samples, survey alarms and sealed upload
-  files. An interrupted switch-off finishes on the next start.
+- Data captured before a participant discards a module, a withdrawal or an enrollment change is never stored or
+  uploaded afterwards. Discarding a module also clears its read cursors, queued samples, survey alarms and sealed
+  upload files. An interrupted discard finishes on the next start. A module the researcher disables still uploads
+  what it already queued, unless the study says to discard it.
 - A temporary refusal (paused module, low storage) keeps the usage window and accepted sensor samples for retry.
 - Checkpoints from build 63 carry over, so the upgrade neither skips nor re-reads usage, network or Health Connect data.
 
