@@ -219,7 +219,7 @@
     },
     {
       "id": 21,
-      "title": "Certificate days remaining",
+      "title": "Public certificate days remaining",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -235,6 +235,51 @@
         {
           "refId": "A",
           "expr": "(chronicle_certificate_expiry_timestamp_seconds-time())/86400",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "chronicle-victoriametrics"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "d"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 22,
+      "title": "Internal certificate days remaining",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(chronicle_internal_certificate_expiry_timestamp_seconds-time())/86400",
           "datasource": {
             "type": "prometheus",
             "uid": "chronicle-victoriametrics"

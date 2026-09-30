@@ -4,8 +4,12 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
+import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -13,6 +17,118 @@ from urllib.parse import parse_qs, urlparse
 ROOT = Path(__file__).resolve().parents[2]
 USERS: dict[str, dict] = {}
 NEXT_ID = 1
+
+
+def probe_certificate_check() -> None:
+    scratch_parent = Path(os.environ.get(
+        "SELFHOST_MONITORING_TEST_ROOT",
+        ROOT / "build/operator-test-runs/selfhost-monitoring",
+    ))
+    scratch_parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    run_root = Path(tempfile.mkdtemp(prefix="probe-certificates.", dir=scratch_parent))
+    try:
+        bin_dir = run_root / "bin"
+        tls_dir = run_root / "tls-fixture"
+        metrics_dir = run_root / "metrics-fixture"
+        bin_dir.mkdir()
+        tls_dir.mkdir()
+        metrics_dir.mkdir()
+        (tls_dir / "internal-cert.fixture").write_text("fixture certificate", encoding="utf-8")
+        external_log = run_root / "external-check.log"
+        external_args = run_root / "external-openssl-args.log"
+
+        probe_source = (ROOT / "selfhost/monitoring/probe.sh").read_text(encoding="utf-8")
+        probe_source = probe_source.replace("/tls/internal-cert.pem", str(tls_dir / "internal-cert.fixture"))
+        probe_source = probe_source.replace("/metrics", str(metrics_dir))
+        probe = run_root / "probe.sh"
+        probe.write_text(probe_source, encoding="utf-8")
+        probe.chmod(0o700)
+
+        stubs = {
+            "date": """#!/usr/bin/env bash
+if [[ ${1:-} == +%s ]]; then printf '1800000000'; exit 0; fi
+if [[ ${1:-} == -d ]]; then
+  case ${2:-} in
+    PUBLIC_EXPIRY) printf '1900000000' ;;
+    INTERNAL_EXPIRY) printf '2000000000' ;;
+    *) exit 1 ;;
+  esac
+  exit 0
+fi
+exit 1
+""",
+            "pg_isready": "#!/usr/bin/env bash\nexit 1\n",
+            "curl": "#!/usr/bin/env bash\nexit 0\n",
+            "wget": "#!/usr/bin/env bash\nexit 0\n",
+            "timeout": """#!/usr/bin/env bash
+shift
+printf 'checked\\n' >>"$PROBE_TEST_EXTERNAL_LOG"
+exec "$@"
+""",
+            "openssl": """#!/usr/bin/env bash
+if [[ ${1:-} == s_client ]]; then
+  printf '%s\\n' "$*" >>"$PROBE_TEST_OPENSSL_ARGS"
+  printf 'served-public\\n'
+  exit 0
+fi
+if [[ ${1:-} == x509 ]]; then
+  cert_path=''
+  while (($#)); do
+    if [[ $1 == -in ]]; then cert_path=$2; shift 2; else shift; fi
+  done
+  if [[ -n $cert_path ]]; then printf 'notAfter=INTERNAL_EXPIRY\\n'; else
+    read -r marker
+    [[ $marker == served-public ]] || exit 1
+    printf 'notAfter=PUBLIC_EXPIRY\\n'
+  fi
+  exit 0
+fi
+exit 1
+""",
+        }
+        for name, contents in stubs.items():
+            path = bin_dir / name
+            path.write_text(contents, encoding="utf-8")
+            path.chmod(0o700)
+
+        env = os.environ.copy()
+        env.update({
+            "PATH": f"{bin_dir}:/usr/bin:/bin",
+            "PROBE_TEST_EXTERNAL_LOG": str(external_log),
+            "PROBE_TEST_OPENSSL_ARGS": str(external_args),
+            "PROBE_INTERVAL_SECONDS": "300",
+            "POSTGRES_PASSWORD": "fixture-postgres-password",
+            "DOMAIN": "private-configured-domain.test",
+            "PUBLIC_TLS_URL": "https://public-origin.example.test:8443/study",
+            "INTERNAL_HEALTH_URL": "https://web:8081/health",
+            "LOGS_HEALTH_URL": "http://victorialogs:9428/health",
+        })
+        process = subprocess.Popen(
+            ["/bin/bash", str(probe)], env=env,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        try:
+            deadline = time.monotonic() + 10
+            output = metrics_dir / "operational.prom"
+            while time.monotonic() < deadline and not output.exists():
+                if process.poll() is not None:
+                    raise AssertionError("probe exited before writing its metrics")
+                time.sleep(0.05)
+            assert output.exists(), "probe did not write operational metrics"
+            metrics = output.read_text(encoding="utf-8")
+            assert "chronicle_certificate_expiry_timestamp_seconds 1900000000" in metrics
+            assert "chronicle_internal_certificate_expiry_timestamp_seconds 2000000000" in metrics
+            assert external_log.read_text(encoding="utf-8") == "checked\n"
+            assert "-connect public-origin.example.test:8443 -servername public-origin.example.test" in external_args.read_text(encoding="utf-8")
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+    finally:
+        shutil.rmtree(run_root)
 
 
 class GrafanaStub(BaseHTTPRequestHandler):
@@ -79,6 +195,7 @@ def viewer_call(base: str, operation: str, password: str) -> str:
 
 
 def main() -> None:
+    probe_certificate_check()
     server = ThreadingHTTPServer(("127.0.0.1", 0), GrafanaStub)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -130,6 +247,15 @@ def main() -> None:
     alert_text = json.dumps(alerts)
     assert "chronicle_tde_expected * (1 - chronicle_tde_healthy)" in alert_text
     assert "database-connection-pressure" in alert_text
+    assert "chronicle_certificate_expiry_timestamp_seconds" in alert_text
+    assert "chronicle_internal_certificate_expiry_timestamp_seconds" in alert_text
+
+    dashboard = json.loads((ROOT / "selfhost/monitoring/grafana-dashboards/system-overview.json").read_text())
+    certificate_panels = {panel["title"]: panel for panel in dashboard["panels"] if "certificate" in panel["title"].casefold()}
+    assert "Public certificate days remaining" in certificate_panels
+    assert "Internal certificate days remaining" in certificate_panels
+    assert "chronicle_certificate_expiry_timestamp_seconds" in certificate_panels["Public certificate days remaining"]["targets"][0]["expr"]
+    assert "chronicle_internal_certificate_expiry_timestamp_seconds" in certificate_panels["Internal certificate days remaining"]["targets"][0]["expr"]
 
     sanitizer = (ROOT / "selfhost/monitoring/sanitize.lua").read_text()
     assert 'source["message"]' not in sanitizer

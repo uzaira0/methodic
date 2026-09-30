@@ -111,6 +111,7 @@ services:
       RELEASE_VERSION: ${RELEASE_VERSION:-development}
       DOMAIN: ${DOMAIN:?set DOMAIN in .env}
       PUBLIC_HEALTH_URL: ${MONITORING_PUBLIC_HEALTH_URL:-}
+      PUBLIC_TLS_URL: "${CHRONICLE_PUBLIC_BASE_URL:-https://${DOMAIN}}"
       # :8081 is the port-only internal listener in every Caddyfile variant (self-signed cert);
       # :80 matches by host in own-tls/local-https and answers an empty 200 for any name.
       INTERNAL_HEALTH_URL: https://web:8081/health

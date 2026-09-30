@@ -10,6 +10,7 @@ set -Eeuo pipefail
 : "${RELEASE_VERSION:=unknown}"
 : "${DOMAIN:=unknown}"
 : "${PUBLIC_HEALTH_URL:=}"
+: "${PUBLIC_TLS_URL:=https://${DOMAIN}}"
 : "${INTERNAL_HEALTH_URL:=http://web/health}"
 : "${LOGS_HEALTH_URL:=http://victorialogs:9428/health}"
 : "${COMPOSE_FILE_SELECTION:=}"
@@ -32,7 +33,7 @@ file_epoch() {
 }
 
 collect() {
-  local now tmp db_up=0 web_up=0 public_up=0 logs_up=0 cert_expiry=0 backup_epoch=0 backup_valid=0 backups_expected=0
+  local now tmp db_up=0 web_up=0 public_up=0 logs_up=0 cert_expiry=0 internal_cert_expiry=0 backup_epoch=0 backup_valid=0 backups_expected=0
   local db_size=0 connections=0 max_connections=0 commits=0 rollbacks=0 deadlocks=0 flyway=0 tde_expected=0 tde_healthy=0
   local metrics_bytes=0 logs_bytes=0 backups_bytes=0 exports_bytes=0
   now="$(date +%s)"
@@ -68,19 +69,46 @@ EOF
     wget -q --spider -T 8 "$LOGS_HEALTH_URL" >/dev/null 2>&1 && logs_up=1 || true
   fi
 
-  local cert_file
-  for cert_file in /tls/cert.pem /tls/internal-cert.pem; do
-    if [[ -s "$cert_file" ]] && command -v openssl >/dev/null 2>&1; then
-      local expiry_text expiry_candidate
-      expiry_text="$(openssl x509 -in "$cert_file" -noout -enddate 2>/dev/null | sed 's/^notAfter=//' || true)"
-      expiry_candidate="$(date -d "$expiry_text" +%s 2>/dev/null || printf 0)"
-      (( expiry_candidate > cert_expiry )) && cert_expiry=$expiry_candidate
+  if [[ "$PUBLIC_TLS_URL" == https://* ]] && command -v timeout >/dev/null 2>&1 && \
+      command -v openssl >/dev/null 2>&1 && [[ "$DOMAIN" != unknown ]]; then
+    local tls_authority tls_target tls_server_name remote_cert
+    local -a tls_sni_args=()
+    tls_authority="${PUBLIC_TLS_URL#https://}"
+    tls_authority="${tls_authority%%/*}"
+    tls_authority="${tls_authority%%\?*}"
+    tls_authority="${tls_authority%%#*}"
+    tls_server_name="$tls_authority"
+    case "$tls_authority" in
+      \[*\])
+        tls_target="${tls_authority}:443"
+        tls_server_name="${tls_authority#\[}"
+        tls_server_name="${tls_server_name%%\]*}"
+        ;;
+      \[*\]:*)
+        tls_target="$tls_authority"
+        tls_server_name="${tls_authority#\[}"
+        tls_server_name="${tls_server_name%%\]*}"
+        ;;
+      *:*)
+        tls_target="$tls_authority"
+        tls_server_name="${tls_authority%%:*}"
+        ;;
+      *) tls_target="${tls_authority}:443" ;;
+    esac
+    if [[ "$tls_server_name" == *:* || "$tls_server_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      tls_sni_args=(-noservername)
+    else
+      tls_sni_args=(-servername "$tls_server_name")
     fi
-  done
-  if (( cert_expiry == 0 )) && command -v timeout >/dev/null 2>&1 && command -v openssl >/dev/null 2>&1 && [[ "$DOMAIN" != unknown ]]; then
-    local remote_cert
-    remote_cert="$(timeout 8 openssl s_client -connect "${DOMAIN}:443" -servername "$DOMAIN" </dev/null 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null | sed 's/^notAfter=//' || true)"
+    remote_cert="$(timeout 8 openssl s_client -connect "$tls_target" "${tls_sni_args[@]}" \
+      </dev/null 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null | sed 's/^notAfter=//' || true)"
     [[ -n "$remote_cert" ]] && cert_expiry="$(date -d "$remote_cert" +%s 2>/dev/null || printf 0)"
+  fi
+  if [[ -s /tls/internal-cert.pem ]] && command -v openssl >/dev/null 2>&1; then
+    local internal_expiry_text
+    internal_expiry_text="$(openssl x509 -in /tls/internal-cert.pem -noout -enddate 2>/dev/null | sed 's/^notAfter=//' || true)"
+    [[ -n "$internal_expiry_text" ]] &&
+      internal_cert_expiry="$(date -d "$internal_expiry_text" +%s 2>/dev/null || printf 0)"
   fi
 
   [[ "$COMPOSE_FILE_SELECTION" == *overlays/backups.yml* ]] && backups_expected=1
@@ -156,9 +184,12 @@ chronicle_backup_storage_bytes ${backups_bytes:-0}
 # HELP chronicle_export_storage_bytes Retained asynchronous export storage currently used.
 # TYPE chronicle_export_storage_bytes gauge
 chronicle_export_storage_bytes ${exports_bytes:-0}
-# HELP chronicle_certificate_expiry_timestamp_seconds Latest mounted TLS certificate expiry.
+# HELP chronicle_certificate_expiry_timestamp_seconds Expiry of the certificate served by the public HTTPS origin.
 # TYPE chronicle_certificate_expiry_timestamp_seconds gauge
 chronicle_certificate_expiry_timestamp_seconds $cert_expiry
+# HELP chronicle_internal_certificate_expiry_timestamp_seconds Expiry of the internal dashboard listener certificate.
+# TYPE chronicle_internal_certificate_expiry_timestamp_seconds gauge
+chronicle_internal_certificate_expiry_timestamp_seconds $internal_cert_expiry
 # HELP chronicle_observability_storage_bytes Local observability data currently retained.
 # TYPE chronicle_observability_storage_bytes gauge
 chronicle_observability_storage_bytes{store="metrics"} ${metrics_bytes:-0}

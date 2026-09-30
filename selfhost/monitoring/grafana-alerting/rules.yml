@@ -1177,7 +1177,7 @@
         },
         {
           "uid": "certificate-expiry",
-          "title": "Chronicle TLS certificate expires within 14 days",
+          "title": "Chronicle public TLS certificate expires within 14 days",
           "condition": "C",
           "data": [
             {
@@ -1192,7 +1192,7 @@
                   "type": "prometheus",
                   "uid": "chronicle-victoriametrics"
                 },
-                "expr": "(chronicle_certificate_expiry_timestamp_seconds-time())/86400",
+                "expr": "((chronicle_certificate_expiry_timestamp_seconds > 0)-time())/86400",
                 "instant": true,
                 "intervalMs": 1000,
                 "maxDataPoints": 43200,
@@ -1229,7 +1229,7 @@
                   "type": "__expr__",
                   "uid": "__expr__"
                 },
-                "expression": "$B < 14 && $B > 0",
+                "expression": "$B < 14",
                 "refId": "C",
                 "type": "math"
               }
@@ -1239,7 +1239,80 @@
           "execErrState": "Alerting",
           "for": "3600s",
           "annotations": {
-            "summary": "Chronicle TLS certificate expires within 14 days",
+            "summary": "Chronicle public TLS certificate expires within 14 days",
+            "runbook_url": "/public/runbooks/index.html#certificate-expiry"
+          },
+          "labels": {
+            "service": "tls",
+            "severity": "warning",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "internal-certificate-expiry",
+          "title": "Chronicle internal TLS certificate expires within 14 days",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "((chronicle_internal_certificate_expiry_timestamp_seconds > 0)-time())/86400",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B < 14",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "3600s",
+          "annotations": {
+            "summary": "Chronicle internal TLS certificate expires within 14 days",
             "runbook_url": "/public/runbooks/index.html#certificate-expiry"
           },
           "labels": {
