@@ -5,7 +5,7 @@ an unexpected login, a leaked `.env` or backup, a compromised host account, a lo
 with dashboard access, or a Chronicle security advisory that matches your version.
 
 Run every command from the active bundle's `selfhost/` directory as the operator account.
-Write down the time and the person for each step; regulators ask for that timeline.
+Write down the time and the person for each step.
 
 ## 1. Collect
 
@@ -19,11 +19,11 @@ install -d -m 0700 "$case_dir"
 ./chronicle status >"$case_dir/status.txt" 2>&1
 docker compose ps -a >"$case_dir/compose-ps.txt"
 docker compose logs --timestamps --no-color >"$case_dir/compose.log" 2>&1
-# Application and HIPAA audit log files (the file half of the audit trail)
+# Application and audit log files (the file half of the audit trail)
 docker compose cp backend:/var/log/chronicle "$case_dir/backend-logs"
 # Database audit trail
 docker compose exec -T postgres sh -c \
-  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\copy (SELECT * FROM audit_logs) TO STDOUT WITH CSV HEADER"' \
+  'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\copy (SELECT * FROM audit_logs) TO STDOUT WITH CSV HEADER"' \
   >"$case_dir/audit_logs.csv"
 # Operator receipts: setup, upgrade, restore and rotation history
 cp -a operator-receipts "$case_dir/" 2>/dev/null || true
@@ -72,23 +72,11 @@ object-storage credentials that are not in `.env`.
 
 ## 4. Notify
 
-Decide with your institution, in writing, who must be told and by when. The clocks start
-when you become aware of the breach, not when the investigation ends.
-
 - **Your institution:** the information-security office, the Data Protection Officer, and
   the IRB / ethics committee that approved the study.
-- **Chile (Ley 21.719):** notify the Agencia de Protección de Datos Personales without
-  undue delay (target about 72 hours), and affected individuals for high-risk breaches.
-  See [CHILE-LEY-21719.md](CHILE-LEY-21719.md).
-- **GDPR:** the supervisory authority within 72 hours.
-- **HIPAA:** affected individuals without unreasonable delay and no later than 60 days
-  after discovery; HHS, and the media for 500 or more residents of one state.
 - **Chronicle maintainers:** if the cause may be a Chronicle defect, report it privately
   through GitHub's private vulnerability reporting, as described in `SECURITY.md` at the
   bundle root. Do not open a public issue.
-
-This runbook is not legal advice; confirm the duties that apply to your study with your
-institution's counsel.
 
 ## 5. Recover and review
 

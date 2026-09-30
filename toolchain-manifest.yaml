@@ -34,7 +34,7 @@ postgres:
   index_digest: "sha256:18cde978e37580e8bf0bd47945e5d453f7753f3cae2ba7f19700e8f47b9bad27"
   # Percona, not stock Postgres, because pg_tde is a Percona extension and it IS the
   # encryption-at-rest model (init-db-encryption.sh, migrate-tde.sh, selfhost/init-tde.sh,
-  # rotate-tde-principal-key.sh, the HIPAA and Ley 21719 evidence). Percona tracks upstream:
+  # rotate-tde-principal-key.sh, the HIPAA evidence). Percona tracks upstream:
   # 18.6.1-1 carries PostgreSQL 18.6, the current stable release — 19 is still beta.
   #
   # 17.5-3 -> 18.4-5 is a MAJOR jump. Two consequences that are not image-swap-shaped:

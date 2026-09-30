@@ -1,9 +1,6 @@
 # Supported deployment combinations
 
-This file is the release compatibility contract. A combination is supported only when it
-appears below. `tests/security/selfhost-combination-matrix.sh` renders every row twice—once
-without monitoring and once with monitoring—and executes the same `guard-config.sh` that
-`./chronicle up` runs.
+A combination is supported only when it appears below.
 
 ## Components and status
 
@@ -15,8 +12,6 @@ without monitoring and once with monitoring—and executes the same `guard-confi
 | `mode-local-https.yml` | **Supported trial mode** | Caddy's private CA is for operator-owned test devices on one LAN, never study participants. |
 | `backups.yml` | **Supported** | Required in both production modes and whenever TDE encryption is enabled. Optional only for an unencrypted local trial. |
 | `monitoring.yml` | **Supported optional overlay** | cAdvisor, VictoriaMetrics, VictoriaLogs, Fluent Bit, operational probes, and private Grafana. It is not required by the base stack and is tested with every row below. |
-| Public-dashboard modes and Keycloak | **Experimental, source-only** | Kept together under `experimental/public-dashboard/`; excluded from release archives because authentication-enabled frontend, bootstrap, MFA, upgrade, and end-to-end tests are incomplete. |
-| Kafka, Loki, OpenSearch, Temporal, Vault, SIEM containers, legacy `docker/` Compose, and Kubernetes packages | **Not self-host release options** | They are absent from this bundle. Some remain tenant-specific or historical source-workspace infrastructure; adding their files to `COMPOSE_FILE` is unsupported. |
 
 The supported release has no public researcher dashboard. Its built-in login mints a single
 admin session without an MFA claim, so it is accepted only with an internal mode,
@@ -25,9 +20,7 @@ startup fails instead of producing an apparently healthy but unusable dashboard.
 
 ## Declared profiles
 
-Each profile below is tested with `overlays/monitoring.yml` absent and present. That makes
-**14 concrete supported combinations**. The monitoring overlay never changes the mode,
-database, authentication, or backup requirements.
+Each profile works with or without `overlays/monitoring.yml`.
 
 | Profile ID | Mode overlay | `ENABLE_ENCRYPTION` | Backups overlay | Intended use |
 |---|---|---:|---:|---|
@@ -40,8 +33,7 @@ database, authentication, or backup requirements.
 | `trial-plain-no-backup` | `mode-local-https.yml` | `false` | absent | Disposable LAN evaluation only; Docker volumes still persist, but there is no recovery copy. |
 
 `ENABLE_ENCRYPTION=false` disables database-level TDE; it does not prove that the host disk
-is encrypted. Production operators remain responsible for an approved storage-encryption
-control. `trial-plain-no-backup` is not a production shortcut.
+is encrypted.
 
 ## Rejected combinations
 
@@ -85,20 +77,14 @@ COMPOSE_FILE=docker-compose.yml:overlays/mode-local-https.yml
 After editing `.env`, run `./chronicle check`; after startup, run
 `./chronicle verify --dashboard-password` and supply the password on the prompt or stdin.
 
-## Promotion rule
-
-An experimental or absent component becomes supported only after it is dependency-pinned,
-included in the release builder, documented here, rendered by the matrix test, exercised in
-the source-free smoke test when runtime behavior matters, and covered by upgrade/restore
-behavior. Moving a Compose file into `overlays/` without those changes is not promotion.
-
 ## Server and app versions
 
 The dashboard is the frontend image of the same release; it is never mixed across releases.
 
 | Server release | Android build shipped with it | Server change the app depends on |
 |---|---|---|
-| 2026.9.29 | versionCode 64 (Play internal) | none (V108/V109 are server-side: erased diagnostics and purged data cannot be re-inserted by a device replay; run `docker/migrate-tde.sh` after upgrade for the new `participant_purge_cutoffs` table) |
+| 2026.9.30 | versionCode 65 (Play internal) | none |
+| 2026.9.29 | versionCode 64 (Play internal) | none (V108/V109 are server-side: erased diagnostics and purged data cannot be re-inserted by a device replay; new tables are encrypted automatically because self-host makes `tde_heap` the database default) |
 | 2026.9.28 | versionCode 63 (Play internal) | V107 accepts the full diagnostic catalog and keeps diagnostics for the life of the study |
 | 2026.9.27 | versionCode 62 (Play internal) | V106 accepts the discarded-data diagnostic codes |
 | 2026.9.25 | versionCode 61 (Play internal) | V104 accepts sensor dead-letter, crash and ANR diagnostic codes |

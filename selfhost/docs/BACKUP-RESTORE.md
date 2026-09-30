@@ -48,18 +48,22 @@ COMPOSE_FILE=docker-compose.yml:overlays/mode-behind-proxy-internal.yml:overlays
 Dumps land in `${CHRONICLE_STATE_DIR:-.}/backups/` on the host, rotated
 daily/weekly/monthly (tune `BACKUP_KEEP_*` in `.env`). After an upgrade this can point into
 the first release directory, so check the setting before retiring old release files.
-**Copy dumps off the box** — a backup on the same disk as the database is not a backup. For
-example, sync the resolved directory to object storage:
+**Copy encrypted backups off the box** — a backup on the same disk as the database is not a backup.
+Encrypt the complete backup directory, including the keyring, into a staging directory and
+sync only that directory:
 
 ```bash
-# nightly, via your own cron on the host
-rclone sync /absolute/chronicle-state/backups remote:chronicle-backups
-```
-
-For confidentiality of the copies, encrypt before they leave the host:
-
-```bash
-gpg --encrypt --recipient ops@example.cl /absolute/chronicle-state/backups/last/chronicle-latest.sql.gz
+set -euo pipefail
+umask 077
+install -d -m 0700 /absolute/chronicle-state/backups-encrypted
+archive_tmp=/absolute/chronicle-state/backups-encrypted/chronicle-backups.tar.gz.gpg.partial
+trap 'rm -f -- "$archive_tmp"' EXIT
+tar -C /absolute/chronicle-state/backups -czf - . |
+  gpg --batch --yes --encrypt --recipient ops@example.org >"$archive_tmp"
+mv -f "$archive_tmp" /absolute/chronicle-state/backups-encrypted/chronicle-backups.tar.gz.gpg
+trap - EXIT
+# Run nightly from the host after encryption completes.
+rclone sync /absolute/chronicle-state/backups-encrypted remote:chronicle-backups
 ```
 
 The sidecar takes one dump immediately after PostgreSQL is accepting connections and the
@@ -149,10 +153,9 @@ or incomplete erasure proof leaves the backend unhealthy and stopped with the ch
 preserved for diagnosis. Do not remove `chronicle_restore_continuity` manually.
 
 **Restore time.** The command prints `Restore took N seconds.`, and every operation receipt
-under `operator-receipts/operations/` records `durationSeconds`. The release smoke test
-records `clean_restore_seconds` for the fixture database. Rehearse on a copy of your own
+under `operator-receipts/operations/` records `durationSeconds`. Rehearse on a copy of your own
 data and write down that figure as your recovery-time estimate; it grows with database size.
-Measured 2026-09-24 by the release smoke: 61 s for a fixture database of 91 tables and
+For reference: 61 s for a fixture database of 91 tables and
 65,705 rows, including the bounded restart to a healthy stack.
 
 On success, the command starts the complete stack with a bounded health wait; `db-init`
@@ -236,22 +239,24 @@ all 86 tables and every row present and identical.
 ## What to back up besides the database
 
 - `.env` — your secrets (store in a password manager, **not** next to the dumps).
-- `caddy_data` volume — the TLS certificates. Not essential (Caddy re-issues them), but
-  restoring it avoids re-hitting Let's Encrypt rate limits on a rebuild.
+- The configured `${CHRONICLE_STATE_DIR:-.}/tls/` directory. Own-TLS mode stores the
+  supplied production certificate and key there; internal-dashboard modes also store the
+  internal-listener certificate pair. Production TLS uses supplied files; Chronicle does not
+  obtain or reissue production certificates. Keep an encrypted copy for rebuilds.
 
 ## Verify off-host copies
 
 A copy you have never compared is a guess. After each sync, and at least monthly:
 
 ```bash
-# 1. The remote copy matches the host copy, file by file (size and checksum).
-rclone check /absolute/chronicle-state/backups remote:chronicle-backups
+# 1. The encrypted staging directory matches the remote copy, file by file (size and checksum).
+rclone check /absolute/chronicle-state/backups-encrypted remote:chronicle-backups
 #    Without rclone: compare checksum manifests from both sides.
-( cd /absolute/chronicle-state/backups && find . -name '*.sql.gz*' -type f -exec sha256sum {} + | sort -k2 ) >host.sha256
+( cd /absolute/chronicle-state/backups-encrypted && find . -type f -exec sha256sum {} + | sort -k2 ) >host.sha256
 
-# 2. An encrypted copy decrypts and is a complete gzip stream (run where the key lives).
-rclone copy remote:chronicle-backups/last/chronicle-latest.sql.gz.gpg ./check/
-gpg --decrypt ./check/chronicle-latest.sql.gz.gpg | gzip -t && echo "decrypts and is intact"
+# 2. The off-host archive decrypts and contains a complete gzip tar stream (run where the key lives).
+rclone copy remote:chronicle-backups/chronicle-backups.tar.gz.gpg ./check/
+gpg --decrypt ./check/chronicle-backups.tar.gz.gpg | tar -tzf - >/dev/null && echo "decrypts and is intact"
 ```
 
 ## Test your restore

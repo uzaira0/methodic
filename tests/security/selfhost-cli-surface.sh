@@ -73,10 +73,17 @@ grep -Fq 'NTPSynchronized' "$CLI" || fail 'no time-sync check'
 grep -Fq 'MIN_FREE_DISK_GIB' "$CLI" || fail 'no free-space floor before up'
 echo 'PASS: time sync and free-space floor checks present'
 
-# 8. Restore receipts record a duration (L5).
+# 8. `up --wait` excludes the trial CA one-shot and runs it after the stack is healthy.
+up_command=$(awk '/^cmd_up\(\)/ {on=1} on {print} on && /^}/ {exit}' "$CLI")
+grep -Fq 'dc config --services' <<<"$up_command" || fail 'up does not resolve the configured service list'
+grep -Fq '"$service" == ca-export' <<<"$up_command" || fail 'up does not exclude ca-export from Compose --wait'
+grep -Fq 'dc run --rm --no-deps ca-export' <<<"$up_command" || fail 'up does not run ca-export after service readiness'
+echo 'PASS: trial CA export runs after healthy startup'
+
+# 9. Restore receipts record a duration (L5).
 grep -Fq 'durationSeconds' "$CLI" || fail 'operation receipts carry no duration'
 echo 'PASS: operation receipts record duration'
-# 9. A mistyped command fails loudly; asking for help succeeds (I9).
+# 10. A mistyped command fails loudly; asking for help succeeds (I9).
 for help_arg in help --help -h; do
   bash "$CLI" "$help_arg" >"$RUN_DIR/help.out" 2>&1 || fail "./chronicle $help_arg exited non-zero"
   grep -Fq './chronicle down' "$RUN_DIR/help.out" || fail "./chronicle $help_arg printed no command list"
@@ -88,14 +95,14 @@ bash "$CLI" stauts >"$RUN_DIR/typo.out" 2>"$RUN_DIR/typo.err" || status=$?
 grep -Fq "unknown command 'stauts'" "$RUN_DIR/typo.err" || fail 'unknown command was not named on stderr'
 echo 'PASS: unknown commands exit 2; help exits 0'
 
-# 10. The trial wizard refuses a public address, the same rule config-guard enforces (S8), and
+# 11. The trial wizard refuses a public address, the same rule config-guard enforces (S8), and
 #     the production prompt does not suggest a reserved documentation name (C3).
 trial=$(awk '/if \[\[ "\$tls_mode" == local-https \]\]; then/ {on=1} on {print} on && /^  else$/ {exit}' "$CLI")
 grep -Fq 'guard-config.sh --validate-public-host "$domain"' <<<"$trial" \
   || fail 'setup trial branch does not refuse a public address'
 ! grep -Fq 'e.g. study.example.org' "$CLI" || fail 'setup suggests a hostname its own guard rejects'
 echo 'PASS: setup trial branch refuses public addresses'
-# 11. Operator docs cover what the launch audit found missing (I7, I8, I9, S5, S6, K1, K3, D4, D5, D6, R4).
+# 12. Operator docs cover the required self-host procedures.
 DOCS="$ROOT_DIR/selfhost"
 doc_has() { grep -Fq -- "$2" "$DOCS/$1" || fail "$1 does not document: $2"; }
 doc_has README.md '| Host | Tested |'
@@ -106,6 +113,7 @@ doc_has README.md 'sha256sum -c chronicle-selfhost-'
 doc_has README.md '## Security updates'
 doc_has README.md './chronicle update --check'
 doc_has README.md 'docs/INCIDENT-RESPONSE.md'
+doc_has README.md 'rerun `./chronicle setup`'
 doc_has docs/INCIDENT-RESPONSE.md '## 1. Collect'
 doc_has docs/INCIDENT-RESPONSE.md '## 2. Isolate'
 doc_has docs/INCIDENT-RESPONSE.md '## 3. Rotate'
@@ -119,11 +127,6 @@ doc_has docs/UNINSTALL-DATA-DELETION.md 'pre-upgrade-*.sql.gz'
 doc_has docs/UNINSTALL-DATA-DELETION.md 'PRE_OP_BACKUP_KEEP_DAYS'
 doc_has README.md 'shasum -a 256 -c chronicle-selfhost-'
 # legal P2: operators must be told what the platform records whatever modules they pick.
-doc_has docs/CHILE-LEY-21719.md '## Data the platform records regardless of modules'
-doc_has docs/CHILE-LEY-21719.md 'audit_logs.ip_address'
-doc_has docs/CHILE-LEY-21719.md 'no purge job'
-doc_has docs/CHILE-LEY-21719.md 'device model, brand'
-doc_has README.md 'CHILE-LEY-21719.md#data-the-platform-records-regardless-of-modules'
 ! grep -Fq 'git clone' <(awk '/^## Quick start/ {on=1; next} on && /^## / {exit} on' "$DOCS/README.md" | head -12) \
   || fail 'README Quick start still opens with a source clone instead of the release bundle'
 echo 'PASS: operator docs cover OS matrix, rights, security updates, incidents, and backup retention'

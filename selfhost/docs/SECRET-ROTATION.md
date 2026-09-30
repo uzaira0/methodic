@@ -29,7 +29,7 @@ the operator account permission to create or alter tables.
 | `./chronicle rotate-secret jwt` | Generates a 256-bit signing value and recreates `backend`. | All researcher sessions are invalidated and must sign in again. |
 | `./chronicle rotate-secret internal-web` | Generates the Caddy-to-backend credential and recreates `backend` and `web` together. | API/dashboard requests may briefly retry. |
 | `./chronicle rotate-secret reviewer` | Generates or rotates the reusable Play Console reviewer credential, enables its exact study-scoped route, and recreates `backend`. | The previous Console value immediately receives `401`; update Play Console in the same window. |
-| `./chronicle rotate-secret metrics` | Generates the backend metrics credential and recreates `backend`. | Separately configured scrapers must be updated from the protected `.env`; the supported monitoring overlay currently scrapes cAdvisor, not this endpoint. |
+| `./chronicle rotate-secret metrics` | Generates the backend metrics credential. With `overlays/monitoring.yml`, refreshes its scraper secret and config, recreates `backend` and VictoriaMetrics, then verifies the backend target is up. | Update separately configured scrapers from the protected `.env`. |
 | `./chronicle rotate-secret postgres` | Publishes a generated password, changes the live PostgreSQL role over stdin, then reconciles and health-checks the complete Compose stack. | This is the broadest restart; expect a short full-stack interruption. |
 | `./chronicle rotate-secret grafana` | Uses Grafana's authenticated password API, recreates Grafana, and verifies the new login. | Grafana only; requires `overlays/monitoring.yml`. The generated value remains only in `.env`. |
 | `./chronicle rotate-secret mobile begin` | For an already enabled controlled legacy fleet, generates a new HMAC compatibility key while retaining the old key as `MOBILE_SIGNING_SECRET_PREVIOUS`. Public clients use per-device keys and are unaffected. | Backend recreation; controlled legacy/research clients keep working during the overlap. |
@@ -214,8 +214,6 @@ chat.
 - **SMTP/provider credentials:** rotate them at the provider first, update `.env` in a
   trusted editor, then run `docker compose up -d --wait --wait-timeout 300 backend`. This is
   not automated because provider APIs and overlap behavior differ.
-- **OIDC client secrets:** the release does not ship a supported OIDC/Keycloak overlay. Do
-  not infer support from the source-only experimental scaffold.
 - **TLS private keys and certificates:** use your institution/CA's issuance and revocation
   procedure. Replace the matching certificate/key pair atomically in the state-directory
   `tls/` path, preserve private-key mode `0600`, recreate `web`, and verify the served chain.

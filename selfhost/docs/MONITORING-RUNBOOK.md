@@ -26,11 +26,34 @@ and `./chronicle verify`; both must pass.
 |---|---|---|
 | Port in use | `./chronicle check` prints `PORT=N is already in use`; `ss -ltnp 'sport = :N'` names the holder | Stop the holder, or change that `*_PORT` in `.env`, then `./chronicle check && ./chronicle up`. |
 | Wrong bind address | `./chronicle check` prints `*_BIND=... is not an address on this host` | Set that `*_BIND` in `.env` to one of the listed addresses, then `./chronicle check && ./chronicle up`. |
-| Expired certificate (own TLS) | `openssl x509 -noout -enddate -in tls/cert.pem` | Replace `tls/cert.pem` and `tls/key.pem`, then `docker compose restart web && ./chronicle verify`. |
-| Expired certificate (internal listener) | `openssl x509 -noout -enddate -in tls/internal-cert.pem` | Remove `tls/internal-cert.pem` and `tls/internal-key.pem`, then `./chronicle up` regenerates them. |
+| Expired certificate (own TLS) | `openssl x509 -noout -enddate -in "$TLS_DIR/cert.pem"` | Replace the pair in the configured state directory, run `cert-init`, restart `web`, and verify the served certificate below. |
+| Expired certificate (internal listener) | `openssl x509 -noout -enddate -in "$TLS_DIR/internal-cert.pem"` | Remove `$TLS_DIR/internal-cert.pem` and `$TLS_DIR/internal-key.pem`, then `./chronicle up` regenerates them. |
 | Disk full | `df -h`; `./chronicle doctor` | Free or add space (never delete volumes), then `./chronicle up`. Postgres does not restart by itself after a failed start. |
 | Migration failed (first install) | `./chronicle logs backend` shows the first Flyway error | Correct the cause it names and run `./chronicle up`. For an upgrade, follow [UPGRADE-ROLLBACK.md](UPGRADE-ROLLBACK.md) "If the command fails". |
 | Upload rejected, clock skew | `timedatectl` shows `System clock synchronized: no` | `sudo timedatectl set-ntp true`; signed requests allow 30 s of skew. |
+
+Run these commands from the active release's `selfhost/` directory. They read only
+`CHRONICLE_STATE_DIR` from `.env`; a relative value is resolved against that directory, and
+the default `.` means that directory. For an own-TLS renewal, install the replacement pair
+in the resolved `tls/` directory:
+
+```bash
+STATE_DIR="$(sed -n 's/^CHRONICLE_STATE_DIR=//p' .env | head -1 | tr -d "\"'")"
+STATE_DIR="${STATE_DIR:-.}"
+case "$STATE_DIR" in
+  /*) ;;
+  *) STATE_DIR="$(pwd -P)/${STATE_DIR#./}" ;;
+esac
+TLS_DIR="${STATE_DIR}/tls"
+DOMAIN=chronicle.example.org
+install -m 0644 /path/to/new-cert.pem "$TLS_DIR/cert.pem"
+install -m 0600 /path/to/new-key.pem "$TLS_DIR/key.pem"
+docker compose run --rm --no-deps cert-init
+docker compose restart web
+./chronicle verify
+openssl s_client -connect "${DOMAIN}:443" -servername "$DOMAIN" </dev/null 2>/dev/null |
+  openssl x509 -noout -subject -enddate
+```
 
 ## Viewer access
 

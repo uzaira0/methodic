@@ -198,10 +198,6 @@ The old backend is now paired with the exact pre-upgrade schema and data. Keep b
 upgrade dump and the restore service's `pre-restore-*.sql.gz` safety dump until the incident
 is resolved.
 
-The release smoke test exercises this sequence with a database sentinel: previous-version
-start, automatic backup, new-version start, data continuity, restore of the pre-upgrade
-dump, previous-version restart, and a final forward start.
-
 ## PostgreSQL major upgrades
 
 PostgreSQL data directories are not compatible across major versions. The automatic command

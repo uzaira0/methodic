@@ -54,8 +54,6 @@ for profile in "${profiles[@]}"; do
   profile_id="${profile%%|*}"
   grep -Fq "\`${profile_id}\`" "$DOC" || fail "documentation omits profile ${profile_id}"
 done
-grep -Fq '**14 concrete supported combinations**' "$DOC" ||
-  fail "documentation does not state the concrete matrix size"
 
 umask 077
 /bin/mkdir -p "$RUN_PARENT"

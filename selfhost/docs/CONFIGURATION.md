@@ -3,7 +3,6 @@
 - [Managing studies](#managing-studies)
 - [Mobile apps](#mobile-apps)
 - [Deployment compatibility](#deployment-compatibility)
-- [Multi-user login](#multi-user-login-experimental-not-shipped)
 - [Secret rotation](#secret-rotation)
 - [Data deletion and uninstall](#data-deletion-and-uninstall)
 - [Upgrading](#upgrading)
@@ -20,8 +19,7 @@ origin only: the SPA loads there, but the dashboard API answers 404 by design.
 1. **Create a study.** Give it a name; it gets a study ID (UUID).
 2. **Choose data-collection modules.** Each module (app usage, accelerometer, step count,
    battery, connectivity, activity recognition, etc.) is toggled **required / optional /
-   off** per study, and sensor modules carry their own sampling rate + duty cycle. Collect
-   only what the study needs — this is both good practice and a data-protection expectation.
+   off** per study, and sensor modules carry their own sampling rate + duty cycle.
 3. **Add participants.** Each participant gets an enrollment code / QR that encodes the
    study ID, participant ID, and your server URL.
 4. **Monitor.** The dashboard shows enrolled devices and last-upload times.
@@ -56,10 +54,13 @@ public-HTTPS Chronicle server:
   ./gradlew :app:assembleOpenRelease
   ```
   The `open` flavor sets `ALLOW_ANY_SERVER=true`, matching Play's hostname behavior. Both
-  accept only a root URL on standard public HTTPS and rely on the device system trust store;
-  plain HTTP, private CAs, URL credentials, query/fragment content, and path-prefixed base
-  URLs are rejected. To ship the sideload flavor as a distinct store app, give it its own
-  `applicationId` and store/signing configuration.
+  accept only a root URL on HTTPS; plain HTTP, URL credentials, query/fragment content, and
+  path-prefixed base URLs are rejected. The minimal Play build trusts only the system
+  certificate store. The `open` build also trusts a CA the phone owner installed, which is
+  what the local trial mode relies on. The two builds also differ in which modules they
+  collect: see [Which Android build](../README.md#which-android-build). To ship the sideload
+  flavor as a distinct store app, give it its own `applicationId` and store/signing
+  configuration.
 
 - **iOS** — in `chronicle-ios/chronicle/Config/Chronicle.local.xcconfig` set:
   ```
@@ -145,36 +146,7 @@ clone a real participant, or place the reusable secret in a participant field.
 
 The release supports three private-dashboard modes, scheduled backups, optional monitoring,
 and the exact storage combinations listed in
-[DEPLOYMENT-COMPATIBILITY.md](DEPLOYMENT-COMPATIBILITY.md). Public-dashboard modes are not
-shipped because the release does not yet ship a reviewed multi-user authentication path.
-
-## Multi-user login (experimental, not shipped)
-
-The release bundle does not claim Keycloak support. The previous overlay needed manual
-route edits, a separately compiled frontend, realm bootstrap, and untested upgrade
-coordination; presenting that scaffold beside supported overlays made an unfinished
-container look production-ready. It now lives only in source checkouts at
-`experimental/public-dashboard/auth.yml` and is excluded from release archives.
-
-Promoting it back to `overlays/` requires automated coverage for all of the following:
-
-1. **Route Keycloak through Caddy.** In
-   `experimental/public-dashboard/Caddyfile`, add this inside the `route { … }`
-   block, above `import chronicle_spa`:
-   ```
-   reverse_proxy /keycloak/* keycloak:8080
-   ```
-   and `docker compose restart web`. Use `reverse_proxy`, not `handle_path` — Keycloak
-   must see the `/keycloak` prefix it was configured with, so the path must not be
-   stripped.
-2. **Publish an immutable frontend image with the supported authentication behavior.**
-3. **Create the realm, client, and a user.** Create a `chronicle` realm, a `chronicle-web`
-   OIDC client (set `OIDC_CLIENT_SECRET` in `.env` to match), and at least one user with an
-   admin role. The source workspace's `docker/docker-compose.traefik.yml` documents the
-   corresponding `OIDC_*` wiring for operators developing this experimental mode.
-
-Until those tests exist, use the supported internal-dashboard login mode or an
-institutional access layer in front of the private dashboard.
+[DEPLOYMENT-COMPATIBILITY.md](DEPLOYMENT-COMPATIBILITY.md).
 
 ## Secret rotation
 
@@ -195,7 +167,7 @@ operator sequence.
 
 ## Upgrading
 
-Your instance is independent of every other Chronicle deployment. Upgrade with a newer release bundle; do not
+Upgrade with a newer release bundle; do not
 clone or build the source workspace on the server.
 
 ```bash

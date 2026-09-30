@@ -105,10 +105,6 @@ To revoke an operator's access:
    `./chronicle rotate-secret jwt`.
 4. Rotate any separately shared export, host, or backup credentials.
 
-The source-only experimental Keycloak scaffold is not a supported release mode. If it was
-used anyway, deleting its identity and sessions is a separate Keycloak operation; removing a
-Chronicle principal does not delete the identity-provider account.
-
 ## Backups can retain deleted records
 
 The database backup schedule is independent of the live deletion ledger. A dump made before
@@ -117,9 +113,10 @@ weekly, and 6 monthly copies (`BACKUP_KEEP_DAYS`, `BACKUP_KEEP_WEEKS`, and
 `BACKUP_KEEP_MONTHS`). Off-host copies may have a different policy.
 
 Full-database dumps in the `backups/` root and `backups/secret-rotation/` are **not** in that rotation:
-`pre-upgrade-*.sql.gz` (written by `./chronicle upgrade`) and `pre-restore-*.sql.gz` with
-its `*.continuity.sql.gz` companion (written by `./chronicle restore`), and secret-rotation
-`*.sql.gz` dumps (written by `./chronicle rotate-secret tde`). Each keeps every row
+`pre-adopt-*.sql.gz` (written by `./chronicle adopt`), `pre-upgrade-*.sql.gz` (written by
+`./chronicle upgrade`), `pre-restore-*.sql.gz` with its `*.continuity.sql.gz` companion
+(written by `./chronicle restore`), and secret-rotation `*.sql.gz` dumps (written by
+`./chronicle rotate-secret tde`). Each keeps every row
 that existed when it was taken. The backup sidecar deletes them once they are older than
 `PRE_OP_BACKUP_KEEP_DAYS` (default 30; see [BACKUP-RESTORE.md](BACKUP-RESTORE.md)), so
 the longest a deleted row survives on the host is the later of that window and the
@@ -130,7 +127,7 @@ longer need a way back.
 For each deletion request:
 
 - record when the last pre-deletion backup expires or is approved for destruction,
-  including any `pre-upgrade-*`, `pre-restore-*`, and `secret-rotation/*.sql.gz` dumps taken before the deletion;
+  including any `pre-adopt-*`, `pre-upgrade-*`, `pre-restore-*`, and `secret-rotation/*.sql.gz` dumps taken before the deletion;
 - include off-host backup systems and manually copied dumps in that decision; and
 - preserve any required deletion proof separately before removing the installation.
 
