@@ -84,14 +84,14 @@ configurations.all {
     // org.eclipse.angus:jakarta.mail (the impl, distinct from angus-mail) lingers at 2.0.2 and
     // carries CVE-2025-7962 (SMTP CRLF injection); lift to the patched 2.0.4 (sync w/ angus_mail_version).
     force 'org.eclipse.angus:jakarta.mail:2.0.4'
-    // Keep the Jackson parser/dataformat family on the patched 2.22.1 release.
+    // Keep the Jackson parser/dataformat family on the patched 2.22.3 release (CVE-2026-68497).
     // jackson-annotations intentionally uses Jackson's MAJOR.MINOR versioning.
-    force 'com.fasterxml.jackson.core:jackson-core:2.22.1'
-    force 'com.fasterxml.jackson.core:jackson-databind:2.22.1'
+    force 'com.fasterxml.jackson.core:jackson-core:2.22.3'
+    force 'com.fasterxml.jackson.core:jackson-databind:2.22.3'
     force 'com.fasterxml.jackson.core:jackson-annotations:2.22'
-    force 'com.fasterxml.jackson.dataformat:jackson-dataformat-cbor:2.22.1'
-    force 'com.fasterxml.jackson.dataformat:jackson-dataformat-smile:2.22.1'
-    force 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.22.1'
+    force 'com.fasterxml.jackson.dataformat:jackson-dataformat-cbor:2.22.3'
+    force 'com.fasterxml.jackson.dataformat:jackson-dataformat-smile:2.22.3'
+    force 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.22.3'
     force 'com.fasterxml.woodstox:woodstox-core:7.2.0'
     force 'org.jsoup:jsoup:1.23.1'
     force 'commons-beanutils:commons-beanutils:1.11.0'
@@ -223,7 +223,7 @@ ext.flyway_version='11.20.3'
 ext.hazelcast_version='5.5.0'
 ext.hibernate_validator_version='8.0.2.Final'
 ext.hikariCP_version='6.3.3'
-ext.jackson_version='2.22.1'
+ext.jackson_version='2.22.3'
 ext.jacoco_tool_version = '0.8.13'
 ext.jakarta_annotation_version='2.1.1'
 ext.jakarta_inject_version='2.0.1'

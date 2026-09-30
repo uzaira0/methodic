@@ -26,6 +26,7 @@ erasure/consent races. Most sweep findings predate 2026.9.28.
   table locks in one order. ID allocation can no longer block forever when its producer fails.
 - A malformed sample in an iOS batch is quarantined alone; the rest of the batch is stored.
 - Researcher notifications without a participant no longer fail the V74 upgrade.
+- Jackson 2.22.3 (CVE-2026-68497: CPU denial of service through unbounded numeric parsing).
 
 ### Dashboard
 - Clearing every study limit is refused with an explanation instead of silently keeping the old limits.
