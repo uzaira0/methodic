@@ -226,7 +226,7 @@ def main() -> int:
     architecture_manifest_path = (
         args.architecture_manifest or root / "config" / "architecture-boundaries.json"
     )
-    report_path = root / "selfhost" / "docs" / "CAPABILITY-OWNERSHIP.md"
+    report_path = root / "docs" / "selfhost-capability-ownership.md"
     optional_environment = os.environ.get("CHRONICLE_INCLUDE_OPTIONAL_SOURCE_ROOTS")
     if optional_environment not in (None, "0", "1"):
         parser.error("CHRONICLE_INCLUDE_OPTIONAL_SOURCE_ROOTS must be 0 or 1")

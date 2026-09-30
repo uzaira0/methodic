@@ -190,8 +190,6 @@ for dashboard in system-overview application database-storage containers operati
 done
 [[ -f "${BUNDLE}/selfhost/monitoring/grafana-alerting/rules.yml" ]] \
   || fail "bundle omits dashboard-visible alert provisioning"
-[[ -f "${BUNDLE}/selfhost/docs/CAPABILITY-OWNERSHIP.md" ]] \
-  || fail "bundle omits generated frontend/backend capability ownership"
 [[ -x "${BUNDLE}/selfhost/monitoring/probe.sh" ]] \
   || fail "bundle omits the executable operational probe"
 "${ROOT_DIR}/tests/security/selfhost-log-sanitizer.sh" >/dev/null \
