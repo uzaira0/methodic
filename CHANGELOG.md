@@ -7,6 +7,27 @@ would sort below the day's release, so `./chronicle update` would refuse it.
 
 ## [Unreleased]
 
+## [2026.10.1]
+
+Server and Android build 66. Found by enrolling a Pixel with build 65 against a trial self-host.
+
+### Server
+- Study IDs and other server-generated IDs are random. Before, a new server issued them in sequence
+  (`00000000-0000-0000-8000-000000000000`, then `...0002`), so the next one was predictable.
+  Existing IDs do not change.
+
+### Android (open flavor, versionCode 66, 2026.10.01-internal.open.1)
+- Minimum Android version is 8.0 (was 6.0). From versionCode 55, enrollment from a link crashed the
+  app on every device: supporting Android 6 put a separate copy of the date classes in the app, which
+  the app's JSON reader could not handle. Builds 55 to 65 are affected; replace them with 66.
+- Upload diagnostics are sent again; their dates could not be encoded.
+- Battery samples upload again. The release build renamed the classes behind the charging state,
+  health and plug type fields, and every battery upload failed.
+- Returning from a permission prompt no longer opens a second battery or background dialog.
+- The exact-alarm settings page opens once, after enrollment, instead of on every app launch.
+  Reminders use inexact alarms when it is not granted.
+- versionCode 65 was not uploaded to Play.
+
 ## [2026.9.30]
 
 Self-host scripts and documentation, and Android build 65. The server and dashboard code are

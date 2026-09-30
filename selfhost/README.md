@@ -593,6 +593,7 @@ before designing a study.
 | Upload diagnostics module | Must be enabled, or enrollment is refused | Optional |
 | Server certificate | Publicly trusted only; the local trial CA does not work | Publicly trusted, or a CA the phone owner installed (trial mode) |
 | Battery-optimisation exemption | App opens the system list; participant finds Chronicle there | One-tap system prompt |
+| Minimum Android version | 8.0, from versionCode 66 (6.0 before) | 8.0, from versionCode 66 (6.0 before) |
 
 Both builds use the application ID `com.bcm.chronicle`. A Play update moves a phone between
 builds in place. A build signed with a different key (for example your own sideload over a
