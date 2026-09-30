@@ -98,6 +98,7 @@ The dashboard is the frontend image of the same release; it is never mixed acros
 
 | Server release | Android build shipped with it | Server change the app depends on |
 |---|---|---|
+| 2026.9.29 | versionCode 64 (Play internal) | none (V108/V109 are server-side: erased diagnostics and purged data cannot be re-inserted by a device replay; run `docker/migrate-tde.sh` after upgrade for the new `participant_purge_cutoffs` table) |
 | 2026.9.28 | versionCode 63 (Play internal) | V107 accepts the full diagnostic catalog and keeps diagnostics for the life of the study |
 | 2026.9.27 | versionCode 62 (Play internal) | V106 accepts the discarded-data diagnostic codes |
 | 2026.9.25 | versionCode 61 (Play internal) | V104 accepts sensor dead-letter, crash and ANR diagnostic codes |

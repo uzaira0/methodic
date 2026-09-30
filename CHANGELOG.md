@@ -7,6 +7,50 @@ would sort below the day's release, so `./chronicle update` would refuse it.
 
 ## [Unreleased]
 
+## [2026.9.29]
+
+Fixes found in a review of release 2026.9.28 and in a codebase-wide sweep for hangs, crashes and
+erasure/consent races. Most sweep findings predate 2026.9.28.
+
+### Server
+- V108 records the IDs of erased upload diagnostics (opaque UUIDs only). A device that replays an erased diagnostic, for example with a clock that runs ahead, no longer stores it again. Study erasure removes these records too. Diagnostics erased before V108 have no such record.
+- Data-quality alert generation holds the study deletion lock until its inserts commit; a purge can no longer leave alerts behind.
+- Participant diagnostics downloads through the published client request JSON; the OpenAPI query names match the server.
+- V109: a collected-data purge records a per-participant cutoff. Uploads and buffer drains drop rows observed before
+  it and keep the rest, so a device retry cannot restore purged data. Purges completed before V109 get a cutoff from
+  their start time. The cutoff uses the device's observation time; a device clock far off can misplace rows near it.
+- Participant erasure now covers `devices`, webhook delivery payloads, participant-scoped notifications and revoked
+  export requests, including for erasures completed before V109. Unsent compliance messages without a participant
+  scope are dropped. Consent acknowledgments and the notification delivery log are kept.
+- Connection leaks in imports and nested pool borrows are fixed; drains, purge finalizers and notification writes take
+  table locks in one order. ID allocation can no longer block forever when its producer fails.
+- A malformed sample in an iOS batch is quarantined alone; the rest of the batch is stored.
+- Researcher notifications without a participant no longer fail the V74 upgrade.
+
+### Dashboard
+- Clearing every study limit is refused with an explanation instead of silently keeping the old limits.
+- Studies with legacy iOS sensor settings can be saved again.
+- Date-only values show the calendar date in every timezone (Chile showed the previous day).
+- Each study-settings save sends the revision returned by the save before it.
+- A diagnostics export ending on a day whose midnight is skipped (DST) no longer includes the following day.
+
+### Android (open flavor, versionCode 64, 2026.09.29-internal.open.1)
+- Diagnostics recording, storage checks and usage collection can no longer hang each other while a withdrawal or settings change waits.
+- A batch refused for low storage is retried; where the data cannot be collected again, it is counted as lost instead of dropped silently.
+- Discarding a sensor also removes its samples waiting in memory, in direct-boot files, in unreadable direct-boot records and in half-written copies. An interrupted discard finishes on the next drain.
+- Direct-boot files keep their field names across release builds. Build 63 wrote obfuscated names; such files cannot be read, and are recorded as lost.
+- Legacy direct-boot samples without an owner go only to an enrollment that started before them.
+- App network usage is never read from before the current enrollment or after a discard.
+- A storage pause from one enrollment is never recorded under the next one.
+- Sensor, accessibility, notification and broadcast callbacks never wait on the database or the persistence lock, so
+  a withdrawal or settings change can no longer freeze the app (ANR).
+- Storage, encryption or WorkManager start-up failures no longer crash the app; collection stays closed and retries.
+- Data captured before a module is switched off, a withdrawal or an enrollment change is never stored or uploaded
+  afterwards. Switching a module off also clears its read cursors, queued samples, survey alarms and sealed upload
+  files. An interrupted switch-off finishes on the next start.
+- A temporary refusal (paused module, low storage) keeps the usage window and accepted sensor samples for retry.
+- Checkpoints from build 63 carry over, so the upgrade neither skips nor re-reads usage, network or Health Connect data.
+
 ## [2026.9.28]
 
 ### Server
