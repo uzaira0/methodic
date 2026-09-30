@@ -147,22 +147,56 @@ capture notes_dir mktemp -d -p "$HOME/tmp" chronicle-release-notes.XXXXXX
 if [[ -z "$dry_run" ]]; then
   trap 'rm -rf -- "$notes_dir"' EXIT
 fi
+# Operators land on this page, and `./chronicle update --check` prints it: lead with the steps.
 run python3 -c '
 from pathlib import Path
-import re
 import sys
 release, destination = sys.argv[1:]
-path = Path("CHANGELOG.md")
-text = path.read_text() if path.is_file() else ""
-sections = re.split(r"(?m)^## +", text)
-note = ""
-for section in sections[1:]:
-    heading, _, body = section.partition("\n")
-    version = heading.split()[0].strip("[]").removeprefix("v")
-    if version == release.removeprefix("v"):
-        note = body.strip()
-        break
-Path(destination).write_text((note or f"Chronicle self-host release {release}.") + "\n")
+v = release.removeprefix("v")
+Path(destination).write_text(f"""## New installation
+
+Download `chronicle-selfhost-{v}.tar.gz` and `chronicle-selfhost-{v}.tar.gz.sha256`, then on the
+Linux server, as a user in the `docker` group:
+
+```bash
+# 1. Check the download and unpack it (nothing is built; images are pulled later)
+sha256sum -c chronicle-selfhost-{v}.tar.gz.sha256
+tar -xzpf chronicle-selfhost-{v}.tar.gz
+cd chronicle-selfhost-{v}/selfhost
+
+# 2. Answer the setup questions (domain, TLS mode, dashboard password; secrets are generated)
+./chronicle setup
+
+# 3. Check the host, pull the images and start
+./chronicle up
+
+# 4. Confirm the server is exposed as intended, then check backups and health
+./chronicle verify
+./chronicle doctor
+```
+
+The dashboard is on the private listener, e.g. `https://127.0.0.1:8081/chronicle` over an SSH
+tunnel. The public domain serves only the phones. Full guide: `selfhost/README.md` in the bundle,
+section "Quick start".
+
+To replace an existing installation and discard its data, first follow
+`selfhost/docs/UNINSTALL-DATA-DELETION.md`, section "Remove the application and all installation
+storage".
+
+## Updating an existing installation
+
+From the current installation'"'"'s `selfhost/` directory:
+
+```bash
+./chronicle update
+```
+
+It downloads this release, verifies it, takes a verified backup, and upgrades in place.
+
+## What changed
+
+See `CHANGELOG.md` in the bundle, section [{v}].
+""")
 ' "$release" "$notes_dir/notes.md"
 bundle="build/releases/chronicle-selfhost-${release#v}.tar.gz"
 run gh release create "$release" --repo "$public_repo" --target "$public_revision" \
