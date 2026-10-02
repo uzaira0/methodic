@@ -7,6 +7,17 @@ would sort below the day's release, so `./chronicle update` would refuse it.
 
 ## [Unreleased]
 
+## [2026.10.3]
+
+Self-host bundle fix for 2026.10.2. Server, dashboard and Android build 67 are unchanged from 2026.10.2;
+install 2026.10.3 instead of 2026.10.2. Upgrading from 2026.10.1 or earlier: read the 2026.10.2 notes
+below first (log file rotation, disk space for V111).
+
+### Self-host
+- The 2026.10.2 configuration check failed on the new `CHRONICLE_RECORD_STAFF_IP` setting, so
+  `./chronicle up` and updates to 2026.10.2 refused to start. The check now knows the backend reads
+  the setting directly.
+
 ## [2026.10.2]
 
 Server and Android build 67. iOS changes are not in this release.
