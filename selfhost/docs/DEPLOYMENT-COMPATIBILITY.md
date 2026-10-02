@@ -83,6 +83,7 @@ The dashboard is the frontend image of the same release; it is never mixed acros
 
 | Server release | Android build shipped with it | Server change the app depends on |
 |---|---|---|
+| 2026.10.2 | versionCode 67 (Play internal) | V113 accepts the access-missing diagnostic; an older server rejects it and the app keeps it until the server is upgraded |
 | 2026.10.1 | versionCode 66 (Play internal); needs Android 8.0 or newer | none |
 | 2026.9.30 | versionCode 65 (not uploaded to Play; replaced by 66) | none |
 | 2026.9.29 | versionCode 64 (Play internal) | none (V108/V109 are server-side: erased diagnostics and purged data cannot be re-inserted by a device replay; new tables are encrypted automatically because self-host makes `tde_heap` the database default) |

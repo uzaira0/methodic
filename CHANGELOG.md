@@ -7,6 +7,51 @@ would sort below the day's release, so `./chronicle update` would refuse it.
 
 ## [Unreleased]
 
+## [2026.10.2]
+
+Server and Android build 67. iOS changes are not in this release.
+
+### Server
+- Participant IP addresses are no longer stored or logged. This covers the app, enrollment, form links
+  and reviewer access. Audit rows and log lines show `ip:[withheld]`.
+- Dashboard (staff) IP addresses are recorded only when `CHRONICLE_RECORD_STAFF_IP=true` (default
+  `false`), and then only as a keyed fingerprint.
+- V110 removes the IP addresses already stored in `audit_logs`, `study_settings_audit` and
+  `refresh_tokens`.
+- References in logs and deletion records (`participant:`, `study:`, `ip:`) are keyed with
+  `CHRONICLE_INTERNAL_WEB_SECRET`, so a copied log cannot be reversed by hashing guesses.
+  Rotating that secret changes the references.
+- iOS device names ("Alex's iPhone") are no longer stored. V111 replaces stored names with the
+  enrolled device ID, or a random ID when no device record matches. Rows of a participant with an
+  open or failed deletion are skipped; they are erased when that deletion completes. The device
+  system name column held the device name; it now holds the system name.
+- V112: the backend database role can no longer read the legacy audit tables or delete from the
+  deletion-audit outbox.
+- Saving study settings with an unchanged data collection setting no longer conflicts with the stored
+  revision history. Sets were read back in a different order after a restart.
+- V113 accepts the new `COLLECTION_ACCESS_MISSING` diagnostic. The dashboard lists it under
+  "Collection paused".
+- Metric `chronicle_api_key_source_ip_hash` removed.
+
+### Self-host operators
+- Delete or rotate backend log files and audit log files written before this release. They can hold
+  client IP addresses or unkeyed fingerprints of them. New files do not.
+- V111 rewrites every iOS sensor row once, in one transaction, before the backend starts. Free disk
+  space of at least the size of the `sensor_data` table is needed; a large iOS table extends the
+  upgrade downtime. Android-only installations have few or no such rows.
+
+### Android (open flavor, versionCode 67, 2026.10.02-internal.open.1)
+- When an accepted module lacks its Android access, the app reports it to the server. When access that
+  was granted is lost (for example, Android removes the accessibility service when the app is
+  force-stopped), the participant also gets one "Action needed" notification per loss.
+- When background data is off, or Data Saver is on without an exemption, a dialog asks the participant
+  to allow background data. Before, uploads on mobile data failed silently.
+- Overview shows "Device offline" when there is no validated network, instead of "Study server healthy".
+- A Health Connect read that did not start (no scope, client or grant) no longer fails the module and
+  delays the whole sync.
+- A step counter's first value after registration is stamped at registration time, not at the time of
+  the last step, which could be before enrollment.
+
 ## [2026.10.1]
 
 Server and Android build 66. Found by enrolling a Pixel with build 65 against a trial self-host.
