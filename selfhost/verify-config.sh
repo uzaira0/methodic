@@ -81,8 +81,8 @@ for v in $COMPOSE_PASSED; do
   # (${env:LOG_DIR:-/var/log/chronicle}), which is inside the image and not visible here.
   # CHRONICLE_EXPORT_DIR is consumed directly by ExportFileWriter for persistent managed
   # export artifacts. LOG_FORMAT is read directly by log4j2.xml. Neither passes through a
-  # rendered config template.
-  case "$v" in CHRONICLE_SERVER_*|CHRONICLE_SECURITY_*|CHRONICLE_EXPORT_DIR|POSTGRES_HOST|POSTGRES_PORT|LOG_DIR|LOG_FORMAT) continue ;; esac
+  # rendered config template. CHRONICLE_RECORD_STAFF_IP is read directly by ClientIpRecord.
+  case "$v" in CHRONICLE_SERVER_*|CHRONICLE_SECURITY_*|CHRONICLE_EXPORT_DIR|CHRONICLE_RECORD_STAFF_IP|POSTGRES_HOST|POSTGRES_PORT|LOG_DIR|LOG_FORMAT) continue ;; esac
   if ! grep -q "\${$v}" config/*.template 2>/dev/null && ! grep -q "\${$v:" backend-entrypoint.sh 2>/dev/null; then
     fail "docker-compose.yml passes $v to the backend but nothing consumes it"
   fi
