@@ -227,6 +227,7 @@ warn() { printf '  %swarn%s %s\n' "$YEL" "$RST" "$1"; }
 : "${CHRONICLE_REVIEWER_PARTICIPANT_ID:=}"
 : "${ENABLE_ENCRYPTION:=true}"
 : "${TESTING_LOGIN_ENABLED:=false}"
+: "${CHRONICLE_RECORD_STAFF_IP:=false}"
 : "${REQUIRE_MFA:=true}"
 : "${HTTP_BIND:=127.0.0.1}"
 : "${INTERNAL_BIND:=127.0.0.1}"
@@ -328,7 +329,7 @@ fi
 # MFA. Compose passes these values as strings, so validate the contract before branching.
 for flag in BACKUPS_ENABLED AUTH_OVERLAY_ENABLED MONITORING_ENABLED ENABLE_ENCRYPTION \
             TESTING_LOGIN_ENABLED REQUIRE_MFA CHRONICLE_REVIEWER_ACCESS_ENABLED \
-            MOBILE_SIGNING_ENABLED MOBILE_SIGNING_REQUIRED; do
+            MOBILE_SIGNING_ENABLED MOBILE_SIGNING_REQUIRED CHRONICLE_RECORD_STAFF_IP; do
   case "${!flag}" in
     true|false) ;;
     *) bad "${flag} must be exactly true or false (received '${!flag}')" ;;

@@ -424,6 +424,8 @@ services:
       # Consumed by config/chronicle-auth.yaml.template. Without these passthroughs the
       # entrypoint defaults win and setting them in .env silently does nothing.
       TESTING_LOGIN_ENABLED: ${TESTING_LOGIN_ENABLED:-false}
+      # Keyed fingerprint of staff IPs in audit rows and logs; participants' never recorded.
+      CHRONICLE_RECORD_STAFF_IP: ${CHRONICLE_RECORD_STAFF_IP:-false}
       # The same bcrypt hash used by Caddy is rendered into chronicle-auth.yaml so the
       # backend can exchange that password for a cookie-backed dashboard session.
       DASHBOARD_PASSWORD_HASH: ${DASHBOARD_PASSWORD_HASH:-}

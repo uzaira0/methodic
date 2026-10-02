@@ -743,6 +743,8 @@ services:
       OIDC_COOKIE_TOKEN_CLAIM: ${OIDC_COOKIE_TOKEN_CLAIM:-id_token}
       TESTING_LOGIN_ENABLED: ${TESTING_LOGIN_ENABLED:-false}
       ALLOW_PRODUCTION_TESTING_LOGIN: ${ALLOW_PRODUCTION_TESTING_LOGIN:-false}
+      # Keyed fingerprint of staff IPs in audit rows and logs; participants' never recorded.
+      CHRONICLE_RECORD_STAFF_IP: ${CHRONICLE_RECORD_STAFF_IP:-false}
       CHRONICLE_SECURITY_COOKIE_SECURE: ${CHRONICLE_SECURITY_COOKIE_SECURE:?Set CHRONICLE_SECURITY_COOKIE_SECURE=true for production auth cookies}
       # MFA enforcement via RFC 8176 amr/acr claims. Production requires true.
       # Confirm explicit mfa, pwd+possession, or an approved current-session acr.
