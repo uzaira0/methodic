@@ -141,6 +141,18 @@ BEGIN
         RAISE NOTICE 'Revoked INSERT on mobile_withdrawal_requests from chronicle_admin';
     END IF;
 
+    -- The request path only appends to the legacy audit store and only UPDATEs the
+    -- deletion-audit outbox (V112).
+    IF to_regclass('public.audit') IS NOT NULL THEN
+        REVOKE SELECT ON audit FROM chronicle_app;
+    END IF;
+    IF to_regclass('public.audit_buffer') IS NOT NULL THEN
+        REVOKE SELECT ON audit_buffer FROM chronicle_app;
+    END IF;
+    IF to_regclass('public.data_deletion_audit_outbox') IS NOT NULL THEN
+        REVOKE DELETE, TRUNCATE ON data_deletion_audit_outbox FROM chronicle_app;
+    END IF;
+
     -- DataCollection revisions are written only by the SECURITY DEFINER trigger in V93.
     -- Runtime roles may read the ledger but may never forge or destroy its evidence.
     IF EXISTS (
