@@ -27,6 +27,8 @@ for required in \
   'chronicle_restore_continuity.data_collection_settings_revisions' \
   'chronicle_restore_continuity.published_data_collection_settings' \
   'chronicle_restore_continuity.enrollment_invitations' \
+  'chronicle_restore_continuity.erased_device_key_tombstones' \
+  'participant_block_token' \
   'checkpoint_sha256' \
   'sha256(' \
   'FROM PUBLIC, chronicle_app, chronicle_admin' \
@@ -51,22 +53,24 @@ success_line="$(grep -n 'database restore complete' "$RESTORE_SCRIPT" | tail -1 
   fail "restore continuity phases could not be located"
 ((capture_line < drop_line && drop_line < restore_line && restore_line < containment_line && containment_line < success_line)) ||
   fail "restore continuity capture/containment phases are out of order"
+contract_line="$(grep -n 'SELECT contract_version FROM chronicle_restore_continuity.checkpoint' "$RESTORE_SCRIPT" | head -1 | cut -d: -f1 || true)"
+[[ -n "$contract_line" ]] && ((contract_line < drop_line)) ||
+  fail "restore does not check a reused checkpoint's contract before dropping the schema"
 
-if sed -n '/CREATE SCHEMA chronicle_restore_continuity/,/dropping the existing schema/p' "$RESTORE_SCRIPT" |
+if sed -n '/CREATE SCHEMA chronicle_restore_continuity/,/^SQL$/p' "$RESTORE_SCRIPT" |
     grep -Eq '(^|[^[:alnum:]_])(api_key|token|secret|password)([^[:alnum:]_]|$)'; then
   fail "continuity checkpoint persists credential material instead of non-secret identifiers"
 fi
 
-grep -Fq 'DROP SCHEMA chronicle_restore_continuity' "$RESTORE_SCRIPT" &&
-  fail "restore script must leave the checkpoint for server-side verified reconciliation"
+python3 "${ROOT_DIR}/tests/security/webselfhost-audit-regressions.py" AuditRegressions.test_W01_rollback_consumes_only_complete_checkpoint
 
 grep -Fq 'CHRONICLE_RESTORE_LEAVE_STOPPED=true' "$OPERATOR_CLI" ||
   fail "operator rollback does not request exact protected-evidence verification"
 for required in \
   'rollback backup already contains protected continuity evidence' \
-  'chronicle_restore_continuity.deletion_operations source' \
-  'chronicle_restore_continuity.retention_holds source' \
-  'chronicle_restore_continuity.deletion_tombstones source' \
+  "('deletion_operations', 'data_deletion_operations')" \
+  "('retention_holds', 'retention_holds')" \
+  "('deletion_tombstones', 'deletion_tombstones')" \
   'selected rollback backup predates'; do
   grep -Fq "$required" "$RESTORE_SCRIPT" ||
     fail "rollback continuity comparison omits: $required"

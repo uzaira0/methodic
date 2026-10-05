@@ -17,6 +17,46 @@ os.environ['TMPDIR'] = str(RUNS)
 tempfile.tempdir = str(RUNS)
 
 class AuditRegressions(unittest.TestCase):
+    def test_cross_S03_contract2_refused_before_drop(self):
+        source = (ROOT / 'selfhost/restore.sh').read_text()
+        branch = source.split('else\n  checkpoint_rows=', 1)[1].split('\nfi\n\n# Treat a resumed', 1)[0]
+        shell = '''set -euo pipefail
+psql_q() { if [[ "$*" == *contract_version* ]]; then printf '%s' "$CONTRACT"; else printf 1; fi; }
+checkpoint_rows=''' + branch + '\nprintf accepted > "$MARKER"\n'
+        with tempfile.TemporaryDirectory() as d:
+            for contract in ('2', '3', 'unknown'):
+                marker = Path(d) / contract
+                result = subprocess.run(['bash', '-c', shell], env={**os.environ,
+                    'CONTRACT': contract, 'MARKER': str(marker)}, capture_output=True)
+                self.assertEqual(result.returncode == 0, contract == '3', result.stderr.decode())
+                self.assertEqual(marker.exists(), contract == '3')
+
+    def test_W01_rollback_consumes_only_complete_checkpoint(self):
+        source = (ROOT / 'selfhost/restore.sh').read_text()
+        block = source[source.index('if [[ "${CHRONICLE_RESTORE_LEAVE_STOPPED'):source.index('# 7. Report')]
+        self.assertIn('DROP SCHEMA chronicle_restore_continuity', block)
+        self.assertIn('BEGIN;', block)
+        self.assertIn('COMMIT;', block)
+        canonical = re.findall(r'WITH canonical\(line\) AS \((.*?)\), digest AS \(', source, re.S)
+        self.assertEqual(len(canonical), 2)
+        self.assertEqual(re.sub(r'\s+', ' ', canonical[0]).strip(), re.sub(r'\s+', ' ', canonical[1]).strip())
+        self.assertIn('actual_digest IS DISTINCT FROM expected.checkpoint_sha256', block)
+        self.assertIn('to_jsonb(target) @> to_jsonb(source)', block)
+        for table in ('withdrawal_requests', 'revoked_api_keys', 'withdrawn_participants',
+                      'deletion_operations', 'retention_holds', 'deletion_tombstones',
+                      'data_collection_settings_revisions', 'published_data_collection_settings',
+                      'enrollment_invitations', 'erased_device_key_tombstones'):
+            self.assertIn('chronicle_restore_continuity.' + table, block)
+        with tempfile.TemporaryDirectory() as d:
+            script = Path(d) / 'rollback.sh'
+            script.write_text('set -euo pipefail\npsql_q() {\n sql=$(cat)\n [[ "$sql" == *"RAISE EXCEPTION"* && "$sql" == *"DROP SCHEMA"* ]] || exit 90\n [[ "$PROOF" == complete ]] || return 1\n printf consumed >"$MARKER"\n}\n' + block)
+            for proof in ('complete', 'unknown', 'incomplete'):
+                marker = Path(d) / proof
+                result = subprocess.run(['bash', str(script)], env={**os.environ,
+                    'CHRONICLE_RESTORE_LEAVE_STOPPED': 'true', 'PROOF': proof, 'MARKER': str(marker)}, capture_output=True)
+                self.assertEqual(result.returncode == 0, proof == 'complete')
+                self.assertEqual(marker.exists(), proof == 'complete')
+
     def test_W31_independent_monitoring_guard(self):
         source = (ROOT / 'selfhost/monitoring/render-config.sh').read_text()
         compose = (ROOT / 'selfhost/overlays/monitoring.yml').read_text()

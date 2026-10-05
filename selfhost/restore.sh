@@ -125,7 +125,8 @@ CREATE TABLE chronicle_restore_continuity.checkpoint (
     source_tombstone_count BIGINT NOT NULL,
     collection_revision_count BIGINT NOT NULL,
     published_collection_settings_count BIGINT NOT NULL,
-    enrollment_invitation_count BIGINT NOT NULL
+    enrollment_invitation_count BIGINT NOT NULL,
+    erased_device_key_tombstone_count BIGINT NOT NULL
 );
 
 CREATE TABLE chronicle_restore_continuity.withdrawal_requests AS
@@ -147,8 +148,8 @@ SELECT study_id, participant_id
 FROM public.mobile_withdrawal_requests;
 
 CREATE TABLE chronicle_restore_continuity.deletion_operations AS
-SELECT operation_id, study_id, participant_ref, participant_id, mode, status,
-       requested_by, idempotency_key, registry_version, quarantine_until,
+SELECT operation_id, study_id, participant_ref, participant_id, participant_block_token,
+       mode, status, requested_by, idempotency_key, registry_version, quarantine_until,
        completed_at, proof_hash, cancelled_by, cancelled_at
 FROM public.data_deletion_operations;
 
@@ -184,6 +185,23 @@ SELECT access_code_id, token_hash, study_id, participant_id, form_kind, resource
 FROM public.participant_form_access_codes
 WHERE form_kind = 'ENROLLMENT';
 
+-- Erasure deleted these device keys; their hashes keep answering an offline phone with its terminal
+-- status. A key enrolled after the backup exists nowhere else, so its tombstone is carried as is.
+CREATE TABLE chronicle_restore_continuity.erased_device_key_tombstones (
+    key_hash TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL
+);
+DO $$
+BEGIN
+    IF to_regclass('public.erased_device_key_tombstones') IS NOT NULL THEN
+        INSERT INTO chronicle_restore_continuity.erased_device_key_tombstones (key_hash, kind, expires_at)
+        SELECT key_hash, kind, expires_at
+        FROM public.erased_device_key_tombstones
+        WHERE expires_at > now();
+    END IF;
+END $$;
+
 WITH canonical(line) AS (
     SELECT concat_ws('|',
         'withdrawal', request_id::text, api_key_id::text, study_id::text,
@@ -202,6 +220,7 @@ WITH canonical(line) AS (
     SELECT concat_ws('|',
         'operation', operation_id::text, study_id::text,
         COALESCE(participant_ref, '<null>'), COALESCE(participant_id, '<null>'),
+        COALESCE(participant_block_token, '<null>'),
         mode, status, requested_by, idempotency_key::text, registry_version::text,
         COALESCE(to_char(quarantine_until AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'), '<null>'),
         COALESCE(to_char(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'), '<null>'),
@@ -254,6 +273,10 @@ WITH canonical(line) AS (
                      COALESCE(enrollment_enabled_modules::text, '<null>'),
                      COALESCE(enrollment_required_modules::text, '<null>'))
     FROM chronicle_restore_continuity.enrollment_invitations
+    UNION ALL
+    SELECT concat_ws('|', 'erased-device-key', key_hash, kind,
+                     to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'))
+    FROM chronicle_restore_continuity.erased_device_key_tombstones
 ), digest AS (
     SELECT encode(
         sha256(convert_to(COALESCE(string_agg(line, E'\n' ORDER BY line), ''), 'UTF8')),
@@ -266,9 +289,9 @@ INSERT INTO chronicle_restore_continuity.checkpoint (
     checkpoint_sha256, withdrawal_receipt_count, revoked_api_key_count,
     withdrawn_participant_count, deletion_operation_count, source_tombstone_count,
     collection_revision_count, published_collection_settings_count,
-    enrollment_invitation_count
+    enrollment_invitation_count, erased_device_key_tombstone_count
 )
-SELECT 2,
+SELECT 3,
        gen_random_uuid(),
        now(),
        COALESCE(
@@ -284,7 +307,8 @@ SELECT 2,
        (SELECT count(*) FROM chronicle_restore_continuity.deletion_tombstones),
        (SELECT count(*) FROM chronicle_restore_continuity.data_collection_settings_revisions),
        (SELECT count(*) FROM chronicle_restore_continuity.published_data_collection_settings),
-       (SELECT count(*) FROM chronicle_restore_continuity.enrollment_invitations)
+       (SELECT count(*) FROM chronicle_restore_continuity.enrollment_invitations),
+       (SELECT count(*) FROM chronicle_restore_continuity.erased_device_key_tombstones)
 FROM digest;
 
 REVOKE ALL ON ALL TABLES IN SCHEMA chronicle_restore_continuity
@@ -297,6 +321,17 @@ else
   [[ "$checkpoint_rows" == "1" ]] || {
     echo "  FAIL incomplete restore continuity state cannot be resumed safely" >&2
     echo "       Chronicle remains stopped; recover the existing checkpoint before retrying" >&2
+    exit 1
+  }
+  # A legacy checkpoint may omit the block token for an erased NULL-subject completion.
+  # Its binding can only be recovered against the original public operation state. Do not
+  # replace that state before a qualified reconciler has resolved the legacy checkpoint.
+  checkpoint_contract=$(psql_q -c \
+    "SELECT contract_version FROM chronicle_restore_continuity.checkpoint")
+  [[ "$checkpoint_contract" == "3" ]] || {
+    echo "  FAIL unresolved continuity checkpoint uses unsupported contract ${checkpoint_contract}" >&2
+    echo "       Chronicle remains stopped and the database is unchanged; recover it with the release that captured it" >&2
+    echo "       Legacy contract 2 must be reconciled against the original public data before retrying restore" >&2
     exit 1
   }
   echo "  --   reusing the unresolved withdrawal and erasure continuity checkpoint"
@@ -488,75 +523,155 @@ COMMIT;
 SQL
 echo "  ok   restored credentials and participants remain contained"
 
-# A previous Chronicle binary does not know how to consume the transient checkpoint. Permit
-# `restore --no-start` only when the selected backup already contains every immutable receipt,
-# operation, hold, and tombstone captured before the restore. This makes an ordinary immediate
-# upgrade rollback possible while refusing a time-travel rollback that would discard later
-# withdrawal or erasure evidence. The checkpoint remains for a current binary to verify again.
+# Consume only a complete contract-3 checkpoint whose every fact is already protected
+# by the rollback dump. Proof and consumption are one owner transaction. Unsupported,
+# missing, corrupt, or newer evidence stays available to the current backend reconciler.
 if [[ "${CHRONICLE_RESTORE_LEAVE_STOPPED:-false}" == true ]]; then
   echo "  --   verifying rollback backup already contains protected continuity evidence"
-  unresolved_continuity=$(psql_q -c "
-    SELECT
-      (SELECT count(*)
-       FROM chronicle_restore_continuity.withdrawal_requests source
-       LEFT JOIN public.mobile_withdrawal_requests target
-         ON target.request_id = source.request_id
-        AND target.api_key_id = source.api_key_id
-        AND target.study_id = source.study_id
-        AND target.participant_id = source.participant_id
-        AND target.device_id = source.device_id
-        AND target.already_withdrawn = source.already_withdrawn
-        AND target.created_at = source.created_at
-       WHERE target.request_id IS NULL) +
-      (SELECT count(*)
-       FROM chronicle_restore_continuity.deletion_operations source
-       LEFT JOIN public.data_deletion_operations target
-        ON target.operation_id = source.operation_id
-        AND target.study_id = source.study_id
-        AND target.participant_ref IS NOT DISTINCT FROM source.participant_ref
-        AND target.participant_id IS NOT DISTINCT FROM source.participant_id
-        AND target.mode = source.mode
-        AND target.status = source.status
-        AND target.requested_by = source.requested_by
-        AND target.idempotency_key = source.idempotency_key
-        AND target.registry_version = source.registry_version
-        AND target.quarantine_until IS NOT DISTINCT FROM source.quarantine_until
-        AND target.completed_at IS NOT DISTINCT FROM source.completed_at
-        AND target.proof_hash IS NOT DISTINCT FROM source.proof_hash
-        AND target.cancelled_by IS NOT DISTINCT FROM source.cancelled_by
-        AND target.cancelled_at IS NOT DISTINCT FROM source.cancelled_at
-       WHERE target.operation_id IS NULL) +
-      (SELECT count(*)
-       FROM chronicle_restore_continuity.retention_holds source
-       LEFT JOIN public.retention_holds target
-         ON target.hold_id = source.hold_id
-        AND target.operation_id = source.operation_id
-        AND target.study_id = source.study_id
-        AND target.reason = source.reason
-        AND target.created_by = source.created_by
-        AND target.created_at = source.created_at
-        AND target.review_at = source.review_at
-        AND target.released_by IS NOT DISTINCT FROM source.released_by
-        AND target.released_at IS NOT DISTINCT FROM source.released_at
-        AND target.release_reason IS NOT DISTINCT FROM source.release_reason
-       WHERE target.hold_id IS NULL) +
-      (SELECT count(*)
-       FROM chronicle_restore_continuity.deletion_tombstones source
-       LEFT JOIN public.data_deletion_tombstones target
-         ON target.operation_id = source.operation_id
-        AND target.study_ref = source.study_ref
-        AND target.participant_ref IS NOT DISTINCT FROM source.participant_ref
-        AND target.mode = source.mode
-        AND target.registry_version = source.registry_version
-        AND target.completed_at = source.completed_at
-        AND target.proof_hash = source.proof_hash
-       WHERE target.operation_id IS NULL)
-  ")
-  if [[ "$unresolved_continuity" != "0" ]]; then
-    echo "  FAIL selected rollback backup predates ${unresolved_continuity} protected withdrawal/erasure fact(s)" >&2
-    echo "       Chronicle remains stopped; start only the current release so it can reconcile the checkpoint" >&2
-    exit 1
-  fi
+  psql_q <<'SQL' >/dev/null
+BEGIN;
+DO $$
+DECLARE expected record; actual_digest TEXT; pair record;
+        captured BIGINT; unresolved_continuity BIGINT; predicate TEXT;
+BEGIN
+    IF (SELECT count(*) FROM chronicle_restore_continuity.checkpoint) <> 1 THEN
+        RAISE EXCEPTION 'Incomplete continuity checkpoint';
+    END IF;
+    SELECT * INTO STRICT expected FROM chronicle_restore_continuity.checkpoint
+    WHERE contract_version = 3;
+    IF expected.withdrawal_receipt_count <> (SELECT count(*) FROM chronicle_restore_continuity.withdrawal_requests) OR
+        expected.revoked_api_key_count <> (SELECT count(*) FROM chronicle_restore_continuity.revoked_api_keys) OR
+        expected.withdrawn_participant_count <> (SELECT count(*) FROM chronicle_restore_continuity.withdrawn_participants) OR
+        expected.deletion_operation_count <> (SELECT count(*) FROM chronicle_restore_continuity.deletion_operations) OR
+        expected.source_tombstone_count <> (SELECT count(*) FROM chronicle_restore_continuity.deletion_tombstones) OR
+        expected.collection_revision_count <> (SELECT count(*) FROM chronicle_restore_continuity.data_collection_settings_revisions) OR
+        expected.published_collection_settings_count <> (SELECT count(*) FROM chronicle_restore_continuity.published_data_collection_settings) OR
+        expected.enrollment_invitation_count <> (SELECT count(*) FROM chronicle_restore_continuity.enrollment_invitations) OR
+        expected.erased_device_key_tombstone_count <> (SELECT count(*) FROM chronicle_restore_continuity.erased_device_key_tombstones) THEN
+        RAISE EXCEPTION 'Incomplete continuity checkpoint counts';
+    END IF;
+    WITH canonical(line) AS (
+    SELECT concat_ws('|',
+        'withdrawal', request_id::text, api_key_id::text, study_id::text,
+        participant_id, device_id::text, already_withdrawn::text,
+        to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'))
+    FROM chronicle_restore_continuity.withdrawal_requests
+    UNION ALL
+    SELECT concat_ws('|',
+        'revoked-key', key_id::text, study_id::text,
+        COALESCE(participant_id, '<null>'), COALESCE(device_id::text, '<null>'))
+    FROM chronicle_restore_continuity.revoked_api_keys
+    UNION ALL
+    SELECT concat_ws('|', 'withdrawn', study_id::text, participant_id)
+    FROM chronicle_restore_continuity.withdrawn_participants
+    UNION ALL
+    SELECT concat_ws('|',
+        'operation', operation_id::text, study_id::text,
+        COALESCE(participant_ref, '<null>'), COALESCE(participant_id, '<null>'),
+        COALESCE(participant_block_token, '<null>'),
+        mode, status, requested_by, idempotency_key::text, registry_version::text,
+        COALESCE(to_char(quarantine_until AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'), '<null>'),
+        COALESCE(to_char(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'), '<null>'),
+        COALESCE(proof_hash, '<null>'), COALESCE(cancelled_by, '<null>'),
+        COALESCE(to_char(cancelled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'), '<null>'))
+    FROM chronicle_restore_continuity.deletion_operations
+    UNION ALL
+    SELECT concat_ws('|',
+        'hold', hold_id::text, operation_id::text, study_id::text, reason,
+        created_by, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+        to_char(review_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+        COALESCE(released_by, '<null>'),
+        COALESCE(to_char(released_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'), '<null>'),
+        COALESCE(release_reason, '<null>'))
+    FROM chronicle_restore_continuity.retention_holds
+    UNION ALL
+    SELECT concat_ws('|',
+        'tombstone', operation_id::text, study_ref,
+        COALESCE(participant_ref, '<null>'), mode, registry_version::text,
+        to_char(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+        proof_hash)
+    FROM chronicle_restore_continuity.deletion_tombstones
+    UNION ALL
+    SELECT concat_ws('|', 'collection-revision', study_id::text, settings_version::text,
+                     setting::text,
+                     to_char(issued_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'))
+    FROM chronicle_restore_continuity.data_collection_settings_revisions
+    UNION ALL
+    SELECT concat_ws('|', 'published-collection-settings', study_id::text,
+                     settings_version::text, setting::text)
+    FROM chronicle_restore_continuity.published_data_collection_settings
+    UNION ALL
+    SELECT concat_ws('|', 'enrollment-invitation', access_code_id::text,
+                     encode(token_hash, 'hex'), study_id::text, participant_id, form_kind,
+                     COALESCE(resource_id::text, '<null>'), COALESCE(logical_date::text, '<null>'),
+                     issuer_type, issued_by,
+                     to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+                     COALESCE(to_char(exchanged_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'), '<null>'),
+                     COALESCE(to_char(revoked_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'), '<null>'),
+                     to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+                     COALESCE(enrollment_attempt_id::text, '<null>'),
+                     COALESCE(enrollment_source_device_hash, '<null>'),
+                     COALESCE(enrollment_device_id::text, '<null>'),
+                     COALESCE(enrollment_manifest_digest, '<null>'),
+                     COALESCE(enrollment_request_hash, '<null>'),
+                     COALESCE(enrollment_proposed_key_hash, '<null>'),
+                     COALESCE(to_char(enrollment_replay_expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'), '<null>'),
+                     COALESCE(enrollment_settings_version::text, '<null>'),
+                     COALESCE(enrollment_disclosure_version, '<null>'),
+                     COALESCE(enrollment_enabled_modules::text, '<null>'),
+                     COALESCE(enrollment_required_modules::text, '<null>'))
+    FROM chronicle_restore_continuity.enrollment_invitations
+    UNION ALL
+    SELECT concat_ws('|', 'erased-device-key', key_hash, kind,
+                     to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'))
+    FROM chronicle_restore_continuity.erased_device_key_tombstones
+), digest AS (
+    SELECT encode(
+        sha256(convert_to(COALESCE(string_agg(line, E'\n' ORDER BY line), ''), 'UTF8')),
+        'hex'
+    ) AS value
+    FROM canonical
+)
+SELECT value INTO actual_digest FROM digest;
+    IF actual_digest IS DISTINCT FROM expected.checkpoint_sha256 THEN
+        RAISE EXCEPTION 'Corrupt continuity checkpoint digest';
+    END IF;
+    FOR pair IN SELECT * FROM (VALUES
+        ('withdrawal_requests', 'mobile_withdrawal_requests'),
+        ('revoked_api_keys', 'api_keys'),
+        ('withdrawn_participants', 'study_participants'),
+        ('deletion_operations', 'data_deletion_operations'),
+        ('retention_holds', 'retention_holds'),
+        ('deletion_tombstones', 'deletion_tombstones'),
+        ('data_collection_settings_revisions', 'data_collection_settings_revisions'),
+        ('published_data_collection_settings', 'studies'),
+        ('enrollment_invitations', 'participant_form_access_codes'),
+        ('erased_device_key_tombstones', 'erased_device_key_tombstones')
+    ) AS tables(source_name, target_name) LOOP
+        EXECUTE format('SELECT count(*) FROM chronicle_restore_continuity.%I', pair.source_name) INTO captured;
+        IF captured = 0 THEN CONTINUE; END IF;
+        IF to_regclass('public.' || pair.target_name) IS NULL THEN
+            RAISE EXCEPTION 'selected rollback backup predates protected table %', pair.target_name;
+        END IF;
+        predicate := 'to_jsonb(target) @> to_jsonb(source)';
+        IF pair.source_name = 'revoked_api_keys' THEN
+            predicate := predicate || ' AND target.revoked';
+        ELSIF pair.source_name = 'withdrawn_participants' THEN
+            predicate := predicate || ' AND target.participation_status = ''NOT_ENROLLED''';
+        ELSIF pair.source_name = 'published_data_collection_settings' THEN
+            predicate := 'target.study_id = source.study_id AND target.settings -> ''DataCollection'' = source.setting';
+        END IF;
+        EXECUTE format('SELECT count(*) FROM chronicle_restore_continuity.%I source WHERE NOT EXISTS
+            (SELECT 1 FROM public.%I target WHERE %s)', pair.source_name, pair.target_name, predicate)
+        INTO unresolved_continuity;
+        IF unresolved_continuity <> 0 THEN
+            RAISE EXCEPTION 'selected rollback backup predates % protected continuity fact(s)', unresolved_continuity;
+        END IF;
+    END LOOP;
+END $$;
+DROP SCHEMA chronicle_restore_continuity CASCADE;
+COMMIT;
+SQL
   echo "  ok   rollback backup already contains all protected continuity evidence"
 fi
 

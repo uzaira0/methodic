@@ -198,6 +198,19 @@ The old backend is now paired with the exact pre-upgrade schema and data. Keep b
 upgrade dump and the restore service's `pre-restore-*.sql.gz` safety dump until the incident
 is resolved.
 
+### A restore checkpoint left by release 2026.10.3 or earlier
+
+An unresolved contract-2 checkpoint cannot prove the participant binding for every completed
+deletion. The guarded restore command refuses it before dropping or replacing public data;
+the original public operation records remain available for a qualified recovery. Preserve
+that database state, checkpoint, and restore lock. Have a qualified maintainer reconcile the
+legacy checkpoint against the original public records before retrying restore. Do not infer
+bindings from fingerprints or invent a participant identifier or block token. After the
+checkpoint has been safely reconciled, re-review the selected dump and its digest, then retry
+with the required `--trusted-sha256=...` value. If the evidence cannot be reconciled, keep the
+system stopped and preserve the records for the maintainer; do not clear the checkpoint or
+overwrite the source data with another backup.
+
 ## PostgreSQL major upgrades
 
 PostgreSQL data directories are not compatible across major versions. The automatic command
