@@ -155,8 +155,8 @@ services:
       config-guard:
         condition: service_completed_successfully
 
-  # Certificate material for Caddy. Runs as root because its whole job is fixing ownership
-  # and modes that Caddy -- root, but with cap_drop: ALL -- cannot work around.
+  # Certificate material for Caddy. Runs as root because its job is fixing ownership and
+  # modes that the unprivileged edge process cannot change.
   cert-init:
     image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE to the digest-pinned release image from .env.example}
     restart: "no"
@@ -186,6 +186,31 @@ services:
     depends_on:
       config-guard:
         condition: service_completed_successfully
+
+  # Existing named volumes were created by earlier root-running Caddy releases. Fix only
+  # their ownership before starting the now-unprivileged edge process; this one-shot helper
+  # is the only root process that needs write access to these two volumes.
+  caddy-storage-init:
+    image: ${CADDY_IMAGE:?set CADDY_IMAGE to the digest-pinned release image from .env.example}
+    restart: "no"
+    logging: *default-logging
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command: ["mkdir -p /data /config; chown -R 10001:0 /data /config"]
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN"]
+    read_only: true
+    tmpfs: ["/tmp:size=8m,mode=1777"]
+    mem_limit: 64m
+    pids_limit: 32
+    depends_on:
+      config-guard:
+        condition: service_completed_successfully
+
 
   # Encryption at rest, before the backend exists. Running this ahead of Flyway rather than
   # after it is the reason `docker compose up -d` can replace `./chronicle up`: init-tde.sh
@@ -387,6 +412,10 @@ services:
       - FOWNER
       - SETGID
       - SETUID
+    read_only: true
+    tmpfs:
+      - "/tmp:size=64m,mode=1777"
+      - "/var/run/postgresql:size=8m,mode=3775,uid=26,gid=26"
     mem_limit: ${POSTGRES_MEM_LIMIT:-2g}
     pids_limit: 512
     healthcheck:
@@ -596,6 +625,11 @@ services:
     # parse the rate_limit block in caddy/snippets.caddy.
     image: ${CADDY_IMAGE:?set CADDY_IMAGE to the digest-pinned release image from .env.example}
     restart: unless-stopped
+    user: "10001:0"
+    # Reaps orphans. The HTTPS healthcheck's busybox wget forks ssl_client, which outlives it;
+    # under Caddy as PID 1 each one stayed a zombie, filling pids_limit in about two hours
+    # (unhealthy web, then no thread for Caddy).
+    init: true
     logging: *default-logging
     environment:
       # Caddy resolves all four at parse time. DASHBOARD_* are used only by the internal
@@ -649,6 +683,8 @@ services:
       # Certificates and their permissions. Caddy exits at parse time on an unreadable key,
       # so this must be settled before it starts, not repaired after.
       cert-init:
+        condition: service_completed_successfully
+      caddy-storage-init:
         condition: service_completed_successfully
     healthcheck:
       # Probe the internal listener, not :80. Only the behind-proxy variant has a port-only

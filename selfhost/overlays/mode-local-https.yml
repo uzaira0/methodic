@@ -49,6 +49,8 @@ services:
   ca-export:
     image: ${CADDY_IMAGE:?set CADDY_IMAGE to the digest-pinned release image from .env.example}
     restart: "no"
+    # This one-shot process writes the generated public CA beside the operator's compose file.
+    user: "0:0"
     logging:
       driver: json-file
       options:
@@ -66,6 +68,8 @@ services:
       - no-new-privileges:true
     cap_drop: ["ALL"]
     cap_add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
+    read_only: true
+    tmpfs: ["/tmp:size=8m,mode=1777"]
     mem_limit: 64m
     pids_limit: 32
     depends_on:

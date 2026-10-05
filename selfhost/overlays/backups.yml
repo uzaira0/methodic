@@ -61,6 +61,8 @@ services:
     # to write into the operator-owned 0700 ./backups.
     cap_drop: ["ALL"]
     cap_add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_DB: ${POSTGRES_DB:-chronicle}

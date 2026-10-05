@@ -152,6 +152,7 @@ services:
   metrics-exporter:
     image: ${CADDY_IMAGE:?set CADDY_IMAGE to the digest-pinned release image}
     restart: unless-stopped
+    user: "10001:0"
     logging: *default-logging
     command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
     volumes:
@@ -160,9 +161,8 @@ services:
     expose: ["9090"]
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
-    cap_add: ["NET_BIND_SERVICE"]
     read_only: true
-    tmpfs: ["/config:size=8m,mode=0700", "/data:size=8m,mode=0700"]
+    tmpfs: ["/config:size=8m,mode=0700,uid=10001,gid=0", "/data:size=8m,mode=0700,uid=10001,gid=0"]
     mem_limit: ${METRICS_EXPORTER_MEM_LIMIT:-64m}
     pids_limit: 64
     healthcheck:

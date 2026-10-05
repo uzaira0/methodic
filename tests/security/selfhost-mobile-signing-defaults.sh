@@ -158,4 +158,9 @@ fi
 grep -Fq '"${CHRONICLE_PUBLIC_BASE_URL}"' "$ENTRYPOINT" ||
   fail "entrypoint CORS origins omit a distinct canonical public application origin"
 
+# An OutOfMemoryError must end the JVM so the restart policy recovers it, as prod's
+# JAVA_TOOL_OPTIONS does; a half-dead backend otherwise keeps answering its healthcheck.
+sed -n '/^exec java /,/ChronicleServer/p' "$ENTRYPOINT" | grep -Fq -- '-XX:+ExitOnOutOfMemoryError' ||
+  fail "self-host backend JVM must exit on OutOfMemoryError"
+
 printf 'self-host mobile-signing defaults test passed\n'

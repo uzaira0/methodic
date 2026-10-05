@@ -173,6 +173,67 @@ def check_w52() -> None:
     assert "CADDY_TRUSTED_PROXIES" in docs and "right" in docs.lower()
 
 
+def check_w54() -> None:
+    dockerfile = read("selfhost/Dockerfile.caddy")
+    assert re.search(r"^USER 10001:0$", dockerfile, re.M), "Caddy image must default to the edge UID"
+    assert "chown -R 10001:0 /data /config" in dockerfile
+
+    compose = yaml.safe_load(read("selfhost/docker-compose.yml"))
+    services = compose["services"]
+    web = services["web"]
+    init = services["caddy-storage-init"]
+    assert web["user"] == "10001:0"
+    assert "ALL" in web["cap_drop"] and "NET_BIND_SERVICE" in web["cap_add"]
+    assert web["read_only"] is True
+    assert web["depends_on"]["caddy-storage-init"]["condition"] == "service_completed_successfully"
+    assert init["user"] == "0:0" and init["cap_drop"] == ["ALL"]
+    assert init["cap_add"] == ["CHOWN"] and init["read_only"] is True
+    assert "chown -R 10001:0 /data /config" in " ".join(init["command"])
+    assert {"caddy_data:/data", "caddy_config:/config"}.issubset(set(init["volumes"]))
+
+    monitoring = yaml.safe_load(read("selfhost/overlays/monitoring.yml"))["services"]["metrics-exporter"]
+    assert monitoring["user"] == "10001:0"
+    assert "ALL" in monitoring["cap_drop"] and not monitoring.get("cap_add")
+    assert any("uid=10001,gid=0" in mount for mount in monitoring["tmpfs"])
+
+    cert_init = read("selfhost/cert-init.sh")
+    assert 'chown "${TLS_OWNER}:0" "$1"' in cert_init
+    assert 'protect "$TLS_DIR/key.pem" 640' in cert_init
+    assert 'protect "$KEY" 640' in cert_init
+    for overlay in (
+        "selfhost/overlays/mode-behind-proxy-internal.yml",
+        "selfhost/overlays/mode-own-tls-internal.yml",
+        "selfhost/overlays/mode-local-https.yml",
+    ):
+        content = yaml.safe_load(read(overlay))["services"]
+        assert "cert-init" in content and "web" in content, overlay
+        assert any(":/etc/caddy/certs:ro" in volume for volume in content["web"]["volumes"]), overlay
+    local_export = yaml.safe_load(read("selfhost/overlays/mode-local-https.yml"))["services"]["ca-export"]
+    assert local_export["user"] == "0:0", "host certificate export remains a privileged one-shot"
+
+
+def check_w55() -> None:
+    compose = yaml.safe_load(read("selfhost/docker-compose.yml"))["services"]
+    postgres = compose["postgres"]
+    assert postgres["read_only"] is True
+    assert "postgres_data:/data/db" in postgres["volumes"]
+    assert "postgres_tde_keyring:/var/lib/postgresql/tde-keyring" in postgres["volumes"]
+    postgres_tmpfs = postgres["tmpfs"]
+    assert any(mount.startswith("/tmp:size=") for mount in postgres_tmpfs)
+    assert any(mount.startswith("/var/run/postgresql:size=") for mount in postgres_tmpfs)
+    assert all("size=" in mount for mount in postgres_tmpfs)
+
+    backup = yaml.safe_load(read("selfhost/overlays/backups.yml"))["services"]["db-backup"]
+    assert backup["read_only"] is True
+    assert any(mount.startswith("/tmp:size=") for mount in backup["tmpfs"])
+    assert "${CHRONICLE_STATE_DIR:-.}/backups:/backups" in backup["volumes"]
+
+    ca_export = yaml.safe_load(read("selfhost/overlays/mode-local-https.yml"))["services"]["ca-export"]
+    assert ca_export["read_only"] is True
+    assert any(mount.startswith("/tmp:size=") for mount in ca_export["tmpfs"])
+    assert "${CHRONICLE_STATE_DIR:-.}/tls:/out" in ca_export["volumes"]
+
+
 def check_w56() -> None:
     builder = ast.parse(read("scripts/build-selfhost-release.py"))
     main = next(node for node in builder.body if isinstance(node, ast.FunctionDef) and node.name == "main")
@@ -194,6 +255,17 @@ def check_w56() -> None:
         and node.iter.id == "root_files"
         for node in ast.walk(main)
     ), "the bundle builder must copy every declared root inventory item"
+
+
+def check_w61() -> None:
+    compose = yaml.safe_load(read("docker/docker-compose.traefik.yml"))["services"]
+    vault = compose["vault"]
+    assert "ALL" in vault["cap_drop"]
+    assert vault["cap_add"] == ["IPC_LOCK"]
+    socket_proxy = compose["docker-socket-proxy"]
+    assert 1 <= socket_proxy["pids_limit"] <= 128
+    assert socket_proxy["environment"]["POST"] == 0
+    assert "/var/run/docker.sock:/var/run/docker.sock:ro" in socket_proxy["volumes"]
 
 
 def check_w76() -> None:
@@ -321,7 +393,10 @@ CHECKS = {
     "W16": check_w16,
     "W51": check_w51,
     "W52": check_w52,
+    "W54": check_w54,
+    "W55": check_w55,
     "W56": check_w56,
+    "W61": check_w61,
     "W76": check_w76,
     "W79": check_w79,
     "CROSS-S02": check_cross_s02,

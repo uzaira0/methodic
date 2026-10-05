@@ -268,6 +268,7 @@ find "$RENDERED" -maxdepth 1 -type f -name '*.yaml' -exec basename {} \; | sort 
 exec java $CHRONICLE_SERVER_XMS $CHRONICLE_SERVER_XMX \
   -Xss512k -XX:MetaspaceSize=128m -XX:MaxMetaspaceSize=256m \
   -XX:+UseStringDeduplication -XX:MaxGCPauseMillis=200 \
+  -XX:+ExitOnOutOfMemoryError \
   -Dlog4j2.formatMsgNoLookups=true \
   -Djava.io.tmpdir=/server/scratch \
   -cp "${RENDERED}:/server/lib/*" \

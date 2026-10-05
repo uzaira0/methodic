@@ -130,7 +130,7 @@ monitoring = monitoring_text == "true"
 config = json.loads(Path(config_path).read_text(encoding="utf-8"))
 services = config.get("services", {})
 
-expected = {"config-guard", "cert-init", "db-init", "export-init", "postgres", "backend", "frontend", "web"}
+expected = {"config-guard", "cert-init", "caddy-storage-init", "db-init", "export-init", "postgres", "backend", "frontend", "web"}
 if mode == "mode-local-https.yml":
     expected.add("ca-export")
 if backups:

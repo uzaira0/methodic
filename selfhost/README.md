@@ -419,7 +419,9 @@ This is one shared password for the whole dashboard, not per-user accounts.
 on the wire in clear, so the internal listener always runs HTTPS. The `cert-init` service
 generates a self-signed certificate with the right SANs if none exists; add more names with
 `INTERNAL_CERT_SANS`. Browsers will warn until you trust it; to use a real certificate,
-replace `tls/internal-cert.pem` and `tls/internal-key.pem` and it will be left alone.
+replace `tls/internal-cert.pem` and `tls/internal-key.pem` (a plain `cp` works) and it will be
+left alone as long as the two files are a matching certificate and key. A pair that does not
+parse or match is renamed to `*.invalid` and a new self-signed pair is generated.
 
 Startup refuses to bring anything up if the password hash is missing or is not a bcrypt
 hash, or if the allowlist is empty — any of which would mean no gate at all.

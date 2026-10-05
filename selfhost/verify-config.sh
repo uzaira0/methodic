@@ -338,6 +338,13 @@ else
   ok "enrollment manifests use the configured canonical public HTTPS origin"
 fi
 
+if awk '/^  [a-z-]+:$/ { in_web = ($1 == "web:") } in_web && /^    init: true$/ { found = 1 } END { exit !found }' docker-compose.yml
+then
+  ok "web runs an init that reaps its HTTPS healthcheck's helper processes"
+else
+  fail "web has no init: zombie ssl_client processes from its healthcheck exhaust pids_limit"
+fi
+
 if grep -Fq 'SAN="${SAN},DNS:${DOMAIN}"' cert-init.sh; then
   fail "internal dashboard certificate claims the participant-facing DOMAIN"
   printf '       That certificate can shadow the local-CA/public certificate on Caddy\047s HTTPS listener.\n'
