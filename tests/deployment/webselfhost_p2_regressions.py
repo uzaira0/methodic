@@ -106,6 +106,59 @@ def check_w49() -> None:
     assert package.get("devDependencies", {}).get("bun") == "1.3.12"
 
 
+def check_w50() -> None:
+    spec = importlib.util.spec_from_file_location(
+        "build_selfhost_release", ROOT / "scripts" / "build-selfhost-release.py"
+    )
+    assert spec and spec.loader
+    builder = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(builder)
+
+    scratch = Path("/home/opt/chronicle_work/launch-audit-1003/sol/testtmp")
+    scratch.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="W50-", dir=scratch) as temporary:
+        fixture_root = Path(temporary)
+        source = fixture_root / "selfhost" / "config"
+        source.mkdir(parents=True)
+        tracked = source / "config.yml"
+        untracked = source / "extra.yml"
+        tracked.write_bytes(b"same bytes\n")
+        untracked.write_bytes(tracked.read_bytes())
+        manifest = {"selfhost/config/config.yml"}
+        rejected = fixture_root / "rejected"
+        if "tracked_paths" in inspect.signature(builder.copy_tree).parameters:
+            try:
+                builder.copy_tree(
+                    source,
+                    rejected,
+                    tracked_paths=manifest,
+                    repository_root=fixture_root,
+                )
+            except SystemExit as error:
+                assert "untracked release input" in str(error)
+            else:
+                raise AssertionError("the bundle builder accepted an untracked config file")
+        else:
+            builder.copy_tree(source, rejected)
+            assert not (rejected / "extra.yml").exists(), "the bundle included an untracked config file"
+
+        untracked.unlink()
+        first = fixture_root / "first"
+        second = fixture_root / "second"
+        for destination in (first, second):
+            builder.copy_tree(
+                source,
+                destination,
+                tracked_paths=manifest,
+                repository_root=fixture_root,
+            )
+        assert sorted(path.name for path in first.iterdir()) == ["config.yml"]
+        assert (first / "config.yml").read_bytes() == (second / "config.yml").read_bytes()
+    source = read("scripts/build-selfhost-release.py")
+    assert "tracked_paths = tracked_source_paths(ROOT)" in source
+    assert source.count("tracked_paths=tracked_paths") >= 5
+
+
 def check_w51() -> None:
     compose = yaml.safe_load(read("selfhost/docker-compose.yml"))
     subnet = "${CHRONICLE_SUBNET:-172.28.0.0/16}"
@@ -401,6 +454,7 @@ CHECKS = {
     "W13": check_w13,
     "W16": check_w16,
     "W49": check_w49,
+    "W50": check_w50,
     "W51": check_w51,
     "W52": check_w52,
     "W54": check_w54,

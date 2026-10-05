@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import tarfile
 import tempfile
 
@@ -77,7 +78,48 @@ def resolve_within(root: Path, candidate: Path, *, strict: bool, description: st
     return resolved_candidate
 
 
-def copy_tree(source: Path, destination: Path) -> None:
+def require_committed_release_source(root: Path, revision: str) -> None:
+    """Bind the claimed source revision to the bytes eligible for this bundle."""
+    head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                          check=True, capture_output=True, text=True).stdout.strip()
+    if revision != head:
+        fail("release source revision does not match HEAD")
+    inputs = ["selfhost", "docker/init-db-roles.sql", "LICENSE", "THIRD-PARTY.md", "CHANGELOG.md", "SECURITY.md"]
+    state = subprocess.run(["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no", "--", *inputs],
+                           check=True, capture_output=True, text=True).stdout
+    if state.strip():
+        fail("refusing modified tracked release inputs; release source must be committed")
+
+
+def tracked_source_paths(root: Path) -> set[str]:
+    """Return the repository index manifest used to define release source inputs."""
+    result = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "--full-name", "-z"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0:
+        fail("could not read the tracked release source manifest")
+    return {path.decode("utf-8") for path in result.stdout.split(b"\0") if path}
+
+
+def require_tracked(path: Path, repository_root: Path, tracked_paths: set[str]) -> None:
+    try:
+        relative = path.resolve(strict=True).relative_to(repository_root.resolve(strict=True))
+    except (OSError, ValueError):
+        fail(f"release source is outside the repository: {path}")
+    if relative.as_posix() not in tracked_paths:
+        fail(f"refusing untracked release input: {relative.as_posix()}")
+
+
+def copy_tree(
+    source: Path,
+    destination: Path,
+    *,
+    tracked_paths: set[str],
+    repository_root: Path = ROOT,
+) -> None:
     source_root = source.resolve(strict=True)
     destination_root = destination.resolve(strict=False)
     # Containers bind-mount these directories (config/ as the backend user); mkdir alone
@@ -101,6 +143,7 @@ def copy_tree(source: Path, destination: Path) -> None:
             target.mkdir(parents=True, exist_ok=True)
             target.chmod(0o755)
         elif path.is_file():
+            require_tracked(path, repository_root, tracked_paths)
             target.parent.mkdir(parents=True, exist_ok=True)
             with safe_source.open("rb") as source_handle, target.open("xb") as target_handle:
                 shutil.copyfileobj(source_handle, target_handle)
@@ -125,6 +168,8 @@ def add_to_tar(archive: tarfile.TarFile, path: Path, arcname: str, epoch: int) -
 
 def main() -> None:
     args = parse_args()
+    require_committed_release_source(ROOT, args.source_revision)
+    tracked_paths = tracked_source_paths(ROOT)
     version_match = VERSION_RE.fullmatch(args.version)
     if not version_match:
         fail("--version must be a semantic release version such as v1.2.3 or v1.2.3-rc.1")
@@ -170,11 +215,11 @@ def main() -> None:
         bundle.chmod(0o755)
         (bundle / "selfhost").mkdir(mode=0o755)
         (bundle / "selfhost").chmod(0o755)
-        copy_tree(SELFHOST / "caddy", bundle / "selfhost" / "caddy")
-        copy_tree(SELFHOST / "config", bundle / "selfhost" / "config")
-        copy_tree(SELFHOST / "docs", bundle / "selfhost" / "docs")
-        copy_tree(SELFHOST / "monitoring", bundle / "selfhost" / "monitoring")
-        copy_tree(SELFHOST / "overlays", bundle / "selfhost" / "overlays")
+        copy_tree(SELFHOST / "caddy", bundle / "selfhost" / "caddy", tracked_paths=tracked_paths)
+        copy_tree(SELFHOST / "config", bundle / "selfhost" / "config", tracked_paths=tracked_paths)
+        copy_tree(SELFHOST / "docs", bundle / "selfhost" / "docs", tracked_paths=tracked_paths)
+        copy_tree(SELFHOST / "monitoring", bundle / "selfhost" / "monitoring", tracked_paths=tracked_paths)
+        copy_tree(SELFHOST / "overlays", bundle / "selfhost" / "overlays", tracked_paths=tracked_paths)
 
         root_files = [
             ".env.example",
@@ -203,6 +248,7 @@ def main() -> None:
             source = SELFHOST / name
             if not source.is_file() or source.is_symlink():
                 fail(f"required bundle input is missing or unsafe: {source}")
+            require_tracked(source, ROOT, tracked_paths)
             target = bundle / "selfhost" / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, target)
@@ -223,11 +269,14 @@ def main() -> None:
         docker_dir.mkdir(mode=0o755)
         docker_dir.chmod(0o755)
         role_sql = ROOT / "docker" / "init-db-roles.sql"
+        require_tracked(role_sql, ROOT, tracked_paths)
         shutil.copyfile(role_sql, docker_dir / role_sql.name)
         (docker_dir / role_sql.name).chmod(0o644)
         # Operators read release notes and the vulnerability-reporting policy offline.
         for name in ("LICENSE", "THIRD-PARTY.md", "CHANGELOG.md", "SECURITY.md"):
-            shutil.copyfile(ROOT / name, bundle / name)
+            source = ROOT / name
+            require_tracked(source, ROOT, tracked_paths)
+            shutil.copyfile(source, bundle / name)
             (bundle / name).chmod(0o644)
 
         env_path = bundle / "selfhost" / ".env.example"

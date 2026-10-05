@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 BUILDER="${ROOT_DIR}/scripts/build-selfhost-release.py"
+SOURCE_REVISION="$(git -C "$ROOT_DIR" rev-parse HEAD)"
 RUN_PARENT="${SELFHOST_RELEASE_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-release}"
 BACKEND_IMAGE='ghcr.io/example/chronicle-backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 FRONTEND_IMAGE='ghcr.io/example/chronicle-selfhost-frontend@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
@@ -62,7 +63,7 @@ build_bundle() {
   /bin/mkdir -p "$output_dir"
   "$BUILDER" \
     --version v9.8.7-test.1 \
-    --source-revision 0123456789abcdef0123456789abcdef01234567 \
+    --source-revision "$SOURCE_REVISION" \
     --public-revision fedcba9876543210fedcba9876543210fedcba98 \
     --source-date-epoch 1700000000 \
     --backend-image "$BACKEND_IMAGE" \
@@ -76,7 +77,7 @@ build_bundle "${RUN_DIR}/second"
 
 "$BUILDER" \
   --version v9.8.7-private-registry.1 \
-  --source-revision 0123456789abcdef0123456789abcdef01234567 \
+  --source-revision "$SOURCE_REVISION" \
   --source-date-epoch 1700000000 \
   --backend-image "$PRIVATE_REGISTRY_IMAGE" \
   --frontend-image "$FRONTEND_IMAGE" \
@@ -299,7 +300,7 @@ grep -Fq "IF (SELECT key_name FROM pg_tde_key_info()) IS NULL THEN" \
   "${BUNDLE}/selfhost/init-tde.sh" \
   || fail "bundle would reset a rotated TDE principal key during db-init"
 
-python3 - "$BUNDLE" <<'PY'
+python3 - "$BUNDLE" "$SOURCE_REVISION" <<'PY'
 import hashlib
 import json
 from pathlib import Path
@@ -309,7 +310,7 @@ bundle = Path(sys.argv[1])
 manifest = json.loads((bundle / "release-manifest.json").read_text(encoding="utf-8"))
 assert manifest["schema_version"] == 1
 assert manifest["release_version"] == "9.8.7-test.1"
-assert manifest["source_revision"] == "0123456789abcdef0123456789abcdef01234567"
+assert manifest["source_revision"] == sys.argv[2]
 for relative, expected in manifest["files"].items():
     actual = hashlib.sha256((bundle / relative).read_bytes()).hexdigest()
     if actual != expected:
@@ -372,7 +373,7 @@ fi
 set +e
 "$BUILDER" \
   --version v9.8.8 \
-  --source-revision 0123456789abcdef0123456789abcdef01234567 \
+  --source-revision "$SOURCE_REVISION" \
   --source-date-epoch 1700000000 \
   --backend-image ghcr.io/example/chronicle-backend:latest \
   --frontend-image "$FRONTEND_IMAGE" \
@@ -390,7 +391,7 @@ for invalid_version in v01.2.3 v1.2.3-01 v1.2.3-rc.; do
   set +e
   "$BUILDER" \
     --version "$invalid_version" \
-    --source-revision 0123456789abcdef0123456789abcdef01234567 \
+    --source-revision "$SOURCE_REVISION" \
     --source-date-epoch 1700000000 \
     --backend-image "$BACKEND_IMAGE" \
     --frontend-image "$FRONTEND_IMAGE" \
@@ -407,7 +408,7 @@ overflow_dir="${RUN_DIR}/invalid-source-date"
 set +e
 "$BUILDER" \
   --version v9.8.9 \
-  --source-revision 0123456789abcdef0123456789abcdef01234567 \
+  --source-revision "$SOURCE_REVISION" \
   --source-date-epoch 4294967296 \
   --backend-image "$BACKEND_IMAGE" \
   --frontend-image "$FRONTEND_IMAGE" \
