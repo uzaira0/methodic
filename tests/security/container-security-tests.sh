@@ -67,6 +67,8 @@ for c in data:
     net_mode = c.get('HostConfig',{}).get('NetworkMode','')
     mem = c.get('HostConfig',{}).get('Memory', 0) or 0
     mounts = json.dumps(c.get('Mounts',[]))
+    export_dir = next((entry.split('=', 1)[1] for entry in c.get('Config', {}).get('Env', [])
+                       if entry.startswith('CHRONICLE_EXPORT_DIR=')), '')
     safe = name.replace('-','_')
     print(f'declare -- _user_{safe}={shlex.quote(user)}')
     print(f'declare -- _capdrop_{safe}={shlex.quote(cap_drop)}')
@@ -77,6 +79,7 @@ for c in data:
     print(f'declare -- _netmode_{safe}={shlex.quote(net_mode)}')
     print(f'declare -- _mem_{safe}={shlex.quote(str(mem))}')
     print(f'declare -- _mounts_{safe}={shlex.quote(mounts)}')
+    print(f'declare -- _exportdir_{safe}={shlex.quote(export_dir)}')
 " 2>/dev/null)" 2>/dev/null || true
 unset _INSPECT_JSON
 
@@ -308,27 +311,37 @@ for m in mounts:
   done
 
   if [[ "$container" == *backend* ]]; then
+    export_dir=$(_cget exportdir "$container")
+    runtime_user=$(_cget user "$container")
+    if [[ -z "$export_dir" || "$export_dir" != /* || "$export_dir" == / ]]; then
+      fail "$container — CHRONICLE_EXPORT_DIR must name an absolute export directory"
+      continue
+    fi
+    if [[ -z "$runtime_user" || "$runtime_user" == root* || "$runtime_user" == 0 || "$runtime_user" == 0:* ]]; then
+      runtime_user=$(docker exec "$container" sh -c "awk '/^Uid:/ {print \$2}' /proc/1/status" 2>/dev/null || true)
+    fi
     if echo "$mounts_json" | python3 -c "
 import json, sys
 mounts = json.loads(sys.stdin.read())
 matches = [
     mount for mount in mounts
-    if mount.get('Destination') == '/var/lib/chronicle/exports'
+    if mount.get('Destination') == sys.argv[1]
 ]
 if len(matches) != 1:
     raise SystemExit(1)
 mount = matches[0]
 if mount.get('Type') not in {'volume', 'bind'} or not mount.get('RW', False):
     raise SystemExit(1)
-" 2>/dev/null; then
+" "$export_dir" 2>/dev/null; then
       pass "$container — export artifacts use one writable persistent mount"
     else
       fail "$container — export artifacts need one writable volume/bind mount"
     fi
-    if docker exec -u chronicle "$container" test -w /var/lib/chronicle/exports 2>/dev/null; then
-      pass "$container — chronicle runtime user can write the export mount"
+    if [[ -n "$runtime_user" && "$runtime_user" != root && "$runtime_user" != 0 ]] &&
+       docker exec -u "$runtime_user" "$container" test -w "$export_dir" 2>/dev/null; then
+      pass "$container — runtime user can write the export mount"
     else
-      fail "$container — chronicle runtime user cannot write the export mount"
+      fail "$container — runtime user cannot write the export mount"
     fi
   fi
 

@@ -13,3 +13,13 @@ d7174661e8186a0f7c5bb727b8fcf15bc6c41e35:app/src/release/google-services.json:gc
 # Accepted 2026-08-26: explicit sentinel used by the upload-diagnostic redaction
 # unit test to prove credential-shaped input is never emitted.
 3527cccce9b10c1373de30b32b66e6ded8cd0bda:app/src/test/java/com/openlattice/chronicle/collection/upload/UploadTelemetryRedactionTest.kt:generic-api-key:29
+
+# Accepted 2026-10-03: supplied audited synthetic fixture fingerprints only.
+# Deterministic payload bytes and explicit negative-test sentinels are not runtime credentials.
+167ff8340f8e4d0ccd3a34d1157fca2ed81fde55:app/src/test/java/com/openlattice/chronicle/collection/upload/UploadTelemetryRedactionTest.kt:generic-api-key:29
+167ff8340f8e4d0ccd3a34d1157fca2ed81fde55:collection-base/src/androidTest/java/com/openlattice/chronicle/storage/EnrollmentReplayDaoTest.kt:generic-api-key:124
+167ff8340f8e4d0ccd3a34d1157fca2ed81fde55:collection-base/src/androidTest/java/com/openlattice/chronicle/storage/EnrollmentReplayDaoTest.kt:generic-api-key:227
+ce2e9f5a90e4502d99fb93df7e88e717ba6d19d8:collection-base/src/androidTest/java/com/openlattice/chronicle/storage/EnrollmentReplayDaoTest.kt:generic-api-key:124
+ce2e9f5a90e4502d99fb93df7e88e717ba6d19d8:collection-base/src/androidTest/java/com/openlattice/chronicle/storage/EnrollmentReplayDaoTest.kt:generic-api-key:227
+f2658a1ce187803d1ddf0aa8fdcc9fcb20bff461:collection-base/src/androidTest/java/com/openlattice/chronicle/storage/EnrollmentReplayDaoTest.kt:generic-api-key:124
+f2658a1ce187803d1ddf0aa8fdcc9fcb20bff461:collection-base/src/androidTest/java/com/openlattice/chronicle/storage/EnrollmentReplayDaoTest.kt:generic-api-key:227

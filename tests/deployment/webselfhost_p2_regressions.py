@@ -449,6 +449,63 @@ def check_w68() -> None:
         assert rejected.returncode != 0 and not marker.exists()
 
 
+def check_w67() -> None:
+    manifest = yaml.safe_load(read("toolchain-manifest.yaml"))
+    expected = {
+        f'{manifest[section]["image"]}@{manifest[section]["index_digest"]}'
+        for section in ("postgres", "keycloak_postgres")
+    }
+    expected.update(manifest["selfhost_images"].values())
+    assert expected and all(re.fullmatch(r"[^\s@]+@sha256:[0-9a-f]{64}", image) for image in expected)
+
+    publisher = read("scripts/publish-images.sh")
+    assert "--ignore-unfixed" not in publisher, "unfixed high/critical advisories must not be implicitly waived"
+    scan_at = publisher.index('run bash "$root/scripts/scan-selfhost-release-images.sh"')
+    push_at = publisher.index("stamp push")
+    assert scan_at < push_at < publisher.index('run docker push "$backend"')
+    ignore = yaml.safe_load(read(".trivyignore.yaml"))["vulnerabilities"]
+    assert ignore and all(item.get("paths") and item.get("statement") and item.get("expired_at") for item in ignore)
+
+    helper = ROOT / "scripts" / "scan-selfhost-release-images.sh"
+    scratch = Path("/home/opt/chronicle_work/launch-audit-1003/sol/testtmp")
+    scratch.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="W67-", dir=scratch) as temporary:
+        fixture = Path(temporary)
+        bin_dir = fixture / "bin"
+        bin_dir.mkdir()
+        log = fixture / "trivy.log"
+        stub = bin_dir / "trivy"
+        stub.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "printf '%s\\n' \"$*\" >> \"$TRIVY_LOG\"\n"
+            "for argument in \"$@\"; do\n"
+            "  if [[ -n \"${TRIVY_FAIL_IMAGE:-}\" && \"$argument\" == \"$TRIVY_FAIL_IMAGE\" ]]; then exit 1; fi\n"
+            "done\n",
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["TRIVY_LOG"] = str(log)
+        passed = subprocess.run(
+            ["bash", str(helper)], cwd=ROOT, env=env, check=False,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        assert passed.returncode == 0, passed.stderr
+        scanned = [line.split()[-1] for line in log.read_text(encoding="utf-8").splitlines()]
+        assert scanned == sorted(expected), (scanned, sorted(expected))
+
+        log.unlink()
+        env["TRIVY_FAIL_IMAGE"] = sorted(expected)[0]
+        failed = subprocess.run(
+            ["bash", str(helper)], cwd=ROOT, env=env, check=False,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        assert failed.returncode != 0, "a HIGH/CRITICAL scanner failure must stop release scanning"
+        assert len(log.read_text(encoding="utf-8").splitlines()) == 1
+
+
 def check_w48() -> None:
     publisher = read("scripts/publish-images.sh")
     assert "for tool in docker gh git python3 trivy syft; do" in publisher
@@ -640,6 +697,7 @@ CHECKS = {
     "W55": check_w55,
     "W56": check_w56,
     "W61": check_w61,
+    "W67": check_w67,
     "W48": check_w48,
     "W68": check_w68,
     "W76": check_w76,

@@ -114,7 +114,7 @@ build_image() { # build_image <context dir> <dockerfile in context> <tag> [docke
 # right after its build, smallest first, so a finding fails the run before the next build.
 scan_image() {
   stamp "scan $1"
-  run trivy image --quiet --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+  run trivy image --quiet --scanners vuln --severity HIGH,CRITICAL --exit-code 1 \
     --skip-db-update --skip-java-db-update --ignorefile "$root/.trivyignore.yaml" "$1"
 }
 stamp "build $caddy"
@@ -128,6 +128,8 @@ stamp "build $backend"
 build_image . docker/Dockerfile.backend "$backend" \
   --build-arg "VCS_REF=$revision" --build-arg "SOURCE_REF=$release"
 scan_image "$backend"
+stamp 'scan release runtime dependencies'
+run bash "$root/scripts/scan-selfhost-release-images.sh"
 stamp push
 run docker push "$backend"
 run docker push "$frontend"

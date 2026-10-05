@@ -29,3 +29,15 @@ dd2d95e3bbb3286bca14ca6a17e723603db7b197:docker/rhizome-docker.yaml:generic-api-
 b5beb75d1fe671a76d526caa951fe2b28fbe1ecf:backups/20260225_095434/manifest.json:generic-api-key:8
 b5beb75d1fe671a76d526caa951fe2b28fbe1ecf:backups/20260226_020001/manifest.json:generic-api-key:8
 b5beb75d1fe671a76d526caa951fe2b28fbe1ecf:backups/20260227_020001/manifest.json:generic-api-key:8
+
+# Accepted 2026-10-03: supplied audited synthetic fixture fingerprints only.
+# Deterministic payload bytes and explicit negative-test sentinels are not runtime credentials.
+1837e1075e90470a5e8fd0bb2643a96312918ee2:tests/security/selfhost-deletion-status.sh:generic-api-key:49
+1837e1075e90470a5e8fd0bb2643a96312918ee2:tests/security/selfhost-deletion-status.sh:generic-api-key:50
+1837e1075e90470a5e8fd0bb2643a96312918ee2:tests/security/selfhost-deletion-status.sh:generic-api-key:55
+42f716cd59dda05f05f1372fb2ca24dc734acd14:tests/security/selfhost-deletion-status.sh:generic-api-key:47
+42f716cd59dda05f05f1372fb2ca24dc734acd14:tests/security/selfhost-deletion-status.sh:generic-api-key:48
+42f716cd59dda05f05f1372fb2ca24dc734acd14:tests/security/selfhost-deletion-status.sh:generic-api-key:53
+53fd926e60a7b6343d64bc8a91a6d3b3cfe9f051:tests/security/selfhost-deletion-status.sh:generic-api-key:47
+53fd926e60a7b6343d64bc8a91a6d3b3cfe9f051:tests/security/selfhost-deletion-status.sh:generic-api-key:48
+53fd926e60a7b6343d64bc8a91a6d3b3cfe9f051:tests/security/selfhost-deletion-status.sh:generic-api-key:53

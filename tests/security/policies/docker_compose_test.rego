@@ -3,12 +3,24 @@ package main
 import rego.v1
 
 base_service := {
-	"image": "example.invalid/service:v1.0.0",
+	"image": "example.invalid/service:v1.0.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 	"mem_limit": "128m",
 	"healthcheck": {"test": ["CMD", "true"]},
 	"security_opt": ["no-new-privileges:true"],
 	"environment": {},
 	"volumes": [],
+}
+
+test_mutable_tag_is_denied if {
+	service := object.union(base_service, {"image": "example.invalid/service:v1.0.0"})
+	findings := deny with input as {"services": {"app": service}}
+	count(findings) == 1
+}
+
+test_local_build_image_is_accepted if {
+	service := object.union(base_service, {"image": "chronicle-backend:local"})
+	findings := deny with input as {"services": {"app": service}}
+	count(findings) == 0
 }
 
 test_native_compose_memory_limit_is_accepted if {

@@ -498,6 +498,7 @@ download_asset() {
   local output="$2"
   require_cmd curl
   curl -fsSL \
+    --max-time 60 \
     --retry 5 \
     --retry-all-errors \
     --retry-delay 2 \
@@ -849,7 +850,7 @@ ensure_detekt() {
   local version="1.23.7"
   local jar="$LOCAL_BIN_DIR/detekt-cli-${version}-all.jar"
   local sha256="84beded283012cb2b38bcaef4996452fcd6069d2e9ca74b50eaa79e0ad21897e"
-  curl -fsSL --retry 3 \
+  curl -fsSL --connect-timeout 20 --max-time 120 --retry-max-time 120 --retry 3 \
     "https://github.com/detekt/detekt/releases/download/v${version}/detekt-cli-${version}-all.jar" \
     -o "$jar"
   sha256_check "$sha256" "$jar"
@@ -1005,35 +1006,45 @@ job_dependency_sbom() {
   gradle :chronicle-server:cyclonedxBom --no-daemon
 }
 
+# Inventory the shipped roots, including nested overlays and init scripts.
+deployment_files() {
+  rg --files --hidden "$ROOT_DIR/docker" "$ROOT_DIR/selfhost" "$ROOT_DIR/k8s" \
+    -g 'Dockerfile*' -g '*.sh' -g chronicle -g 'docker-compose*.yml' -g 'docker-compose*.yaml' \
+    -g '**/selfhost/overlays/*.yml' -g '**/selfhost/overlays/*.yaml' -g 'kustomization.yaml' | sort
+}
+
 job_dockerfile_lint() {
   ensure_hadolint
-  hadolint "$ROOT_DIR/docker/Dockerfile.backend"
-  hadolint "$ROOT_DIR/docker/Dockerfile.frontend.prod"
+  local target
+  while IFS= read -r target; do
+    [[ "${target##*/}" == Dockerfile* ]] || continue
+    hadolint "$target" || return $?
+  done < <(deployment_files)
 }
 
 job_iac_scan() {
   prepare_checkov_runtime
-  local dockerfile_report compose_report checkov_tmp
-  dockerfile_report="$(report_path "$ROOT_DIR/checkov-dockerfile.sarif" "checkov-dockerfile.sarif")"
-  compose_report="$(report_path "$ROOT_DIR/checkov-compose.sarif" "checkov-compose.sarif")"
-  checkov_tmp="$(mktemp -d)"
-
-  checkov -d "$ROOT_DIR/docker" \
-    --framework dockerfile \
-    --quiet \
-    --skip-download \
-    --output sarif \
-    --output-file-path "$checkov_tmp/dockerfile"
-  cp "$checkov_tmp/dockerfile/results_sarif.sarif" "$dockerfile_report"
-
-  checkov -f "$ROOT_DIR/docker/docker-compose.traefik.yml" \
-    --framework yaml \
-    --quiet \
-    --skip-download \
-    --output sarif \
-    --output-file-path "$checkov_tmp/compose"
-  cp "$checkov_tmp/compose/results_sarif.sarif" "$compose_report"
-  rm -rf "$checkov_tmp"
+  require_cmd shellcheck
+  require_cmd conftest
+  require_cmd kustomize
+  conftest verify --policy "$ROOT_DIR/tests/security/policies" || return $?
+  local target rendered status
+  while IFS= read -r target; do
+    case "${target##*/}" in
+      Dockerfile*)
+        checkov -f "$target" --framework dockerfile --quiet --skip-download || return $? ;;
+      *.sh|chronicle)
+        shellcheck -S warning "$target" || return $? ;;
+      kustomization.yaml)
+        [[ "$target" == "$ROOT_DIR/k8s/overlays/"* ]] || continue
+        rendered="$(mktemp)"
+        kustomize build "${target%/*}" >"$rendered" || { status=$?; rm -f "$rendered"; return "$status"; }
+        checkov -f "$rendered" --framework kubernetes --quiet --skip-download || { status=$?; rm -f "$rendered"; return "$status"; }
+        rm -f "$rendered" ;;
+      *.yml|*.yaml)
+        conftest test "$target" --policy "$ROOT_DIR/tests/security/policies" || return $? ;;
+    esac
+  done < <(deployment_files)
 }
 
 job_license_compliance() {
@@ -1252,7 +1263,7 @@ job_http_smoke_stack() {
   # A first boot applies the full Flyway corpus onto encrypted tables. Keep this
   # bounded, but allow enough time for a cold runner rather than racing startup.
   for i in $(seq 1 60); do
-    if curl -sf --max-time 10 "${backend_url}/chronicle/internal/health/ready" >/dev/null 2>&1; then
+    if curl -sf --connect-timeout 3 --max-time 10 "${backend_url}/chronicle/internal/health/ready" >/dev/null 2>&1; then
       break
     fi
     if [[ "$i" -eq 60 ]]; then
@@ -1265,6 +1276,7 @@ job_http_smoke_stack() {
 
   metrics_password=$(<"$secrets_dir/chronicle_security_metrics_password")
   metrics_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+    --connect-timeout 3 --max-time 10 \
     --user "chronicle-metrics:$metrics_password" \
     "${backend_url}/prometheus/" 2>/dev/null || true)
   if [[ "$metrics_status" != "200" ]]; then
@@ -1275,7 +1287,7 @@ job_http_smoke_stack() {
 
   log "waiting for frontend"
   for i in $(seq 1 12); do
-    if curl -sf "${frontend_url}/health" >/dev/null 2>&1; then
+    if curl -sf --connect-timeout 3 --max-time 10 "${frontend_url}/health" >/dev/null 2>&1; then
       break
     fi
     if [[ "$i" -eq 12 ]]; then
@@ -1307,11 +1319,10 @@ job_parity() {
 
 job_android_unit() {
   require_jdk21
-  log "Android unit tests (library modules + app play-debug variant)"
-  # Library modules (collection-*, including the collection-contracts boundary
-  # gate) expose testDebugUnitTest; the flavored app module exposes
-  # testPlayDebugUnitTest. Together this runs every JVM unit test in the repo.
-  (cd "$ROOT_DIR/chronicle" && ./gradlew testDebugUnitTest testPlayDebugUnitTest --no-daemon --build-cache)
+  bash "$ROOT_DIR/tests/security/run-all-security.sh" sast || return $?
+  (cd "$ROOT_DIR/chronicle" && ./gradlew :app:checkLicense --no-daemon) || return $?
+  log "Android unit tests (library modules + open/research app variants)"
+  (cd "$ROOT_DIR/chronicle" && ./gradlew testDebugUnitTest :app:testOpenDebugUnitTest :app:testResearchDebugUnitTest --no-daemon --build-cache)
 }
 
 job_ios_verify() {

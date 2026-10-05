@@ -11,10 +11,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 BUILDER="${ROOT_DIR}/scripts/build-selfhost-release.py"
 RUN_PARENT="${SELFHOST_SMOKE_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-release-smoke}"
 BACKEND_IMAGE="${SELFHOST_SMOKE_BACKEND_IMAGE:-}"
-# Backend the "previous" bundle runs. Point it at the last published release's digest
-# (release-manifest.json images.backend) so the upgrade applies real Flyway steps; empty
-# keeps the previous and current bundles on the same backend.
-PREVIOUS_BACKEND_IMAGE="${SELFHOST_SMOKE_PREVIOUS_BACKEND_IMAGE:-$BACKEND_IMAGE}"
+# Backend the "previous" bundle runs. When a published previous-release archive is
+# supplied, its manifest pin is used unless SELFHOST_SMOKE_PREVIOUS_BACKEND_IMAGE overrides it.
+PREVIOUS_BACKEND_IMAGE="${SELFHOST_SMOKE_PREVIOUS_BACKEND_IMAGE:-}"
 FRONTEND_IMAGE="${SELFHOST_SMOKE_FRONTEND_IMAGE:-}"
 CADDY_IMAGE="${SELFHOST_SMOKE_CADDY_IMAGE:-}"
 MONITORING="${SELFHOST_SMOKE_MONITORING:-true}"
@@ -23,6 +22,24 @@ SMOKE_PASSWORD='chronicle-smoke-only-password'
 fail() {
   echo "self-host release smoke failed: $*" >&2
   exit 1
+}
+
+run_container_security_audit() { # <report-path>
+  local report="$1" status
+  if COMPOSE_PROJECT="$PROJECT" "${ROOT_DIR}/tests/security/container-security-tests.sh" \
+      >"$report" 2>&1; then
+    container_security_audit=pass
+    return 0
+  else
+    status=$?
+  fi
+  container_security_audit=fail
+  cat "$report" >&2
+  fail "container security audit failed (exit ${status}); see ${report}"
+}
+
+bounded_curl() { # Every smoke HTTP request has a short connection and total deadline.
+  curl --connect-timeout 5 --max-time 15 "$@"
 }
 
 for command in docker jq python3 sha256sum tar; do
@@ -59,10 +76,15 @@ OLD_BUNDLE=""
 NEW_BUNDLE=""
 PROJECT=""
 SMOKE_PASSED=false
+UPDATE_SERVER_PID=""
 
 cleanup() {
   local original_status=$?
   set +e
+  if [[ -n "$UPDATE_SERVER_PID" ]]; then
+    kill "$UPDATE_SERVER_PID" 2>/dev/null || true
+    wait "$UPDATE_SERVER_PID" 2>/dev/null || true
+  fi
   if [[ -n "$BUNDLE" && -d "$BUNDLE" && -n "$PROJECT" ]]; then
     (
       cd "$BUNDLE" || exit 0
@@ -99,6 +121,116 @@ is_immutable_image() {
   [[ "$1" =~ @sha256:[0-9a-f]{64}$ ]]
 }
 
+inspect_release_archive() { # <archive> <sha256-sidecar> -> version, source revision, backend pin
+  python3 - "$1" "$2" <<'PY'
+import hashlib
+import json
+from pathlib import Path, PurePosixPath
+import re
+import sys
+import tarfile
+
+archive_path, checksum_path = map(Path, sys.argv[1:])
+if not archive_path.is_file() or archive_path.is_symlink():
+    raise SystemExit("previous release archive must be a regular file")
+if not checksum_path.is_file() or checksum_path.is_symlink():
+    raise SystemExit("previous release SHA-256 sidecar must be a regular file")
+match = re.fullmatch(r"([0-9a-f]{64}) [ *]" + re.escape(archive_path.name) + r"\n?",
+                     checksum_path.read_text(encoding="ascii"))
+if not match:
+    raise SystemExit("previous release sidecar must name exactly its archive")
+digest = hashlib.sha256()
+with archive_path.open("rb") as handle:
+    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        digest.update(chunk)
+if digest.hexdigest() != match.group(1):
+    raise SystemExit("previous release archive checksum does not match its sidecar")
+with tarfile.open(archive_path, "r:gz") as archive:
+    members = archive.getmembers()
+    if len(members) > 20000 or sum(member.size for member in members) > 2 * 1024 * 1024 * 1024:
+        raise SystemExit("previous release archive exceeds the supported inventory bounds")
+    manifests = [member for member in members
+                 if member.name.endswith("/release-manifest.json") and member.isfile()]
+    if len(manifests) != 1:
+        raise SystemExit("previous release archive must contain one release manifest")
+    manifest_member = manifests[0]
+    root = manifest_member.name.removesuffix("/release-manifest.json")
+    manifest = json.load(archive.extractfile(manifest_member))
+    version = manifest.get("release_version")
+    revision = manifest.get("source_revision")
+    backend = manifest.get("images", {}).get("backend", "")
+    if not isinstance(version, str) or not re.fullmatch(
+            r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+            r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+            r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?", version):
+        raise SystemExit("previous release manifest has an invalid version")
+    if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise SystemExit("previous release manifest has an invalid source revision")
+    if not isinstance(backend, str) or not backend or "\t" in backend:
+        raise SystemExit("previous release manifest has no safe backend image pin")
+    if archive_path.name != f"{root}.tar.gz":
+        raise SystemExit("previous release archive name does not match its bundle root")
+    for member in members:
+        path = PurePosixPath(member.name)
+        if (path.is_absolute() or ".." in path.parts or not path.parts or path.parts[0] != root
+                or not (member.isdir() or member.isfile())):
+            raise SystemExit("previous release archive contains an unsafe member")
+        if any(part == ".env" or part.endswith((".pem", ".key", ".jks", ".p12"))
+               or part == "signing.properties" for part in path.parts):
+            raise SystemExit("previous release archive contains runtime-only material")
+    operator = [member for member in members
+                if member.name == f"{root}/selfhost/chronicle" and member.isfile()]
+    if len(operator) != 1 or not operator[0].mode & 0o111:
+        raise SystemExit("previous release archive is missing its executable operator CLI")
+print("\t".join((version, revision, backend)))
+PY
+}
+
+latest_changelog_version() {
+  python3 - "$ROOT_DIR/CHANGELOG.md" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+    match = re.fullmatch(r"## \[([^]]+)\](?:\s+.*)?", line)
+    if match and match[1] != "Unreleased":
+        print(match[1])
+        break
+else:
+    raise SystemExit("CHANGELOG.md has no released version for the current bundle")
+PY
+}
+
+version_is_newer() { # <candidate> <baseline>
+  python3 - "$1" "$2" <<'PY'
+import re
+import sys
+
+version_re = re.compile(
+    r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
+    r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
+)
+
+
+def key(version):
+    match = version_re.fullmatch(version)
+    if not match:
+        raise SystemExit(f"invalid semantic version: {version!r}")
+    prerelease = match.group(4)
+    parts = []
+    for part in prerelease.split(".") if prerelease else []:
+        if part.isdigit() and len(part) > 1 and part.startswith("0"):
+            raise SystemExit(f"invalid numeric prerelease identifier: {part!r}")
+        parts.append((0, int(part)) if part.isdigit() else (1, part))
+    return (*map(int, match.group(1, 2, 3)), (0, *parts) if prerelease else (1,))
+
+
+raise SystemExit(0 if key(sys.argv[1]) > key(sys.argv[2]) else 1)
+PY
+}
+
 # Local development images may be tags. The release builder correctly refuses those, so
 # use synthetic immutable references in the artifact manifest and then replace only the
 # extracted .env runtime references. CI passes real registry digests and takes no such
@@ -116,12 +248,31 @@ is_immutable_image "$BUILDER_CADDY_IMAGE" ||
 REVISION="$(git -C "$ROOT_DIR" rev-parse HEAD)"
 SOURCE_DATE_EPOCH="$(git -C "$ROOT_DIR" show -s --format=%ct "$REVISION")"
 ARTIFACT_DIR="${RUN_DIR}/artifacts"
-OLD_VERSION='0.0.0-smoke.0'
-NEW_VERSION='0.0.0-smoke.1'
-OLD_ARCHIVE="${ARTIFACT_DIR}/chronicle-selfhost-${OLD_VERSION}.tar.gz"
+PREVIOUS_RELEASE_ARCHIVE="${SELFHOST_SMOKE_PREVIOUS_RELEASE_ARCHIVE:-}"
+PREVIOUS_RELEASE_SHA256_FILE="${SELFHOST_SMOKE_PREVIOUS_RELEASE_SHA256_FILE:-${PREVIOUS_RELEASE_ARCHIVE}.sha256}"
+if [[ -n "$PREVIOUS_RELEASE_ARCHIVE" ]]; then
+  previous_metadata="$(inspect_release_archive "$PREVIOUS_RELEASE_ARCHIVE" "$PREVIOUS_RELEASE_SHA256_FILE")" ||
+    fail "the supplied previous release artifact did not pass verification"
+  IFS=$'\t' read -r OLD_VERSION OLD_SOURCE_REVISION ARCHIVED_BACKEND_IMAGE <<<"$previous_metadata"
+  PREVIOUS_BACKEND_IMAGE="${PREVIOUS_BACKEND_IMAGE:-$ARCHIVED_BACKEND_IMAGE}"
+  NEW_VERSION="$(latest_changelog_version)" || fail "could not select the current release-smoke target version"
+  version_is_newer "$NEW_VERSION" "$OLD_VERSION" ||
+    fail "the selected previous release is not older than the current changelog"
+  OLD_ARCHIVE="$PREVIOUS_RELEASE_ARCHIVE"
+  OLD_SHA256_FILE="$PREVIOUS_RELEASE_SHA256_FILE"
+else
+  OLD_VERSION='0.0.0-smoke.0'
+  OLD_SOURCE_REVISION="$REVISION"
+  NEW_VERSION="$(latest_changelog_version)" || fail "could not select the current release-smoke target version"
+  PREVIOUS_BACKEND_IMAGE="${PREVIOUS_BACKEND_IMAGE:-$BACKEND_IMAGE}"
+  OLD_ARCHIVE="${ARTIFACT_DIR}/chronicle-selfhost-${OLD_VERSION}.tar.gz"
+  OLD_SHA256_FILE="${OLD_ARCHIVE}.sha256"
+fi
 NEW_ARCHIVE="${ARTIFACT_DIR}/chronicle-selfhost-${NEW_VERSION}.tar.gz"
+NEW_SHA256_FILE="${NEW_ARCHIVE}.sha256"
 
-printf 'Building and extracting source-free previous/current release archives.\n'
+printf 'Preparing a verified previous release and a source-free current release bundle.\n'
+if [[ -z "$PREVIOUS_RELEASE_ARCHIVE" ]]; then
 "$BUILDER" \
   --version "v${OLD_VERSION}" \
   --source-revision "$REVISION" \
@@ -130,6 +281,7 @@ printf 'Building and extracting source-free previous/current release archives.\n
   --frontend-image "$BUILDER_FRONTEND_IMAGE" \
   --caddy-image "$BUILDER_CADDY_IMAGE" \
   --output-dir "$ARTIFACT_DIR" >/dev/null
+fi
 "$BUILDER" \
   --version "v${NEW_VERSION}" \
   --source-revision "$REVISION" \
@@ -138,15 +290,26 @@ printf 'Building and extracting source-free previous/current release archives.\n
   --frontend-image "$BUILDER_FRONTEND_IMAGE" \
   --caddy-image "$BUILDER_CADDY_IMAGE" \
   --output-dir "$ARTIFACT_DIR" >/dev/null
-(cd "$ARTIFACT_DIR" && sha256sum -c "$(basename "${OLD_ARCHIVE}.sha256")" >/dev/null)
-(cd "$ARTIFACT_DIR" && sha256sum -c "$(basename "${NEW_ARCHIVE}.sha256")" >/dev/null)
+old_metadata="$(inspect_release_archive "$OLD_ARCHIVE" "$OLD_SHA256_FILE")" ||
+  fail "previous release artifact failed checksum or inventory verification"
+IFS=$'\t' read -r OLD_VERSION OLD_SOURCE_REVISION ARCHIVED_BACKEND_IMAGE <<<"$old_metadata"
+if [[ -z "${SELFHOST_SMOKE_PREVIOUS_BACKEND_IMAGE:-}" ]]; then
+  PREVIOUS_BACKEND_IMAGE="${PREVIOUS_BACKEND_IMAGE:-$ARCHIVED_BACKEND_IMAGE}"
+fi
+new_metadata="$(inspect_release_archive "$NEW_ARCHIVE" "$NEW_SHA256_FILE")" ||
+  fail "current release artifact failed checksum or inventory verification"
+IFS=$'\t' read -r ARCHIVED_NEW_VERSION NEW_SOURCE_REVISION _ <<<"$new_metadata"
+[[ "$ARCHIVED_NEW_VERSION" == "$NEW_VERSION" ]] || fail "current release archive has the wrong version"
+[[ "$NEW_SOURCE_REVISION" == "$REVISION" ]] || fail "current release archive has the wrong source revision"
+if [[ -n "$PREVIOUS_RELEASE_ARCHIVE" && "$OLD_SOURCE_REVISION" == "$NEW_SOURCE_REVISION" ]]; then
+  fail "the previous release archive does not have a distinct source revision"
+fi
 /bin/mkdir "${RUN_DIR}/extracted"
 # -p keeps the archive's 0755 directories under this script's umask 077; config-guard runs
 # as the postgres uid and must search the bind-mounted selfhost/ directory.
 tar -xzpf "$OLD_ARCHIVE" -C "${RUN_DIR}/extracted"
-tar -xzpf "$NEW_ARCHIVE" -C "${RUN_DIR}/extracted"
 OLD_BUNDLE="${RUN_DIR}/extracted/chronicle-selfhost-${OLD_VERSION}/selfhost"
-NEW_BUNDLE="${RUN_DIR}/extracted/chronicle-selfhost-${NEW_VERSION}/selfhost"
+NEW_BUNDLE="${ARTIFACT_DIR}/chronicle-selfhost-${NEW_VERSION}/selfhost"
 BUNDLE="$OLD_BUNDLE"
 
 RUN_DIR="$RUN_DIR" \
@@ -156,6 +319,7 @@ RUNTIME_BACKEND_IMAGE="$BACKEND_IMAGE" \
 RUNTIME_PREVIOUS_BACKEND_IMAGE="$PREVIOUS_BACKEND_IMAGE" \
 RUNTIME_FRONTEND_IMAGE="$FRONTEND_IMAGE" \
 RUNTIME_CADDY_IMAGE="$CADDY_IMAGE" \
+PREVIOUS_RELEASE_SUPPLIED="${PREVIOUS_RELEASE_ARCHIVE:+true}" \
 ENABLE_MONITORING="$MONITORING" \
 SMOKE_PASSWORD="$SMOKE_PASSWORD" \
 python3 - <<'PY'
@@ -171,6 +335,19 @@ run_dir = Path(os.environ["RUN_DIR"])
 old_bundle = Path(os.environ["OLD_BUNDLE"])
 new_bundle = Path(os.environ["NEW_BUNDLE"])
 
+# A real previous release runs its own web images: its compose and cert-init predate the
+# current images (10.3 keys are root 0600; current Caddy runs as uid 10001). Synthetic
+# previous bundles carry placeholder digests, so they keep the current local images.
+previous_web = {
+    "SELFHOST_FRONTEND_IMAGE": os.environ["RUNTIME_FRONTEND_IMAGE"],
+    "CADDY_IMAGE": os.environ["RUNTIME_CADDY_IMAGE"],
+}
+if os.environ.get("PREVIOUS_RELEASE_SUPPLIED") == "true":
+    for line in (old_bundle / ".env.example").read_text(encoding="utf-8").splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key in previous_web:
+            previous_web[key] = value
+
 
 def available_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -179,11 +356,11 @@ def available_port() -> int:
 
 
 ports: list[int] = []
-while len(ports) < 3:
+while len(ports) < 4:
     candidate = available_port()
     if candidate not in ports:
         ports.append(candidate)
-http_port, internal_port, grafana_port = ports
+http_port, internal_port, grafana_port, update_port = ports
 project = f"chronicle-release-smoke-{os.getpid()}-{secrets.token_hex(3)}"
 hashed = subprocess.check_output(
     [
@@ -227,8 +404,7 @@ values = {
     "GRAFANA_BIND": "127.0.0.1",
     "GRAFANA_PORT": str(grafana_port),
     "BACKEND_IMAGE": os.environ["RUNTIME_PREVIOUS_BACKEND_IMAGE"],
-    "SELFHOST_FRONTEND_IMAGE": os.environ["RUNTIME_FRONTEND_IMAGE"],
-    "CADDY_IMAGE": os.environ["RUNTIME_CADDY_IMAGE"],
+    **previous_web,
     "TESTING_LOGIN_ENABLED": "true",
     "REQUIRE_MFA": "false",
     "BACKUP_STARTUP_TIMEOUT_SECONDS": "180",
@@ -240,8 +416,9 @@ runtime_images = {
 }
 
 
-def use_runtime_images(bundle: Path, backend_image: str) -> None:
+def use_runtime_images(bundle: Path, backend_image: str, web: dict[str, str]) -> None:
     runtime_images["BACKEND_IMAGE"] = backend_image
+    runtime_images.update(web)
     env_path = bundle / ".env.example"
     lines = env_path.read_text(encoding="utf-8").splitlines()
     rendered = []
@@ -272,8 +449,15 @@ def use_runtime_images(bundle: Path, backend_image: str) -> None:
 # correctly rejects mutable refs. The archive checksum/source-free checks happen first;
 # only the extracted runtime fixtures are then pointed at already-built local images. CI
 # passes registry digests, so these replacements are byte-identical there.
-use_runtime_images(old_bundle, os.environ["RUNTIME_PREVIOUS_BACKEND_IMAGE"])
-use_runtime_images(new_bundle, os.environ["RUNTIME_BACKEND_IMAGE"])
+use_runtime_images(old_bundle, os.environ["RUNTIME_PREVIOUS_BACKEND_IMAGE"], previous_web)
+use_runtime_images(
+    new_bundle,
+    os.environ["RUNTIME_BACKEND_IMAGE"],
+    {
+        "SELFHOST_FRONTEND_IMAGE": os.environ["RUNTIME_FRONTEND_IMAGE"],
+        "CADDY_IMAGE": os.environ["RUNTIME_CADDY_IMAGE"],
+    },
+)
 
 lines = (old_bundle / ".env.example").read_text(encoding="utf-8").splitlines()
 rendered: list[str] = []
@@ -295,7 +479,8 @@ env_path.chmod(0o600)
     f"project={project}\n"
     f"http_port={http_port}\n"
     f"internal_port={internal_port}\n"
-    f"grafana_port={grafana_port}\n",
+    f"grafana_port={grafana_port}\n"
+    f"update_port={update_port}\n",
     encoding="utf-8",
 )
 PY
@@ -305,11 +490,65 @@ project=""
 http_port=""
 internal_port=""
 grafana_port=""
+update_port=""
 # shellcheck disable=SC1090
 source "${RUN_DIR}/smoke-metadata.txt"
-[[ -n "$project" && -n "$http_port" && -n "$internal_port" && -n "$grafana_port" ]] ||
+[[ -n "$project" && -n "$http_port" && -n "$internal_port" && -n "$grafana_port" && -n "$update_port" ]] ||
   fail "generated smoke metadata is incomplete"
 PROJECT="$project"
+
+# The current-side bundle is reached only through the old release's verified update path.
+# Repack after local-image substitution so its manifest and checksum cover exactly what the
+# isolated smoke will start.
+new_bundle_root="chronicle-selfhost-${NEW_VERSION}"
+tar -czf "$NEW_ARCHIVE" -C "$ARTIFACT_DIR" "$new_bundle_root"
+(
+  cd "$ARTIFACT_DIR"
+  sha256sum "$(basename "$NEW_ARCHIVE")" >"$(basename "$NEW_SHA256_FILE")"
+)
+repacked_metadata="$(inspect_release_archive "$NEW_ARCHIVE" "$NEW_SHA256_FILE")" ||
+  fail "current release archive failed verification after local-image substitution"
+IFS=$'\t' read -r REPACKED_VERSION REPACKED_REVISION _ <<<"$repacked_metadata"
+[[ "$REPACKED_VERSION" == "$NEW_VERSION" && "$REPACKED_REVISION" == "$REVISION" ]] ||
+  fail "repacked current release archive has the wrong identity"
+UPDATE_FIXTURE_DIR="${RUN_DIR}/release-fixture"
+/bin/mkdir -m 0700 "$UPDATE_FIXTURE_DIR"
+/bin/cp "$NEW_ARCHIVE" "$NEW_SHA256_FILE" "$UPDATE_FIXTURE_DIR/"
+RELEASES_URL="http://127.0.0.1:${update_port}/latest.json"
+RELEASE_FIXTURE_DIR="$UPDATE_FIXTURE_DIR" \
+RELEASE_PORT="$update_port" \
+RELEASE_VERSION="$NEW_VERSION" \
+python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+name = f"chronicle-selfhost-{os.environ['RELEASE_VERSION']}.tar.gz"
+base = f"http://127.0.0.1:{os.environ['RELEASE_PORT']}"
+payload = {
+    "tag_name": f"v{os.environ['RELEASE_VERSION']}",
+    "assets": [
+        {"name": name, "browser_download_url": f"{base}/{name}"},
+        {"name": f"{name}.sha256", "browser_download_url": f"{base}/{name}.sha256"},
+    ],
+    "body": "Synthetic loopback-only release smoke fixture.",
+}
+(Path(os.environ["RELEASE_FIXTURE_DIR"]) / "latest.json").write_text(
+    json.dumps(payload), encoding="utf-8"
+)
+PY
+python3 -m http.server --bind 127.0.0.1 "$update_port" --directory "$UPDATE_FIXTURE_DIR" \
+  >"${RUN_DIR}/update-server.log" 2>&1 &
+UPDATE_SERVER_PID=$!
+update_server_ready=false
+for _ in {1..20}; do
+  if bounded_curl -fsS "$RELEASES_URL" >/dev/null; then
+    update_server_ready=true
+    break
+  fi
+  sleep 0.25
+done
+[[ "$update_server_ready" == true ]] || fail "loopback update fixture did not become ready"
 
 for candidate_bundle in "$OLD_BUNDLE" "$NEW_BUNDLE"; do
   (
@@ -360,8 +599,8 @@ sentinel_marker() {
 [[ "$(sentinel_marker)" == before-upgrade ]] || fail "pre-upgrade database sentinel is missing"
 
 printf 'Exercising guarded previous-version upgrade with automatic backup.\n'
-BUNDLE="$NEW_BUNDLE"
-cd "$NEW_BUNDLE"
+BUNDLE="$OLD_BUNDLE"
+cd "$OLD_BUNDLE"
 # Exported values have higher Compose interpolation precedence than .env. Poison the
 # high-impact controls deliberately: the upgrade command must isolate them and use only the
 # validated old/new release files. Success proves it did not select the restore profile,
@@ -369,11 +608,16 @@ cd "$NEW_BUNDLE"
 DASHBOARD_PASSWORD="$SMOKE_PASSWORD" UPGRADE_WAIT_TIMEOUT_SECONDS=300 \
 COMPOSE_FILE="${RUN_DIR}/must-not-be-used.yml" COMPOSE_PROFILES=restore \
 COMPOSE_PROJECT_NAME=must-not-be-used BACKEND_IMAGE=must-not-be-used:latest \
-  ./chronicle upgrade --from "$OLD_BUNDLE"
+CHRONICLE_RELEASES_URL="$RELEASES_URL" ./chronicle update
+NEW_BUNDLE="${RUN_DIR}/extracted/chronicle-selfhost-${NEW_VERSION}/selfhost"
+[[ -x "$NEW_BUNDLE/chronicle" ]] || fail "verified update did not extract the current release operator"
+BUNDLE="$NEW_BUNDLE"
+cd "$NEW_BUNDLE"
 
 upgrade_line="$(
   OLD_BUNDLE="$OLD_BUNDLE" NEW_BUNDLE="$NEW_BUNDLE" \
   EXPECTED_VERSION="$NEW_VERSION" \
+  EXPECTED_OLD_VERSION="$OLD_VERSION" \
   EXPECTED_BACKEND_IMAGE="$BACKEND_IMAGE" \
   EXPECTED_FRONTEND_IMAGE="$FRONTEND_IMAGE" \
   EXPECTED_CADDY_IMAGE="$CADDY_IMAGE" \
@@ -412,7 +656,7 @@ receipt = receipts[0]
 payload = json.loads(receipt.read_text(encoding="utf-8"))
 if payload.get("status") != "succeeded":
     raise SystemExit(f"upgrade receipt status is {payload.get('status')!r}")
-if payload.get("from", {}).get("version") != "0.0.0-smoke.0":
+if payload.get("from", {}).get("version") != os.environ["EXPECTED_OLD_VERSION"]:
     raise SystemExit("upgrade receipt has wrong previous version")
 if payload.get("to", {}).get("version") != os.environ["EXPECTED_VERSION"]:
     raise SystemExit("upgrade receipt has wrong target version")
@@ -439,7 +683,10 @@ printf 'Changing the sentinel, then exercising the documented schema-safe rollba
 docker compose exec -T postgres /bin/bash -ceu \
   'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -qc "UPDATE upgrade_smoke_sentinel SET marker = '\''after-upgrade'\'' WHERE id = 1"'
 [[ "$(sentinel_marker)" == after-upgrade ]] || fail "post-upgrade sentinel mutation failed"
-./chronicle restore --yes --no-start "$PRE_UPGRADE_CONTAINER_PATH"
+PRE_UPGRADE_SHA256="$(sha256sum "$PRE_UPGRADE_BACKUP" | awk '{print $1}')"
+[[ "$PRE_UPGRADE_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail "pre-upgrade backup SHA-256 is unavailable"
+./chronicle restore --yes --no-start --trusted-sha256="$PRE_UPGRADE_SHA256" \
+  "$PRE_UPGRADE_CONTAINER_PATH"
 [[ ! -e "${OLD_BUNDLE}/.chronicle-restore.lock" ]] || fail "rollback restore lock was not released"
 docker compose down
 
@@ -501,11 +748,11 @@ wait_healthy_container() {
 
 if [[ "$MONITORING" == true ]]; then
   printf 'Proving the supported cAdvisor -> VictoriaMetrics -> Grafana path.\n'
-  curl -fsS "http://127.0.0.1:${grafana_port}/api/health" | jq -e '.database == "ok"' >/dev/null
+  bounded_curl -fsS "http://127.0.0.1:${grafana_port}/api/health" | jq -e '.database == "ok"' >/dev/null
   monitoring_deadline=$((SECONDS + 60))
   monitoring_target_ready=false
   while (( SECONDS < monitoring_deadline )); do
-    if docker compose exec -T grafana wget -qO- http://victoriametrics:8428/api/v1/targets \
+    if docker compose exec -T grafana wget -T 10 -qO- http://victoriametrics:8428/api/v1/targets \
       >"${RUN_DIR}/vm-targets.json" &&
       jq -e '.status == "success" and any(.data.activeTargets[]?; .health == "up" and .labels.job == "chronicle-containers")' \
         "${RUN_DIR}/vm-targets.json" >/dev/null; then
@@ -521,7 +768,7 @@ if [[ "$MONITORING" == true ]]; then
   monitoring_deadline=$((SECONDS + 60))
   monitoring_sample_ready=false
   while (( SECONDS < monitoring_deadline )); do
-    if docker compose exec -T grafana wget -qO- \
+    if docker compose exec -T grafana wget -T 10 -qO- \
       'http://victoriametrics:8428/api/v1/query?query=up%7Bjob%3D%22chronicle-containers%22%7D%20%3D%3D%201' \
       >"${RUN_DIR}/vm-query.json" &&
       jq -e '.status == "success" and (.data.result | length >= 1)' "${RUN_DIR}/vm-query.json" >/dev/null; then
@@ -599,7 +846,9 @@ verify_with_dashboard_password >/dev/null
 
 printf 'Restoring the newest generated dump into the isolated database.\n'
 restore_started=$SECONDS
-./chronicle restore --yes
+CLEAN_RESTORE_SHA256="$(sha256sum "${OLD_BUNDLE}/backups/last/chronicle-latest.sql.gz" | awk '{print $1}')"
+[[ "$CLEAN_RESTORE_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail "clean restore SHA-256 is unavailable"
+./chronicle restore --yes --trusted-sha256="$CLEAN_RESTORE_SHA256"
 clean_restore_seconds=$((SECONDS - restore_started))
 [[ ! -e "${OLD_BUNDLE}/.chronicle-restore.lock" ]] || fail "clean restore lock was not released"
 verify_with_dashboard_password >/dev/null
@@ -608,7 +857,7 @@ printf 'Checking dashboard response headers on the internal listener.\n'
 dashboard_user="$(sed -n 's/^DASHBOARD_USER=//p' .env | head -1)"
 curl_internal() { # curl_internal <path> [curl args...]
   local path="$1"; shift
-  curl -sk --max-time 10 "$@" "https://127.0.0.1:${internal_port}${path}"
+  bounded_curl -sk "$@" "https://127.0.0.1:${internal_port}${path}"
 }
 shell_headers="$(curl_internal /chronicle/ -u "${dashboard_user}:${SMOKE_PASSWORD}" -D - -o /dev/null)"
 grep -qi "^content-security-policy: default-src 'self'" <<<"$shell_headers" || fail "dashboard shell lacks a CSP"
@@ -619,11 +868,10 @@ curl_internal "$chunk_path" -u "${dashboard_user}:${SMOKE_PASSWORD}" -D - -o /de
   grep -qi '^cache-control: public, max-age=31536000, immutable' || fail "hashed chunk is not immutable"
 
 printf 'Auditing the running self-host containers.\n'
-# Recorded, not gating: the audit's dogfood-oriented checks still flag known self-host
-# container-hardening gaps tracked separately; the result lands in result.txt.
-container_security_audit=pass
-COMPOSE_PROJECT="$PROJECT" "${ROOT_DIR}/tests/security/container-security-tests.sh" \
-  >"${RUN_DIR}/container-security.txt" 2>&1 || container_security_audit=fail
+# Every applicable container contract is a release gate. The audit owns explicit N/A cases
+# for checks that genuinely do not apply to this configured self-host stack.
+container_security_audit=unrun
+run_container_security_audit "${RUN_DIR}/container-security.txt"
 
 printf 'Proving the TDE data volume is unreadable without its keyring.\n'
 postgres_query() {
@@ -682,5 +930,7 @@ grep -qx 429 <<<"$guard_codes" || fail "repeated wrong passwords were never rate
   echo "monitoring=${MONITORING}"
   [[ "$MONITORING" != true ]] || echo 'monitoring_data_path=pass'
   echo "source_revision=${REVISION}"
+  echo "previous_source_revision=${OLD_SOURCE_REVISION}"
+  echo "release_version=${NEW_VERSION}"
 } >"${RUN_DIR}/result.txt"
 SMOKE_PASSED=true

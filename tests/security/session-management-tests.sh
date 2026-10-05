@@ -23,33 +23,8 @@ set -euo pipefail
 SCRIPT_DIR_SM="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT_SM="$(cd "$SCRIPT_DIR_SM/../.." && pwd)"
 
-# Auto-detect BASE_URL: try localhost first, fall back to DOMAIN via Traefik
-if [ -z "${BASE_URL:-}" ]; then
-    if curl -sf -o /dev/null -m 3 http://localhost:40320/chronicle/v3/ 2>/dev/null || \
-       [ "$(curl -s -o /dev/null -w '%{http_code}' -m 3 http://localhost:40320/chronicle/v3/ 2>/dev/null)" != "000" ]; then
-        BASE_URL="http://localhost:40320"
-    else
-        _domain="${DOMAIN:-}"
-        if [ -z "$_domain" ] && [ -f "$PROJECT_ROOT_SM/docker/.env" ]; then
-            _domain=$(grep '^DOMAIN=' "$PROJECT_ROOT_SM/docker/.env" 2>/dev/null | cut -d= -f2 || true)
-        fi
-        if [ -n "$_domain" ]; then
-            BASE_URL="http://${_domain}"
-        else
-            BASE_URL="http://localhost:40320"
-        fi
-    fi
-fi
-
-# Auto-detect JWT_SECRET from .env if not provided
-if [ -z "${JWT_SECRET:-}" ] && [ -f "$PROJECT_ROOT_SM/docker/.env" ]; then
-    JWT_SECRET=$(grep '^JWT_SECRET=' "$PROJECT_ROOT_SM/docker/.env" 2>/dev/null | cut -d= -f2- || true)
-fi
-
-# Auto-detect AUTH_TOKEN from JWT_SECRET if not provided
-if [ -z "${AUTH_TOKEN:-}" ] && [ -n "${JWT_SECRET:-}" ]; then
-    AUTH_TOKEN=$(JWT_SECRET="$JWT_SECRET" "$PROJECT_ROOT_SM/docker/generate-jwt.sh" 2>/dev/null || true)
-fi
+# Credentials are explicit inputs; never infer authentication evidence from a local env file.
+BASE_URL="${BASE_URL:-http://localhost:40320}"
 
 AUTH_TOKEN="${AUTH_TOKEN:-}"
 JWT_SECRET="${JWT_SECRET:-}"
@@ -81,7 +56,9 @@ header() { printf "\n${BOLD}--- %s ---${RESET}\n" "$*"; }
 http_status() {
     local method="$1" url="$2"
     shift 2
-    curl -s -o /dev/null -w "%{http_code}" -X "$method" "$@" "$url" 2>/dev/null || echo "000"
+    local status
+    status=$(curl --silent --show-error --connect-timeout 3 --max-time 10 -o /dev/null -w "%{http_code}" -X "$method" "$@" "$url" 2>/dev/null) || status=000
+    printf '%s' "$status"
 }
 
 # Create an HS256-signed JWT with the given payload JSON and secret.
@@ -106,10 +83,10 @@ print(f'{signing_input}.{b64url(sig)}')
 # Pre-flight: backend reachability
 # ---------------------------------------------------------------------------
 log "Checking backend reachability at ${BASE_URL} ..."
-health_status=$(http_status GET "${BASE_URL}/chronicle/v3/" 2>/dev/null || echo "000")
-if [[ "$health_status" == "000" ]]; then
-    log "Backend is unreachable -- skipping all tests."
-    skip "All tests skipped (backend unreachable)"
+health_status=$(http_status GET "${BASE_URL}/chronicle/v3/auth/session" 2>/dev/null || echo "000")
+if [[ "$health_status" != "200" ]]; then
+    fail "Session endpoint is unreachable or unsuccessful (HTTP ${health_status})"
+    
     printf "\n========================================\n"
     printf "  Session Management Test Summary\n"
     printf "========================================\n"
@@ -117,7 +94,7 @@ if [[ "$health_status" == "000" ]]; then
     printf "  ${RED}Failed${RESET}:  %d\n" "$FAIL_COUNT"
     printf "  ${YELLOW}Skipped${RESET}: %d\n" "$SKIP_COUNT"
     printf "========================================\n"
-    exit 0
+    exit 1
 fi
 log "Backend responded with HTTP ${health_status}."
 
@@ -210,58 +187,39 @@ fi
 # ---------------------------------------------------------------------------
 header "Test 3: Cookie Attributes"
 
-log "Fetching Set-Cookie headers from ${BASE_URL}/chronicle/auth/session ..."
-
-# Capture full response headers. Use a valid token if available for a more
-# meaningful response, but try without auth too.
-cookie_headers=""
-if [[ -n "$AUTH_TOKEN" ]]; then
-    cookie_headers=$(curl -s -D - -o /dev/null \
-        -H "Authorization: Bearer ${AUTH_TOKEN}" \
-        "${BASE_URL}/chronicle/auth/session" 2>/dev/null || true)
+if [[ -z "$AUTH_TOKEN" ]]; then
+    fail "Test 3: AUTH_TOKEN is required to observe an authenticated cookie session"
 else
-    cookie_headers=$(curl -s -D - -o /dev/null \
-        "${BASE_URL}/chronicle/auth/session" 2>/dev/null || true)
-fi
-
-# Also try with a cookie to trigger Set-Cookie in the response
-if [[ -z "$(echo "$cookie_headers" | grep -i 'Set-Cookie' || true)" && -n "$AUTH_TOKEN" ]]; then
-    cookie_headers=$(curl -s -D - -o /dev/null \
-        -b "chronicle_auth=${AUTH_TOKEN}" \
-        "${BASE_URL}/chronicle/auth/session" 2>/dev/null || true)
-fi
-
-set_cookie_line=$(echo "$cookie_headers" | grep -i 'Set-Cookie.*chronicle_auth' || true)
-
-if [[ -z "$set_cookie_line" ]]; then
-    log "No Set-Cookie header with chronicle_auth found in response."
-    log "Chronicle uses stateless HS256 JWTs delivered via config.json, not server-set cookies."
-    log "No cookie means no cookie-based attacks (XSS cookie theft, CSRF via cookies)."
-    pass "Test 3a: No session cookies set by server (stateless JWT auth -- no HttpOnly needed)"
-    pass "Test 3b: No session cookies set by server (stateless JWT auth -- no Secure flag needed)"
-    pass "Test 3c: No session cookies set by server (stateless JWT auth -- no SameSite needed)"
-else
-    log "Set-Cookie header: ${set_cookie_line}"
-
-    # 3a: HttpOnly
-    if echo "$set_cookie_line" | grep -qi 'HttpOnly'; then
-        pass "Test 3a: chronicle_auth cookie has HttpOnly flag"
+    session_parent="${TMPDIR:-$PROJECT_ROOT_SM/build/operator-test-runs/session-management}"
+    mkdir -p "$session_parent"
+    session_work=$(mktemp -d "$session_parent/session.XXXXXX")
+    trap 'rm -rf -- "$session_work"' EXIT
+    cookie_status=$(AUTH_TOKEN="$AUTH_TOKEN" python3 -c 'import json,os; print(json.dumps({"token":os.environ["AUTH_TOKEN"]}))' |
+        curl --silent --show-error --connect-timeout 3 --max-time 10           -X POST -H 'Content-Type: application/json' --data-binary @-           -D "$session_work/headers" -o "$session_work/body" -w '%{http_code}'           "${BASE_URL}/chronicle/v3/auth/set-cookie" 2>/dev/null) || cookie_status=000
+    if [[ "$cookie_status" != 200 ]]; then
+        fail "Test 3: authenticated cookie exchange failed (HTTP ${cookie_status})"
+    elif python3 - "$session_work/headers" "$session_work/body" <<'PYCOOKIE'
+import json,re,sys
+from pathlib import Path
+try:
+    body=json.loads(Path(sys.argv[2]).read_text())
+    assert body.get('authenticated') is True
+    cookies=[line.split(':',1)[1].strip() for line in Path(sys.argv[1]).read_text().splitlines()
+             if line.lower().startswith('set-cookie:')]
+    auth=[cookie for cookie in cookies if cookie.startswith('chronicle_auth=')]
+    assert len(auth)==1
+    parts=[part.strip() for part in auth[0].split(';')]
+    assert parts[0].split('=',1)[1]
+    flags={part.lower() for part in parts[1:]}
+    assert 'httponly' in flags and 'secure' in flags
+    assert flags.intersection({'samesite=lax','samesite=strict'})
+except (OSError,ValueError,AssertionError):
+    raise SystemExit(1)
+PYCOOKIE
+    then
+        pass "Test 3: observed authenticated chronicle_auth cookie has HttpOnly, Secure and SameSite"
     else
-        fail "Test 3a: chronicle_auth cookie missing HttpOnly flag"
-    fi
-
-    # 3b: Secure
-    if echo "$set_cookie_line" | grep -qi 'Secure'; then
-        pass "Test 3b: chronicle_auth cookie has Secure flag"
-    else
-        fail "Test 3b: chronicle_auth cookie missing Secure flag"
-    fi
-
-    # 3c: SameSite
-    if echo "$set_cookie_line" | grep -qi 'SameSite=Strict\|SameSite=Lax'; then
-        pass "Test 3c: chronicle_auth cookie has SameSite attribute"
-    else
-        fail "Test 3c: chronicle_auth cookie missing SameSite=Strict or SameSite=Lax"
+        fail "Test 3: authenticated cookie evidence is absent or insecure"
     fi
 fi
 
@@ -322,7 +280,7 @@ elif [[ "$url_token_status" == "200" ]]; then
     fi
 else
     log "Received HTTP ${url_token_status} for query-parameter token."
-    pass "Test 5: Token in URL query parameter not accepted (HTTP ${url_token_status})"
+    fail "Test 5: Cannot prove token rejection from HTTP ${url_token_status}"
 fi
 
 # ---------------------------------------------------------------------------

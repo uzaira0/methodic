@@ -64,7 +64,7 @@ pre-push:
       run: bun run check
 
     domain-contract-guardrails:
-      glob: "{chronicle-api/chronicle.yaml,chronicle-models/**,chronicle-web/src/modern/generated/**,chronicle-web/src/modern/types/**,generated/domain-contracts/**,tests/security/ast-grep/**,tests/security/contract-drift-diff.py}"
+      glob: "{chronicle-api,chronicle-api/chronicle.yaml,chronicle-models,chronicle-models/**,chronicle-web,chronicle-web/src/modern/generated/**,chronicle-web/src/modern/types/**,generated/domain-contracts/**,tests/security/ast-grep/**,tests/security/contract-drift-diff.py}"
       run: tests/security/domain-contract-guardrails.sh
 
     kotlin-compile:

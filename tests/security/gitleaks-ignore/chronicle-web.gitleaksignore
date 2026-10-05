@@ -19,3 +19,9 @@ a9410d41dda1daf3e6a7949078b99f329b510dae:src/modern/generated/chronicle-payload-
 d7f792e7683621714d9a5798c360db7604c421dd:src/modern/generated/chronicle-payload-contracts.generated.ts:generic-api-key:1031
 d7f792e7683621714d9a5798c360db7604c421dd:src/modern/generated/chronicle-payload-contracts.generated.ts:generic-api-key:1041
 d7f792e7683621714d9a5798c360db7604c421dd:src/modern/generated/chronicle-payload-contracts.generated.ts:generic-api-key:1051
+
+# Accepted 2026-10-03: supplied audited synthetic fixture fingerprints only.
+# Deterministic payload bytes and explicit negative-test sentinels are not runtime credentials.
+7ceef73c4d9c24ff985e59645d94e0e992222a61:src/modern/generated/chronicle-payload-contracts.generated.ts:generic-api-key:1031
+7ceef73c4d9c24ff985e59645d94e0e992222a61:src/modern/generated/chronicle-payload-contracts.generated.ts:generic-api-key:1041
+7ceef73c4d9c24ff985e59645d94e0e992222a61:src/modern/generated/chronicle-payload-contracts.generated.ts:generic-api-key:1051

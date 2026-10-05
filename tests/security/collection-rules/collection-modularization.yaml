@@ -60,6 +60,18 @@ rules:
             final override val privacyClass = $ID.privacyClass
             ...
           }
+      - pattern-not: |
+          class $MODULE(...) : $SUP {
+            ...
+            override val privacyClass: CollectionPrivacyClass = $ID.privacyClass
+            ...
+          }
+      - pattern-not: |
+          class $MODULE(...) : $SUP {
+            ...
+            override val privacyClass = $ID.privacyClass
+            ...
+          }
     metadata:
       cwe: CWE-1059
       category: security

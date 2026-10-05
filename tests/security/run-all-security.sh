@@ -122,15 +122,22 @@ run_crypto_semgrep() {
   return "$status"
 }
 
+android_source_roots() {
+  find "$ROOT_DIR/chronicle" -mindepth 3 -maxdepth 3 -type d -path '*/src/main' -print | sort
+}
+
 run_sast_semgrep() {
   local report="$REPORT_DIR/semgrep.sarif"
   local count_report="$REPORT_DIR/semgrep-actionable-count.txt"
   local status=0
   command -v semgrep >/dev/null 2>&1 || return 127
+  local android_roots=()
+  mapfile -t android_roots < <(android_source_roots)
+  [ "${#android_roots[@]}" -gt 0 ] || return 2
   semgrep scan --quiet --config "$ROOT_DIR/tests/security/rules/" \
     --sarif -o "$report" \
     "$ROOT_DIR/chronicle-server/src" "$ROOT_DIR/chronicle-api/src" \
-    "$ROOT_DIR/chronicle-web/src" || status=$?
+    "$ROOT_DIR/chronicle-web/src" "${android_roots[@]}" || status=$?
   validate_sarif "$report" || return 2
   python3 - "$report" "$count_report" <<'PY'
 import json
@@ -205,6 +212,8 @@ run_compliance_scan() {
   local status=0
   command -v conftest >/dev/null 2>&1 || return 127
   [ -d "$ROOT_DIR/tests/security/policies" ] || return 2
+  conftest verify --policy "$ROOT_DIR/tests/security/policies/" \
+    >"$REPORT_DIR/compliance-policy-tests.log" 2>&1 || return $?
   conftest test "$ROOT_DIR/docker/docker-compose.traefik.yml" \
     --policy "$ROOT_DIR/tests/security/policies/" \
     --output json >"$report" 2>&1 || status=$?
@@ -240,10 +249,18 @@ run_collection_semgrep_modularization() {
   local status=0
   local count
   command -v semgrep >/dev/null 2>&1 || return 127
+  local android_roots=()
+  mapfile -t android_roots < <(android_source_roots)
+  local collection_roots=() source_root
+  for source_root in "${android_roots[@]}"; do
+    source_root="$source_root/java/com/openlattice/chronicle/collection"
+    [ ! -d "$source_root" ] || collection_roots+=("$source_root")
+  done
+  [ "${#collection_roots[@]}" -gt 0 ] || return 2
   semgrep scan --quiet \
     --config "$ROOT_DIR/tests/security/collection-rules/collection-modularization.yaml" \
     --sarif -o "$report" \
-    "$ROOT_DIR"/chronicle/{app,collection-core,collection-upload,collection-sensors,collection-usage,collection-lifecycle}/src/main/java/com/openlattice/chronicle/collection \
+    "${collection_roots[@]}" \
     || status=$?
   validate_sarif "$report" || return 2
   [ "$status" -le 1 ] || return 2
