@@ -183,6 +183,10 @@ shift
 if [[ "${1:-}" == version ]]; then exit 0; fi
 if [[ "${1:-}" == -p ]]; then shift 2; fi
 case "${1:-}" in
+  config)
+    [[ "${2:-}" == --services ]] || exit 91
+    printf '%s\n' postgres backend web db-backup victoriametrics ca-export
+    ;;
   ps)
     service="${@: -1}"
     printf 'fixture-%s\n' "$service"
@@ -216,6 +220,8 @@ case "${1:-}" in
     if [[ "$sql" == *'ALTER ROLE CURRENT_USER'* ]]; then
       if [[ "$sql" == *"'$generated'"* ]]; then
         printf '%s' "$generated" >"${SELFHOST_ROTATION_TEST_DB_PASSWORD_FILE}"
+        # Committed, but the acknowledgement is lost on the way back.
+        [[ "${SELFHOST_ROTATION_TEST_LOSE_ALTER_ACK:-false}" != true ]] || exit 99
       elif [[ "$sql" == *"'$old_postgres'"* ]]; then
         printf '%s' "$old_postgres" >"${SELFHOST_ROTATION_TEST_DB_PASSWORD_FILE}"
       else
@@ -238,7 +244,9 @@ case "${1:-}" in
     fi
     ;;
   run)
-    if [[ "$*" == *'--rm --no-deps monitoring-config'* ]]; then
+    if [[ "$*" == *'--rm --no-deps ca-export'* ]]; then
+      printf 'compose-run:%s\n' "$*" >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
+    elif [[ "$*" == *'--rm --no-deps monitoring-config'* ]]; then
       printf 'compose-run:%s\n' "$*" >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
     elif [[ "$*" == *'--rm --no-deps db-init'* ]]; then
       /bin/mkdir -p "$(dirname "${SELFHOST_ROTATION_TEST_KEYRING_BACKUP_FILE}")"
@@ -300,6 +308,10 @@ escaped="${current//\\/\\\\}"
 escaped="${escaped//\"/\\\"}"
 [[ "$config" == "user = \"admin:${escaped}\"" ]] || exit 95
 if [[ "$url" == *'/api/user/password' ]]; then
+  # Never reached Grafana (connection refused): the forward change did not happen.
+  if [[ "${SELFHOST_ROTATION_TEST_GRAFANA_UNREACHABLE:-false}" == true && "$current" != "$generated" ]]; then
+    exit 7
+  fi
   "${SELFHOST_ROTATION_TEST_REAL_PYTHON}" /dev/fd/3 \
     "${SELFHOST_ROTATION_TEST_GRAFANA_PASSWORD_FILE}" 3<<'PY'
 import json
@@ -313,6 +325,10 @@ assert document["oldPassword"] == current
 assert document["newPassword"] == document["confirmNew"]
 state.write_text(document["newPassword"], encoding="utf-8")
 PY
+  # Committed, but the response to the forward change is lost (curl timeout).
+  if [[ "${SELFHOST_ROTATION_TEST_LOSE_GRAFANA_ACK:-false}" == true && "$current" != "$generated" ]]; then
+    exit 28
+  fi
 fi
 printf '200'
 EOF
@@ -325,12 +341,13 @@ run_rotation() {
   local fail_first_up="${1:-false}"
   shift || true
   local -a env_args=(
+    "CHRONICLE_INTERNAL_WEB_SECRET=fixture-inherited-secret-must-not-reach-startup-probes"
     "PATH=${COMMAND_DIR}:${PATH}"
     "SELFHOST_ROTATION_TEST_REAL_PYTHON=${REAL_PYTHON}"
     "SELFHOST_ROTATION_TEST_GENERATED_FILE=${GENERATED_FILE}"
     "SELFHOST_ROTATION_TEST_DASHBOARD_FILE=${DASHBOARD_FILE}"
     "SELFHOST_ROTATION_TEST_BCRYPT_FILE=${BCRYPT_FILE}"
-    "SELFHOST_ROTATION_TEST_OLD_POSTGRES_FILE=${DB_PASSWORD_FILE}"
+    "SELFHOST_ROTATION_TEST_OLD_POSTGRES_FILE=${CASE_OLD_POSTGRES_FILE:-$DB_PASSWORD_FILE}"
     "SELFHOST_ROTATION_TEST_DB_PASSWORD_FILE=${DB_PASSWORD_FILE}"
     "SELFHOST_ROTATION_TEST_GRAFANA_PASSWORD_FILE=${GRAFANA_PASSWORD_FILE}"
     "SELFHOST_ROTATION_TEST_TDE_STATE_FILE=${TDE_STATE_FILE}"
@@ -339,6 +356,15 @@ run_rotation() {
   )
   if [[ "$fail_first_up" == true ]]; then
     env_args+=("SELFHOST_ROTATION_TEST_FAIL_FIRST_UP_FILE=${FAIL_FIRST_UP_FILE}")
+  fi
+  if [[ "${CASE_LOSE_ALTER_ACK:-false}" == true ]]; then
+    env_args+=("SELFHOST_ROTATION_TEST_LOSE_ALTER_ACK=true")
+  fi
+  if [[ "${CASE_LOSE_GRAFANA_ACK:-false}" == true ]]; then
+    env_args+=("SELFHOST_ROTATION_TEST_LOSE_GRAFANA_ACK=true")
+  fi
+  if [[ "${CASE_GRAFANA_UNREACHABLE:-false}" == true ]]; then
+    env_args+=("SELFHOST_ROTATION_TEST_GRAFANA_UNREACHABLE=true")
   fi
   if [[ "${CASE_PG_DUMP_FAIL:-false}" == true ]]; then
     env_args+=("SELFHOST_ROTATION_TEST_PG_DUMP_FAIL=true")
@@ -388,6 +414,14 @@ PY
 
 assert_custody() {
   local output="$1" args="$2"
+  if [[ -e "$args" ]]; then
+    ! grep -Eq '^compose-up:.*--wait.* ca-export( |$)' "$args" ||
+      fail 'rotation waited for the exited CA export one-shot'
+    if grep -Eq '^compose-up:.*--remove-orphans' "$args"; then
+      grep -Fq 'compose-run:run --rm --no-deps ca-export' "$args" ||
+        fail 'rotation omitted the separate CA export one-shot'
+    fi
+  fi
   for secret in "$OLD_POSTGRES" "$OLD_MOBILE" "$OLD_JWT" "$OLD_METRICS" \
     "$OLD_INTERNAL" "$OLD_GRAFANA" "$DASHBOARD_PASSWORD" "$GENERATED"; do
     ! grep -Fq "$secret" "$output" || fail "secret was printed"
@@ -515,6 +549,26 @@ grep -Fq 'compose-up:up -d --wait --wait-timeout 300 --remove-orphans' "$ARGS_LO
   || fail "PostgreSQL rotation did not reconcile the complete stack"
 assert_custody "$OUTPUT" "$ARGS_LOG"
 
+# ALTER ROLE commits but its acknowledgement is lost: rollback must reverse it rather than
+# restore an .env whose password the database no longer accepts.
+setup_case postgres-lost-ack
+CASE_LOSE_ALTER_ACK=true
+# The database password file changes mid-run; give the fake a stable copy of the old value.
+CASE_OLD_POSTGRES_FILE="${CASE_DIR}/old-postgres-password"
+write_secret_file "$CASE_OLD_POSTGRES_FILE" "$OLD_POSTGRES"
+set +e
+run_rotation false --yes postgres
+lost_ack_status=$?
+set -e
+unset CASE_LOSE_ALTER_ACK CASE_OLD_POSTGRES_FILE
+[[ "$lost_ack_status" -ne 0 ]] || fail "lost ALTER acknowledgement unexpectedly succeeded"
+grep -Fqx "POSTGRES_PASSWORD='$OLD_POSTGRES'" "${SELFHOST_DIR}/.env" \
+  || fail "lost-acknowledgement rollback did not restore the previous .env"
+[[ "$(cat "$DB_PASSWORD_FILE")" == "$OLD_POSTGRES" ]] \
+  || fail "lost-acknowledgement rollback left the database on a password no file holds"
+[[ ! -e "${SELFHOST_DIR}/.chronicle-secret-rotation" ]] \
+  || fail "completed lost-acknowledgement rollback left its transaction"
+
 setup_case grafana
 run_rotation false --yes grafana
 grep -Fqx "GRAFANA_ADMIN_PASSWORD='$GENERATED'" "${SELFHOST_DIR}/.env" \
@@ -522,6 +576,40 @@ grep -Fqx "GRAFANA_ADMIN_PASSWORD='$GENERATED'" "${SELFHOST_DIR}/.env" \
 [[ "$(cat "$GRAFANA_PASSWORD_FILE")" == "$GENERATED" ]] \
   || fail "Grafana API password was not updated"
 assert_custody "$OUTPUT" "$ARGS_LOG"
+
+# Regression V-29: Grafana commits the change but its response is lost. Rollback must reverse
+# it rather than restore an .env whose password Grafana no longer accepts.
+setup_case grafana-lost-ack
+CASE_LOSE_GRAFANA_ACK=true
+set +e
+run_rotation false --yes grafana
+grafana_lost_ack_status=$?
+set -e
+unset CASE_LOSE_GRAFANA_ACK
+[[ "$grafana_lost_ack_status" -ne 0 ]] || fail "lost Grafana acknowledgement unexpectedly succeeded"
+grep -Fqx "GRAFANA_ADMIN_PASSWORD='$OLD_GRAFANA'" "${SELFHOST_DIR}/.env" \
+  || fail "lost Grafana acknowledgement rollback did not restore the previous .env"
+[[ "$(cat "$GRAFANA_PASSWORD_FILE")" == "$OLD_GRAFANA" ]] \
+  || fail "lost Grafana acknowledgement left Grafana on a password no file holds"
+[[ ! -e "${SELFHOST_DIR}/.chronicle-secret-rotation" ]] \
+  || fail "completed lost Grafana acknowledgement rollback left its transaction"
+
+# Regression V-29: the change never reached Grafana, so reversing it fails (NEW was never set);
+# the old password still works, so rollback is complete and must not keep the transaction.
+setup_case grafana-unreachable
+CASE_GRAFANA_UNREACHABLE=true
+set +e
+run_rotation false --yes grafana
+grafana_unreachable_status=$?
+set -e
+unset CASE_GRAFANA_UNREACHABLE
+[[ "$grafana_unreachable_status" -ne 0 ]] || fail "unreachable Grafana rotation unexpectedly succeeded"
+grep -Fqx "GRAFANA_ADMIN_PASSWORD='$OLD_GRAFANA'" "${SELFHOST_DIR}/.env" \
+  || fail "unreachable Grafana rollback did not restore the previous .env"
+[[ "$(cat "$GRAFANA_PASSWORD_FILE")" == "$OLD_GRAFANA" ]] \
+  || fail "unreachable Grafana rollback changed Grafana's password"
+[[ ! -e "${SELFHOST_DIR}/.chronicle-secret-rotation" ]] \
+  || fail "unreachable Grafana rollback kept a transaction although the old password still works"
 
 setup_case tde
 run_rotation false --yes tde

@@ -2,6 +2,18 @@
 set -Eeuo pipefail
 umask 077
 
+# Strip inherited secret exports before startup probes or any external command.
+SECRET_ENV_KEYS=(
+  DASHBOARD_PASSWORD DASHBOARD_PASSWORD_HASH POSTGRES_PASSWORD MOBILE_SIGNING_SECRET
+  MOBILE_SIGNING_SECRET_PREVIOUS JWT_SECRET METRICS_PASSWORD
+  CHRONICLE_INTERNAL_WEB_SECRET GRAFANA_ADMIN_PASSWORD SMTP_PASSWORD
+  CHRONICLE_REVIEWER_ACCESS_SECRET
+  OIDC_CLIENT_SECRET
+)
+for secret_key in "${SECRET_ENV_KEYS[@]}"; do
+  export -n "${secret_key?}" 2>/dev/null || true
+done
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 cd "$SCRIPT_DIR"
 
@@ -91,13 +103,6 @@ env_mode="$(stat -c '%a' .env 2>/dev/null || stat -f '%Lp' .env 2>/dev/null || t
 # entire secret set into docker, curl, Python, or any other child process.
 # shellcheck disable=SC1091
 . ./.env
-SECRET_ENV_KEYS=(
-  DASHBOARD_PASSWORD DASHBOARD_PASSWORD_HASH POSTGRES_PASSWORD MOBILE_SIGNING_SECRET
-  MOBILE_SIGNING_SECRET_PREVIOUS JWT_SECRET METRICS_PASSWORD
-  CHRONICLE_INTERNAL_WEB_SECRET GRAFANA_ADMIN_PASSWORD SMTP_PASSWORD
-  CHRONICLE_REVIEWER_ACCESS_SECRET
-  OIDC_CLIENT_SECRET
-)
 for secret_key in "${SECRET_ENV_KEYS[@]}"; do
   export -n "${secret_key?}" 2>/dev/null || true
 done
@@ -422,7 +427,17 @@ PY
 
 apply_configuration() {
   if [[ "$APPLY_MODE" == full ]]; then
-    dc up -d --wait --wait-timeout "$SECRET_ROTATION_WAIT_TIMEOUT_SECONDS" --remove-orphans
+    local service service_list
+    local -a startup_services=()
+    local export_ca=false
+    service_list="$(dc config --services)" || return 1
+    while IFS= read -r service; do
+      if [[ "$service" == ca-export ]]; then export_ca=true
+      elif [[ -n "$service" ]]; then startup_services+=("$service"); fi
+    done <<< "$service_list"
+    ((${#startup_services[@]} > 0)) || return 1
+    dc up -d --wait --wait-timeout "$SECRET_ROTATION_WAIT_TIMEOUT_SECONDS" --remove-orphans "${startup_services[@]}" || return 1
+    if [[ "$export_ca" == true ]]; then dc run --rm --no-deps ca-export || return 1; fi
   else
     ((${#APPLY_SERVICES[@]} > 0)) || fail "internal error: no services selected for rotation"
     local -a running_services=()
@@ -765,10 +780,14 @@ rollback_on_error() {
   if [[ "$EXTERNAL_CHANGED" == true ]]; then
     case "$ROTATION_KIND" in
       postgres)
-        postgres_alter_password "$NEW_SECRET" "$OLD_SECRET" || rollback_status=1
+        # The ALTER may or may not have committed: reverse it, or confirm it never applied.
+        postgres_alter_password "$NEW_SECRET" "$OLD_SECRET" ||
+          postgres_can_auth "$OLD_SECRET" || rollback_status=1
         ;;
       grafana)
-        grafana_change_password "$NEW_SECRET" "$OLD_SECRET" "$GRAFANA_URL" || rollback_status=1
+        # The change may or may not have applied: reverse it, or confirm it never did.
+        grafana_change_password "$NEW_SECRET" "$OLD_SECRET" "$GRAFANA_URL" ||
+          grafana_can_auth "$OLD_SECRET" || rollback_status=1
         ;;
       tde)
         tde_set_active_key "$OLD_TDE_KEY" || rollback_status=1
@@ -1350,8 +1369,10 @@ rotate_postgres() {
   begin_transaction postgres rotate
   env_update POSTGRES_PASSWORD "$NEW_SECRET"
   write_phase env-published
-  postgres_alter_password "$OLD_SECRET" "$NEW_SECRET"
+  # As for TDE: a lost acknowledgement can hide a committed ALTER. Mark it begun first so a
+  # failure reverses it, or preserves the transaction with NEW_SECRET still in .env.
   EXTERNAL_CHANGED=true
+  postgres_alter_password "$OLD_SECRET" "$NEW_SECRET"
   write_phase database-updated
   apply_configuration
   postgres_can_auth "$NEW_SECRET" || fail "PostgreSQL rejected the rotated password after restart"
@@ -1380,9 +1401,11 @@ rotate_grafana() {
   begin_transaction grafana rotate
   env_update GRAFANA_ADMIN_PASSWORD "$NEW_SECRET"
   write_phase env-published
+  # As for PostgreSQL: a lost response can hide a committed change. Mark it begun first so a
+  # failure reverses it, or preserves the transaction with NEW_SECRET still in .env.
+  EXTERNAL_CHANGED=true
   grafana_change_password "$OLD_SECRET" "$NEW_SECRET" "$GRAFANA_URL" ||
     fail "Grafana rejected the password change"
-  EXTERNAL_CHANGED=true
   write_phase grafana-updated
   apply_configuration
   code="$(curl_basic_code admin "$NEW_SECRET" "${GRAFANA_URL}/api/user")"

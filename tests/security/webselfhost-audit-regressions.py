@@ -291,6 +291,27 @@ docker() {
             result = subprocess.run(['bash','-c','source "$1"; validate_dashboard_networks "$2"','policy',str(policy),networks],capture_output=True)
             self.assertEqual(result.returncode==0,accepted,networks)
 
+    def test_W06_exiting_ca_is_not_health_waited(self):
+        source = (ROOT / 'selfhost/rotate-secret.sh').read_text()
+        function = source[source.index('apply_configuration() {'):source.index('wait_for_metrics_target() {')]
+        stub = """set -euo pipefail
+fail() { exit 1; }
+dc() {
+  if [[ "$*" == 'config --services' ]]; then printf '%s\n' postgres backend ca-export; return; fi
+  if [[ "$1" == up ]]; then
+    [[ "$*" == *'--wait'* && "$*" != *'ca-export'* && "$*" == *'postgres backend'* ]] || return 91
+    printf 'wait\n'
+  else
+    [[ "$*" == 'run --rm --no-deps ca-export' ]] || return 92
+    printf 'export\n'
+  fi
+}
+APPLY_MODE=full
+SECRET_ROTATION_WAIT_TIMEOUT_SECONDS=30
+"""
+        result = subprocess.run(['bash','-c',stub+function+'\napply_configuration\napply_configuration\napply_configuration\n'],capture_output=True)
+        self.assertEqual(result.returncode,0,result.stderr.decode())
+        self.assertEqual(result.stdout.decode(),'wait\nexport\n'*3)
 
 if __name__ == '__main__':
     unittest.main()
