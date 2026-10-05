@@ -28,3 +28,19 @@ Pulled unmodified by digest from their publishers. Licenses are the upstream pro
 | `fluent/fluent-bit` | monitoring overlay | https://github.com/fluent/fluent-bit |
 | `ghcr.io/google/cadvisor` | monitoring overlay | https://github.com/google/cadvisor |
 | `tecnativa/docker-socket-proxy` | monitoring overlay | https://github.com/Tecnativa/docker-socket-proxy |
+
+## Preprocessing browser tool
+
+The dashboard checks for a separately served preprocessing application at
+`/chronicle/preprocessing-gui/`. A deployment providing that route serves the
+application from its own configured service. The self-host bundle does not include
+that service and offers the GitHub Pages fallback at
+https://uzaira0.github.io/chronicle-android-raw-data-preprocessing-app/.
+The application source is
+https://github.com/uzaira0/chronicle-android-raw-data-preprocessing-app.
+
+This tool's intended processing boundary is the browser: the user chooses selected
+export files for preprocessing in the tool. The fallback loads an external application
+and its assets from GitHub Pages, separately from the Chronicle deployment and its
+release-manifest image identities. This inventory identifies the provider and source;
+it does not establish the network behavior of a particular externally hosted version.

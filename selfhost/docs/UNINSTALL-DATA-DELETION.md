@@ -11,6 +11,30 @@ Stopping or uninstalling containers is not proof that participant data was delet
 Conversely, deleting a participant does not remove backups, exports, audit records, or the
 Chronicle installation.
 
+## Technical inventory recorded independently of optional modules
+
+Disabling optional collection modules does not remove enrollment, access, or security
+records. These records are created when the corresponding enrollment, form, or operator
+action occurs; they are not a promise that every installation receives every category.
+
+| Category | Recorded fields and storage | Readers and erasure path |
+|---|---|---|
+| Enrollment and devices | PostgreSQL enrollment/device rows bind `study_id`, `participant_id` and `device_id`; device type identifies the `platform`. Android device metadata includes `model`, device name, codename, brand, OS/SDK version, product, and supplied additional information. Acknowledgments include `app_version`, settings/disclosure versions, acknowledged modules, and timestamps. | Authorized study staff and enrollment/collection services. `WITHDRAW_AND_ERASE` includes device enrollment metadata; a collected-data purge preserves enrollment. |
+| Form access and receipts | `participant_form_access_codes`, `participant_form_sessions` and `participant_form_submission_receipts` retain subject/scope identifiers, `form_kind`, resource/date scope, expiry/revocation times, hashed access/session/CSRF values, `idempotency_key`, `request_hash`, submission identifiers and completion timestamps. | Scoped participant access services and authorized study services. The registered erasure assets cover sessions, receipts and access codes; raw access/session credentials are not receipt fields. |
+| Study and security audit | `study_settings_audit` records staff identifiers, study/settings revisions and before/after changes. `audit_logs` records actor/role, action, resource identifiers, result, sanitized request path and `user_agent`, and timestamps; the backend also writes structured audit files to the `audit_logs` volume. | Authorized audit readers, the backend and institution-controlled log systems. Audit evidence has its own retention/access controls and is not proof of participant erasure. Include forwarded/off-host logs in the deletion decision. |
+| Retention and deletion evidence | `retention_holds`, deletion operations and `deletion_tombstones` retain scope, operation identifiers, status, completion/proof information and replay fences. | Authorized retention/deletion services and operators verifying deletion status. Active holds block erasure; retained tombstones/continuity evidence prevent deleted data from silently returning after restore. |
+
+The current `ClientIpRecord` boundary withholds participant client addresses and stores
+staff addresses as keyed references. Historical raw or unkeyed values are withheld by
+`V110__withhold_stored_client_ips.sql`; an `ip_address` column name does not mean raw IP
+storage. Review the actual configured log sinks separately. Backup retention, exports,
+quarantine, active holds and off-host copies follow the controls described below.
+
+Source inventory: `AndroidDevice.kt`, `PostgresColumns.kt`, the V50 participant-access
+migration, `AuditRequestContext`, `AuditLogRepository`, and `ChronicleDataAssetRegistry`.
+Institutional disclosure, legal retention decisions and privacy policy wording remain
+owner decisions.
+
 ## Before deleting anything
 
 1. Confirm the request and the study/participant identifiers through your approved process.

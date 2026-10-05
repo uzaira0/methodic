@@ -56,6 +56,20 @@ class GateRegressions(unittest.TestCase):
                 effective=local or required
                 self.assertTrue(required.issubset(effective),(path,location,required-effective))
 
+    def test_W69_always_recorded_inventory_matches_schema(self):
+        doc=(ROOT/'selfhost/docs/UNINSTALL-DATA-DELETION.md').read_text()
+        schema=(ROOT/'chronicle-server/src/main/resources/db/migration/V50__participant_access_deletion_ledger.sql').read_text()
+        for field in ('study_id','participant_id','device_id','platform','app_version','model',
+                      'participant_form_submission_receipts','form_kind','idempotency_key','request_hash',
+                      'audit_logs','user_agent','retention_holds','deletion_tombstones'):
+            self.assertIn('`'+field+'`',doc)
+        for field in ('form_kind','idempotency_key','request_hash'):
+            self.assertIn(field,schema)
+        self.assertIn('ClientIpRecord',doc)
+        self.assertIn('withheld',doc)
+        self.assertIn('authorized',doc.lower())
+        self.assertIn('optional collection modules',doc)
+
     def test_W57_configured_export_mount_and_runtime_uid(self):
         with tempfile.TemporaryDirectory() as d:
             bin_dir = Path(d)
