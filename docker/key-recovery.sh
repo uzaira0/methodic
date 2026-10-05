@@ -21,6 +21,8 @@ WRITE_KEYRING=false
 WRITE_KEY_FILE=false
 FINGERPRINT=""
 SHARES_THRESHOLD=3
+VERIFY_BACKUP=""
+BACKUP_REPRESENTATION=""
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -41,6 +43,8 @@ usage() {
     echo "  --type <tde|backup>     Which key to recover"
     echo "  --shares <files...>     At least ${SHARES_THRESHOLD} share files"
     echo "  --fingerprint <sha256>  Expected key fingerprint for validation"
+    echo "  --representation <passphrase-file-bytes|legacy-random-bytes>  Required when writing a backup key; use the ceremony record"
+    echo "  --verify-backup <file>  Verify recovered passphrase decrypts this backup before replacement"
     echo "  --write-keyring         Write recovered TDE key to the TDE keyring (type=tde only)"
     echo "  --write-key-file        Write recovered backup key to /etc/chronicle/backup-encryption-key"
     exit 1
@@ -59,6 +63,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --fingerprint)
             FINGERPRINT="$2"; shift 2 ;;
+        --representation)
+            BACKUP_REPRESENTATION="$2"; shift 2 ;;
+        --verify-backup)
+            VERIFY_BACKUP="$2"; shift 2 ;;
         --write-keyring)
             WRITE_KEYRING=true; shift ;;
         --write-key-file)
@@ -93,6 +101,20 @@ for f in "${SHARE_FILES[@]}"; do
     fi
 done
 
+declare -A SHARE_INDICES=()
+SHARE_LENGTH=0
+for f in "${SHARE_FILES[@]}"; do
+    share="$(cat "$f")"
+    [[ "$share" =~ ^([0-9]{1,3})-([[:xdigit:]]+)$ ]] || { log_err "Malformed share"; exit 1; }
+    index=$((10#${BASH_REMATCH[1]}))
+    hex_data="${BASH_REMATCH[2]}"
+    ((index >= 1 && index <= 255 && ${#hex_data} % 2 == 0)) || { log_err "Invalid share"; exit 1; }
+    [[ -z "${SHARE_INDICES[$index]:-}" ]] || { log_err "Duplicate share index"; exit 1; }
+    SHARE_INDICES[$index]=1
+    if ((SHARE_LENGTH == 0)); then SHARE_LENGTH=${#hex_data}; fi
+    ((${#hex_data} == SHARE_LENGTH)) || { log_err "Unequal share lengths"; exit 1; }
+done
+
 # ── Detect Shamir tool ────────────────────────────────────────────────────────
 SHAMIR_TOOL=""
 if command -v ssss-combine >/dev/null 2>&1; then
@@ -112,25 +134,21 @@ python_combine() {
     shift
     local share_files=("$@")
 
-    local shares_data=""
-    for f in "${share_files[@]}"; do
-        shares_data+="$(cat "$f")"$'\n'
-    done
+    python3 - "$threshold" "${share_files[@]}" <<'PYEOF'
+import sys, pathlib, re
 
-    python3 <<PYEOF
-import sys
-
-threshold = ${threshold}
-
-shares_raw = """${shares_data}""".strip().split('\n')
-
-# Parse shares: index-hex
+threshold = int(sys.argv[1])
 parsed = []
-for s in shares_raw:
-    if not s.strip():
-        continue
-    idx_str, hex_data = s.strip().split('-', 1)
-    parsed.append((int(idx_str), bytes.fromhex(hex_data)))
+for path in sys.argv[2:]:
+    share = pathlib.Path(path).read_text().strip()
+    if not re.fullmatch(r"[0-9]{1,3}-(?:[0-9a-fA-F]{2})+", share):
+        raise SystemExit("Malformed share")
+    index, data = share.split('-', 1)
+    parsed.append((int(index), bytes.fromhex(data)))
+if (len(parsed) < threshold or any(not 1 <= x <= 255 for x, _ in parsed)
+        or len({x for x, _ in parsed}) != len(parsed)
+        or len({len(data) for _, data in parsed}) != 1):
+    raise SystemExit("Invalid indices, duplicate indices, or unequal share lengths")
 
 def gf256_add(a, b):
     return a ^ b
@@ -154,7 +172,8 @@ def gf256_inv(a):
     for _ in range(6):
         result = gf256_mul(result, result)
         result = gf256_mul(result, a)
-    return result
+    # The loop yields a^127; square once more to obtain a^254.
+    return gf256_mul(result, result)
 
 def lagrange_interpolate(shares_for_byte, t):
     secret = 0
@@ -196,7 +215,7 @@ if [ "$SHAMIR_TOOL" = "ssss" ]; then
     RECOVERED_KEY=$(echo "$SHARES_INPUT" | head -n "$SHARES_THRESHOLD" | ssss-combine -t "$SHARES_THRESHOLD" -x -Q 2>/dev/null)
 else
     # Use only threshold number of shares
-    SELECTED_FILES=("${SHARE_FILES[@]:0:$SHARES_THRESHOLD}")
+    SELECTED_FILES=("${SHARE_FILES[@]}")
     RECOVERED_KEY=$(python_combine "$SHARES_THRESHOLD" "${SELECTED_FILES[@]}")
 fi
 
@@ -205,6 +224,10 @@ if [ -z "$RECOVERED_KEY" ]; then
     exit 1
 fi
 
+if { [[ "$WRITE_KEYRING" == true ]] || [[ "$WRITE_KEY_FILE" == true ]]; } && [[ -z "$FINGERPRINT" ]]; then
+    log_err "Writing a recovered key requires the ceremony fingerprint"
+    exit 1
+fi
 log_ok "Key reconstructed successfully"
 
 # ── Validate fingerprint ─────────────────────────────────────────────────────
@@ -254,16 +277,45 @@ if [ "$KEY_TYPE" = "backup" ] && [ "$WRITE_KEY_FILE" = true ]; then
     echo ""
     log "Writing backup encryption key..."
 
-    KEY_FILE="/etc/chronicle/backup-encryption-key"
-    sudo mkdir -p /etc/chronicle
-
-    # Convert hex back to the base64 format used by the backup script
+    KEY_FILE="${BACKUP_KEY_DESTINATION:-/etc/chronicle/backup-encryption-key}"
+    if [[ -e "$KEY_FILE" && -z "$VERIFY_BACKUP" ]]; then
+        log_err "Replacing an existing passphrase requires --verify-backup"
+        exit 1
+    fi
     TMP_KEY=$(mktemp)
-    echo "$RECOVERED_KEY" | xxd -r -p | base64 > "$TMP_KEY"
-    sudo cp "$TMP_KEY" "$KEY_FILE"
-    sudo chmod 600 "$KEY_FILE"
+    trap 'rm -f -- "$TMP_KEY"' EXIT
+    # Shares encode the passphrase FILE bytes, including its trailing newline.
+    case "$BACKUP_REPRESENTATION" in
+      passphrase-file-bytes) printf '%s' "$RECOVERED_KEY" | xxd -r -p > "$TMP_KEY" ;;
+      legacy-random-bytes) printf '%s' "$RECOVERED_KEY" | xxd -r -p | base64 > "$TMP_KEY" ;;
+      *) log_err "Select the representation recorded at the ceremony; ambiguous legacy recovery is refused"; exit 1 ;;
+    esac
+    chmod 600 "$TMP_KEY"
+    if [[ -n "$VERIFY_BACKUP" ]]; then
+        TMP_PLAIN=$(mktemp)
+        trap 'rm -f -- "$TMP_KEY" "$TMP_PLAIN"' EXIT
+        verified=false
+        for iterations in 600000 100000; do
+            if openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter "$iterations" \
+                -in "$VERIFY_BACKUP" -out "$TMP_PLAIN" -pass "file:$TMP_KEY" 2>/dev/null; then
+                if [[ "$(head -c 5 "$TMP_PLAIN")" == PGDMP ]]; then
+                    pg_restore --list "$TMP_PLAIN" >/dev/null 2>&1 && verified=true
+                elif tar -tzf "$TMP_PLAIN" >/dev/null 2>&1; then
+                    verified=true
+                fi
+            fi
+            [[ "$verified" != true ]] || break
+        done
+        if [[ "$verified" != true ]]; then
+            log_err "Recovered passphrase did not decrypt a supported verification backup"
+            exit 1
+        fi
+        rm -f -- "$TMP_PLAIN"
+    fi
+    sudo mkdir -p "$(dirname "$KEY_FILE")"
+    sudo install -m 0600 "$TMP_KEY" "$KEY_FILE"
     sudo chown root:root "$KEY_FILE"
-    rm -f "$TMP_KEY"
+    rm -f -- "$TMP_KEY"
 
     log_ok "Backup encryption key written to $KEY_FILE"
 fi

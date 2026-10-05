@@ -72,15 +72,13 @@ python_split() {
     local secret_hex="$1"
     local threshold="$2"
     local shares="$3"
-    local prefix="$4"
 
-    python3 - "$secret_hex" "$threshold" "$shares" "$prefix" <<'PYEOF'
+    python3 - "$secret_hex" "$threshold" "$shares" <<'PYEOF'
 import sys, os, secrets
 
 secret_hex = sys.argv[1]
 threshold = int(sys.argv[2])
 num_shares = int(sys.argv[3])
-prefix = sys.argv[4]
 
 # GF(256) arithmetic using AES irreducible polynomial x^8 + x^4 + x^3 + x + 1
 def gf256_add(a, b):
@@ -106,7 +104,8 @@ def gf256_inv(a):
     for _ in range(6):
         result = gf256_mul(result, result)
         result = gf256_mul(result, a)
-    return result
+    # The loop yields a^127; square once more to obtain a^254.
+    return gf256_mul(result, result)
 
 def make_shares(secret_bytes, t, n):
     """Split each byte independently using a random polynomial of degree t-1."""
@@ -142,21 +141,20 @@ python_combine() {
     shift
     local shares=("$@")
 
-    local shares_joined
-    shares_joined=$(printf "%s\n" "${shares[@]}")
-
-    python3 - "$threshold" <<PYEOF
-import sys
+    python3 - "$threshold" "${shares[@]}" <<'PYEOF'
+import sys, re
 
 threshold = int(sys.argv[1])
-
-shares_raw = """${shares_joined}""".strip().split('\n')
-
-# Parse shares: index-hex
 parsed = []
-for s in shares_raw:
-    idx_str, hex_data = s.split('-', 1)
-    parsed.append((int(idx_str), bytes.fromhex(hex_data)))
+for share in sys.argv[2:]:
+    if not re.fullmatch(r"[0-9]{1,3}-(?:[0-9a-fA-F]{2})+", share):
+        raise SystemExit("Malformed share")
+    index, data = share.split('-', 1)
+    parsed.append((int(index), bytes.fromhex(data)))
+if (len(parsed) < threshold or any(not 1 <= x <= 255 for x, _ in parsed)
+        or len({x for x, _ in parsed}) != len(parsed)
+        or len({len(data) for _, data in parsed}) != 1):
+    raise SystemExit("Invalid indices, duplicate indices, or unequal share lengths")
 
 def gf256_add(a, b):
     return a ^ b
@@ -180,7 +178,8 @@ def gf256_inv(a):
     for _ in range(6):
         result = gf256_mul(result, result)
         result = gf256_mul(result, a)
-    return result
+    # The loop yields a^127; square once more to obtain a^254.
+    return gf256_mul(result, result)
 
 def lagrange_interpolate(shares_for_byte, t):
     """Reconstruct the secret byte using Lagrange interpolation at x=0."""
@@ -213,9 +212,9 @@ PYEOF
 ssss_split_key() {
     local secret_hex="$1"
     local threshold="$2"
-    local shares="$3"
+    local share_count="$3"
 
-    echo "$secret_hex" | ssss-split -t "$threshold" -n "$shares" -x -Q 2>/dev/null
+    echo "$secret_hex" | ssss-split -t "$threshold" -n "$share_count" -x -Q 2>/dev/null
 }
 
 # ── Generate or read keys ─────────────────────────────────────────────────────
@@ -232,7 +231,7 @@ if [ -n "$BACKUP_KEY_FILE" ] && [ -f "$BACKUP_KEY_FILE" ]; then
     log "Read backup encryption key from $BACKUP_KEY_FILE"
 else
     log "Generating new backup encryption key..."
-    BACKUP_KEY_HEX=$(openssl rand -hex 64)
+    BACKUP_KEY_HEX=$(openssl rand -base64 64 | xxd -p -c 256 | tr -d '\n')
     log_ok "Backup encryption key generated (512-bit)"
 fi
 
@@ -303,6 +302,7 @@ cat > "${OUTPUT_DIR}/ceremony-record.json" <<EOF
     "shamir_threshold": ${SHARES_THRESHOLD},
     "shamir_total_shares": ${SHARES_TOTAL},
     "shamir_tool": "${SHAMIR_TOOL}",
+    "backup_key_representation": "passphrase-file-bytes",
     "tde_key_fingerprint_sha256": "${TDE_FINGERPRINT}",
     "backup_key_fingerprint_sha256": "${BACKUP_FINGERPRINT}",
     "tde_key_length_bits": $((${#TDE_KEY} * 4)),
