@@ -354,8 +354,10 @@ never appear in command arguments or receipts:
 
 Firing and historical alert states are visible in Grafana. By default no notification leaves
 the host; set `CHRONICLE_ALERT_WEBHOOK_URL` to deliver alerts to a person (see the runbook
-section "Attach a notification channel"). Start diagnosis with `./chronicle doctor`; each
-alert links to the bundled [monitoring runbook](docs/MONITORING-RUNBOOK.md).
+section "Attach a notification channel"). Setup calls out that delivery starts disabled, and
+`./chronicle doctor` reports `alert-route` as a warning until a destination is configured. The
+check confirms only that a destination is present; test delivery in Grafana using the bundled
+[monitoring runbook](docs/MONITORING-RUNBOOK.md). Each alert links to that runbook.
 
 Backend and Caddy emit structured JSON envelopes, PostgreSQL emits a parseable timestamp and
 SQLSTATE prefix, and guarded operator commands emit JSON events. Fluent Bit accepts only these

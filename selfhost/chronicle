@@ -1125,6 +1125,8 @@ PY
     printf '%sMonitoring:%s Grafana will listen on http://%s:%s with %s metrics and %s sanitized logs.\n' \
       "$BLD" "$RST" "$grafana_bind" "$grafana_port" "$metrics_retention" "$logs_retention"
     printf '  After startup: ./chronicle monitoring add-viewer NAME\n\n'
+    printf '  Alert delivery is not configured; Grafana keeps alerts local until CHRONICLE_ALERT_WEBHOOK_URL is set and tested.\n'
+    printf '  See selfhost/docs/MONITORING-RUNBOOK.md, “Attach a notification channel.”\n\n'
   fi
 
   local effective_public_base_url="${keep_public_base_url:-https://${domain}}"
@@ -2025,6 +2027,12 @@ PY
       doctor_add logs-pipeline ok "VictoriaLogs is healthy" "none"
     else
       doctor_add logs-pipeline fail "VictoriaLogs is unavailable" "Run ./chronicle logs victorialogs fluent-bit"
+    fi
+    if [[ -n "${CHRONICLE_ALERT_WEBHOOK_URL:-}" ]]; then
+      doctor_add alert-route ok "A human alert destination is configured" "none"
+    else
+      doctor_add alert-route warn "Alerts remain visible in Grafana only; no human destination is configured" \
+        "Set CHRONICLE_ALERT_WEBHOOK_URL in .env, apply it with docker compose up -d grafana, then test the contact point in Grafana"
     fi
   else
     doctor_add monitoring warn "Monitoring overlay is disabled" "Run ./chronicle setup to enable it, or add overlays/monitoring.yml as documented"
@@ -3133,19 +3141,29 @@ PY
 
 cmd_upgrade() {
   shift || true
-  # upgrade.sh is intentionally run from a freshly extracted release. The new bundle must
-  # not have an .env yet: the guarded upgrade validates and merges the previous release's
-  # mode-0600 settings with the new defaults and immutable image pins. Requiring .env here
-  # made the documented clean-bundle upgrade path impossible before upgrade.sh could run.
-  # Do not arm the generic receipt trap until upgrade.sh has installed the merged .env.
-  # Before that point STATE_ROOT is this immutable extraction, so even an argument typo
-  # would create an unlisted operator-receipts file and make the clean bundle fail its own
-  # exact-inventory check on the next attempt. upgrade.sh owns failure receipts once a
-  # destructive phase starts. After success, need_env resolves the preserved state root and
-  # the generic success receipt is written there, never into the release extraction.
-  ./upgrade.sh "$@" || die "upgrade failed"
+  [[ $# -eq 2 && "$1" == --from && -n "$2" ]] || {
+    printf '%s\n' 'usage: ./chronicle upgrade --from /path/to/previous/selfhost' >&2
+    exit 2
+  }
+  local new_bundle old_bundle
+  new_bundle="$(pwd -P)"
+  [[ -d "$2" ]] || die "previous selfhost directory does not exist: $2"
+  old_bundle="$(cd "$2" && pwd -P)" || die "could not resolve previous selfhost directory: $2"
+
+  # The old release owns the persistent state and the monitoring project while the new
+  # bundle is validated. Load its non-exported settings first so every child failure,
+  # including the update handoff, records against the deployment being upgraded.
+  cd "$old_bundle" || die "could not enter previous selfhost directory: $old_bundle"
   need_env
   begin_operation upgrade upgrade_failed
+  cd "$new_bundle" || die "could not return to the new release bundle: $new_bundle"
+  if ! ./upgrade.sh --from "$old_bundle"; then
+    cd "$old_bundle" || true
+    die "upgrade failed"
+  fi
+  # upgrade.sh has now installed its merged .env. Re-read it so the success receipt and
+  # monitoring event use the verified target release while retaining the old state root.
+  need_env
   operation_succeeded
 }
 

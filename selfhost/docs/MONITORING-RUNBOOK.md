@@ -77,6 +77,9 @@ Alerts reach a person only through a webhook. Grafana sends every firing alert w
 `monitoring/grafana-alerting/contactpoints.yml`. Its URL comes from
 `CHRONICLE_ALERT_WEBHOOK_URL`. When that is unset, the URL is the closed discard port
 `http://127.0.0.1:9`, so delivery fails and alerts stay in Grafana only.
+`./chronicle doctor` reports `alert-route` as a warning while the setting is empty and as
+configured when it is nonempty. That check does not send a message or prove the receiver is
+reachable; use Grafana's contact-point test below to confirm delivery to the operator.
 
 1. Choose a receiver that accepts a JSON `POST`: a chat incoming webhook, a pager service,
    or an internal relay that forwards to email. Chronicle sends no email itself. Payloads

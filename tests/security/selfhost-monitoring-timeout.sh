@@ -38,7 +38,7 @@ dc() {
 timeout_output="$(record_operation restore success none 2>&1)"
 [[ "$timeout_output" == *'could not be recorded within 15 seconds'* ]] ||
   fail "a stuck monitoring writer did not produce the bounded warning"
-if pgrep -f '^/bin/sleep 60013$' >/dev/null 2>&1; then
+if ps -eo args= | awk '$0 == "/bin/sleep 60013" { found=1 } END { exit !found }'; then
   fail "the bounded monitoring writer left its child process running"
 fi
 
