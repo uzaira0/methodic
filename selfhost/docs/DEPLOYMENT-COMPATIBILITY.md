@@ -18,6 +18,17 @@ admin session without an MFA claim, so it is accepted only with an internal mode
 `TESTING_LOGIN_ENABLED=true`, and `REQUIRE_MFA=false`. If no login method is configured,
 startup fails instead of producing an apparently healthy but unusable dashboard.
 
+## Researcher API keys on the public listener
+
+The public listener forwards only the study-scoped read-only download routes accepted by
+the backend researcher API-key table: Time Use Diary `/data` and `/participants/data`, and
+survey questionnaire `/data`. These requests must use `X-Api-Key`; public bearer tokens and
+browser cookies do not pass this boundary. The Caddy route is only an exposure filter: the
+backend still validates the key, its READ_ONLY scope, the study, and the creator's current
+access. Treat an API key as a bearer credential, keep it out of URLs and logs, and grant it
+only the studies and lifetime its integration needs. The researcher dashboard and its other
+API routes remain on the internal listener.
+
 ## Declared profiles
 
 Each profile works with or without `overlays/monitoring.yml`.
@@ -34,6 +45,24 @@ Each profile works with or without `overlays/monitoring.yml`.
 
 `ENABLE_ENCRYPTION=false` disables database-level TDE; it does not prove that the host disk
 is encrypted.
+
+## Container network and client IPs
+
+The base Compose file creates a dedicated bridge on `CHRONICLE_SUBNET` (default
+`172.28.0.0/16`) and passes that same CIDR to the backend's trusted-proxy resolver. The
+startup guard accepts one canonical private IPv4 subnet and rejects a mismatch, so the
+backend will not silently treat Caddy as untrusted after Docker chooses another address
+pool. If this range overlaps a host, VPN, or existing Docker network, set `CHRONICLE_SUBNET`
+in `.env` to an unused RFC1918 subnet such as `192.168.240.0/24`; the compose network and
+backend `CHRONICLE_TRUSTED_PROXY_CIDRS` value use the same input and are checked for exact
+consistency at startup.
+
+Caddy separately trusts upstream load balancers through `CADDY_TRUSTED_PROXIES`, a
+space-separated list of explicit CIDRs. It defaults to loopback only; set it to the exact
+source ranges used by your TLS-terminating proxy. All split modes process the forwarded chain
+from right to left, so a forged leading X-Forwarded-For value does not replace the nearest
+untrusted client address. Direct clients continue to use their socket address, regardless of
+an X-Forwarded-For header they send themselves.
 
 ## Rejected combinations
 
@@ -77,12 +106,41 @@ COMPOSE_FILE=docker-compose.yml:overlays/mode-local-https.yml
 After editing `.env`, run `./chronicle check`; after startup, run
 `./chronicle verify --dashboard-password` and supply the password on the prompt or stdin.
 
+## Export limits
+
+The backend receives all five export limits from Compose. These defaults apply when a value is
+unset or empty; set any of them in `.env` to tune exports for the host:
+
+| Variable | Default | Meaning |
+|---|---:|---|
+| `CHRONICLE_EXPORT_MAX_ROWS` | `1000000` | Maximum rows in one export |
+| `CHRONICLE_EXPORT_MAX_BYTES` | `536870912` | Maximum bytes in one export |
+| `CHRONICLE_EXPORT_MAX_RUNTIME_SECONDS` | `1800` | Maximum runtime for one export |
+| `CHRONICLE_EXPORT_MAX_TOTAL_BYTES` | `8589934592` | Maximum managed export artifacts |
+| `CHRONICLE_EXPORT_MIN_FREE_BYTES` | `1073741824` | Free space required before a new export |
+
+Use positive decimal integers. The backend validates every supplied value and fails backend
+startup when a value is malformed, zero, negative, or outside the supported integer range.
+
+## Researcher session idle timeout
+
+The backend expires researcher sessions after a bounded idle interval. Set
+`CHRONICLE_SESSION_IDLE_MINUTES` in `.env` to a decimal integer from `1` through `120`;
+the public example and Compose default are `15` minutes. The startup guard rejects a
+malformed or out-of-range value before dependent services start.
+
+Public TLS modes accept publicly delegated DNS names and globally routable IP addresses.
+The setup wizard and `guard-config.sh` both reject reserved or private-use suffixes including
+`.corp`, `.home`, `.mail`, `.internal`, `.home.arpa`, `.lan`, and `.local`. The `local-https`
+trial remains available for a private LAN address; it does not require a public DNS suffix.
+
 ## Server and app versions
 
 The dashboard is the frontend image of the same release; it is never mixed across releases.
 
 | Server release | Android build shipped with it | Server change the app depends on |
 |---|---|---|
+| 2026.10.5 | versionCode 68 (Play internal, open flavor) | V114/V115 keep erased device-key hashes so an offline phone can learn NOT_ENROLLED after participant or study erasure; V116/V117 preserve those markers through restore |
 | 2026.10.3 | versionCode 67 (Play internal) | as 2026.10.2 |
 | 2026.10.2 | versionCode 67 (Play internal) | V113 accepts the access-missing diagnostic; an older server rejects it and the app keeps it until the server is upgraded |
 | 2026.10.1 | versionCode 66 (Play internal); needs Android 8.0 or newer | none |
