@@ -65,6 +65,10 @@ services:
     restart: "no"
     logging: *default-logging
     entrypoint: ["/bin/bash", "/selfhost/guard-config.sh"]
+    # No network: `upgrade` runs this guard while the previous release still owns the
+    # project network, and joining it would make Compose recreate a network whose config
+    # changed (2026.10.5 pins its subnet), disconnecting the running stack.
+    network_mode: none
     environment:
       TLS_MODE: ""
       DASHBOARD_EXPOSURE: ""
@@ -78,6 +82,9 @@ services:
       AUTH_OVERLAY_ENABLED: "false"
       MONITORING_ENABLED: "false"
       RELEASE_VERSION: ${RELEASE_VERSION:-development}
+      CHRONICLE_SUBNET: ${CHRONICLE_SUBNET:-172.28.0.0/16}
+      CHRONICLE_TRUSTED_PROXY_CIDRS: ${CHRONICLE_SUBNET:-172.28.0.0/16}
+      CADDY_TRUSTED_PROXIES: ${CADDY_TRUSTED_PROXIES:-127.0.0.1/32}
       # Checked for digest pinning outside source checkouts (guard-config.sh).
       BACKEND_IMAGE: ${BACKEND_IMAGE:-}
       SELFHOST_FRONTEND_IMAGE: ${SELFHOST_FRONTEND_IMAGE:-}
@@ -402,6 +409,9 @@ services:
       CHRONICLE_SERVER_ARGS: ${CHRONICLE_SERVER_ARGS:-local postgres medialocal}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
+      # ClientIpResolver trusts the proxy only on the isolated Compose network. Keep this
+      # byte-identical to the subnet configured below; config-guard rejects drift.
+      CHRONICLE_TRUSTED_PROXY_CIDRS: ${CHRONICLE_SUBNET:-172.28.0.0/16}
       POSTGRES_DB: ${POSTGRES_DB:-chronicle}
       POSTGRES_USER: ${POSTGRES_USER:-chronicle}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
@@ -580,6 +590,7 @@ services:
       # listener's guard in Caddyfile.split*; they are set here regardless so the same web
       # service definition serves every mode.
       DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+      CADDY_TRUSTED_PROXIES: ${CADDY_TRUSTED_PROXIES:-127.0.0.1/32}
       # Compose resolves the default before Caddy parses its configuration, giving the
       # dashboard the same canonical participant origin rendered into backend manifests.
       CHRONICLE_PUBLIC_BASE_URL: "${CHRONICLE_PUBLIC_BASE_URL:-https://${DOMAIN}}"
@@ -652,3 +663,8 @@ volumes:
   # capped and rotated (LOG_MAX_SIZE x LOG_MAX_FILES), which is fine for diagnostics and
   # wrong for a record you may have to produce later.
   audit_logs:
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${CHRONICLE_SUBNET:-172.28.0.0/16}

@@ -192,6 +192,7 @@ def main() -> None:
             "db-init.sh",
             "docker-compose.yml",
             "guard-config.sh",
+            "network-policy.sh",
             "init-tde.sh",
             "restore.sh",
             "rotate-secret.sh",

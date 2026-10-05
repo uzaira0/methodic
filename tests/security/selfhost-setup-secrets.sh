@@ -26,7 +26,7 @@ trap '/bin/rm -rf -- "$RUN_DIR"' EXIT
 FIXTURE_SELFHOST="${RUN_DIR}/selfhost"
 COMMAND_DIR="${RUN_DIR}/commands"
 /bin/mkdir -p "$FIXTURE_SELFHOST" "$COMMAND_DIR"
-/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_SELFHOST/"
+/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" "${ROOT_DIR}/selfhost/network-policy.sh" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_SELFHOST/"
 /bin/chmod 0755 "${FIXTURE_SELFHOST}/chronicle"
 
 PASSWORD='fixture-dashboard-password-never-print-9472'
@@ -211,7 +211,7 @@ grep -Fq 'Legacy shared-HMAC compatibility is disabled; no deployment-wide mobil
 
 FIXTURE_LOCAL_SELFHOST="${RUN_DIR}/selfhost-local"
 /bin/mkdir -p "$FIXTURE_LOCAL_SELFHOST"
-/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_LOCAL_SELFHOST/"
+/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" "${ROOT_DIR}/selfhost/network-policy.sh" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_LOCAL_SELFHOST/"
 /bin/chmod 0755 "${FIXTURE_LOCAL_SELFHOST}/chronicle"
 LOCAL_OUTPUT="${RUN_DIR}/setup-local-output.txt"
 if ! (
@@ -281,7 +281,7 @@ fi
 
 FIXTURE_LEGACY_SELFHOST="${RUN_DIR}/selfhost-legacy"
 /bin/mkdir -p "$FIXTURE_LEGACY_SELFHOST"
-/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_LEGACY_SELFHOST/"
+/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" "${ROOT_DIR}/selfhost/network-policy.sh" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_LEGACY_SELFHOST/"
 /bin/chmod 0755 "${FIXTURE_LEGACY_SELFHOST}/chronicle"
 LEGACY_OUTPUT="${RUN_DIR}/setup-legacy-output.txt"
 if ! (

@@ -21,6 +21,8 @@
 # listener would publish nothing.
 set -uo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/network-policy.sh" || exit 1
+
 parse_public_authority() {
   local authority="$1" port=""
   PUBLIC_HOST=""
@@ -146,7 +148,7 @@ is_valid_public_dns_name() {
     localhost|*.localhost|local|*.local|invalid|*.invalid|test|*.test) return 1 ;;
     # RFC 2606 documentation names, and private-use names (RFC 8375, ICANN .internal, .lan).
     example|*.example|example.com|*.example.com|example.net|*.example.net|example.org|*.example.org) return 1 ;;
-    internal|*.internal|home.arpa|*.home.arpa|lan|*.lan) return 1 ;;
+    internal|*.internal|home.arpa|*.home.arpa|lan|*.lan|corp|*.corp|home|*.home|mail|*.mail) return 1 ;;
   esac
   return 0
 }
@@ -182,6 +184,27 @@ public_root_https_origin_is_allowed() {
   public_host_is_allowed "$PUBLIC_HOST"
 }
 
+validate_compose_proxy_subnet() {
+  local subnet="$1" trusted="$2" address prefix normalized family bits private=false
+  [[ "$subnet" == "$trusted" ]] || return 1
+  [[ "$subnet" == */* ]] || return 1
+  address="${subnet%/*}"
+  prefix="${subnet#*/}"
+  [[ "$address" =~ ^(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$ ]] || return 1
+  [[ "$prefix" =~ ^(8|9|1[0-9]|2[0-9]|30)$ ]] || return 1
+  normalized="$(address_bits "$address")" || return 1
+  read -r family bits <<< "$normalized"
+  [[ "$family" == 4 && "${bits:prefix}" != *1* ]] || return 1
+  if ((prefix >= 8)) && [[ "${bits:0:8}" == 00001010 ]]; then
+    private=true
+  elif ((prefix >= 12)) && [[ "${bits:0:12}" == 101011000001 ]]; then
+    private=true
+  elif ((prefix >= 16)) && [[ "${bits:0:16}" == 1100000010101000 ]]; then
+    private=true
+  fi
+  [[ "$private" == true ]]
+}
+
 # A narrow diagnostic mode lets verify-config.sh exercise the exact classifier used at
 # startup without reconstructing an otherwise complete deployment environment.
 if [[ "${1:-}" == --validate-public-host ]]; then
@@ -192,6 +215,16 @@ fi
 if [[ "${1:-}" == --validate-public-origin ]]; then
   [[ $# -eq 2 ]] || exit 2
   public_root_https_origin_is_allowed "$2" && exit 0
+  exit 1
+fi
+if [[ "${1:-}" == --validate-compose-subnet ]]; then
+  [[ $# -eq 3 ]] || exit 2
+  validate_compose_proxy_subnet "$2" "$3" && exit 0
+  exit 1
+fi
+if [[ "${1:-}" == --validate-forwarder-cidrs ]]; then
+  [[ $# -eq 2 ]] || exit 2
+  validate_dashboard_networks "$2" && exit 0
   exit 1
 fi
 
@@ -234,6 +267,9 @@ warn() { printf '  %swarn%s %s\n' "$YEL" "$RST" "$1"; }
 : "${INTERNAL_PORT:=8081}"
 : "${DASHBOARD_PASSWORD_HASH:=}"
 : "${DASHBOARD_ALLOWED_IPS:=}"
+: "${CADDY_TRUSTED_PROXIES:=127.0.0.1/32}"
+: "${CHRONICLE_SUBNET:=172.28.0.0/16}"
+: "${CHRONICLE_TRUSTED_PROXY_CIDRS:=$CHRONICLE_SUBNET}"
 : "${RELEASE_VERSION:=development}"
 : "${CHRONICLE_PUBLIC_BASE_URL:=}"
 
@@ -497,7 +533,7 @@ if [[ "$MONITORING_ENABLED" == true ]]; then
   if [[ ${#GRAFANA_ADMIN_PASSWORD} -lt 32 ]]; then
     bad "GRAFANA_ADMIN_PASSWORD is ${#GRAFANA_ADMIN_PASSWORD} characters; use at least 32"
   fi
-  if [[ "$GRAFANA_BIND" == "0.0.0.0" || "$GRAFANA_BIND" == "::" || "$GRAFANA_BIND" == "[::]" ]]; then
+  if ! specific_private_bind "$GRAFANA_BIND"; then
     bad "GRAFANA_BIND=${GRAFANA_BIND} exposes the monitoring dashboard on every interface"
     printf '       Keep it on 127.0.0.1 and use an SSH tunnel, or bind one reviewed private address.\n'
   fi
@@ -590,6 +626,15 @@ else
   ok "MFA not required on dashboard tokens — gated by the internal listener, allowlist and password"
 fi
 
+# ------------------------------------------------------------------ trusted proxy subnet
+if validate_compose_proxy_subnet "$CHRONICLE_SUBNET" "$CHRONICLE_TRUSTED_PROXY_CIDRS"; then
+  ok "backend trusts only the Chronicle Compose subnet ${CHRONICLE_TRUSTED_PROXY_CIDRS} for forwarded client IPs"
+else
+  bad "CHRONICLE_SUBNET must be one canonical, private IPv4 CIDR and exactly match CHRONICLE_TRUSTED_PROXY_CIDRS"
+fi
+validate_dashboard_networks "$CADDY_TRUSTED_PROXIES" ||
+  bad "CADDY_TRUSTED_PROXIES must be explicit valid CIDRs and must not trust the entire IPv4 or IPv6 space"
+
 # ------------------------------------------------------------------ dashboard gate
 if [[ "$DASHBOARD_EXPOSURE" == internal ]]; then
   # Neither half of the gate is optional: without a hash Caddy accepts any password, and an
@@ -604,14 +649,10 @@ if [[ "$DASHBOARD_EXPOSURE" == internal ]]; then
   if [[ -z "$DASHBOARD_ALLOWED_IPS" ]]; then
     bad "DASHBOARD_ALLOWED_IPS is empty — no source address would be allowed to reach the dashboard"
   fi
-  for cidr in $DASHBOARD_ALLOWED_IPS; do
-    case "$cidr" in
-      0.0.0.0/0|::/0|0::/0) bad "DASHBOARD_ALLOWED_IPS contains ${cidr}, which allows every source" ;;
-    esac
-  done
-  if [[ "$INTERNAL_BIND" == "0.0.0.0" || "$INTERNAL_BIND" == "::" || "$INTERNAL_BIND" == "[::]" ]]; then
-    bad "INTERNAL_BIND=${INTERNAL_BIND} exposes the dashboard API to every network, defeating the internal mode"
-  fi
+  validate_dashboard_networks "$DASHBOARD_ALLOWED_IPS" ||
+    bad "DASHBOARD_ALLOWED_IPS is malformed or admits the entire IPv4/IPv6 address space"
+  specific_private_bind "$INTERNAL_BIND" ||
+    bad "INTERNAL_BIND must be one specific private, link-local, or loopback IP address"
   # The dashboard gate is one control with three parts -- bcrypt password, source allowlist,
   # private bind. Each part still fails on its own line with its own remedy, but when all
   # three hold, saying so three times makes the reader weigh them separately when the only

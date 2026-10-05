@@ -14,6 +14,16 @@ fail() { printf 'monitoring-config: %s\n' "$*" >&2; exit 1; }
 [[ "$COMPOSE_PROJECT_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$ ]] ||
   fail "Compose project name cannot be represented safely in the scrape allowlist"
 
+# This mandatory init service also guards independent monitoring starts, where the main
+# application config-guard may never run. Never print password bytes.
+: "${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}"
+: "${GRAFANA_BIND:=127.0.0.1}"
+[[ ${#GRAFANA_ADMIN_PASSWORD} -ge 32 && ${#GRAFANA_ADMIN_PASSWORD} -le 1024 ]] ||
+  fail "Grafana password must contain 32..1024 characters"
+case "$GRAFANA_ADMIN_PASSWORD" in *CHANGE_ME*|*changeme*) fail "Grafana password is a placeholder" ;; esac
+source "$(dirname "${BASH_SOURCE[0]}")/../network-policy.sh" || exit 1
+specific_private_bind "$GRAFANA_BIND" || fail "Grafana must bind one specific private or loopback IP"
+
 mkdir -p /monitoring-secrets /monitoring-config /metrics
 umask 077
 temporary="/monitoring-secrets/.metrics-password.$$"

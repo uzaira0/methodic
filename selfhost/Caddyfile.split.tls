@@ -20,7 +20,9 @@
 	order rate_limit before basic_auth
 
 	servers {
-		trusted_proxies static private_ranges
+		trusted_proxies static {$CADDY_TRUSTED_PROXIES:127.0.0.1/32}
+		trusted_proxies_strict
+		client_ip_headers X-Forwarded-For
 	}
 }
 
