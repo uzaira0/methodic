@@ -97,6 +97,15 @@ def check_w16() -> None:
         assert realm.get("quickLoginCheckMilliSeconds") == 1000, path
 
 
+def check_w49() -> None:
+    expected = "oven/bun:1.3.12-alpine@sha256:26d8996560ca94eab9ce48afc0c7443825553c9a851f40ae574d47d20906826d"
+    for path in ("selfhost/Dockerfile.frontend", "docker/Dockerfile.frontend.prod"):
+        assert f"FROM {expected} AS builder" in read(path), path
+    package = json.loads(read("chronicle-web/package.json"))
+    assert package.get("engines", {}).get("bun") == ">=1.3.12"
+    assert package.get("devDependencies", {}).get("bun") == "1.3.12"
+
+
 def check_w51() -> None:
     compose = yaml.safe_load(read("selfhost/docker-compose.yml"))
     subnet = "${CHRONICLE_SUBNET:-172.28.0.0/16}"
@@ -391,6 +400,7 @@ CHECKS = {
     "W12": check_w12,
     "W13": check_w13,
     "W16": check_w16,
+    "W49": check_w49,
     "W51": check_w51,
     "W52": check_w52,
     "W54": check_w54,
