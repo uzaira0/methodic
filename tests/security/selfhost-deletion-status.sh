@@ -179,22 +179,30 @@ run_status "$OPERATION_ID" "$OPERATION_ID"
 run_status ""
 
 /bin/rm -f "$DOCKER_MARKER"
+status=0
 if (
   cd "$SELFHOST_DIR"
   PATH="${COMMAND_DIR}:/usr/bin:/bin" ./chronicle deletion-status not-a-uuid
 ) >"$OUTPUT_FILE" 2>&1; then
   fail "malformed study UUID was accepted"
+else
+  status=$?
 fi
-grep -Fq 'STUDY_UUID is not a UUID' "$OUTPUT_FILE" || fail "malformed study UUID error was unclear"
+[[ "$status" == 2 ]] || fail "malformed study UUID exited $status, want usage status 2"
+grep -Fq 'invalid study UUID' "$OUTPUT_FILE" || fail "malformed study UUID error was unclear"
 [[ ! -e "$DOCKER_MARKER" ]] || fail "malformed study UUID reached Docker"
 
+status=0
 if (
   cd "$SELFHOST_DIR"
   PATH="${COMMAND_DIR}:/usr/bin:/bin" ./chronicle deletion-status "$STUDY_ID" not-a-uuid
 ) >"$OUTPUT_FILE" 2>&1; then
   fail "malformed operation UUID was accepted"
+else
+  status=$?
 fi
-grep -Fq 'OPERATION_UUID is not a UUID' "$OUTPUT_FILE" || fail "malformed operation UUID error was unclear"
+[[ "$status" == 2 ]] || fail "malformed operation UUID exited $status, want usage status 2"
+grep -Fq 'invalid operation UUID' "$OUTPUT_FILE" || fail "malformed operation UUID error was unclear"
 [[ ! -e "$DOCKER_MARKER" ]] || fail "malformed operation UUID reached Docker"
 
 echo "self-host deletion-status test passed"

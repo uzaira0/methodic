@@ -16,8 +16,11 @@
 #   ./chronicle upgrade --from DIR  upgrade from a previous release with a verified pre-upgrade dump
 #   ./chronicle update [--check]  fetch the latest release and hand off to upgrade
 #   ./chronicle adopt --from DIR  switch a source checkout to this release bundle
-#   ./chronicle restore   stop every database writer, restore a verified dump, then restart
-#   ./chronicle rotate-secret  rotate one credential with rollback and a mode-0600 receipt
+#   ./chronicle adopt-precheck DIR  (run by adopt) host checks before the source is torn down
+#   ./chronicle restore [--yes] [--no-start] --trusted-sha256=SHA256 [DUMP]
+#                         stop every database writer, restore a separately trusted dump
+#   ./chronicle rotate-secret [--yes] KIND [ACTION] [--forward|--rollback]
+#                         rotate one credential with rollback and a mode-0600 receipt
 #   ./chronicle deletion-status STUDY_UUID [OPERATION_UUID]
 #                         inspect the live deletion ledger and proof state without subject IDs
 #   ./chronicle status    what is running and healthy
@@ -632,6 +635,7 @@ ask_bind_addr() { # <default> [wildcard]
 
 # ------------------------------------------------------------------------------- setup
 cmd_setup() {
+  shift || true
   begin_operation setup setup_failed
   # Secrets carried over from an existing .env rather than regenerated. Two of them are not
   # cosmetic to change:
@@ -1379,6 +1383,7 @@ assert_no_incomplete_mutation() {
 }
 
 cmd_up() {
+  shift || true
   need_env
   # A destructive restore can leave a deliberately stopped, partially replaced schema.
   # The preserved lock must be an enforced interlock, not merely a warning printed by the
@@ -1867,6 +1872,7 @@ cmd_verify() {
 # Validates .env and the bundle without building or starting anything, so an operator can
 # get the configuration right before spending a build on it.
 cmd_check() {
+  shift || true
   need_env
   begin_operation check configuration_invalid
   preflight
@@ -1875,6 +1881,7 @@ cmd_check() {
 }
 
 cmd_status() {
+  shift || true
   need_env
   begin_operation status status_failed
   dc ps || die "could not inspect Compose service status"
@@ -3152,12 +3159,133 @@ cmd_rotate_secret() {
 
 print_help() { awk 'NR == 1 { next } !/^#/ { exit } { sub(/^# ?/, ""); print }' "$SCRIPT_PATH"; }
 
-case "${1:-help}" in
-  setup)  cmd_setup ;;
-  up)     cmd_up ;;
-  check)  cmd_check ;;
+print_command_help() {
+  case "$1" in
+    setup) printf '%s\n' 'usage: ./chronicle setup' ;;
+    up) printf '%s\n' 'usage: ./chronicle up' ;;
+    check) printf '%s\n' 'usage: ./chronicle check' ;;
+    verify) printf '%s\n' 'usage: ./chronicle verify [--dashboard-password]' ;;
+    status) printf '%s\n' 'usage: ./chronicle status' ;;
+    doctor) printf '%s\n' 'usage: ./chronicle doctor [--json]' ;;
+    monitoring) printf '%s\n' 'usage: ./chronicle monitoring status|add-viewer|remove-viewer|reset-viewer [name]' ;;
+    logs) printf '%s\n' 'usage: ./chronicle logs [SERVICE ...]' ;;
+    down) printf '%s\n' 'usage: ./chronicle down' ;;
+    restore) printf '%s\n' 'usage: ./chronicle restore [--yes] [--no-start] --trusted-sha256=SHA256 [DUMP]' ;;
+    deletion-status) printf '%s\n' 'usage: ./chronicle deletion-status STUDY_UUID [OPERATION_UUID]' ;;
+    upgrade) printf '%s\n' 'usage: ./chronicle upgrade --from DIR' ;;
+    update) printf '%s\n' 'usage: ./chronicle update [--check]' ;;
+    adopt) printf '%s\n' 'usage: ./chronicle adopt --from DIR' ;;
+    rotate-secret) printf '%s\n' 'usage: ./chronicle rotate-secret [--yes] KIND [ACTION] [--forward|--rollback]' ;;
+    *) return 2 ;;
+  esac
+}
+
+command_usage_error() {
+  local command="$1" detail="${2:-invalid arguments}"
+  printf '%s\n' "${RED}error:${RST} ${detail}" >&2
+  print_command_help "$command" >&2 || true
+  exit 2
+}
+
+validate_command_arguments() {
+  local command="$1" argument positional_count=0 direction="" kind=""
+  shift
+  case "$command" in
+    setup|up|check|status|down)
+      (($# == 0)) || command_usage_error "$command" "${command} does not accept arguments" ;;
+    verify)
+      (($# == 0)) || [[ $# == 1 && "$1" == --dashboard-password ]] ||
+        command_usage_error "$command" "invalid verify option" ;;
+    doctor)
+      (($# == 0)) || [[ $# == 1 && "$1" == --json ]] ||
+        command_usage_error "$command" "invalid doctor option" ;;
+    monitoring)
+      case "${1:-}" in
+        status) (($# == 1)) || command_usage_error "$command" "monitoring status takes no arguments" ;;
+        add-viewer|remove-viewer|reset-viewer)
+          (($# == 2)) || command_usage_error "$command" "monitoring viewer actions require one name"
+          [[ "$2" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]] ||
+            command_usage_error "$command" "invalid monitoring viewer name" ;;
+        *) command_usage_error "$command" "invalid monitoring action" ;;
+      esac ;;
+    logs)
+      for argument in "$@"; do
+        [[ "$argument" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] ||
+          command_usage_error "$command" "invalid log service name or option: $argument"
+      done ;;
+    restore)
+      positional_count=0
+      for argument in "$@"; do
+        case "$argument" in
+          --yes|--no-start) ;;
+          --trusted-sha256=*) [[ "${argument#*=}" =~ ^[[:xdigit:]]{64}$ ]] ||
+              command_usage_error "$command" "trusted SHA-256 must contain 64 hexadecimal characters" ;;
+          --*) command_usage_error "$command" "unknown restore option: $argument" ;;
+          *) positional_count=$((positional_count + 1)) ;;
+        esac
+      done
+      (( positional_count <= 1 )) || command_usage_error "$command" "restore accepts at most one dump path" ;;
+    deletion-status)
+      local uuid_pattern='^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$'
+      [[ $# -ge 1 && $# -le 2 && "$1" =~ $uuid_pattern ]] ||
+        command_usage_error "$command" "invalid study UUID or argument count"
+      [[ $# == 1 || "$2" =~ $uuid_pattern ]] ||
+        command_usage_error "$command" "invalid operation UUID" ;;
+    upgrade|adopt)
+      [[ $# == 2 && "$1" == --from && -n "$2" && "$2" != -* ]] ||
+        command_usage_error "$command" "expected --from DIR" ;;
+    update)
+      (($# == 0)) || [[ $# == 1 && "$1" == --check ]] ||
+        command_usage_error "$command" "invalid update option" ;;
+    rotate-secret)
+      local -a positionals=()
+      for argument in "$@"; do
+        case "$argument" in
+          --yes) ;;
+          --forward|--rollback)
+            [[ -z "$direction" ]] || command_usage_error "$command" "choose one recovery direction"
+            direction="${argument#--}" ;;
+          --*) command_usage_error "$command" "unknown rotate-secret option: $argument" ;;
+          *) positionals+=("$argument") ;;
+        esac
+      done
+      ((${#positionals[@]} >= 1 && ${#positionals[@]} <= 2)) ||
+        command_usage_error "$command" "rotate-secret requires a credential kind or recover action"
+      kind="${positionals[0]}"
+      if [[ "$kind" == recover ]]; then
+        ((${#positionals[@]} == 1)) && [[ -n "$direction" ]] ||
+          command_usage_error "$command" "recover requires exactly one direction"
+      elif [[ -n "$direction" ]]; then
+        command_usage_error "$command" "recovery directions apply only to recover"
+      fi ;;
+    adopt-precheck)
+      [[ $# == 1 && -n "$1" ]] || command_usage_error "$command" "expected source directory" ;;
+    *)
+      printf '%s\n\n' "${RED}error:${RST} unknown command '$command'" >&2
+      print_help >&2
+      exit 2 ;;
+  esac
+}
+
+command="${1:-help}"
+if [[ "$command" == help || "$command" == -h || "$command" == --help ]]; then
+  (($# == 1)) || { printf '%s\n' 'usage: ./chronicle [COMMAND]' >&2; exit 2; }
+  print_help
+  exit 0
+fi
+if [[ $# -ge 2 && ( "$2" == -h || "$2" == --help ) ]]; then
+  [[ $# == 2 ]] || command_usage_error "$command" "help does not accept additional arguments"
+  print_command_help "$command" || command_usage_error "$command" "unknown command: $command"
+  exit 0
+fi
+validate_command_arguments "$@"
+
+case "$command" in
+  setup)  cmd_setup "$@" ;;
+  up)     cmd_up "$@" ;;
+  check)  cmd_check "$@" ;;
   verify) cmd_verify "$@" ;;
-  status) cmd_status ;;
+  status) cmd_status "$@" ;;
   doctor) cmd_doctor "$@" ;;
   monitoring) cmd_monitoring "$@" ;;
   logs)   cmd_logs "$@" ;;
@@ -3170,6 +3298,4 @@ case "${1:-help}" in
   # Internal to adopt: host checks only, before the source checkout is torn down.
   adopt-precheck) shift; need_env; ADOPT_SOURCE="$1" preflight host-only ;;
   rotate-secret) cmd_rotate_secret "$@" ;;
-  help|-h|--help) print_help ;;
-  *) printf '%s\n\n' "${RED}error:${RST} unknown command '$1'" >&2; print_help >&2; exit 2 ;;
 esac

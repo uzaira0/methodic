@@ -9,13 +9,16 @@ CLI="$ROOT_DIR/selfhost/chronicle"
 SNIPPETS="$ROOT_DIR/selfhost/caddy/snippets.caddy"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-mkdir -p "$HOME/tmp"
-RUN_DIR=$(mktemp -d -p "$HOME/tmp" selfhost-cli-surface.XXXXXX)
+RUN_PARENT="${ROOT_DIR}/build/operator-test-runs/selfhost-cli-surface"
+mkdir -p "$RUN_PARENT"
+RUN_DIR=$(mktemp -d "${RUN_PARENT}/run.XXXXXX")
 trap 'rm -rf -- "$RUN_DIR"' EXIT
 
 # 1. Help covers every dispatched command (X1, C4-3).
 help_output=$(bash "$CLI" help)
-dispatched=$(awk '/^case "\$\{1:-help\}" in/ {on=1; next} on && /^esac/ {exit}
+dispatched=$(awk '/^validate_command_arguments "\$@"$/ {dispatch=1; next}
+  dispatch && /^case "\$command" in/ {on=1; next}
+  on && /^esac/ {exit}
   on && /^  [a-z-]+\)/ {sub(/^  /, ""); sub(/\).*/, ""); print}' "$CLI")
 [[ -n "$dispatched" ]] || fail 'could not read the command dispatcher'
 while read -r command; do
@@ -24,7 +27,7 @@ done <<<"$dispatched"
 grep -Fq './chronicle upgrade --from DIR' <<<"$help_output" || fail 'help omits upgrade --from DIR'
 echo 'PASS: help lists every dispatched command'
 
-# 2. `down --help` must not run `docker compose down` (C4-3).
+# 2. `down --help` prints usage without running `docker compose down` (C4-3).
 mkdir -p "$RUN_DIR/bin" "$RUN_DIR/selfhost"
 cp "$CLI" "$RUN_DIR/selfhost/chronicle"
 printf 'COMPOSE_PROJECT_NAME=cli-surface\n' >"$RUN_DIR/selfhost/.env"
@@ -32,10 +35,10 @@ printf '#!/bin/sh\necho "$@" >> "%s/docker-calls"\n' "$RUN_DIR" >"$RUN_DIR/bin/d
 chmod +x "$RUN_DIR/bin/docker"
 status=0
 PATH="$RUN_DIR/bin:$PATH" bash "$RUN_DIR/selfhost/chronicle" down --help >"$RUN_DIR/out" 2>&1 || status=$?
-[[ $status -ne 0 ]] || fail 'down --help exited 0'
+[[ $status -eq 0 ]] || fail "down --help exited ${status}, want 0"
 grep -Fq 'usage: ./chronicle down' "$RUN_DIR/out" || fail 'down --help printed no usage'
 ! grep -q 'down' "$RUN_DIR/docker-calls" 2>/dev/null || fail 'down --help ran docker compose down'
-echo 'PASS: down refuses arguments before touching Compose'
+echo 'PASS: down --help exits 0 before touching Compose'
 
 # 3. Doctor's in-container probes are time-bounded (B6).
 while read -r line; do
