@@ -77,10 +77,15 @@ NEW_BUNDLE=""
 PROJECT=""
 SMOKE_PASSED=false
 UPDATE_SERVER_PID=""
+REDIRECT_SERVER_PID=""
 
 cleanup() {
   local original_status=$?
   set +e
+  if [[ -n "$REDIRECT_SERVER_PID" ]]; then
+    kill "$REDIRECT_SERVER_PID" 2>/dev/null || true
+    wait "$REDIRECT_SERVER_PID" 2>/dev/null || true
+  fi
   if [[ -n "$UPDATE_SERVER_PID" ]]; then
     kill "$UPDATE_SERVER_PID" 2>/dev/null || true
     wait "$UPDATE_SERVER_PID" 2>/dev/null || true
@@ -361,6 +366,28 @@ while len(ports) < 4:
     if candidate not in ports:
         ports.append(candidate)
 http_port, internal_port, grafana_port, update_port = ports
+
+
+def free_subnet() -> str:
+    # Like the ports: the default CHRONICLE_SUBNET may already belong to another stack here.
+    import ipaddress
+
+    ids = subprocess.run(["docker", "network", "ls", "-q"], check=True, capture_output=True, text=True).stdout.split()
+    held = [
+        ipaddress.ip_network(config["Subnet"], strict=False)
+        for network in json.loads(subprocess.run(["docker", "network", "inspect", *ids], check=True, capture_output=True, text=True).stdout)
+        for config in (network.get("IPAM") or {}).get("Config") or []
+        if config.get("Subnet") and ":" not in config["Subnet"]
+    ]
+    start = secrets.randbelow(256)
+    for third in [(start + offset) % 256 for offset in range(256)]:
+        candidate = ipaddress.ip_network(f"10.253.{third}.0/24")
+        if not any(candidate.overlaps(other) for other in held):
+            return str(candidate)
+    raise SystemExit("no free 10.253.x.0/24 subnet for the smoke project network")
+
+
+smoke_subnet = free_subnet()
 project = f"chronicle-release-smoke-{os.getpid()}-{secrets.token_hex(3)}"
 hashed = subprocess.check_output(
     [
@@ -468,10 +495,16 @@ for line in lines:
         if key in values:
             line = f"{key}={values[key]}"
             seen.add(key)
+        elif key == "CHRONICLE_SUBNET":
+            line = f"{key}={smoke_subnet}"
+            seen.add(key)
     rendered.append(line)
 missing = sorted(set(values) - seen)
 if missing:
     raise SystemExit(f"missing expected .env keys: {', '.join(missing)}")
+# A previous release without the setting still hands it to `upgrade` as an operator value.
+if "CHRONICLE_SUBNET" not in seen:
+    rendered.append(f"CHRONICLE_SUBNET={smoke_subnet}")
 env_path = old_bundle / ".env"
 env_path.write_text("\n".join(rendered) + "\n", encoding="utf-8")
 env_path.chmod(0o600)
@@ -549,6 +582,45 @@ for _ in {1..20}; do
   sleep 0.25
 done
 [[ "$update_server_ready" == true ]] || fail "loopback update fixture did not become ready"
+
+# Stands in for the operator's TLS proxy: behind-proxy `verify` requires plain HTTP on the
+# public name to redirect to HTTPS. curl reads $CURL_HOME/.curlrc, so only the fixture's
+# public name on port 80 reaches this loopback listener; product code is unchanged.
+SMOKE_PUBLIC_HOST=selfhost.study-host.org
+python3 - "${RUN_DIR}/redirect-port" "$SMOKE_PUBLIC_HOST" >"${RUN_DIR}/redirect-server.log" 2>&1 <<'REDIRECT' &
+import http.server
+import os
+import sys
+
+port_file, host = sys.argv[1], sys.argv[2]
+
+
+class Redirect(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(301)
+        self.send_header("Location", f"https://{host}{self.path}")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    do_HEAD = do_GET
+
+
+server = http.server.HTTPServer(("127.0.0.1", 0), Redirect)
+with open(port_file + ".tmp", "w", encoding="utf-8") as handle:
+    handle.write(str(server.server_port))
+os.replace(port_file + ".tmp", port_file)
+server.serve_forever()
+REDIRECT
+REDIRECT_SERVER_PID=$!
+for _ in {1..20}; do
+  [[ -s "${RUN_DIR}/redirect-port" ]] && break
+  sleep 0.25
+done
+[[ -s "${RUN_DIR}/redirect-port" ]] || fail "loopback HTTPS-redirect fixture did not become ready"
+/bin/mkdir -m 0700 "${RUN_DIR}/curl-home"
+printf 'connect-to = %s:80:127.0.0.1:%s\n' "$SMOKE_PUBLIC_HOST" "$(<"${RUN_DIR}/redirect-port")" \
+  >"${RUN_DIR}/curl-home/.curlrc"
+export CURL_HOME="${RUN_DIR}/curl-home"
 
 for candidate_bundle in "$OLD_BUNDLE" "$NEW_BUNDLE"; do
   (
