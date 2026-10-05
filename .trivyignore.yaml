@@ -37,3 +37,40 @@ vulnerabilities:
       parser, denial of service only); same reachability as GHSA-r7wm-3cxj-wff9: no Hazelcast class
       outside the shaded package calls createNonBlocking*. Hazelcast 5.6.0 (2.19.2) and 5.7.0
       (2.21.2) still shade affected versions. Drop when Hazelcast ships a patched shade.
+  - id: CVE-2026-12064
+    purls:
+      - "pkg:deb/debian/libcurl4t64@8.14.1-2%2Bdeb13u5?arch=amd64&distro=debian-13.7"
+    expired_at: 2026-11-30
+    statement: >-
+      libcurl in the pinned fluent-bit 5.1.3 runtime image; Debian has no fix yet. SFTP/SCP host
+      verification; Chronicle's fluent-bit uses forward/tail inputs and its own http output to
+      victorialogs, never curl URLs. Drop when the fluent-bit image carries a fixed libcurl.
+  - id: CVE-2026-8286
+    purls:
+      - "pkg:deb/debian/libcurl4t64@8.14.1-2%2Bdeb13u5?arch=amd64&distro=debian-13.7"
+    expired_at: 2026-11-30
+    statement: >-
+      Same libcurl in fluent-bit 5.1.3, no Debian fix; TLS configuration mismatch on reuse. The
+      http output to victorialogs is plain HTTP on the compose network through fluent-bit's own
+      client, not libcurl.
+  - id: CVE-2026-8458
+    purls:
+      - "pkg:deb/debian/libcurl4t64@8.14.1-2%2Bdeb13u5?arch=amd64&distro=debian-13.7"
+    expired_at: 2026-11-30
+    statement: >-
+      Same libcurl in fluent-bit 5.1.3, no Debian fix; connection reuse logic. Not used by any
+      configured fluent-bit input or output.
+  - id: CVE-2026-8927
+    purls:
+      - "pkg:deb/debian/libcurl4t64@8.14.1-2%2Bdeb13u5?arch=amd64&distro=debian-13.7"
+    expired_at: 2026-11-30
+    statement: >-
+      Same libcurl in fluent-bit 5.1.3, no Debian fix; proxy authentication state. No proxy is
+      configured for fluent-bit.
+  - id: CVE-2026-16742
+    purls:
+      - "pkg:deb/debian/libsystemd0@257.13-1~deb13u1?arch=amd64&distro=debian-13.7"
+    expired_at: 2026-11-30
+    statement: >-
+      libsystemd0 in fluent-bit 5.1.3, no Debian fix; local privilege escalation through
+      systemd-homed, which does not run in the container (fluent-bit is PID 1, no systemd).
