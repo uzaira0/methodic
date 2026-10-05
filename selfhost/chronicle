@@ -2555,6 +2555,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
@@ -2605,6 +2606,15 @@ def curl(url, output=subprocess.PIPE, max_bytes=MAX_METADATA_BYTES):
          "--connect-timeout", "30", "--max-time", "600", url],
         stdout=output, check=True).stdout
 
+
+# Ctrl-C or a dropped SSH session must reach the cleanup below, like adopt: a partial download
+# or extraction left behind makes the next update refuse to overwrite it.
+def interrupted(signum, _frame):
+    raise InterruptedError(f"update interrupted by signal {signum}")
+
+
+for signum in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
+    signal.signal(signum, interrupted)
 
 try:
     manifest = selfhost.parent / "release-manifest.json"
@@ -2712,6 +2722,48 @@ try:
                 with archive.extractfile(member) as source, target.open("xb") as output:
                     shutil.copyfileobj(source, output)
                 target.chmod(member.mode & 0o777)
+    changelog = bundle / "CHANGELOG.md"
+    if not changelog.is_file() or changelog.is_symlink():
+        fail("release archive is missing a regular CHANGELOG.md")
+    sections = []
+    section_version = None
+    section_lines = []
+    heading = re.compile(r"^## \[([^\]]+)\]$")
+
+    def save_section():
+        if section_version is not None:
+            sections.append((section_version, version_key(section_version), "\n".join(section_lines).strip()))
+
+    for line in changelog.read_text(encoding="utf-8").splitlines():
+        match = heading.fullmatch(line)
+        if match:
+            save_section()
+            section_lines = []
+            candidate = match[1]
+            try:
+                version_key(candidate)
+            except ValueError:
+                section_version = None
+            else:
+                section_version = candidate
+        elif section_version is not None:
+            section_lines.append(line)
+    save_section()
+
+    target_sections = [section for section in sections if section[1] == latest_key]
+    if len(target_sections) != 1:
+        fail("verified CHANGELOG.md must contain exactly one entry for the target release")
+    applicable_sections = [section for section in sections if current_key < section[1] <= latest_key]
+    if not applicable_sections:
+        fail("verified CHANGELOG.md has no entries between the current and target releases")
+    applicable_keys = [section[1] for section in applicable_sections]
+    if applicable_keys != sorted(applicable_keys, reverse=True):
+        fail("verified CHANGELOG.md release entries are not ordered newest first")
+    print(f"Verified bundle changelog ({current} through {version}):", flush=True)
+    for section_version, _, section_text in applicable_sections:
+        print(f"\n## [{section_version}]", flush=True)
+        print(section_text or "(no release notes)", flush=True)
+
     operator = bundle / "selfhost" / "chronicle"
     print(f"Handing off to {operator} upgrade --from {selfhost}", flush=True)
     os.execv(str(operator), [str(operator), "upgrade", "--from", str(selfhost)])

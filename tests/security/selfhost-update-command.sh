@@ -2,58 +2,55 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
-for tool in python3 curl sha256sum; do
-  command -v "$tool" >/dev/null || { echo "FAIL: missing tool: $tool" >&2; exit 1; }
-done
-mkdir -p "$HOME/tmp"
-RUN_DIR=$(mktemp -d -p "$HOME/tmp" selfhost-update-command.XXXXXX)
-server_pid=''
+command -v python3 >/dev/null || { echo 'FAIL: missing tool: python3' >&2; exit 1; }
+RUN_PARENT="${SELFHOST_UPDATE_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-update-command}"
+[[ "$RUN_PARENT" == /* ]] || { echo 'FAIL: test run parent must be absolute' >&2; exit 1; }
+case "$RUN_PARENT" in
+  /tmp|/tmp/*|/private/tmp|/private/tmp/*|/var/folders|/var/folders/*)
+    echo 'FAIL: test run parent must not use a system temporary directory' >&2
+    exit 1
+    ;;
+esac
+[[ ! -L "$RUN_PARENT" ]] || { echo 'FAIL: test run parent must not be a symlink' >&2; exit 1; }
+mkdir -p "$RUN_PARENT"
+RUN_DIR=$(mktemp -d "${RUN_PARENT}/run.XXXXXX")
 cleanup() {
-  if [[ -n "$server_pid" ]]; then
-    kill "$server_pid" 2>/dev/null || true
-    wait "$server_pid" 2>/dev/null || true
-  fi
+  chmod -R u+rwX -- "$RUN_DIR" 2>/dev/null || true
   rm -rf -- "$RUN_DIR"
 }
 trap cleanup EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-mkdir -p "$RUN_DIR/http" "$RUN_DIR/releases/current/selfhost"
+mkdir -p "$RUN_DIR/http" "$RUN_DIR/releases/current/selfhost" "$RUN_DIR/bin"
 cp "$ROOT_DIR/selfhost/chronicle" "$RUN_DIR/releases/current/selfhost/chronicle"
 operator="$RUN_DIR/releases/current/selfhost/chronicle"
 export UPDATE_EXEC_RECORD="$RUN_DIR/exec-argv"
-
-# Bind port zero in the serving process; publish its actual port after the bind.
-python3 - "$RUN_DIR" <<'PY' &
-from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-import sys
-
-root = Path(sys.argv[1])
-
-
-class Handler(SimpleHTTPRequestHandler):
-    def log_message(self, *_):
-        pass
-
-
-server = ThreadingHTTPServer(("127.0.0.1", 0), partial(Handler, directory=str(root / "http")))
-(root / "port").write_text(str(server.server_port))
-server.serve_forever()
-PY
-server_pid=$!
-for ((attempt = 0; attempt < 100; attempt++)); do
-  [[ -s "$RUN_DIR/port" ]] && break
-  kill -0 "$server_pid" 2>/dev/null || fail 'fixture HTTP server exited'
-  sleep 0.05
-done
-[[ -s "$RUN_DIR/port" ]] || fail 'fixture HTTP server did not start'
-port=$(<"$RUN_DIR/port")
-export CHRONICLE_RELEASES_URL="http://127.0.0.1:$port/latest.json"
+export CHRONICLE_RELEASES_URL='https://updates.invalid/latest.json'
+cat >"$RUN_DIR/bin/curl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+url="${!#}"
+name="${url##*/}"
+if [[ -n "${CURL_FIXTURE_INTERRUPT_NAME:-}" && "$name" == "$CURL_FIXTURE_INTERRUPT_NAME" ]]; then
+  printf 'partial archive'
+  kill -INT "$PPID"
+  sleep 5
+  exit 130
+fi
+case "$url" in
+  https://updates.invalid/latest.json) cat "$CURL_FIXTURE_DIR/latest.json" ;;
+  https://updates.invalid/*.sha256|https://updates.invalid/*.tar.gz)
+    cat "$CURL_FIXTURE_DIR/$name"
+    ;;
+  *) echo "unexpected synthetic update URL: $url" >&2; exit 22 ;;
+esac
+SH
+chmod +x "$RUN_DIR/bin/curl"
+export PATH="$RUN_DIR/bin:$PATH"
+export CURL_FIXTURE_DIR="$RUN_DIR/http"
 
 fixture() {
-  python3 - "$RUN_DIR" "$port" "$@" <<'PY'
+  python3 - "$RUN_DIR" "$@" <<'PY'
 import hashlib
 import io
 import json
@@ -62,13 +59,21 @@ import sys
 import tarfile
 
 root = Path(sys.argv[1])
-port, current, latest, mode = sys.argv[2:]
+current, latest, mode = sys.argv[2:]
 (root / "releases/current/release-manifest.json").write_text(json.dumps({"release_version": current}))
 name = "chronicle-selfhost-" + latest.removeprefix("v")
 archive_path = root / "http" / (name + ".tar.gz")
 stub = b'#!/usr/bin/env bash\nset -euo pipefail\nprintf "%s\\n" "$0" "$@" > "$UPDATE_EXEC_RECORD"\n'
+changelog = (
+    "# Changelog\n\n"
+    f"## [{latest.removeprefix('v')}]\n- Synthetic release notes.\n\n"
+    f"## [{current}]\n- Existing release notes.\n"
+).encode()
 with tarfile.open(archive_path, "w:gz") as archive:
-    files = [(name + "/selfhost/chronicle", stub, 0o755)]
+    files = [
+        (name + "/selfhost/chronicle", stub, 0o755),
+        (name + "/CHANGELOG.md", changelog, 0o644),
+    ]
     if mode != "missing-manifest":
         files.append((name + "/release-manifest.json",
                       json.dumps({"release_version": latest.removeprefix("v")}).encode(), 0o644))
@@ -85,7 +90,7 @@ digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
 if mode == "corrupt":
     digest = "0" * 64
 archive_path.with_suffix(".gz.sha256").write_text(f"{digest}  {archive_path.name}\n")
-assets = [{"name": filename, "browser_download_url": f"http://127.0.0.1:{port}/{filename}"}
+assets = [{"name": filename, "browser_download_url": f"https://updates.invalid/{filename}"}
           for filename in (archive_path.name, archive_path.name + ".sha256")]
 (root / "http/latest.json").write_text(json.dumps({
     "tag_name": latest, "assets": assets,
@@ -171,4 +176,13 @@ echo 'PASS: valid bundle extracted beside current; exec receives upgrade --from 
 expect_status 1
 grep -Fq 'refusing to overwrite' "$RUN_DIR/output" || fail 'existing bundle was not protected'
 echo 'PASS: existing release paths are never overwritten'
+
+# Ctrl-C during the download must clean up: a partial archive would block every retry.
+fixture 1.2.3 v1.2.5 valid
+CURL_FIXTURE_INTERRUPT_NAME='chronicle-selfhost-1.2.5.tar.gz' expect_status 1
+grep -Fq 'interrupted by signal' "$RUN_DIR/output" || { cat "$RUN_DIR/output" >&2; fail 'interrupt was not reported'; }
+[[ ! -e "$RUN_DIR/releases/chronicle-selfhost-1.2.5.tar.gz" && ! -e "$RUN_DIR/releases/chronicle-selfhost-1.2.5" ]] \
+  || fail 'interrupted update left a partial download behind'
+expect_status 0
+echo 'PASS: interrupted download is cleaned up and the retry succeeds'
 echo 'PASS: selfhost-update-command'
