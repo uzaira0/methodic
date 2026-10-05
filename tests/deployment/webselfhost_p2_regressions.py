@@ -270,13 +270,15 @@ def check_w54() -> None:
     assert web["read_only"] is True
     assert web["depends_on"]["caddy-storage-init"]["condition"] == "service_completed_successfully"
     assert init["user"] == "0:0" and init["cap_drop"] == ["ALL"]
-    assert init["cap_add"] == ["CHOWN"] and init["read_only"] is True
+    # DAC_READ_SEARCH: rollback leaves root files under 10001-owned 0700 dirs.
+    assert init["cap_add"] == ["CHOWN", "DAC_READ_SEARCH"] and init["read_only"] is True
     assert "chown -R 10001:0 /data /config" in " ".join(init["command"])
     assert {"caddy_data:/data", "caddy_config:/config"}.issubset(set(init["volumes"]))
 
     monitoring = yaml.safe_load(read("selfhost/overlays/monitoring.yml"))["services"]["metrics-exporter"]
     assert monitoring["user"] == "10001:0"
-    assert "ALL" in monitoring["cap_drop"] and not monitoring.get("cap_add")
+    # The caddy binary carries cap_net_bind_service; a non-root exec without it is EPERM.
+    assert "ALL" in monitoring["cap_drop"] and monitoring["cap_add"] == ["NET_BIND_SERVICE"]
     assert any("uid=10001,gid=0" in mount for mount in monitoring["tmpfs"])
 
     cert_init = read("selfhost/cert-init.sh")

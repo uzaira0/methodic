@@ -161,6 +161,9 @@ services:
     expose: ["9090"]
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
+    # Binds only :9090, but the caddy binary carries file capability cap_net_bind_service; a
+    # non-root exec fails with EPERM unless that capability stays in the bounding set.
+    cap_add: ["NET_BIND_SERVICE"]
     read_only: true
     tmpfs: ["/config:size=8m,mode=0700,uid=10001,gid=0", "/data:size=8m,mode=0700,uid=10001,gid=0"]
     mem_limit: ${METRICS_EXPORTER_MEM_LIMIT:-64m}
