@@ -956,7 +956,7 @@ services:
       - "traefik.http.routers.chronicle-mobile.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
       - "traefik.http.routers.chronicle-mobile.priority=20"
       - "traefik.http.routers.chronicle-mobile.service=chronicle-backend"
-      - "traefik.http.routers.chronicle-mobile.middlewares=crowdsec-waf@file,chronicle-mobile-ratelimit,chronicle-mobile-headers,chronicle-mobile-cors,chronicle-body-limit"
+      - "traefik.http.routers.chronicle-mobile.middlewares=crowdsec-waf@file,chronicle-compress,chronicle-mobile-ratelimit,chronicle-mobile-headers,chronicle-mobile-cors,chronicle-body-limit"
       # TLS terminates at the trusted upstream proxy. This Traefik entrypoint is
       # plaintext HTTP; X-Forwarded-Proto preserves the public scheme for the app.
 
@@ -968,7 +968,7 @@ services:
       - "traefik.http.routers.chronicle-mobile-proxy-fallback.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
       - "traefik.http.routers.chronicle-mobile-proxy-fallback.priority=19"
       - "traefik.http.routers.chronicle-mobile-proxy-fallback.service=chronicle-backend"
-      - "traefik.http.routers.chronicle-mobile-proxy-fallback.middlewares=crowdsec-waf@file,chronicle-mobile-ratelimit,chronicle-mobile-headers,chronicle-mobile-cors,chronicle-body-limit"
+      - "traefik.http.routers.chronicle-mobile-proxy-fallback.middlewares=crowdsec-waf@file,chronicle-compress,chronicle-mobile-ratelimit,chronicle-mobile-headers,chronicle-mobile-cors,chronicle-body-limit"
 
       # Strict rate limiting for mobile (5 req/s average, burst of 10)
       - "traefik.http.middlewares.chronicle-mobile-ratelimit.ratelimit.average=5"
@@ -1008,10 +1008,11 @@ services:
       - "traefik.http.routers.chronicle-web.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
       - "traefik.http.routers.chronicle-web.priority=20"
       - "traefik.http.routers.chronicle-web.service=chronicle-backend"
-      - "traefik.http.routers.chronicle-web.middlewares=crowdsec-waf@file,chronicle-web-strip,chronicle-web-internal-header,chronicle-web-ratelimit,chronicle-web-headers,chronicle-web-cors,chronicle-body-limit"
+      - "traefik.http.routers.chronicle-web.middlewares=crowdsec-waf@file,chronicle-compress,chronicle-web-strip,chronicle-web-internal-header,chronicle-web-ratelimit,chronicle-web-headers,chronicle-web-cors,chronicle-body-limit"
 
       # Request body size limit (10MB) for API endpoints
       - "traefik.http.middlewares.chronicle-body-limit.buffering.maxRequestBodyBytes=10485760"
+      - "traefik.http.middlewares.chronicle-compress.compress=true"
 
       # Keep the browser-facing API unversioned while routing it to the v3 server contract.
       # Compose must escape '$' so Traefik receives the ${1} capture reference.

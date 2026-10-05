@@ -49,6 +49,39 @@ def check_w11() -> None:
     assert "X-Api-Key" in docs and "public" in docs.lower() and "scoped" in docs.lower()
 
 
+def check_w12() -> None:
+    snippets = read("selfhost/caddy/snippets.caddy")
+    matchers = re.findall(r"(?m)^\s*@(?:hashed path_regexp|shell not path_regexp) (.+)$", snippets)
+    assert len(matchers) == 2 and matchers[0] == matchers[1]
+    pattern = re.compile(matchers[0])
+    assert pattern.fullmatch("/chunk-app123.js")
+    assert pattern.fullmatch("/chunk-style9.css")
+
+    fonts = ROOT / "chronicle-web" / "vendor" / "equal" / "packages" / "tokens" / "dist" / "fonts"
+    font_files = sorted(fonts.glob("*.woff2"))
+    assert font_files, "the build's font inventory must exercise the immutable matcher"
+    for font in font_files:
+        digest = hashlib.sha256(font.read_bytes()).hexdigest()[:8]
+        assert pattern.fullmatch(f"/fonts/{font.stem}-{digest}.woff2"), font.name
+    assert not pattern.fullmatch("/fonts/atkinson-hyperlegible-latin-400-normal.woff2")
+    assert not pattern.fullmatch("/index.html")
+    assert 'header @hashed Cache-Control "public, max-age=31536000, immutable"' in snippets
+    assert 'header @shell Cache-Control "no-cache"' in snippets
+
+
+def check_w13() -> None:
+    backend = yaml.safe_load(read("docker/docker-compose.traefik.yml"))["services"]["chronicle-backend"]
+    raw_labels = backend["labels"]
+    if isinstance(raw_labels, dict):
+        labels = {str(key): str(value) for key, value in raw_labels.items()}
+    else:
+        labels = dict(label.split("=", 1) for label in raw_labels)
+    for router in ("chronicle-mobile", "chronicle-mobile-proxy-fallback", "chronicle-web"):
+        chain = labels[f"traefik.http.routers.{router}.middlewares"].split(",")
+        assert "chronicle-compress" in chain, (router, chain)
+    assert labels["traefik.http.middlewares.chronicle-compress.compress"] == "true"
+
+
 def check_w16() -> None:
     for path in (
         "docker/keycloak/realm-chronicle.json.template",
@@ -283,6 +316,8 @@ def check_cross_s02() -> None:
 
 CHECKS = {
     "W11": check_w11,
+    "W12": check_w12,
+    "W13": check_w13,
     "W16": check_w16,
     "W51": check_w51,
     "W52": check_w52,
