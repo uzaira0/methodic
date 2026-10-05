@@ -205,6 +205,13 @@ validate_compose_proxy_subnet() {
   [[ "$private" == true ]]
 }
 
+valid_session_idle_minutes() {
+  local value="$1" numeric
+  [[ "$value" =~ ^[0-9]{1,3}$ ]] || return 1
+  numeric=$((10#$value))
+  ((numeric >= 1 && numeric <= 120))
+}
+
 # A narrow diagnostic mode lets verify-config.sh exercise the exact classifier used at
 # startup without reconstructing an otherwise complete deployment environment.
 if [[ "${1:-}" == --validate-public-host ]]; then
@@ -225,6 +232,11 @@ fi
 if [[ "${1:-}" == --validate-forwarder-cidrs ]]; then
   [[ $# -eq 2 ]] || exit 2
   validate_dashboard_networks "$2" && exit 0
+  exit 1
+fi
+if [[ "${1:-}" == --validate-session-idle-minutes ]]; then
+  [[ $# -eq 2 ]] || exit 2
+  valid_session_idle_minutes "$2" && exit 0
   exit 1
 fi
 
@@ -270,6 +282,7 @@ warn() { printf '  %swarn%s %s\n' "$YEL" "$RST" "$1"; }
 : "${CADDY_TRUSTED_PROXIES:=127.0.0.1/32}"
 : "${CHRONICLE_SUBNET:=172.28.0.0/16}"
 : "${CHRONICLE_TRUSTED_PROXY_CIDRS:=$CHRONICLE_SUBNET}"
+: "${CHRONICLE_SESSION_IDLE_MINUTES:=15}"
 : "${RELEASE_VERSION:=development}"
 : "${CHRONICLE_PUBLIC_BASE_URL:=}"
 
@@ -371,6 +384,12 @@ for flag in BACKUPS_ENABLED AUTH_OVERLAY_ENABLED MONITORING_ENABLED ENABLE_ENCRY
     *) bad "${flag} must be exactly true or false (received '${!flag}')" ;;
   esac
 done
+
+if valid_session_idle_minutes "$CHRONICLE_SESSION_IDLE_MINUTES"; then
+  ok "session idle timeout: ${CHRONICLE_SESSION_IDLE_MINUTES} minutes"
+else
+  bad "CHRONICLE_SESSION_IDLE_MINUTES must be a decimal integer from 1 through 120"
+fi
 
 # ------------------------------------------------------------------ secrets
 # Placeholder detection has to be separate from the length check: the shipped placeholders
@@ -498,6 +517,9 @@ elif [[ ${#v} -lt 32 ]]; then
   bad "JWT_SECRET is only ${#v} characters; HS256 needs at least 32 (256 bits)"
   printf '       Below that, the dashboard signs in and fails with 500 "configured testing\n'
   printf '       token is invalid". Generate one: openssl rand -base64 32\n'
+fi
+if [[ ! "${DASHBOARD_SESSION_MINUTES:-480}" =~ ^[1-9][0-9]{0,4}$ ]]; then
+  bad "DASHBOARD_SESSION_MINUTES must be a whole number of minutes, for example 480"
 fi
 if [[ ${#CHRONICLE_INTERNAL_WEB_SECRET} -lt 32 ]]; then
   bad "CHRONICLE_INTERNAL_WEB_SECRET is ${#CHRONICLE_INTERNAL_WEB_SECRET} characters; use at least 32"

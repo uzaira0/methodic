@@ -285,6 +285,7 @@ cases = [
     ("internal-bind-any-v6", {"INTERNAL_BIND": "::"}, "INTERNAL_BIND must be one specific"),
     ("internal-bind-any-v6-bracketed", {"INTERNAL_BIND": "[::]"}, "INTERNAL_BIND must be one specific"),
     ("jwt-short", {"JWT_SECRET": "only-twenty-chars-xx"}, "JWT_SECRET is only 20 characters"),
+    ("session-minutes-text", {"DASHBOARD_SESSION_MINUTES": "8h"}, "DASHBOARD_SESSION_MINUTES must be a whole number"),
     ("allowlist-empty", {"DASHBOARD_ALLOWED_IPS": ""}, "DASHBOARD_ALLOWED_IPS is empty"),
     ("allowlist-any-v4", {"DASHBOARD_ALLOWED_IPS": "10.0.0.0/8 0.0.0.0/0"}, "DASHBOARD_ALLOWED_IPS is malformed or admits the entire"),
     ("allowlist-any-v6", {"DASHBOARD_ALLOWED_IPS": "::/0"}, "DASHBOARD_ALLOWED_IPS is malformed or admits the entire"),

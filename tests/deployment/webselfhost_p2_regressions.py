@@ -126,6 +126,52 @@ def check_w56() -> None:
     ), "the bundle builder must copy every declared root inventory item"
 
 
+def check_w76() -> None:
+    compose = yaml.safe_load(read("selfhost/docker-compose.yml"))["services"]["backend"]
+    env = compose["environment"]
+    defaults = {
+        "CHRONICLE_EXPORT_MAX_ROWS": "1000000",
+        "CHRONICLE_EXPORT_MAX_BYTES": "536870912",
+        "CHRONICLE_EXPORT_MAX_RUNTIME_SECONDS": "1800",
+        "CHRONICLE_EXPORT_MAX_TOTAL_BYTES": "8589934592",
+        "CHRONICLE_EXPORT_MIN_FREE_BYTES": "1073741824",
+    }
+    example = read("selfhost/.env.example")
+    for name, default in defaults.items():
+        documented = re.findall(rf"(?m)^{re.escape(name)}=([0-9]+)$", example)
+        assert documented == [default], (name, documented, default)
+    chosen = {
+        "CHRONICLE_EXPORT_MAX_ROWS": "250000",
+        "CHRONICLE_EXPORT_MAX_BYTES": "10485760",
+        "CHRONICLE_EXPORT_MAX_RUNTIME_SECONDS": "90",
+        "CHRONICLE_EXPORT_MAX_TOTAL_BYTES": "1073741824",
+        "CHRONICLE_EXPORT_MIN_FREE_BYTES": "10485760",
+    }
+
+    def rendered(expression: str, supplied: dict[str, str]) -> str:
+        match = re.fullmatch(r"\$\{([A-Z0-9_]+):-([0-9]+)\}", expression)
+        assert match
+        value = supplied.get(match.group(1), "")
+        return value if value else match.group(2)
+
+    for name, default in defaults.items():
+        expression = env[name]
+        match = re.fullmatch(r"\$\{([A-Z0-9_]+):-([0-9]+)\}", expression)
+        assert match and match.group(1) == name and match.group(2) == default, (name, expression)
+        assert rendered(expression, {name: chosen[name]}) == chosen[name]
+        assert rendered(expression, {}) == default
+        assert rendered(expression, {name: ""}) == default
+        assert int(default) > 0 and int(chosen[name]) > 0
+    writer = read("chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/export/ExportFileWriter.kt")
+    assert writer.count('positiveLongSetting(') >= 5
+    assert "toLongOrNull()?.takeIf { it > 0 }" in writer
+    docs = read("selfhost/docs/DEPLOYMENT-COMPATIBILITY.md")
+    docs_text = " ".join(docs.lower().split())
+    assert all(name in docs for name in defaults)
+    assert "positive decimal integers" in docs_text and "defaults" in docs_text
+    assert "fails backend startup" in docs_text
+
+
 def check_w79() -> None:
     guard = ROOT / "selfhost" / "guard-config.sh"
 
@@ -159,11 +205,52 @@ def check_w79() -> None:
     assert "corp" in docs and "home" in docs and "mail" in docs and "local-https" in docs
 
 
+def check_cross_s02() -> None:
+    example = read("selfhost/.env.example")
+    assert re.search(r"(?m)^CHRONICLE_SESSION_IDLE_MINUTES=15$", example)
+    compose = yaml.safe_load(read("selfhost/docker-compose.yml"))["services"]
+    expected_expression = "${CHRONICLE_SESSION_IDLE_MINUTES:-15}"
+    for service in ("config-guard", "backend"):
+        assert compose[service]["environment"]["CHRONICLE_SESSION_IDLE_MINUTES"] == expected_expression
+
+    guard = ROOT / "selfhost" / "guard-config.sh"
+
+    def allowed(value: str) -> bool:
+        result = subprocess.run(
+            ["bash", str(guard), "--validate-session-idle-minutes", value],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        return result.returncode == 0
+
+    def compose_value(supplied: str | None) -> str:
+        match = re.fullmatch(r"\$\{([A-Z0-9_]+):-([0-9]+)\}", expected_expression)
+        assert match
+        return supplied or match.group(2)
+
+    for supplied in (None, "", "1", "15", "120"):
+        assert allowed(compose_value(supplied)), supplied
+    for invalid in ("0", "121", "-1", "1.0", "abc", "1000", "000"):
+        assert not allowed(compose_value(invalid)), invalid
+
+    server_config = read(
+        "chronicle-server/src/main/kotlin/com/openlattice/chronicle/configuration/ChronicleAuthConfiguration.kt"
+    )
+    assert 'System.getenv("CHRONICLE_SESSION_IDLE_MINUTES")?.toLong() ?: 15' in server_config
+    assert "require(sessionIdleMinutes in 1..120)" in server_config
+    for path in ("selfhost/README.md", "selfhost/docs/DEPLOYMENT-COMPATIBILITY.md"):
+        docs = read(path)
+        assert "CHRONICLE_SESSION_IDLE_MINUTES" in docs and "120" in docs and "15" in docs
+
+
 CHECKS = {
     "W51": check_w51,
     "W52": check_w52,
     "W56": check_w56,
+    "W76": check_w76,
     "W79": check_w79,
+    "CROSS-S02": check_cross_s02,
 }
 
 

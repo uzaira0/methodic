@@ -476,6 +476,9 @@ than a setting. Startup refuses the combination and says so.
 What protects the dashboard in that mode is the internal-only listener, the source
 allowlist and the global password — not MFA.
 
+The backend enforces an idle deadline for researcher sessions. Set
+`CHRONICLE_SESSION_IDLE_MINUTES` in `.env` to a decimal integer from `1` through `120`;
+the default is `15` minutes, and `./chronicle check` rejects invalid values before startup.
 Without a `mode-*-internal` overlay, `TESTING_LOGIN_ENABLED=true` would expose admin-session minting
 to the internet. Leave it `false` unless the dashboard API is internal-only.
 

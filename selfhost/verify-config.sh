@@ -76,13 +76,22 @@ fi
 # 4. A value passed by compose but never consumed is dead config the operator will
 #    reasonably expect to do something.
 for v in $COMPOSE_PASSED; do
+  # These settings are consumed directly by Kotlin services rather than a rendered template:
+  # security/export/session values bind to Spring or ExportFileWriter, while the trusted proxy
+  # CIDRs are read by ClientIpResolver.
   # CHRONICLE_SECURITY_* are bound by Spring relaxed binding inside the app, not by a template.
   # LOG_DIR is read by chronicle-server/src/main/resources/log4j2.xml
   # (${env:LOG_DIR:-/var/log/chronicle}), which is inside the image and not visible here.
   # CHRONICLE_EXPORT_DIR is consumed directly by ExportFileWriter for persistent managed
   # export artifacts. LOG_FORMAT is read directly by log4j2.xml. Neither passes through a
   # rendered config template. CHRONICLE_RECORD_STAFF_IP is read directly by ClientIpRecord.
-  case "$v" in CHRONICLE_SERVER_*|CHRONICLE_SECURITY_*|CHRONICLE_EXPORT_DIR|CHRONICLE_RECORD_STAFF_IP|POSTGRES_HOST|POSTGRES_PORT|LOG_DIR|LOG_FORMAT) continue ;; esac
+  case "$v" in \
+    CHRONICLE_SERVER_*|CHRONICLE_SECURITY_*|CHRONICLE_EXPORT_DIR|CHRONICLE_RECORD_STAFF_IP|\
+    CHRONICLE_EXPORT_MAX_ROWS|CHRONICLE_EXPORT_MAX_BYTES|CHRONICLE_EXPORT_MAX_RUNTIME_SECONDS|\
+    CHRONICLE_EXPORT_MAX_TOTAL_BYTES|CHRONICLE_EXPORT_MIN_FREE_BYTES|\
+    CHRONICLE_SESSION_IDLE_MINUTES|CHRONICLE_TRUSTED_PROXY_CIDRS|\
+    POSTGRES_HOST|POSTGRES_PORT|LOG_DIR|LOG_FORMAT) continue ;; \
+  esac
   if ! grep -q "\${$v}" config/*.template 2>/dev/null && ! grep -q "\${$v:" backend-entrypoint.sh 2>/dev/null; then
     fail "docker-compose.yml passes $v to the backend but nothing consumes it"
   fi

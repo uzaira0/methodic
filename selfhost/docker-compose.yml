@@ -106,6 +106,8 @@ services:
       CHRONICLE_REVIEWER_STUDY_ID: ${CHRONICLE_REVIEWER_STUDY_ID:-}
       CHRONICLE_REVIEWER_PARTICIPANT_ID: ${CHRONICLE_REVIEWER_PARTICIPANT_ID:-}
       JWT_SECRET: ${JWT_SECRET:-}
+      DASHBOARD_SESSION_MINUTES: ${DASHBOARD_SESSION_MINUTES:-480}
+      CHRONICLE_SESSION_IDLE_MINUTES: ${CHRONICLE_SESSION_IDLE_MINUTES:-15}
       METRICS_PASSWORD: ${METRICS_PASSWORD:-}
       GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-}
       GRAFANA_BIND: ${GRAFANA_BIND:-127.0.0.1}
@@ -409,6 +411,12 @@ services:
       CHRONICLE_SERVER_ARGS: ${CHRONICLE_SERVER_ARGS:-local postgres medialocal}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
+      # The bundle exposes the backend's positive-integer export limits with bounded defaults.
+      CHRONICLE_EXPORT_MAX_ROWS: ${CHRONICLE_EXPORT_MAX_ROWS:-1000000}
+      CHRONICLE_EXPORT_MAX_BYTES: ${CHRONICLE_EXPORT_MAX_BYTES:-536870912}
+      CHRONICLE_EXPORT_MAX_RUNTIME_SECONDS: ${CHRONICLE_EXPORT_MAX_RUNTIME_SECONDS:-1800}
+      CHRONICLE_EXPORT_MAX_TOTAL_BYTES: ${CHRONICLE_EXPORT_MAX_TOTAL_BYTES:-8589934592}
+      CHRONICLE_EXPORT_MIN_FREE_BYTES: ${CHRONICLE_EXPORT_MIN_FREE_BYTES:-1073741824}
       # ClientIpResolver trusts the proxy only on the isolated Compose network. Keep this
       # byte-identical to the subnet configured below; config-guard rejects drift.
       CHRONICLE_TRUSTED_PROXY_CIDRS: ${CHRONICLE_SUBNET:-172.28.0.0/16}
@@ -427,6 +435,10 @@ services:
       MOBILE_SIGNING_SECRET_PREVIOUS: ${MOBILE_SIGNING_SECRET_PREVIOUS:-}
       # Signs dashboard session tokens.
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      # Dashboard password logins get no refresh token, so this is the whole session length.
+      CHRONICLE_SECURITY_JWT_ACCESS_TOKEN_EXPIRY_MINUTES: ${DASHBOARD_SESSION_MINUTES:-480}
+      # Backend auth sessions expire after this idle interval; config-guard validates the same input.
+      CHRONICLE_SESSION_IDLE_MINUTES: ${CHRONICLE_SESSION_IDLE_MINUTES:-15}
 
       # Guards the /prometheus scrape endpoint. The backend REFUSES TO START if this is
       # shorter than 32 characters (MetricsAuthenticationFilter), so it is required even
