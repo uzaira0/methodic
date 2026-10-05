@@ -28,3 +28,12 @@ vulnerabilities:
       Same shaded jackson-core 2.17.2 inside Hazelcast 5.5.0 (unbounded buffer growth on a
       malformed token, denial of service only); same reachability as CVE-2026-89407. Drop when
       Hazelcast ships a patched shade.
+  - id: CVE-2026-68494
+    paths:
+      - "server/lib/hazelcast-5.5.0.jar"
+    expired_at: 2026-12-31
+    statement: >-
+      Same shaded jackson-core 2.17.2 inside Hazelcast 5.5.0 (incomplete fix in the async JSON
+      parser, denial of service only); same reachability as GHSA-r7wm-3cxj-wff9: no Hazelcast class
+      outside the shaded package calls createNonBlocking*. Hazelcast 5.6.0 (2.19.2) and 5.7.0
+      (2.21.2) still shade affected versions. Drop when Hazelcast ships a patched shade.
