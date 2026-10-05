@@ -335,6 +335,7 @@ PY
 operation_exit() {
   local status=$?
   trap - EXIT
+  [[ -z "${OPERATION_LOCK_DIR:-}" ]] || /bin/rmdir "$OPERATION_LOCK_DIR" 2>/dev/null || true
   if [[ -n "$ACTIVE_OPERATION" ]]; then
     if [[ $status -eq 0 && "$ACTIVE_OPERATION_OUTCOME" == success ]]; then
       write_operation_receipt "$ACTIVE_OPERATION" success none ||
@@ -646,7 +647,10 @@ cmd_setup() {
   local keep_reviewer_enabled="false" keep_reviewer_secret="" keep_reviewer_study=""
   local keep_reviewer_participant=""
   local keep_grafana="" keep_dash_hash="" keep_state="."
-  local keep_http_port="" keep_internal_port="" keep_grafana_port=""
+  local keep_http_port="" keep_internal_port="" keep_grafana_port="" keep_project=""
+  # Rotation, restore and upgrade lock the state directory and rewrite .env. Setup must not
+  # run under them, nor publish values it read before one of them changed .env.
+  local setup_state_root="$STATE_ROOT" env_snapshot=""
   if [[ -f .env ]]; then
     read -rp "$(printf '%s.env already exists. Overwrite? [y/N] %s' "$YEL" "$RST")" a
     [[ "$a" =~ ^[Yy]$ ]] || {
@@ -655,7 +659,8 @@ cmd_setup() {
       operation_succeeded
       return 0
     }
-    cp .env ".env.backup.$(date +%Y%m%d%H%M%S)"
+    env_snapshot=".env.backup.$(date +%Y%m%d%H%M%S)"
+    cp .env "$env_snapshot"
     keep_pg=$(sed -n 's/^POSTGRES_PASSWORD=//p' .env | head -1 | tr -d "'\"")
     keep_mob=$(sed -n 's/^MOBILE_SIGNING_SECRET=//p' .env | head -1 | tr -d "'\"")
     keep_mob_previous=$(sed -n 's/^MOBILE_SIGNING_SECRET_PREVIOUS=//p' .env | head -1 | tr -d "'\"")
@@ -677,6 +682,9 @@ cmd_setup() {
     keep_http_port=$(sed -n 's/^HTTP_PORT=//p' .env | head -1 | tr -d "'\"")
     keep_internal_port=$(sed -n 's/^INTERNAL_PORT=//p' .env | head -1 | tr -d "'\"")
     keep_grafana_port=$(sed -n 's/^GRAFANA_PORT=//p' .env | head -1 | tr -d "'\"")
+    # Compose keys the database volume off this name: a rerun must keep the deployment's own.
+    keep_project=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' .env | head -1 | tr -d "'\"")
+    [[ "$keep_project" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || keep_project=""
     case "$keep_pg" in *CHANGE_ME*|"") keep_pg="" ;; esac
     validate_legacy_mobile_values \
       "$keep_mob_enabled" "$keep_mob_required" "$keep_mob" "$keep_mob_previous"
@@ -688,12 +696,17 @@ cmd_setup() {
     case "$keep_grafana" in *CHANGE_ME*|*changeme*|"") keep_grafana="" ;; esac
     case "$keep_dash_hash" in \$2*) ;; *) keep_dash_hash="" ;; esac
     [[ -n "$keep_state" ]] || keep_state="."
+    case "$keep_state" in
+      /*) setup_state_root="$keep_state" ;;
+      *) setup_state_root="$(pwd -P)/${keep_state#./}" ;;
+    esac
     if [[ -n "$keep_pg" ]]; then
       printf '%sKeeping existing deployment secrets and dashboard password hash.%s\n' "$GRN" "$RST"
       printf '  Silent rotation could lock out the database, enrolled phones, monitoring, or\n'
       printf '  researchers. Follow the documented rotation procedure to change one deliberately.\n\n'
     fi
   fi
+  STATE_ROOT="$setup_state_root" assert_no_incomplete_mutation "run setup"
 
   printf '%sChronicle self-host setup%s\n\n' "$BLD" "$RST"
 
@@ -791,6 +804,7 @@ cmd_setup() {
   }
 
   local dash_pw="" dash_pw_confirm="" dash_hash="$keep_dash_hash"
+  local dashboard_password_hash_generated=false
   if [[ "$exposure" == internal ]]; then
     if [[ -z "$dash_hash" ]]; then
       printf '\nChoose the dashboard password (at least 16 characters). It is read silently,\n'
@@ -801,6 +815,7 @@ cmd_setup() {
       [[ ${#dash_pw} -ge 16 ]] || die "dashboard password must be at least 16 characters"
       printf 'Hashing the dashboard password...\n'
       dash_hash=$(printf '%s\n' "$dash_pw" | hash_pw)
+      dashboard_password_hash_generated=true
       dash_pw=""; dash_pw_confirm=""
     fi
     [[ "$dash_hash" == \$2* ]] || die "could not bcrypt-hash the dashboard password (is docker working?)"
@@ -857,7 +872,9 @@ cmd_setup() {
   # default would recreate the first one's containers and mount its database. `up` already
   # refuses that, but refusing at `up` is too late to be useful: every question has been
   # answered by then. Settle it here, while the operator is still being asked things.
-  local project="${COMPOSE_PROJECT_NAME:-chronicle-selfhost}"
+  local project="${keep_project:-${COMPOSE_PROJECT_NAME:-chronicle-selfhost}}"
+  [[ "$project" =~ ^[a-z0-9][a-z0-9_-]*$ ]] ||
+    die "a deployment name must be lowercase letters, digits, dashes or underscores"
   if [[ -n "$(foreign_project "$project")" ]]; then
     # Numbered rather than named after the directory: a clone usually sits in one called
     # `chronicle`, and `chronicle` is the production deployment's own project name -- the
@@ -951,6 +968,22 @@ cmd_setup() {
         "$local_https_port" "$local_http_port"
   fi
 
+  # The prompts above can wait indefinitely. Recheck right before publishing, holding upgrade's
+  # lock through the write: rotation, restore and upgrade refuse to start while it exists, so
+  # none can change .env between this check and the write.
+  STATE_ROOT="$setup_state_root" assert_no_incomplete_mutation "run setup"
+  /bin/mkdir "${setup_state_root}/.chronicle-upgrade.lock" 2>/dev/null ||
+    die "another upgrade, adopt or setup is active (${setup_state_root}/.chronicle-upgrade.lock); setup did not write .env"
+  OPERATION_LOCK_DIR="${setup_state_root}/.chronicle-upgrade.lock"
+  local other_lock
+  for other_lock in .chronicle-restore.lock .chronicle-secret-rotation; do
+    [[ ! -e "${setup_state_root}/${other_lock}" && ! -L "${setup_state_root}/${other_lock}" ]] ||
+      die "an operation started while setup was finishing (${setup_state_root}/${other_lock}); setup did not write .env"
+  done
+  if [[ -n "$env_snapshot" ]] && ! cmp -s .env "$env_snapshot" ||
+      [[ -z "$env_snapshot" && -e .env ]]; then
+    die ".env changed while setup was running (for example a secret rotation); setup did not overwrite it. Rerun ./chronicle setup."
+  fi
   if ! printf '%s\0' \
       "$domain" "$compose_file" "$exposure" "$internal_bind" "$testing_login" \
       "${keep_pg:-$(gen)}" "$mobile_secret" "$legacy_mobile_enabled" \
@@ -1046,8 +1079,37 @@ PY
     die "could not render .env"
   fi
   chmod 600 .env
+  /bin/rmdir "$OPERATION_LOCK_DIR" 2>/dev/null || true
+  OPERATION_LOCK_DIR=""
 
-  printf '\n%sWrote .env%s (secrets generated, mode 600)\n\n' "$GRN" "$RST"
+  local credentials_preserved=false credentials_generated=false credential_value
+  for credential_value in "$keep_pg" "$keep_jwt" "$keep_metrics" "$keep_internal" "$keep_grafana"; do
+    if [[ -n "$credential_value" ]]; then
+      credentials_preserved=true
+    else
+      credentials_generated=true
+    fi
+  done
+  if [[ -n "$keep_mob" || -n "$keep_mob_previous" || -n "$keep_dash_hash" ||
+        -n "$keep_reviewer_secret" ]]; then
+    credentials_preserved=true
+  fi
+  if [[ "$dashboard_password_hash_generated" == true ]]; then
+    credentials_generated=true
+  elif [[ "$exposure" == internal && -n "$dash_hash" ]]; then
+    credentials_preserved=true
+  fi
+  if [[ "$legacy_mobile_enabled" == true ]]; then
+    if [[ -n "$keep_mob" ]]; then credentials_preserved=true; else credentials_generated=true; fi
+  fi
+  if [[ "$credentials_preserved" == true && "$credentials_generated" == true ]]; then
+    credential_message='existing secrets preserved where valid; missing credentials generated'
+  elif [[ "$credentials_preserved" == true ]]; then
+    credential_message='existing secrets preserved, no credentials generated'
+  else
+    credential_message='secrets generated'
+  fi
+  printf '\n%sWrote .env%s (%s, mode 600)\n\n' "$GRN" "$RST" "$credential_message"
   if [[ "$exposure" == internal ]]; then
     printf '%sDashboard login:%s username is in .env; use the password you just chose.\n' "$BLD" "$RST"
     printf '  Only its bcrypt hash is stored, so the cleartext cannot be recovered here.\n\n'
@@ -1308,7 +1370,7 @@ assert_no_incomplete_mutation() {
       secret-rotation) path="${STATE_ROOT}/.chronicle-secret-rotation" ;;
     esac
     if [[ -e "$path" || -L "$path" ]]; then
-      die "cannot start Chronicle while an incomplete ${label} operation is preserved at ${path}. Follow the corresponding recovery runbook before removing that exact lock."
+      die "cannot ${1:-start Chronicle} while an incomplete ${label} operation is preserved at ${path}. Follow the corresponding recovery runbook before removing that exact lock."
     fi
   done
 }

@@ -38,6 +38,9 @@ cat >"${COMMAND_DIR}/docker" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ "${1:-}" == compose && "$*" == *' ls '* ]]; then
+  # Stands in for an operator rotating a secret while setup waits at a prompt.
+  [[ -z "${SELFHOST_SETUP_TEST_MUTATE_ENV:-}" ]] ||
+    printf 'POSTGRES_PASSWORD=rotated-while-setup-waited\n' >>"${SELFHOST_SETUP_TEST_MUTATE_ENV}"
   printf '[]\n'
   exit 0
 fi
@@ -110,6 +113,11 @@ for argument in "$@"; do
   }
 done
 printf '%s\n' "$@" >"${SELFHOST_SETUP_TEST_PYTHON_ARGS}"
+# Records whether setup holds the upgrade lock while it renders .env (the /dev/fd/3 program).
+if [[ -n "${SELFHOST_SETUP_TEST_LOCK_PROBE:-}" && "${1:-}" == /dev/fd/3 ]]; then
+  if [[ -d "${SELFHOST_SETUP_TEST_LOCK_DIR}" ]]; then echo held; else echo free; fi \
+    >"${SELFHOST_SETUP_TEST_LOCK_PROBE}"
+fi
 exec "${SELFHOST_SETUP_TEST_REAL_PYTHON}" "$@"
 EOF
 /bin/chmod 0755 \
@@ -208,6 +216,58 @@ PY
 
 grep -Fq 'Legacy shared-HMAC compatibility is disabled; no deployment-wide mobile key was generated.' "$OUTPUT" \
   || fail "setup did not explain the public per-device-key default"
+
+# Re-running setup over an existing deployment (proxy mode answers, existing secrets kept).
+resetup_proxy() { # <output> [extra env assignments...]
+  local output="$1"
+  shift
+  {
+    printf 'y\n'                         # overwrite the existing .env
+    printf '1\n'                         # behind an institutional proxy
+    printf 'chronicle.study-host.org\n'    # hostname
+    printf '\n'                          # loopback proxy bind
+    printf '\n'                          # loopback dashboard bind
+    printf '\n'                          # public per-device-key flow
+    printf 'n\n'                         # monitoring off
+  } | env PATH="${COMMAND_DIR}:${PATH}" \
+      SELFHOST_SETUP_TEST_PASSWORD="$PASSWORD" \
+      SELFHOST_SETUP_TEST_GENERATED="$GENERATED" \
+      SELFHOST_SETUP_TEST_DOCKER_ARGS="$DOCKER_ARGS" \
+      SELFHOST_SETUP_TEST_PYTHON_ARGS="$PYTHON_ARGS" \
+      SELFHOST_SETUP_TEST_REAL_PYTHON="$REAL_PYTHON" \
+      "$@" /bin/bash "${FIXTURE_SELFHOST}/chronicle" setup >"$output" 2>&1
+}
+
+# A rerun keeps the deployment's own Compose project (and so its database volume).
+sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=pilot-study/' "${FIXTURE_SELFHOST}/.env"
+resetup_proxy "${RUN_DIR}/setup-project-output.txt" || fail "re-setup with a custom project failed"
+grep -Fqx 'COMPOSE_PROJECT_NAME=pilot-study' "${FIXTURE_SELFHOST}/.env" \
+  || fail "re-setup replaced the existing custom COMPOSE_PROJECT_NAME"
+
+# Setup refuses while a rotation/restore/upgrade lock is held, and never publishes values it
+# read before another operation changed .env under it.
+/bin/cp "${FIXTURE_SELFHOST}/.env" "${RUN_DIR}/env-before-locked-setup"
+/bin/mkdir "${FIXTURE_SELFHOST}/.chronicle-secret-rotation"
+! resetup_proxy "${RUN_DIR}/setup-locked-output.txt" || fail "setup ran while a secret rotation was active"
+grep -Fq 'cannot run setup while an incomplete secret-rotation' "${RUN_DIR}/setup-locked-output.txt" \
+  || fail "setup did not explain the rotation interlock"
+cmp -s "${FIXTURE_SELFHOST}/.env" "${RUN_DIR}/env-before-locked-setup" || fail "locked setup changed .env"
+/bin/rmdir "${FIXTURE_SELFHOST}/.chronicle-secret-rotation"
+! resetup_proxy "${RUN_DIR}/setup-race-output.txt" \
+  SELFHOST_SETUP_TEST_MUTATE_ENV="${FIXTURE_SELFHOST}/.env" || fail "setup overwrote a concurrent .env change"
+grep -Fq '.env changed while setup was running' "${RUN_DIR}/setup-race-output.txt" \
+  || fail "setup did not explain the concurrent .env change"
+grep -Fqx 'POSTGRES_PASSWORD=rotated-while-setup-waited' "${FIXTURE_SELFHOST}/.env" \
+  || fail "setup discarded a value changed while it waited"
+# The final check and the .env write happen under upgrade's lock, which rotation honors.
+resetup_proxy "${RUN_DIR}/setup-lock-output.txt" SELFHOST_SETUP_TEST_LOCK_PROBE="${RUN_DIR}/lock-probe" \
+  SELFHOST_SETUP_TEST_LOCK_DIR="${FIXTURE_SELFHOST}/.chronicle-upgrade.lock" \
+  || fail "setup failed with the lock probe"
+[[ "$(cat "${RUN_DIR}/lock-probe")" == held ]] || fail "setup wrote .env without holding the upgrade lock"
+[[ ! -e "${FIXTURE_SELFHOST}/.chronicle-upgrade.lock" ]] || fail "setup left the upgrade lock behind"
+/bin/mkdir "${FIXTURE_SELFHOST}/.chronicle-upgrade.lock"
+! resetup_proxy "${RUN_DIR}/setup-upgrade-locked.txt" || fail "setup ran while an upgrade lock was held"
+/bin/rmdir "${FIXTURE_SELFHOST}/.chronicle-upgrade.lock"
 
 FIXTURE_LOCAL_SELFHOST="${RUN_DIR}/selfhost-local"
 /bin/mkdir -p "$FIXTURE_LOCAL_SELFHOST"
