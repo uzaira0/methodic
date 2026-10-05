@@ -482,33 +482,37 @@ OLD_POSTGRES_MAJOR=$((old_postgres_version_num / 10000))
 # Detect that unsupported state while the previous release is still fully available, before
 # rendering the new environment, stopping writers, or starting a migration. A failed query is
 # indeterminate and must stop the upgrade rather than being treated as an empty result.
-study_encryption_status="$(
-  docker exec "$old_postgres" /bin/bash -ceu \
-    'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" -tAqc "SELECT CASE WHEN EXISTS (SELECT 1 FROM studies WHERE settings #> '\''{Encryption,enabled}'\'' = '\''true'\''::JSONB) THEN '\''blocked'\'' ELSE '\''clear'\'' END"'
-)" || fail "could not evaluate the study-encryption upgrade precondition; the previous release was not changed"
-[[ "$study_encryption_status" == clear || "$study_encryption_status" == blocked ]] ||
-  fail "study-encryption preflight returned an invalid result; the previous release was not changed"
-
-encrypted_payloads_table_status="$(
-  docker exec "$old_postgres" /bin/bash -ceu \
-    'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" -tAqc "SELECT CASE WHEN to_regclass('\''public.encrypted_payloads'\'') IS NULL THEN '\''absent'\'' ELSE '\''present'\'' END"'
-)" || fail "could not evaluate the encrypted-payload upgrade precondition; the previous release was not changed"
-[[ "$encrypted_payloads_table_status" == absent || "$encrypted_payloads_table_status" == present ]] ||
-  fail "encrypted-payload preflight returned an invalid table result; the previous release was not changed"
-
-encrypted_payloads_status=clear
-if [[ "$encrypted_payloads_table_status" == present ]]; then
-  encrypted_payloads_status="$(
+check_encryption_preconditions() { # <outcome reported on failure>
+  local outcome="$1" study_encryption_status encrypted_payloads_table_status encrypted_payloads_status
+  study_encryption_status="$(
     docker exec "$old_postgres" /bin/bash -ceu \
-      'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" -tAqc "SELECT CASE WHEN EXISTS (SELECT 1 FROM encrypted_payloads) THEN '\''blocked'\'' ELSE '\''clear'\'' END"'
-  )" || fail "could not inspect historical encrypted payloads; the previous release was not changed"
-  [[ "$encrypted_payloads_status" == clear || "$encrypted_payloads_status" == blocked ]] ||
-    fail "encrypted-payload preflight returned an invalid row result; the previous release was not changed"
-fi
+      'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" -tAqc "SELECT CASE WHEN EXISTS (SELECT 1 FROM studies WHERE settings #> '\''{Encryption,enabled}'\'' = '\''true'\''::JSONB) THEN '\''blocked'\'' ELSE '\''clear'\'' END"'
+  )" || fail "could not evaluate the study-encryption upgrade precondition; ${outcome}"
+  [[ "$study_encryption_status" == clear || "$study_encryption_status" == blocked ]] ||
+    fail "study-encryption preflight returned an invalid result; ${outcome}"
 
-if [[ "$study_encryption_status" == blocked || "$encrypted_payloads_status" == blocked ]]; then
-  fail "this release cannot safely export study-encrypted collection data. Keep the previous release running; do not delete ciphertext to force the upgrade. Complete an approved decrypt-and-export migration plan, then retry. See docs/UPGRADE-ROLLBACK.md."
-fi
+  encrypted_payloads_table_status="$(
+    docker exec "$old_postgres" /bin/bash -ceu \
+      'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" -tAqc "SELECT CASE WHEN to_regclass('\''public.encrypted_payloads'\'') IS NULL THEN '\''absent'\'' ELSE '\''present'\'' END"'
+  )" || fail "could not evaluate the encrypted-payload upgrade precondition; ${outcome}"
+  [[ "$encrypted_payloads_table_status" == absent || "$encrypted_payloads_table_status" == present ]] ||
+    fail "encrypted-payload preflight returned an invalid table result; ${outcome}"
+
+  encrypted_payloads_status=clear
+  if [[ "$encrypted_payloads_table_status" == present ]]; then
+    encrypted_payloads_status="$(
+      docker exec "$old_postgres" /bin/bash -ceu \
+        'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" -tAqc "SELECT CASE WHEN EXISTS (SELECT 1 FROM encrypted_payloads) THEN '\''blocked'\'' ELSE '\''clear'\'' END"'
+    )" || fail "could not inspect historical encrypted payloads; ${outcome}"
+    [[ "$encrypted_payloads_status" == clear || "$encrypted_payloads_status" == blocked ]] ||
+      fail "encrypted-payload preflight returned an invalid row result; ${outcome}"
+  fi
+
+  if [[ "$study_encryption_status" == blocked || "$encrypted_payloads_status" == blocked ]]; then
+    fail "this release cannot safely export study-encrypted collection data. ${outcome^}. Keep the previous release running; do not delete ciphertext to force the upgrade. Complete an approved decrypt-and-export migration plan, then retry. See docs/UPGRADE-ROLLBACK.md."
+  fi
+}
+check_encryption_preconditions 'the previous release was not changed'
 
 printf 'Preparing Chronicle %s -> %s.\n' "$OLD_VERSION" "$NEW_VERSION"
 printf '  previous release: %s\n' "$OLD_DIR"

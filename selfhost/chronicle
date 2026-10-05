@@ -457,17 +457,7 @@ preflight() {
   # exists and was not created from this directory, `up` would recreate ITS containers and
   # mount ITS volumes -- data loss in another deployment, from a command that looks routine.
   local foreign
-  foreign=$(docker compose ls --all --format json 2>/dev/null \
-    | PROJECT="$PROJECT" python3 -c 'import sys,json,os
-try: rows = json.load(sys.stdin)
-except Exception: sys.exit(0)
-here = os.path.realpath(".")
-for r in rows:
-    if r.get("Name") != os.environ["PROJECT"]: continue
-    cfgs = [c for c in (r.get("ConfigFiles") or "").split(",") if c]
-    if cfgs and not any(os.path.realpath(os.path.dirname(c)) == here for c in cfgs):
-        print(",".join(cfgs))
-' 2>/dev/null)
+  foreign=$(foreign_project "$PROJECT")
   if [[ -n "$foreign" ]]; then
     bad "a different Compose project named '${PROJECT}' already exists on this host (${foreign}). Starting would recreate its containers and mount its volumes. Set COMPOSE_PROJECT_NAME in .env to something unique."
   else
