@@ -23,7 +23,7 @@ services:
   # Core workflow orchestration engine. Uses the existing PostgreSQL
   # instance for persistence (separate databases for default + visibility).
   temporal:
-    image: temporalio/auto-setup:1.25.2
+    image: temporalio/auto-setup:1.25.2@sha256:${TEMPORAL_AUTO_SETUP_IMAGE_DIGEST:?Set TEMPORAL_AUTO_SETUP_IMAGE_DIGEST to the owner-approved SHA-256 digest}
     container_name: chronicle-temporal
     restart: unless-stopped
     security_opt:
@@ -84,7 +84,7 @@ services:
   # Dashboard for monitoring workflows, viewing history, and manual operations.
   # IP-restricted via Traefik to internal networks only.
   temporal-ui:
-    image: temporalio/ui:2.34.0
+    image: temporalio/ui:2.34.0@sha256:${TEMPORAL_UI_IMAGE_DIGEST:?Set TEMPORAL_UI_IMAGE_DIGEST to the owner-approved SHA-256 digest}
     container_name: chronicle-temporal-ui
     restart: unless-stopped
     security_opt:
@@ -128,7 +128,7 @@ services:
   # One-shot container for running tctl/temporal CLI commands.
   # Usage: docker compose exec temporal-admin temporal workflow list
   temporal-admin:
-    image: temporalio/admin-tools:1.25.2
+    image: temporalio/admin-tools:1.25.2@sha256:${TEMPORAL_ADMIN_TOOLS_IMAGE_DIGEST:?Set TEMPORAL_ADMIN_TOOLS_IMAGE_DIGEST to the owner-approved SHA-256 digest}
     container_name: chronicle-temporal-admin
     restart: "no"
     environment:

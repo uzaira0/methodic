@@ -7,7 +7,7 @@ Use this matrix to choose the correct Docker Compose entrypoint. The compose fil
 | Scenario | Primary compose file(s) | When to use it | Notes |
 |----------|-------------------------|----------------|-------|
 | Local legacy all-in-one dev stack | `docker-compose.yml` | Quick local stack with bundled nginx | Uses the older local nginx flow documented in [README.md](/opt/chronicle/docker/README.md). |
-| Local Traefik-aligned stack | `docker-compose.traefik.yml` | Local/prod-like stack behind an existing Traefik network | This is the main repo-level quick start. Validate with `docker compose -f docker/docker-compose.traefik.yml config -q`. |
+| Source-checkout Traefik stack | `docker-compose.traefik.yml` | Developer-only stack built from this checkout behind an existing Traefik network | Its Chronicle image tags are local build outputs, not release pulls. Production uses `scripts/deploy.sh` with the production overlay. |
 | Hardened Traefik overlay | `docker-compose.traefik.yml` + `docker-compose.security.yml` | When WAF, rate-limit overlays, or fail2ban/logging protections are required | See [security/README.md](/opt/chronicle/docker/security/README.md). |
 | Legacy standalone reverse proxy | `docker-compose.prod.yml` with `--profile legacy-standalone` | Historical nginx-based stack only; not the active production path | Prefer `docker-compose.traefik.yml` plus `docker-compose.production.yml` through `scripts/deploy.sh`, or the `prod-backend` branch workflow for backend-only deploys. |
 | Monitoring/event overlays | Base compose + `docker-compose.loki.yml` or `docker-compose.opensearch.yml` or `docker-compose.kafka.yml` | Add SIEM, log search, or event-streaming components to an existing deployment | Do not treat these as standalone entrypoints. Kafka requires `KAFKA_CLUSTER_ID`, `KAFKA_USER`, and `KAFKA_PASSWORD` in an untracked env file. |
@@ -32,3 +32,26 @@ docker compose -f docker/docker-compose.yml config -q
 docker compose -f docker/docker-compose.prod.yml --profile legacy-standalone config -q
 docker compose -f docker/docker-compose.traefik.yml -f docker/docker-compose.temporal.yml config -q
 ```
+
+## Immutable image inputs
+
+Production Compose resolves the requested release tags once, records the resulting digests,
+and runs the services by `repository@sha256:digest`; rollback uses the recorded digest too.
+The Compose base file's locally built Chronicle images are for source-checkout development and
+are not release inputs.
+
+Optional Loki, Temporal, and OpenSearch overlays require one owner-approved digest per image
+through their `*_IMAGE_DIGEST` variables. They keep their documented version tag and fail
+Compose interpolation when a digest is missing. Never copy a digest from an unrelated image or
+architecture.
+
+For Kubernetes, supply `CHRONICLE_BACKEND_IMAGE_DIGEST`,
+`CHRONICLE_FRONTEND_IMAGE_DIGEST`, and `CHRONICLE_KEYCLOAK_IMAGE_DIGEST` as 64-character
+lowercase SHA-256 values, then render and apply the immutable manifest:
+
+```bash
+bash scripts/render-k8s-production.sh | kubectl apply -f -
+```
+
+The source Kustomize files contain nondeployable digest sentinels; use the renderer for every
+production apply.

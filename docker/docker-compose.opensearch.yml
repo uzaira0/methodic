@@ -10,7 +10,7 @@
 services:
   # OpenSearch - Log storage and search
   opensearch:
-    image: opensearchproject/opensearch:2.11.0
+    image: opensearchproject/opensearch:2.11.0@sha256:${OPENSEARCH_IMAGE_DIGEST:?Set OPENSEARCH_IMAGE_DIGEST to the owner-approved SHA-256 digest}
     container_name: chronicle-opensearch
     restart: unless-stopped
     security_opt:
@@ -52,7 +52,7 @@ services:
 
   # OpenSearch Dashboards - Visualization
   opensearch-dashboards:
-    image: opensearchproject/opensearch-dashboards:2.11.0
+    image: opensearchproject/opensearch-dashboards:2.11.0@sha256:${OPENSEARCH_DASHBOARDS_IMAGE_DIGEST:?Set OPENSEARCH_DASHBOARDS_IMAGE_DIGEST to the owner-approved SHA-256 digest}
     container_name: chronicle-opensearch-dashboards
     restart: unless-stopped
     security_opt:

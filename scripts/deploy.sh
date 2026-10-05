@@ -13,7 +13,7 @@
 #
 # Required environment or flags:
 #   --environment   staging|production
-#   --tag           Docker image tag to deploy
+#   --tag           Release tag used to resolve the immutable registry digest
 #   --backend-image (optional) Override backend image name
 #   --frontend-image (optional) Override frontend image name
 #   --env-file      (optional) Explicit environment file; defaults to docker/.env.<environment>.local
@@ -21,7 +21,9 @@
 # Environment variables (set in .env.<environment> or export):
 #   BACKEND_IMAGE    ghcr.io registry path for backend
 #   FRONTEND_IMAGE   ghcr.io registry path for frontend
-#   IMAGE_TAG        Docker image tag
+#   IMAGE_TAG        Release tag used for the initial pull and release log
+#   BACKEND_DIGEST   Optional pinned backend SHA-256 digest
+#   FRONTEND_DIGEST  Optional pinned frontend SHA-256 digest
 
 set -euo pipefail
 
@@ -46,6 +48,8 @@ POSTGRES_HEALTH_TIMEOUT=60    # seconds
 # ─────────────────────────────────────────────────────────
 ENVIRONMENT=""
 IMAGE_TAG=""
+BACKEND_DIGEST="${BACKEND_DIGEST:-}"
+FRONTEND_DIGEST="${FRONTEND_DIGEST:-}"
 BACKEND_IMAGE_ARG=""
 FRONTEND_IMAGE_ARG=""
 ENV_FILE_ARG=""
@@ -339,12 +343,16 @@ save_state() {
     cp "${STATE_DIR}/current-tag" "${STATE_DIR}/previous-tag"
     cp "${STATE_DIR}/current-backend-image" "${STATE_DIR}/previous-backend-image" 2>/dev/null || true
     cp "${STATE_DIR}/current-frontend-image" "${STATE_DIR}/previous-frontend-image" 2>/dev/null || true
+    cp "${STATE_DIR}/current-backend-digest" "${STATE_DIR}/previous-backend-digest" 2>/dev/null || true
+    cp "${STATE_DIR}/current-frontend-digest" "${STATE_DIR}/previous-frontend-digest" 2>/dev/null || true
   fi
 
   # Save new state as current
   echo "${IMAGE_TAG}" > "${STATE_DIR}/current-tag"
   echo "${BACKEND_IMAGE}" > "${STATE_DIR}/current-backend-image"
   echo "${FRONTEND_IMAGE}" > "${STATE_DIR}/current-frontend-image"
+  echo "${BACKEND_DIGEST}" > "${STATE_DIR}/current-backend-digest"
+  echo "${FRONTEND_DIGEST}" > "${STATE_DIR}/current-frontend-digest"
   date -u +"%Y-%m-%dT%H:%M:%SZ" > "${STATE_DIR}/last-deploy-time"
   echo "${ENVIRONMENT}" > "${STATE_DIR}/last-deploy-environment"
 }
@@ -353,6 +361,8 @@ load_rollback_state() {
   IMAGE_TAG="$(cat "${STATE_DIR}/previous-tag")"
   BACKEND_IMAGE="$(cat "${STATE_DIR}/previous-backend-image" 2>/dev/null || echo "${BACKEND_IMAGE}")"
   FRONTEND_IMAGE="$(cat "${STATE_DIR}/previous-frontend-image" 2>/dev/null || echo "${FRONTEND_IMAGE}")"
+  BACKEND_DIGEST="$(cat "${STATE_DIR}/previous-backend-digest" 2>/dev/null || true)"
+  FRONTEND_DIGEST="$(cat "${STATE_DIR}/previous-frontend-digest" 2>/dev/null || true)"
   log_info "Rollback target: tag=${IMAGE_TAG}"
 }
 
@@ -445,17 +455,45 @@ for line in sys.stdin:
 # Image operations
 # ─────────────────────────────────────────────────────────
 pull_images() {
-  log_info "Pulling images: backend=${BACKEND_IMAGE}:${IMAGE_TAG} frontend=${FRONTEND_IMAGE}:${IMAGE_TAG}"
+  log_info "Resolving immutable image refs for release tag ${IMAGE_TAG}"
 
   if [[ "${DRY_RUN}" == true ]]; then
     log_info "[DRY RUN] Would pull images"
     return 0
   fi
 
-  docker pull "${BACKEND_IMAGE}:${IMAGE_TAG}" || die "Failed to pull backend image"
-  docker pull "${FRONTEND_IMAGE}:${IMAGE_TAG}" || die "Failed to pull frontend image"
+  if [[ -n "${BACKEND_DIGEST}" ]]; then
+    [[ "${BACKEND_DIGEST}" =~ ^[0-9a-f]{64}$ ]] || die "BACKEND_DIGEST must be 64 lowercase SHA-256 hex characters"
+    docker pull "${BACKEND_IMAGE}@sha256:${BACKEND_DIGEST}" || die "Failed to pull pinned backend image"
+  else
+    docker pull "${BACKEND_IMAGE}:${IMAGE_TAG}" || die "Failed to pull backend image"
+    BACKEND_DIGEST="$(resolve_image_digest "${BACKEND_IMAGE}:${IMAGE_TAG}" "${BACKEND_IMAGE}")"
+  fi
+  if [[ -n "${FRONTEND_DIGEST}" ]]; then
+    [[ "${FRONTEND_DIGEST}" =~ ^[0-9a-f]{64}$ ]] || die "FRONTEND_DIGEST must be 64 lowercase SHA-256 hex characters"
+    docker pull "${FRONTEND_IMAGE}@sha256:${FRONTEND_DIGEST}" || die "Failed to pull pinned frontend image"
+  else
+    docker pull "${FRONTEND_IMAGE}:${IMAGE_TAG}" || die "Failed to pull frontend image"
+    FRONTEND_DIGEST="$(resolve_image_digest "${FRONTEND_IMAGE}:${IMAGE_TAG}" "${FRONTEND_IMAGE}")"
+  fi
 
   log_info "Images pulled successfully"
+}
+
+resolve_image_digest() { # <pulled reference> <repository>
+  local reference=$1 repository=$2 repo_digest digest
+  local listed
+  listed="$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$reference")" \
+    || die "Could not read immutable repository digest for ${reference}"
+  while IFS= read -r repo_digest; do
+    case "$repo_digest" in
+      "${repository}"@sha256:*)
+        digest=${repo_digest#"${repository}"@sha256:}
+        [[ "$digest" =~ ^[0-9a-f]{64}$ ]] && { printf '%s' "$digest"; return 0; }
+        ;;
+    esac
+  done <<< "$listed"
+  die "Pulled image ${reference} did not expose a validated repository digest"
 }
 
 # ─────────────────────────────────────────────────────────
@@ -509,14 +547,15 @@ deploy() {
   log_audit "DEPLOY_START environment=${ENVIRONMENT} tag=${IMAGE_TAG} user=$(whoami) hostname=$(hostname)"
 
   # Export image references for docker-compose.production.yml
-  export IMAGE_TAG
-  export BACKEND_IMAGE
-  export FRONTEND_IMAGE
+  export IMAGE_TAG BACKEND_IMAGE FRONTEND_IMAGE BACKEND_DIGEST FRONTEND_DIGEST
 
   if [[ "${DRY_RUN}" == true ]]; then
+    BACKEND_DIGEST="${BACKEND_DIGEST:-$(printf '%064d' 0)}"
+    FRONTEND_DIGEST="${FRONTEND_DIGEST:-$(printf '%064d' 0)}"
+    export BACKEND_DIGEST FRONTEND_DIGEST
     log_info "[DRY RUN] Would deploy with:"
-    log_info "  BACKEND_IMAGE=${BACKEND_IMAGE}:${IMAGE_TAG}"
-    log_info "  FRONTEND_IMAGE=${FRONTEND_IMAGE}:${IMAGE_TAG}"
+    log_info "  BACKEND_IMAGE=${BACKEND_IMAGE}@sha256:${BACKEND_DIGEST}"
+    log_info "  FRONTEND_IMAGE=${FRONTEND_IMAGE}@sha256:${FRONTEND_DIGEST}"
     log_info "  Environment: ${ENVIRONMENT}"
     compose_cmd config --quiet 2>/dev/null && log_info "  Compose config: valid" || log_warn "  Compose config: invalid"
     # Surface pending-migration status too — a surprise migration should show up in
@@ -527,6 +566,7 @@ deploy() {
 
   # Pull images
   pull_images
+  export BACKEND_DIGEST FRONTEND_DIGEST
 
   # Save state for potential rollback
   save_state
@@ -606,12 +646,20 @@ rollback_deployment() {
   prev_backend="$(cat "${STATE_DIR}/previous-backend-image" 2>/dev/null || echo "${BACKEND_IMAGE}")"
   local prev_frontend
   prev_frontend="$(cat "${STATE_DIR}/previous-frontend-image" 2>/dev/null || echo "${FRONTEND_IMAGE}")"
+  local prev_backend_digest
+  prev_backend_digest="$(cat "${STATE_DIR}/previous-backend-digest" 2>/dev/null || true)"
+  local prev_frontend_digest
+  prev_frontend_digest="$(cat "${STATE_DIR}/previous-frontend-digest" 2>/dev/null || true)"
 
   log_info "Rolling back to: tag=${prev_tag}"
 
-  export IMAGE_TAG="${prev_tag}"
-  export BACKEND_IMAGE="${prev_backend}"
-  export FRONTEND_IMAGE="${prev_frontend}"
+  IMAGE_TAG="${prev_tag}"
+  BACKEND_IMAGE="${prev_backend}"
+  FRONTEND_IMAGE="${prev_frontend}"
+  BACKEND_DIGEST="${prev_backend_digest}"
+  FRONTEND_DIGEST="${prev_frontend_digest}"
+  pull_images
+  export IMAGE_TAG BACKEND_IMAGE FRONTEND_IMAGE BACKEND_DIGEST FRONTEND_DIGEST
 
   compose_cmd up -d --no-deps chronicle-backend chronicle-frontend
 
@@ -624,6 +672,8 @@ rollback_deployment() {
     echo "${prev_tag}" > "${STATE_DIR}/current-tag"
     echo "${prev_backend}" > "${STATE_DIR}/current-backend-image"
     echo "${prev_frontend}" > "${STATE_DIR}/current-frontend-image"
+    echo "${BACKEND_DIGEST}" > "${STATE_DIR}/current-backend-digest"
+    echo "${FRONTEND_DIGEST}" > "${STATE_DIR}/current-frontend-digest"
   else
     log_error "ROLLBACK FAILED. Manual intervention required!"
     log_error "Container logs:"
@@ -651,11 +701,14 @@ main() {
   if [[ "${ROLLBACK}" == true ]]; then
     load_rollback_state
     log_info "Initiating manual rollback to tag=${IMAGE_TAG}"
-    export IMAGE_TAG BACKEND_IMAGE FRONTEND_IMAGE
+    pull_images
+    export IMAGE_TAG BACKEND_IMAGE FRONTEND_IMAGE BACKEND_DIGEST FRONTEND_DIGEST
     compose_cmd up -d --no-deps chronicle-backend chronicle-frontend
     if verify_deployment; then
       log_audit "MANUAL_ROLLBACK_COMPLETE environment=${ENVIRONMENT} tag=${IMAGE_TAG}"
       echo "${IMAGE_TAG}" > "${STATE_DIR}/current-tag"
+      echo "${BACKEND_DIGEST}" > "${STATE_DIR}/current-backend-digest"
+      echo "${FRONTEND_DIGEST}" > "${STATE_DIR}/current-frontend-digest"
     else
       die "Manual rollback verification failed. Check container logs."
     fi

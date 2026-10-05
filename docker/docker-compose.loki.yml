@@ -9,7 +9,7 @@
 services:
   # Loki - Log aggregation
   loki:
-    image: grafana/loki:3.6.7
+    image: grafana/loki:3.6.7@sha256:${LOKI_IMAGE_DIGEST:?Set LOKI_IMAGE_DIGEST to the owner-approved SHA-256 digest}
     container_name: chronicle-loki
     restart: unless-stopped
     read_only: true
@@ -40,7 +40,7 @@ services:
 
   # Promtail - Log shipper
   promtail:
-    image: grafana/promtail:3.6.7
+    image: grafana/promtail:3.6.7@sha256:${PROMTAIL_IMAGE_DIGEST:?Set PROMTAIL_IMAGE_DIGEST to the owner-approved SHA-256 digest}
     container_name: chronicle-promtail
     restart: unless-stopped
     read_only: true

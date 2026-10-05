@@ -351,6 +351,104 @@ def check_w61() -> None:
     assert "/var/run/docker.sock:/var/run/docker.sock:ro" in socket_proxy["volumes"]
 
 
+def check_w68() -> None:
+    percona = "percona/percona-distribution-postgresql:18.6.1-1@sha256:18cde978e37580e8bf0bd47945e5d453f7753f3cae2ba7f19700e8f47b9bad27"
+    for path in ("docker/docker-compose.yml", "docker/docker-compose.dev.yml"):
+        compose = yaml.safe_load(read(path))
+        assert compose["services"]["postgres"]["image"] == percona, path
+
+    digest_inputs = {
+        "docker/docker-compose.loki.yml": {
+            "loki": "LOKI_IMAGE_DIGEST",
+            "promtail": "PROMTAIL_IMAGE_DIGEST",
+        },
+        "docker/docker-compose.temporal.yml": {
+            "temporal": "TEMPORAL_AUTO_SETUP_IMAGE_DIGEST",
+            "temporal-ui": "TEMPORAL_UI_IMAGE_DIGEST",
+            "temporal-admin": "TEMPORAL_ADMIN_TOOLS_IMAGE_DIGEST",
+        },
+        "docker/docker-compose.opensearch.yml": {
+            "opensearch": "OPENSEARCH_IMAGE_DIGEST",
+            "opensearch-dashboards": "OPENSEARCH_DASHBOARDS_IMAGE_DIGEST",
+        },
+    }
+    for path, services in digest_inputs.items():
+        compose = yaml.safe_load(read(path))["services"]
+        for service, variable in services.items():
+            image = compose[service]["image"]
+            assert re.search(rf"@sha256:\$\{{{variable}:\?[^}}]+\}}$", image), (path, service, image)
+
+    production = read("docker/docker-compose.production.yml")
+    assert re.search(r"image:\s*\$\{BACKEND_IMAGE:\?[^}]+\}@sha256:\$\{BACKEND_DIGEST:\?", production)
+    assert re.search(r"image:\s*\$\{FRONTEND_IMAGE:\?[^}]+\}@sha256:\$\{FRONTEND_DIGEST:\?", production)
+    deploy = read("scripts/deploy.sh")
+    assert "docker image inspect --format" in deploy
+    assert "BACKEND_DIGEST" in deploy and "FRONTEND_DIGEST" in deploy
+    assert "current-backend-digest" in deploy and "previous-backend-digest" in deploy
+    assert "current-frontend-digest" in deploy and "previous-frontend-digest" in deploy
+
+    traefik = yaml.safe_load(read("docker/docker-compose.traefik.yml"))["services"]
+    for service in ("keycloak-postgres", "keycloak", "chronicle-backend", "chronicle-frontend"):
+        assert traefik[service].get("build"), service
+    assert traefik["chronicle-preprocessing-frontend"]["image"] == traefik["chronicle-frontend"]["image"]
+    matrix = read("docker/DEPLOYMENT-MATRIX.md").lower()
+    assert "source-checkout" in matrix and "developer-only" in matrix
+
+    base = yaml.safe_load(read("k8s/base/kustomization.yaml"))
+    for image in base["images"]:
+        assert "newTag" not in image
+        assert image["digest"].startswith("sha256:__CHRONICLE_")
+    assert "newTag:" not in read("k8s/overlays/production/kustomization.yaml")
+
+    renderer = ROOT / "scripts" / "render-k8s-production.sh"
+    scratch = Path("/home/opt/chronicle_work/launch-audit-1003/sol/testtmp")
+    scratch.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="W68-", dir=scratch) as temporary:
+        work = Path(temporary)
+        bindir = work / "bin"
+        bindir.mkdir()
+        marker = work / "kustomize-called"
+        fixture = work / "kustomize-output.yaml"
+        fixture.write_text(
+            "images:\n"
+            "- ghcr.io/uzaira0/chronicle/chronicle-backend@sha256:__CHRONICLE_BACKEND_IMAGE_DIGEST__\n"
+            "- ghcr.io/uzaira0/chronicle/chronicle-frontend@sha256:__CHRONICLE_FRONTEND_IMAGE_DIGEST__\n"
+            "- ghcr.io/uzaira0/chronicle/chronicle-keycloak@sha256:__CHRONICLE_KEYCLOAK_IMAGE_DIGEST__\n",
+            encoding="utf-8",
+        )
+        kustomize = bindir / "kustomize"
+        kustomize.write_text(
+            "#!/bin/sh\nprintf called >> \"$KUSTOMIZE_MARKER\"\ncat \"$KUSTOMIZE_FIXTURE\"\n",
+            encoding="utf-8",
+        )
+        os.chmod(kustomize, 0o755)
+        values = {
+            "CHRONICLE_BACKEND_IMAGE_DIGEST": "1" * 64,
+            "CHRONICLE_FRONTEND_IMAGE_DIGEST": "2" * 64,
+            "CHRONICLE_KEYCLOAK_IMAGE_DIGEST": "3" * 64,
+        }
+        environment = os.environ.copy()
+        environment.update(values)
+        environment["KUSTOMIZE_MARKER"] = str(marker)
+        environment["KUSTOMIZE_FIXTURE"] = str(fixture)
+        environment["PATH"] = f"{bindir}:{environment['PATH']}"
+        rendered = subprocess.run(
+            ["bash", str(renderer)], check=False, capture_output=True, text=True, env=environment
+        )
+        assert rendered.returncode == 0, rendered.stderr
+        assert "sha256:" + values["CHRONICLE_BACKEND_IMAGE_DIGEST"] in rendered.stdout
+        assert "sha256:" + values["CHRONICLE_FRONTEND_IMAGE_DIGEST"] in rendered.stdout
+        assert "sha256:" + values["CHRONICLE_KEYCLOAK_IMAGE_DIGEST"] in rendered.stdout
+        assert "__CHRONICLE_" not in rendered.stdout
+        marker.unlink()
+        invalid = environment.copy()
+        invalid["CHRONICLE_BACKEND_IMAGE_DIGEST"] = "not-a-digest"
+        rejected = subprocess.run(
+            ["bash", str(renderer)], check=False, capture_output=True, text=True, env=invalid
+        )
+        assert rejected.returncode != 0 and not marker.exists()
+
+
 def check_w48() -> None:
     publisher = read("scripts/publish-images.sh")
     assert "for tool in docker gh git python3 trivy syft; do" in publisher
@@ -543,6 +641,7 @@ CHECKS = {
     "W56": check_w56,
     "W61": check_w61,
     "W48": check_w48,
+    "W68": check_w68,
     "W76": check_w76,
     "W79": check_w79,
     "CROSS-S02": check_cross_s02,

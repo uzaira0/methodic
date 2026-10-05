@@ -49,8 +49,8 @@ configMapGenerator:
 
 images:
   - name: ghcr.io/uzaira0/chronicle/chronicle-backend
-    newTag: sha-000000000000
+    digest: sha256:__CHRONICLE_BACKEND_IMAGE_DIGEST__
   - name: ghcr.io/uzaira0/chronicle/chronicle-frontend
-    newTag: sha-000000000000
+    digest: sha256:__CHRONICLE_FRONTEND_IMAGE_DIGEST__
   - name: ghcr.io/uzaira0/chronicle/chronicle-keycloak
-    newTag: sha-000000000000
+    digest: sha256:__CHRONICLE_KEYCLOAK_IMAGE_DIGEST__

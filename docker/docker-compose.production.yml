@@ -13,7 +13,7 @@ services:
   # Override backend to use pre-built ghcr.io image instead of local build
   chronicle-backend:
     build: !reset null
-    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE to the backend registry path}:${IMAGE_TAG:?Set IMAGE_TAG to an immutable release or sha tag}
+    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE to the backend registry path}@sha256:${BACKEND_DIGEST:?deploy.sh resolves the pulled tag to its immutable digest}
     # Production JVM tuning
     environment:
       CHRONICLE_SERVER_XMS: ${BACKEND_XMS:-"-Xms1g"}
@@ -54,7 +54,7 @@ services:
   # Override frontend to use pre-built ghcr.io image instead of local build
   chronicle-frontend:
     build: !reset null
-    image: ${FRONTEND_IMAGE:?Set FRONTEND_IMAGE to the frontend registry path}:${IMAGE_TAG:?Set IMAGE_TAG to an immutable release or sha tag}
+    image: ${FRONTEND_IMAGE:?Set FRONTEND_IMAGE to the frontend registry path}@sha256:${FRONTEND_DIGEST:?deploy.sh resolves the pulled tag to its immutable digest}
     deploy:
       resources:
         limits:
