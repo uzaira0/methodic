@@ -57,6 +57,27 @@ checkpoint_rows=''' + branch + '\nprintf accepted > "$MARKER"\n'
                 self.assertEqual(result.returncode == 0, proof == 'complete')
                 self.assertEqual(marker.exists(), proof == 'complete')
 
+    def test_W14_only_reviewed_restricted_dumps_restore(self):
+        import gzip, hashlib
+        host = (ROOT / 'selfhost/chronicle').read_text()
+        container = (ROOT / 'selfhost/restore.sh').read_text()
+        self.assertIn('verify_restore_dump "$restore_host_path"',host)
+        self.assertLess(host.index('verify_restore_dump "$restore_host_path"'),host.index('Stopping application access'))
+        self.assertIn('verify_restore_dump "$RESTORE_FILE"',container)
+        function = container[container.index('verify_restore_dump() {'):container.index('# ---------------------------------------------------------------------------------------')]
+        with tempfile.TemporaryDirectory() as d:
+            for payload, accepted in [(b'-- PostgreSQL database dump\n\\restrict token123\nSELECT 1;\n\\unrestrict token123\n',True),
+                (b'-- PostgreSQL database dump\n\\restrict token123\nCOPY public.x FROM stdin;\n\\! this-is-copy-data\n\\.\n\\unrestrict token123\n',True),
+                (b'-- PostgreSQL database dump\n\\restrict token123\n\\! touch owned\n\\unrestrict token123\n',False),
+                (b"-- PostgreSQL database dump\n\\restrict token123\nCOPY x FROM PROGRAM 'touch owned';\n\\unrestrict token123\n",False),
+                (b'-- PostgreSQL database dump\n\\restrict token123\nSELECT 1; \\unrestrict token123\nSELECT 1; \\! touch owned\n\\unrestrict token123\n',False),
+                (b'SELECT 1;\n',False)]:
+                dump = Path(d) / 'dump.gz'; dump.write_bytes(gzip.compress(payload))
+                for trusted in (True,False):
+                    digest = hashlib.sha256(dump.read_bytes()).hexdigest() if trusted else '0'*64
+                    result = subprocess.run(['bash','-c',function+'\nverify_restore_dump "$1" "$2"','verify',str(dump),digest],capture_output=True)
+                    self.assertEqual(result.returncode==0,accepted and trusted,result.stderr.decode())
+
     def test_W31_independent_monitoring_guard(self):
         source = (ROOT / 'selfhost/monitoring/render-config.sh').read_text()
         compose = (ROOT / 'selfhost/overlays/monitoring.yml').read_text()

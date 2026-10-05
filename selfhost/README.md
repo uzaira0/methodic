@@ -737,8 +737,11 @@ Losing the keyring makes the data volume permanently unreadable. The backups cov
   **That applies to an empty target only.** Restoring into a database that still has the
   schema — which is the case whenever you are rolling back rather than rebuilding — skips
   every `CREATE` and then appends every `COPY`, so tables without a primary key end up
-  holding each row twice while psql still exits 0. Use `./chronicle restore`, which stops
-  application writers and then drops the schema first; see
+  holding each row twice while psql still exits 0. Use the guarded
+  `./chronicle restore --trusted-sha256=...` command only after independently reviewing the
+  dump source and digest. The command verifies them before stopping application writers and
+  dropping the schema. A `.sha256` sidecar shipped beside the dump is not independent
+  provenance. See
   [docs/BACKUP-RESTORE.md](docs/BACKUP-RESTORE.md).
 - **Startup refuses `ENABLE_ENCRYPTION=true` without `overlays/backups.yml`**, because that
   combination would create encrypted data with no key-free copy of it. `config-guard` fails

@@ -229,8 +229,8 @@ services:
   # never starts it. Invoke it only through the operator command, which stops and verifies
   # every application writer and excludes upgrades/secret rotations with a shared state lock:
   #
-  #   ./chronicle restore                                                # newest dump
-  #   ./chronicle restore /backups/daily/chronicle-20260809.sql.gz
+  #   ./chronicle restore --trusted-sha256=REVIEWED_SHA256                 # newest dump
+  #   ./chronicle restore /backups/daily/chronicle-20260809.sql.gz --trusted-sha256=REVIEWED_SHA256
   #
   # This is a service rather than a documented psql one-liner because the one-liner
   # silently corrupts: piping a dump into a database that still has the schema skips every

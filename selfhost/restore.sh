@@ -14,7 +14,7 @@
 # So this script drops the application schema first, and restores with ON_ERROR_STOP so a
 # restore that goes wrong stops and says so instead of half-landing.
 #
-#   ./chronicle restore
+#   ./chronicle restore --trusted-sha256=REVIEWED_SHA256 /backups/path/to/dump.sql.gz
 #
 # The CLI stops the backend, dashboard proxy, database-initialization job, and backup
 # sidecar before invoking this one-shot service. It holds a state-directory operation lock
@@ -29,7 +29,7 @@ umask 077
 if [[ "${CHRONICLE_RESTORE_ORCHESTRATED:-}" != true ]]; then
   echo "  FAIL direct restore-service execution is disabled because application writers may still be running" >&2
   echo "       run the guarded operator command instead:" >&2
-  echo "         ./chronicle restore [--yes] [/backups/path/to/dump.sql.gz]" >&2
+  echo "         ./chronicle restore [--yes] --trusted-sha256=REVIEWED_SHA256 /backups/path/to/dump.sql.gz" >&2
   exit 1
 fi
 unset CHRONICLE_RESTORE_ORCHESTRATED
@@ -45,17 +45,92 @@ psql_q() {
     -v ON_ERROR_STOP=1 -tAq "$@"
 }
 
+verify_restore_dump() {
+  local file="$1" expected="$2" actual
+  [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || {
+    printf 'FAIL restore requires an independently reviewed --trusted-sha256 digest\n' >&2
+    return 1
+  }
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "$file" | awk '{print $1}')"
+  else
+    actual="$(shasum -a 256 "$file" | awk '{print $1}')"
+  fi
+  [[ "$actual" == "$expected" ]] || { printf 'FAIL restore provenance digest mismatch\n' >&2; return 1; }
+  # Framing is additional defense, not authentication. Only the independently reviewed
+  # digest above establishes trust. COPY payload lines are data, including backslashes.
+  gzip -dc "$file" | awk '
+    function active_sql(line, i, c, nextc, rest, tag, code) {
+      code=""
+      for (i=1; i<=length(line); i++) {
+        c=substr(line,i,1); nextc=substr(line,i+1,1)
+        if (comment) { if (c == "*" && nextc == "/") { comment=0; i++ }; continue }
+        if (quote == "single" || quote == "double") {
+          mark=(quote == "single" ? "\047" : "\042")
+          if (c == mark) { if (nextc == mark) i++; else quote="" }
+          else if (quote == "single" && c == "\\") i++
+          continue
+        }
+        if (quote != "") {
+          if (substr(line,i,length(quote)) == quote) { i+=length(quote)-1; quote="" }
+          continue
+        }
+        if (c == "-" && nextc == "-") break
+        if (c == "/" && nextc == "*") { comment=1; i++; continue }
+        if (c == "\047") { quote="single"; continue }
+        if (c == "\042") { quote="double"; continue }
+        rest=substr(line,i)
+        if (c == "$" && match(rest,/^\$([A-Za-z_][A-Za-z0-9_]*)?\$/)) {
+          quote=substr(rest,1,RLENGTH); i+=RLENGTH-1; continue
+        }
+        code=code c
+      }
+      return code
+    }
+    BEGIN { restricted=0; finished=0; copying=0; header=0; failed=0 }
+    /^-- PostgreSQL database dump$/ { header=1; next }
+    copying { if ($0 == "\\.") copying=0; next }
+    /^\\restrict [A-Za-z0-9]+$/ {
+      if (restricted || finished) failed=1
+      restricted=1; token=$2; next
+    }
+    /^\\unrestrict [A-Za-z0-9]+$/ {
+      if (!restricted || finished || $2 != token) failed=1
+      finished=1; next
+    }
+    /^[[:space:]]*\\/ { failed=1; next }
+    /^[[:space:]]*(--.*)?$/ { next }
+    {
+      if (!restricted || finished) failed=1
+      code=active_sql($0)
+      if (code ~ /\\/) failed=1
+      upper=toupper(code)
+      if (upper ~ /(^|[^A-Z0-9_])PROGRAM([^A-Z0-9_]|$)/) failed=1
+      if (upper ~ /^COPY .* FROM STDIN;$/) copying=1
+    }
+    END { if (failed || !header || !restricted || !finished || copying || quote != "" || comment) exit 1 }
+  ' || { printf 'FAIL restore lacks safe pg_dump restricted framing or contains executable commands\n' >&2; return 1; }
+}
+
 # ---------------------------------------------------------------------------------------
 # 1. The dump must exist and be readable BEFORE anything is dropped.
 # ---------------------------------------------------------------------------------------
 if [[ ! -s "$RESTORE_FILE" ]]; then
   echo "  FAIL no dump at ${RESTORE_FILE}" >&2
   echo "       pass one explicitly:" >&2
-  echo "         ./chronicle restore /backups/daily/chronicle-YYYYMMDD.sql.gz" >&2
+  echo "         ./chronicle restore --trusted-sha256=REVIEWED_SHA256 /backups/daily/chronicle-YYYYMMDD.sql.gz" >&2
   echo "       available:" >&2
   find "$BACKUPS_DIR" -name '*.sql.gz' -type f 2>/dev/null | sed 's|^|         |' >&2 || true
   exit 1
 fi
+
+# Freeze the reviewed bytes before validation and execution to close the file-replacement
+# window. The backup directory is protected; the input is never executed directly.
+REVIEWED_RESTORE_FILE="$(mktemp "${BACKUPS_DIR}/.reviewed-restore.XXXXXX.sql.gz")"
+cp -- "$RESTORE_FILE" "$REVIEWED_RESTORE_FILE"
+RESTORE_FILE="$REVIEWED_RESTORE_FILE"
+trap 'rm -f -- "$REVIEWED_RESTORE_FILE"' EXIT
+verify_restore_dump "$RESTORE_FILE" "${CHRONICLE_RESTORE_TRUSTED_SHA256:-}" || exit 1
 
 # A truncated dump that is only discovered after the schema is gone is the worst possible
 # ordering, so verify the compression checksum first. This reads the whole file.
@@ -450,7 +525,7 @@ if ! gzip -dc "$RESTORE_FILE" | PGPASSWORD="$POSTGRES_PASSWORD" psql \
        -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -q >/dev/null; then
   echo "  FAIL the restore stopped on an error and the database is now incomplete" >&2
   echo "       Chronicle remains stopped; after reviewing the failure, recover with:" >&2
-  echo "         ./chronicle restore ${SAFETY_DUMP}" >&2
+  echo "         ./chronicle restore --trusted-sha256=REVIEWED_SHA256 ${SAFETY_DUMP}" >&2
   exit 1
 fi
 

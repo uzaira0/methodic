@@ -42,10 +42,13 @@ dump path and SHA-256 in a mode-`0600` `upgrade-receipts/*-adopt.json` receipt.
 Failures before the new `up` restart the source stack and remove the copied files.
 Once `up` has been invoked, assume migrations may have run: keep the new files and
 recover forward, or follow the tested rollback procedure below using the receipt's
-`pre_adopt_backup.path` and `pre_adopt_backup.sha256`. Restore that pre-adopt dump
-with `./chronicle restore --no-start` before starting the intact source checkout
-again if migrations ran. Never run both installations at once or delete their
-shared database volumes.
+`pre_adopt_backup.path` and `pre_adopt_backup.sha256`. Independently review the source
+checkout, adoption receipt, and exact dump before accepting its digest as trusted; the
+receipt or a sidecar alone does not authenticate bytes if both came from an untrusted source.
+Pass that reviewed digest with `--trusted-sha256=...` to `./chronicle restore --no-start`
+before starting the intact source checkout again if migrations ran. The guarded command
+checks the digest before stopping writers. Never run both installations at once or delete
+their shared database volumes.
 
 After successful adoption, future updates run from the bundle:
 
@@ -168,6 +171,11 @@ cannot make the new release healthy.
    printf '%s  %s\n' "$BACKUP_SHA256" "$BACKUP_HOST" | sha256sum -c -
    ```
 
+   The check proves the file matches the receipt; it does not authenticate the receipt.
+   Independently review the originating release and backup operation, then approve this
+   exact digest through your trusted operator record before proceeding. A `.sha256` file
+   generated beside an untrusted dump is not an independent trust source.
+
 2. Use the guarded restore command with `--no-start`. It verifies the selected dump, stops
    and verifies every application writer and the backup sidecar, takes another safety dump,
    and stops on the first SQL error. `--no-start` keeps the newer backend from reconnecting
@@ -178,7 +186,7 @@ cannot make the new release healthy.
 
    ```bash
    RESTORE_IN_CONTAINER="/backups/$(basename "$BACKUP_HOST")"
-   ./chronicle restore --no-start "$RESTORE_IN_CONTAINER"
+   ./chronicle restore --no-start "--trusted-sha256=${BACKUP_SHA256}" "$RESTORE_IN_CONTAINER"
    ```
 
    If this command reports that the backup predates protected continuity facts, stop. Do not

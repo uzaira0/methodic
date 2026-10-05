@@ -95,15 +95,26 @@ not accepted by the guarded restore command; keep one backup format and one test
 
 ## Restore
 
+Before restoring, independently review the dump's source and record the expected SHA-256
+digest through a trusted operator record. A `.sha256` file distributed beside the dump is
+not independent provenance. Set `TRUSTED_SHA256` to that reviewed, lowercase 64-character
+digest; `./chronicle restore` checks it and gzip integrity before acquiring the restore lock
+or stopping writers. For a locally generated backup, review its source and operation record
+before accepting that backup's digest for a manual restore.
+
 ```bash
-./chronicle restore
+TRUSTED_SHA256='<reviewed lowercase 64-character SHA-256>'
+```
+
+```bash
+./chronicle restore "--trusted-sha256=${TRUSTED_SHA256}"
 ```
 
 That restores the newest dump the backups overlay wrote
 (`backups/last/chronicle-latest.sql.gz`). To pick a different one:
 
 ```bash
-./chronicle restore /backups/daily/chronicle-20260809.sql.gz
+./chronicle restore "--trusted-sha256=${TRUSTED_SHA256}" /backups/daily/chronicle-20260809.sql.gz
 ```
 
 The command resolves the selected container path below the host's configured `backups/`
@@ -175,7 +186,8 @@ For a tested previous-release rollback, use `--no-start` so the newly restored d
 not paired with the newer backend before that release is shut down:
 
 ```bash
-./chronicle restore --no-start /backups/pre-upgrade-<version>-to-<version>-<run>.sql.gz
+./chronicle restore --no-start "--trusted-sha256=${TRUSTED_SHA256}" \
+  /backups/pre-upgrade-<version>-to-<version>-<run>.sql.gz
 ```
 
 `--no-start` is an incident-recovery option, not the normal restore path. The application
@@ -193,7 +205,8 @@ running and diagnose the reported error. If PostgreSQL contains the
 `chronicle_restore_continuity` schema, preserve it: it is the fail-closed authority for
 post-backup withdrawals. The lock contains only three named metadata files;
 after that check, remove exactly those files and the now-empty directory (never the state
-directory itself), then rerun `./chronicle restore` with the intended dump:
+directory itself), independently re-review the intended dump's source and digest, set
+`TRUSTED_SHA256` to that exact reviewed digest, then rerun restore:
 
 ```bash
 LOCK=/absolute/path/from/CHRONICLE_STATE_DIR/.chronicle-restore.lock
@@ -206,7 +219,7 @@ docker compose ps --all restore
 # Continue only when neither command reports an active restore.
 rm -f "$LOCK/owner-pid" "$LOCK/phase" "$LOCK/restore-file"
 rmdir "$LOCK"
-./chronicle restore /backups/the-reviewed-recovery-dump.sql.gz
+./chronicle restore "--trusted-sha256=${TRUSTED_SHA256}" /backups/the-reviewed-recovery-dump.sql.gz
 ```
 
 The pre-restore safety dump remains available under `/backups` for recovery.

@@ -58,12 +58,13 @@ run_direct_invocation_case() {
 
   /bin/mkdir -p "$backups_dir"
   /bin/chmod 0700 "$case_dir" "$backups_dir"
-  printf 'fixture restore payload\n' >"$restore_file"
+  printf '%s\n' '-- PostgreSQL database dump' '\restrict SyntheticRestriction' 'SELECT 1;' '\unrestrict SyntheticRestriction' | /usr/bin/gzip -c >"$restore_file"
 
   set +e
   PATH="${FIXTURE_BIN}:/usr/bin:/bin" \
     BACKUPS_DIR="$backups_dir" \
     RESTORE_FILE="$restore_file" \
+    CHRONICLE_RESTORE_TRUSTED_SHA256="$(sha256sum "$restore_file" | cut -d ' ' -f1)" \
     POSTGRES_PASSWORD="fixture-password" \
     POSTGRES_USER="chronicle" \
     POSTGRES_DB="chronicle" \
@@ -93,13 +94,14 @@ run_failure_case() {
 
   /bin/mkdir -p "$backups_dir"
   /bin/chmod 0700 "$case_dir" "$backups_dir"
-  printf 'fixture restore payload\n' > "$restore_file"
+  printf '%s\n' '-- PostgreSQL database dump' '\restrict SyntheticRestriction' 'SELECT 1;' '\unrestrict SyntheticRestriction' | /usr/bin/gzip -c >"$restore_file"
 
   set +e
   PATH="${FIXTURE_BIN}:/usr/bin:/bin" \
     CHRONICLE_RESTORE_ORCHESTRATED=true \
     BACKUPS_DIR="$backups_dir" \
     RESTORE_FILE="$restore_file" \
+    CHRONICLE_RESTORE_TRUSTED_SHA256="$(sha256sum "$restore_file" | cut -d ' ' -f1)" \
     POSTGRES_PASSWORD="fixture-password" \
     POSTGRES_USER="chronicle" \
     POSTGRES_DB="chronicle" \
@@ -136,7 +138,7 @@ run_unique_safety_dump_case() {
 
   /bin/mkdir -p "$backups_dir"
   /bin/chmod 0700 "$case_dir" "$backups_dir"
-  printf 'fixture restore payload\n' >"$restore_file"
+  printf '%s\n' '-- PostgreSQL database dump' '\restrict SyntheticRestriction' 'SELECT 1;' '\unrestrict SyntheticRestriction' | /usr/bin/gzip -c >"$restore_file"
   printf 'preserve-me\n' >"$victim"
   /bin/ln -s "$victim" "$legacy_name"
 
@@ -145,6 +147,7 @@ run_unique_safety_dump_case() {
     CHRONICLE_RESTORE_ORCHESTRATED=true \
     BACKUPS_DIR="$backups_dir" \
     RESTORE_FILE="$restore_file" \
+    CHRONICLE_RESTORE_TRUSTED_SHA256="$(sha256sum "$restore_file" | cut -d ' ' -f1)" \
     POSTGRES_PASSWORD="fixture-password" \
     POSTGRES_USER="chronicle" \
     POSTGRES_DB="chronicle" \

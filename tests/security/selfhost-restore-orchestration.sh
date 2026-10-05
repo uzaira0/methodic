@@ -41,7 +41,12 @@ setup_case() {
   /bin/mkdir -p "${SELFHOST_DIR}/backups/last" "$COMMAND_DIR"
   /bin/cp "$CHRONICLE_SCRIPT" "${SELFHOST_DIR}/chronicle"
   /bin/chmod 0755 "${SELFHOST_DIR}/chronicle"
-  printf 'fixture restore payload\n' | gzip -c >"${SELFHOST_DIR}/backups/last/chronicle-latest.sql.gz"
+  printf '%s\n' \
+    '-- PostgreSQL database dump' \
+    '\restrict fixturetoken' \
+    'SELECT 1;' \
+    '\unrestrict fixturetoken' |
+    gzip -c >"${SELFHOST_DIR}/backups/last/chronicle-latest.sql.gz"
   /bin/chmod 0600 "${SELFHOST_DIR}/backups/last/chronicle-latest.sql.gz"
   cat >"${SELFHOST_DIR}/.env" <<'EOF'
 COMPOSE_PROJECT_NAME=chronicle-selfhost-restore-fixture
@@ -142,7 +147,10 @@ EOF
 
 run_restore() {
   local run_exit="${1:-0}" up_exit="${2:-0}"
+  local trusted_sha256
   shift 2 || true
+  trusted_sha256="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' \
+    "${SELFHOST_DIR}/backups/last/chronicle-latest.sql.gz")"
   set +e
   (
     cd "$SELFHOST_DIR"
@@ -154,7 +162,7 @@ run_restore() {
       "SELFHOST_RESTORE_ORCHESTRATION_RUN_EXIT=${run_exit}" \
       "SELFHOST_RESTORE_ORCHESTRATION_UP_EXIT=${up_exit}" \
       "SELFHOST_RESTORE_INCLUDE_CA_EXPORT=${CASE_INCLUDE_CA_EXPORT}" \
-      /bin/bash ./chronicle restore "$@"
+      /bin/bash ./chronicle restore "--trusted-sha256=${trusted_sha256}" "$@"
   ) >"$OUTPUT" 2>&1
   RESTORE_STATUS=$?
   set -e

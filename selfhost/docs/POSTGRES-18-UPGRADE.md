@@ -46,10 +46,15 @@ shell history, log, or evidence artifact.
    Do not mount the PostgreSQL 17 data directory into PostgreSQL 18.
 4. Start the new release. Allow `db-init` and the backend migrations to complete, then stop
    application writers again before restoring the migration dump.
-5. Run the guarded restore command against the reviewed dump path:
+5. Independently review the dump's source and record its expected lowercase SHA-256 digest
+   through a trusted operator record. A sidecar distributed beside the dump is not independent
+   provenance. Set `TRUSTED_SHA256` to that exact reviewed digest; the guarded command checks it
+   and gzip integrity before stopping writers:
 
    ```bash
-   ./chronicle restore /backups/<reviewed-major-upgrade-dump>.sql.gz
+   TRUSTED_SHA256='<reviewed lowercase 64-character SHA-256>'
+   ./chronicle restore "--trusted-sha256=${TRUSTED_SHA256}" \
+     /backups/<reviewed-major-upgrade-dump>.sql.gz
    ```
 
 The restore orchestration stops and verifies all supported writers, takes a pre-restore

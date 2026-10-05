@@ -2155,22 +2155,90 @@ print(target)
 PY
 }
 
+verify_restore_dump() {
+  local file="$1" expected="$2" actual
+  [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || {
+    printf 'FAIL restore requires an independently reviewed --trusted-sha256 digest\n' >&2
+    return 1
+  }
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "$file" | awk '{print $1}')"
+  else
+    actual="$(shasum -a 256 "$file" | awk '{print $1}')"
+  fi
+  [[ "$actual" == "$expected" ]] || { printf 'FAIL restore provenance digest mismatch\n' >&2; return 1; }
+  # Framing is additional defense, not authentication. Only the independently reviewed
+  # digest above establishes trust. COPY payload lines are data, including backslashes.
+  gzip -dc "$file" | awk '
+    function active_sql(line, i, c, nextc, rest, tag, code) {
+      code=""
+      for (i=1; i<=length(line); i++) {
+        c=substr(line,i,1); nextc=substr(line,i+1,1)
+        if (comment) { if (c == "*" && nextc == "/") { comment=0; i++ }; continue }
+        if (quote == "single" || quote == "double") {
+          mark=(quote == "single" ? "\047" : "\042")
+          if (c == mark) { if (nextc == mark) i++; else quote="" }
+          else if (quote == "single" && c == "\\") i++
+          continue
+        }
+        if (quote != "") {
+          if (substr(line,i,length(quote)) == quote) { i+=length(quote)-1; quote="" }
+          continue
+        }
+        if (c == "-" && nextc == "-") break
+        if (c == "/" && nextc == "*") { comment=1; i++; continue }
+        if (c == "\047") { quote="single"; continue }
+        if (c == "\042") { quote="double"; continue }
+        rest=substr(line,i)
+        if (c == "$" && match(rest,/^\$([A-Za-z_][A-Za-z0-9_]*)?\$/)) {
+          quote=substr(rest,1,RLENGTH); i+=RLENGTH-1; continue
+        }
+        code=code c
+      }
+      return code
+    }
+    BEGIN { restricted=0; finished=0; copying=0; header=0; failed=0 }
+    /^-- PostgreSQL database dump$/ { header=1; next }
+    copying { if ($0 == "\\.") copying=0; next }
+    /^\\restrict [A-Za-z0-9]+$/ {
+      if (restricted || finished) failed=1
+      restricted=1; token=$2; next
+    }
+    /^\\unrestrict [A-Za-z0-9]+$/ {
+      if (!restricted || finished || $2 != token) failed=1
+      finished=1; next
+    }
+    /^[[:space:]]*\\/ { failed=1; next }
+    /^[[:space:]]*(--.*)?$/ { next }
+    {
+      if (!restricted || finished) failed=1
+      code=active_sql($0)
+      if (code ~ /\\/) failed=1
+      upper=toupper(code)
+      if (upper ~ /(^|[^A-Z0-9_])PROGRAM([^A-Z0-9_]|$)/) failed=1
+      if (upper ~ /^COPY .* FROM STDIN;$/) copying=1
+    }
+    END { if (failed || !header || !restricted || !finished || copying || quote != "" || comment) exit 1 }
+  ' || { printf 'FAIL restore lacks safe pg_dump restricted framing or contains executable commands\n' >&2; return 1; }
+}
+
 cmd_restore() {
   shift || true
-  local assume_yes=false no_start=false restore_container_path=""
+  local assume_yes=false no_start=false restore_container_path="" trusted_sha256=""
   local argument
   for argument in "$@"; do
     case "$argument" in
       --yes) assume_yes=true ;;
+      --trusted-sha256=*) trusted_sha256="${argument#*=}" ;;
       --no-start) no_start=true ;;
       -h|--help)
-        printf '%s\n' 'usage: ./chronicle restore [--yes] [--no-start] [/backups/path/to/dump.sql.gz]'
+        printf '%s\n' 'usage: ./chronicle restore [--yes] [--no-start] --trusted-sha256=SHA256 [/backups/path/to/dump.sql.gz]'
         return 0
         ;;
       --*) die "unknown restore option: $argument" ;;
       *)
         [[ -z "$restore_container_path" ]] ||
-          die "usage: ./chronicle restore [--yes] [--no-start] [/backups/path/to/dump.sql.gz]"
+          die "usage: ./chronicle restore [--yes] [--no-start] --trusted-sha256=SHA256 [/backups/path/to/dump.sql.gz]"
         restore_container_path="$argument"
         ;;
     esac
@@ -2198,6 +2266,7 @@ cmd_restore() {
   printf '%sRestoring Chronicle from%s %s\n' "$BLD" "$RST" "$restore_container_path"
   printf '  Checking gzip integrity before stopping application services.\n'
   gzip -t "$restore_host_path" || die "restore dump failed gzip integrity verification"
+  verify_restore_dump "$restore_host_path" "$trusted_sha256" || die "restore dump trust verification failed"
 
   local service_list
   # The one-shot restore service is intentionally hidden behind a profile so a normal
@@ -2291,7 +2360,7 @@ cmd_restore() {
     # stopped and the operation lock intact.
     restore_args+=(-e CHRONICLE_RESTORE_LEAVE_STOPPED=true)
   fi
-  restore_args+=(-e "RESTORE_FILE=${restore_container_path}" restore)
+  restore_args+=(-e "CHRONICLE_RESTORE_TRUSTED_SHA256=$trusted_sha256" -e "RESTORE_FILE=${restore_container_path}" restore)
   if ! dc --profile restore "${restore_args[@]}"; then
     die "database restore failed; Chronicle was deliberately left stopped"
   fi
