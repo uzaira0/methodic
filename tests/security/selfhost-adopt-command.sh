@@ -2,9 +2,18 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
-mkdir -p "$HOME/tmp"
-RUN_DIR=$(mktemp -d -p "$HOME/tmp" selfhost-adopt-command.XXXXXX)
-trap 'rm -rf -- "$RUN_DIR"' EXIT
+RUN_PARENT="${SELFHOST_ADOPT_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-adopt-command}"
+[[ "$RUN_PARENT" == /* ]] || { echo 'FAIL: test run parent must be absolute' >&2; exit 1; }
+case "$RUN_PARENT" in
+  /tmp|/tmp/*|/private/tmp|/private/tmp/*|/var/folders|/var/folders/*)
+    echo 'FAIL: test run parent must not use a system temporary directory' >&2
+    exit 1
+    ;;
+esac
+[[ ! -L "$RUN_PARENT" ]] || { echo 'FAIL: test run parent must not be a symlink' >&2; exit 1; }
+mkdir -p "$RUN_PARENT"
+RUN_DIR=$(mktemp -d "${RUN_PARENT}/run.XXXXXX")
+trap 'chmod -R u+rwX -- "$RUN_DIR"; rm -rf -- "$RUN_DIR"' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 export ADOPT_RECORD="$RUN_DIR/argv.jsonl"
 export ADOPT_FAILURE=''
@@ -22,19 +31,54 @@ with open(os.environ["ADOPT_RECORD"], "a") as handle:
 failure = os.environ.get("ADOPT_FAILURE")
 if args[0] == "inspect":
     print("true unhealthy" if failure == "health" else "true healthy")
+elif args[0] == "exec":
+    # upgrade.sh's source-database preconditions, answered per query.
+    query = args[-1]
+    if failure == "query":
+        sys.exit(1)
+    if "server_version_num" in query:
+        print("170009" if failure == "pg-major" else "180006")
+    elif "Encryption" in query:
+        # encrypted-late: a study is enabled after the first check, before writers stop.
+        stopped = any('"stop"' in line for line in open(os.environ["ADOPT_RECORD"]))
+        print("blocked" if failure == "encrypted-study" or (failure == "encrypted-late" and stopped) else "clear")
+    elif "to_regclass" in query:
+        print("present")
+    elif "encrypted_payloads" in query:
+        print("blocked" if failure == "encrypted-payloads" else "clear")
+    else:
+        sys.exit("Unexpected query: " + query)
+elif args[0] == "run" and args[args.index("--entrypoint") + 1] == "postgres":
+    print("postgres (PostgreSQL) 18.6")
 elif "pg_dump" in " ".join(args):
     if failure == "dump":
         sys.exit(1)
     if failure != "empty-dump":
         print("-- fixture dump\nSELECT 1;")
+elif "config-guard" in args:
+    sys.exit(1 if failure == "guard" else 0)
+elif "pull" in args:
+    sys.exit(1 if failure == "pull" else 0)
 elif "stop" in args:
+    # Adopt must hold the source's operation lock while it changes the source stack.
+    lock = Path(args[args.index("--env-file") + 1]).parent / ".chronicle-upgrade.lock"
+    if not lock.is_dir():
+        sys.exit("adopt stopped source writers without holding " + str(lock))
     sys.exit(1 if failure == "stop" else 0)
 elif "down" in args:
     sys.exit(1 if failure == "down" else 0)
 elif "up" in args:
     pass  # Source rollback only; new up/verify are intercepted by the fixture launcher.
+elif args[0] == "run" and args[args.index("--entrypoint") + 1] == "/bin/find":
+    # Root cleanup container on rollback: empty the copied directory.
+    import shutil
+    target = Path(args[args.index("-v") + 1].split(":")[0])
+    target.chmod(0o700)
+    for child in target.iterdir():
+        shutil.rmtree(child) if child.is_dir() else child.unlink()
 elif args[0] == "run":
-    # Stand in for the root copy container: replicate the two bind mounts' contents.
+    # Stand in for the root copy container: replicate the two bind mounts' contents, and
+    # leave the result undeletable by the operator, as root ownership does.
     mounts = dict(args[i + 1].split(":")[:2] for i, a in enumerate(args) if a == "-v")
     source = next(host for host, target in mounts.items() if target == "/from")
     target = next(host for host, target in mounts.items() if target == "/to")
@@ -42,10 +86,14 @@ elif args[0] == "run":
     assert args[-3:] == ["-a", "/from/.", "/to/"], args
     import shutil
     shutil.copytree(source, target, dirs_exist_ok=True)
+    Path(target).chmod(0o500)
 elif "config" in args:
     print("postgres\nbackend\nweb\ndb-init\ndb-backup")
 elif "ps" in args:
-    if "-q" in args:
+    if any("adopt-check" in a for a in args):
+        if failure == "check-busy":
+            print("another-deployment")
+    elif "-q" in args:
         if failure != "missing-postgres":
             print("source-postgres")
     else:
@@ -57,6 +105,7 @@ chmod +x "$RUN_DIR/bin/docker"
 export PATH="$RUN_DIR/bin:$PATH"
 
 fixture() {
+  [[ ! -d "$RUN_DIR/release" ]] || chmod -R u+rwX -- "$RUN_DIR/release"
   rm -rf -- "$RUN_DIR/source checkout" "$RUN_DIR/release"
   : >"$ADOPT_RECORD"
   export ADOPT_FAILURE=''
@@ -155,10 +204,16 @@ for lock in .chronicle-restore.lock .chronicle-upgrade.lock .chronicle-secret-ro
 done
 echo 'PASS: arguments, release source, missing/private env, state directories, and existing destination refused'
 
-for failure in health missing-postgres stop writers-running dump empty-dump down; do
+for failure in health missing-postgres query pg-major encrypted-study encrypted-payloads \
+    stop writers-running encrypted-late dump empty-dump check-busy guard pull adopt-precheck down; do
   fixture
   export ADOPT_FAILURE=$failure
   expect_failure 'adopt failed' --from "$source_dir"
+  case "$failure" in
+    pg-major) grep -Fq 'refuses PostgreSQL major 17 -> 18' "$RUN_DIR/output" || fail 'missing major diagnostic' ;;
+    encrypted-*) grep -Fq 'cannot safely export study-encrypted' "$RUN_DIR/output" || fail 'missing V95 diagnostic' ;;
+  esac
+  [[ ! -e "$source_dir/.chronicle-upgrade.lock" ]] || fail "$failure left the adopt lock behind"
   [[ ! -e "$new_dir/.env" && ! -e "$new_dir/upgrade-receipts" ]] || fail "$failure left copied files"
   [[ -f "$source_dir/.env" && -f "$source_dir/tls/cert.pem" && -f "$source_dir/backups/existing.sql" ]] \
     || fail "$failure changed source files"
@@ -169,14 +224,27 @@ import sys
 rows = [json.loads(line) for line in Path(sys.argv[1]).read_text().splitlines()]
 failure, source, new = sys.argv[2:]
 restarts = [row for row in rows if "up" in row]
-assert bool(restarts) == (failure not in {"health", "missing-postgres"}), rows
+before_stop = {"health", "missing-postgres", "query", "pg-major", "encrypted-study", "encrypted-payloads"}
+assert bool(restarts) == (failure not in before_stop), rows
+# Database preconditions refuse while the source is untouched: nothing stopped, dumped or copied.
+assert failure not in before_stop - {"health", "missing-postgres"} or not any("stop" in row for row in rows), rows
 assert all(row[0] == source and "--env-file" in row and "--wait" in row for row in restarts), rows
-assert not any(row[1] == "chronicle" for row in rows), rows
+assert [row[2:] for row in rows if row[1] == "chronicle"] == (
+    [["adopt-precheck", source]] if failure in {"adopt-precheck", "down"} else []), rows
+if failure in {"guard", "pull", "adopt-precheck"}:
+    # The new release's guard, images and host checks run before the source stack is taken down.
+    assert not any("down" in row and "pilot-project" in row for row in rows), rows
+copied = failure in {"check-busy", "guard", "pull", "adopt-precheck", "down"}
+if failure == "check-busy":
+    # Never `down` a check project that another deployment already uses.
+    assert not any("down" in row and any("adopt-check" in a for a in row) for row in rows), rows
+cleanups = [row for row in rows if row[1] == "run" and "/bin/find" in row]
+assert len(cleanups) == (2 if copied else 0), rows
 assert not list((Path(new) / "backups").iterdir())
 assert not list((Path(new) / "tls").iterdir())
 PY
 done
-echo 'PASS: pre-up failures restart the source and remove copied state; unhealthy PostgreSQL never stops writers'
+echo 'PASS: pre-up failures (incl. new guard/pull/host checks) restart the source and remove copied state; unhealthy PostgreSQL never stops writers'
 
 for failure in '' up verify; do
   fixture
@@ -201,17 +269,31 @@ source, new = Path(source), Path(new)
 rows = [json.loads(line) for line in Path(record).read_text().splitlines()]
 stop = next(i for i, row in enumerate(rows) if "stop" in row)
 dump = next(i for i, row in enumerate(rows) if "pg_dump" in " ".join(row))
-down = next(i for i, row in enumerate(rows) if "down" in row)
+down = next(i for i, row in enumerate(rows) if "down" in row and "pilot-project" in row)
 up = next(i for i, row in enumerate(rows) if row[1:] == ["chronicle", "up"])
-assert stop < dump < down < up
+guard = next(i for i, row in enumerate(rows) if "config-guard" in row)
+pull = next(i for i, row in enumerate(rows) if "pull" in row)
+precheck = next(i for i, row in enumerate(rows) if row[1:] == ["chronicle", "adopt-precheck", str(source)])
+assert stop < dump < guard < pull < precheck < down < up
+assert all(rows[i][0] == str(new) for i in (guard, pull))
+assert "--exclude-schema=chronicle_restore_continuity" in " ".join(rows[dump])
 assert rows[stop][-4:] == ["backend", "web", "db-init", "db-backup"]
-assert all("--project-name" not in row or row[row.index("--project-name") + 1] == "pilot-project" for row in rows)
+checks = {"config-guard", "pull", "down"}
+assert all("--project-name" not in row or row[row.index("--project-name") + 1] == "pilot-project"
+           or (row[row.index("--project-name") + 1].startswith("pilot-project-adopt-check-") and checks & set(row))
+           for row in rows)
 assert not any("down" in row and ("-v" in row or "--volumes" in row) for row in rows)
-copies = [row for row in rows if row[1] == "run"]
+assert not (source / ".chronicle-upgrade.lock").exists()
+version = next(i for i, row in enumerate(rows) if "server_version_num" in " ".join(row))
+encrypted = [i for i, row in enumerate(rows) if "encrypted_payloads" in " ".join(row)]
+# Checked while the source runs, and again once its writers are stopped, before the dump.
+assert version < encrypted[0] < stop < encrypted[-1] < dump
+copies = [row for row in rows if row[1] == "run" and "/bin/cp" in row]
 assert len(copies) == 2 and all(row[row.index("--user") + 1] == "0:0" for row in copies), rows
 assert all(row[-4] == "registry/postgres:fixture" and ":/from:ro" in " ".join(row) for row in copies), rows
 assert all(":source" not in " ".join(row) for row in copies), rows
-assert [row[-1] for row in rows if row[1] == "chronicle"] == (["up"] if failure == "up" else ["up", "verify"])
+assert [row[2] for row in rows if row[1] == "chronicle"] == (
+    ["adopt-precheck", "up"] if failure == "up" else ["adopt-precheck", "up", "verify"])
 assert all(row[0] == str(new) for row in rows if row[1] == "chronicle")
 assert not any("up" in row and row[1] == "compose" for row in rows)
 env = (new / ".env").read_text()
@@ -248,6 +330,7 @@ from pathlib import Path
 import sys
 rows = [json.loads(line) for line in Path(sys.argv[1]).read_text().splitlines()]
 assert all(row[row.index("--project-name") + 1] == "chronicle-selfhost"
+           or row[row.index("--project-name") + 1].startswith("chronicle-selfhost-adopt-check-")
            for row in rows if "--project-name" in row)
 PY
 echo 'PASS: absent COMPOSE_PROJECT_NAME uses and persists chronicle-selfhost'

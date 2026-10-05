@@ -674,6 +674,11 @@ done
 grep -Fxq postgres <<<"$old_running_services" ||
   fail "previous PostgreSQL stopped while application services were quiesced"
 
+# The preflight ran while the previous release could still write. Repeat it now that no writer
+# is left, so encryption enabled during the image pull fails here (and the trap restarts the
+# previous release) instead of in V95 after the new stack has started.
+check_encryption_preconditions 'the previous release will be restarted'
+
 printf 'Taking a consistent pre-upgrade SQL dump with application writers stopped.\n'
 if ! compose_old exec -T postgres /bin/bash -ceu \
     'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h 127.0.0.1 -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" --no-owner --no-privileges --exclude-schema=chronicle_restore_continuity' \

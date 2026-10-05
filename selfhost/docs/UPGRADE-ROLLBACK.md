@@ -28,14 +28,20 @@ cd chronicle-selfhost-<new-version>/selfhost
 
 The new bundle must have no `.env`. The source must have a mode-`0600` `.env`,
 `backups/`, `tls/`, and a running healthy PostgreSQL container. Its state directory
-must be its own `selfhost` directory. Adoption preserves `COMPOSE_PROJECT_NAME`
+must be its own `selfhost` directory. Adoption holds the source's
+`.chronicle-upgrade.lock` until it finishes, so restore, upgrade, secret rotation and
+setup refuse to run there meanwhile. Like `upgrade`, it refuses before stopping anything
+when the new release's PostgreSQL major differs from the running one, or when a study has
+encryption enabled or `encrypted_payloads` holds rows. Adoption preserves `COMPOSE_PROJECT_NAME`
 (default `chronicle-selfhost`) so the release uses the existing database volumes.
 It stops `backend`, `web`, `db-init`, and optional `db-backup`, then creates and
 verifies `backups/pre-adopt-<timestamp>-<pid>.sql.gz` in the source directory.
 It copies `.env` with mode `0600` and copies `backups/` and `tls/` with `cp -a`;
 release defaults and pinned images come from the new bundle's `.env.example`.
 The copied configuration points to the new state directory. No source files are
-moved or deleted. After removing the source containers without deleting volumes,
+moved or deleted. While the source can still restart, it runs the new release's
+configuration guard and host checks (ports, bind addresses, free disk) and pulls its
+images. After removing the source containers without deleting volumes,
 it runs `./chronicle up` and `./chronicle verify` in the new bundle and records the
 dump path and SHA-256 in a mode-`0600` `upgrade-receipts/*-adopt.json` receipt.
 

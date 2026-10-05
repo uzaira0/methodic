@@ -119,7 +119,10 @@ case "${1:-}" in
       printf '%s\n' 180000
     elif [[ "$*" == *"settings #> '{Encryption,enabled}'"* ]]; then
       [[ "$case_name" != encryption-query-failure ]] || exit 52
-      if [[ "$case_name" == encrypted-study ]]; then
+      # encryption-enabled-during-pull: clear at preflight, enabled by the time writers stop.
+      printf 'x' >>"${log}.encryption-checks"
+      if [[ "$case_name" == encrypted-study ||
+        ("$case_name" == encryption-enabled-during-pull && "$(<"${log}.encryption-checks")" != x) ]]; then
         printf '%s\n' blocked
       else
         printf '%s\n' clear
@@ -345,6 +348,20 @@ grep -Fq 'do not delete ciphertext' "${RUN_DIR}/encrypted-payloads/output.log" |
 grep -Fq 'could not evaluate the study-encryption upgrade precondition' \
   "${RUN_DIR}/encryption-query-failure/output.log" ||
   fail "indeterminate encryption preflight did not fail closed"
+
+# Regression V-26: encryption enabled after the preflight (during the image pull) is caught once
+# the old writers are stopped, before any migration, and the previous release is restarted.
+IFS=$'\t' read -r late_dir late_old late_new <<<"$(make_case encryption-enabled-during-pull)"
+late_log="${late_dir}/events.log"
+run_upgrade encryption-enabled-during-pull "$late_old" "$late_new" "$late_log" "${late_dir}/output.log"
+[[ "$UPGRADE_STATUS" -ne 0 ]] || fail "upgrade accepted encryption enabled after its preflight"
+assert_order "$late_log" new:pull old:stop old:up
+! grep -Fxq new:up "$late_log" || fail "late-enabled encryption still started the new release"
+! grep -Fxq old:dump "$late_log" || fail "late-enabled encryption recheck ran after the dump"
+grep -Fq 'cannot safely export study-encrypted collection data. The previous release will be restarted' \
+  "${late_dir}/output.log" || fail "late-enabled encryption rejection was not actionable"
+grep -Fq 'Previous release is healthy again.' "${late_dir}/output.log" ||
+  fail "late-enabled encryption did not restart the previous release"
 
 IFS=$'\t' read -r no_table_dir no_table_old no_table_new <<<"$(make_case no-encrypted-table)"
 no_table_log="${no_table_dir}/events.log"
