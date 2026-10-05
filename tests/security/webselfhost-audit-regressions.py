@@ -275,6 +275,23 @@ docker() {
                     'METRICS_PASSWORD':'x'*32,'GRAFANA_ADMIN_PASSWORD':password,'GRAFANA_BIND':bind},capture_output=True)
                 self.assertEqual(result.returncode==0,accepted,result.stderr.decode())
 
+    def test_W53_public_researcher_bearer_separation(self):
+        from urllib.parse import unquote
+        snippets = (ROOT / 'selfhost/caddy/snippets.caddy').read_text()
+        block = snippets[snippets.index('(chronicle_strip_researcher_bearer)'):snippets.index('(chronicle_mobile)')]
+        pattern = re.search(r'path_regexp (.+)',block).group(1)
+        self.assertIn('request_header @publicResearcherSurface -Authorization',block)
+        for path in ('/chronicle/v3/study/abc','/chronicle/v3/study/abc/participants',
+                     '/chronicle/v3/%73tudy/abc','/chronicle%2fv3%2fstudy%2fabc'):
+            self.assertTrue(re.search(pattern,unquote(path)))
+        self.assertFalse(re.search(pattern,'/chronicle/v3/time-use-diary/abc/submit'))
+        for name in ('Caddyfile.split','Caddyfile.split.local','Caddyfile.split.tls'):
+            source = (ROOT / 'selfhost' / name).read_text()
+            public, internal = source.split(':8081 {',1)
+            self.assertIn('import chronicle_strip_researcher_bearer',public)
+            self.assertNotIn('import chronicle_strip_researcher_bearer',internal)
+            self.assertLess(public.index('import chronicle_strip_researcher_bearer'),public.index('import chronicle_mobile'))
+
     def test_W56_canonical_bind_and_cidr_union(self):
         guard = (ROOT / 'selfhost/guard-config.sh').read_text()
         self.assertIn('specific_private_bind "$INTERNAL_BIND"',guard)

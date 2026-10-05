@@ -43,6 +43,7 @@ https://{$DOMAIN} {
 		# /chronicle/v3/* proxy below.
 		import chronicle_deny_auth
 		import chronicle_deny_researcher_v3
+		import chronicle_strip_researcher_bearer
 		import chronicle_mobile
 		import chronicle_deny_dashboard_api
 		import chronicle_spa

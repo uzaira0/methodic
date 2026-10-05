@@ -27,6 +27,43 @@ def read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
+def check_w11() -> None:
+    snippets = read("selfhost/caddy/snippets.caddy")
+    routes = read("chronicle-server/src/main/kotlin/com/openlattice/chronicle/filters/ResearcherApiKeyRoutes.kt")
+    caddyfiles = [read(f"selfhost/Caddyfile.split{suffix}") for suffix in ("", ".local", ".tls")]
+    docs = read("selfhost/docs/DEPLOYMENT-COMPATIBILITY.md")
+
+    assert "@researcherNoApiKey" in snippets and "respond @researcherNoApiKey 404" in snippets
+    matcher = re.search(r"@researcherNoApiKey\s*\{([^}]*)\}", snippets, re.S)
+    assert matcher, "the public denial must be scoped to researcher-only V3 exports without an API key"
+    block = matcher.group(1)
+    assert "not header X-Api-Key *" in block
+    assert "time-use-diary/[^/]+/(data|participants/data)" in block
+    assert "survey/[^/]+/questionnaire/[^/]+/data" in block
+    assert "time-use-diary/[^/]+/ids" in snippets and "questionnaire/[^/]+/responses" in snippets
+    assert 'Route("GET", TUD, "/data", READ_ONLY)' in routes
+    assert 'Route("GET", TUD, "/participants/data", READ_ONLY)' in routes
+    assert 'Route("GET", SURVEY, "/questionnaire/$SEGMENT/data", READ_ONLY)' in routes
+    assert all("import chronicle_deny_researcher_v3" in caddy for caddy in caddyfiles)
+    assert all("import chronicle_strip_researcher_bearer" in caddy for caddy in caddyfiles)
+    assert "X-Api-Key" in docs and "public" in docs.lower() and "scoped" in docs.lower()
+
+
+def check_w16() -> None:
+    for path in (
+        "docker/keycloak/realm-chronicle.json.template",
+        "k8s/base/keycloak/realm-chronicle.json.template",
+    ):
+        realm = json.loads(read(path))
+        assert realm.get("bruteForceProtected") is True, path
+        assert realm.get("permanentLockout") is False, path
+        assert realm.get("failureFactor") == 5, path
+        assert realm.get("waitIncrementSeconds") == 60, path
+        assert realm.get("minimumQuickLoginWaitSeconds") == 60, path
+        assert realm.get("maxFailureWaitSeconds") == 900, path
+        assert realm.get("quickLoginCheckMilliSeconds") == 1000, path
+
+
 def check_w51() -> None:
     compose = yaml.safe_load(read("selfhost/docker-compose.yml"))
     subnet = "${CHRONICLE_SUBNET:-172.28.0.0/16}"
@@ -245,6 +282,8 @@ def check_cross_s02() -> None:
 
 
 CHECKS = {
+    "W11": check_w11,
+    "W16": check_w16,
     "W51": check_w51,
     "W52": check_w52,
     "W56": check_w56,

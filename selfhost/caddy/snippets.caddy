@@ -127,6 +127,13 @@
 # Mobile ingest + the participant web forms. v4 is mobile-only; v3 carries mobile uploads
 # AND the participant survey/questionnaire/diary endpoints, so it cannot be locked down
 # wholesale — see chronicle_deny_researcher_v3.
+# The public study surface also accepts scoped researcher API keys. Never forward an
+# internal bearer JWT here; participant form sessions use their separate cookie boundary.
+(chronicle_strip_researcher_bearer) {
+	@publicResearcherSurface path_regexp ^/chronicle/v3/study(/|$)
+	request_header @publicResearcherSurface -Authorization
+}
+
 (chronicle_mobile) {
 	reverse_proxy /chronicle/v2/* backend:40320
 	reverse_proxy /chronicle/v3/* backend:40320
@@ -252,8 +259,23 @@
 # stay public, so only the researcher half is refused. The backend authorizes all of them
 # independently — this is defence in depth, not the only control.
 (chronicle_deny_researcher_v3) {
-	@researcherOnlyV3 path_regexp ^/chronicle/v3/(time-use-diary/[^/]+/(data|ids|participants/data)|survey/[^/]+/questionnaire/[^/]+/responses)$
+	# The backend's researcher API-key route table grants only the three download routes
+	# below. Keep researcher-only routes that are not key-authorized dark on the public
+	# listener even if a caller presents an unrelated key.
+	@researcherOnlyV3 path_regexp ^/chronicle/v3/(time-use-diary/[^/]+/ids|survey/[^/]+/questionnaire/[^/]+/responses)$
 	respond @researcherOnlyV3 404
+	@researcherKeyExport {
+		path_regexp ^/chronicle/v3/(time-use-diary/[^/]+/(data|participants/data)|survey/[^/]+/questionnaire/[^/]+/data)$
+		header X-Api-Key *
+	}
+	@researcherNoApiKey {
+		path_regexp ^/chronicle/v3/(time-use-diary/[^/]+/(data|participants/data)|survey/[^/]+/questionnaire/[^/]+/data)$
+		not header X-Api-Key *
+	}
+	respond @researcherNoApiKey 404
+	# These routes authenticate with X-Api-Key at the backend. Do not let a public browser
+	# session or bearer token become an alternate credential at this boundary.
+	request_header @researcherKeyExport -Authorization
 }
 
 # Dashboard SPA. handle_path strips /chronicle so the build output maps cleanly, and

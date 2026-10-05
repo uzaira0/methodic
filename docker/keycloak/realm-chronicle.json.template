@@ -1,6 +1,13 @@
 {
   "realm": "__REALM__",
   "enabled": true,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 5,
+  "waitIncrementSeconds": 60,
+  "minimumQuickLoginWaitSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "quickLoginCheckMilliSeconds": 1000,
   "displayName": "Chronicle",
   "registrationAllowed": false,
   "resetPasswordAllowed": false,
