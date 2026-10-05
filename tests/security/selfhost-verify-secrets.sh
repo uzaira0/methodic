@@ -99,6 +99,7 @@ url=""
 write_status=false
 write_format=''
 head_request=false
+dump_headers=false
 read_config=false
 read_config_fd=false
 body_stdin=false
@@ -125,6 +126,7 @@ for argument in "$@"; do
   [[ "$argument" == -sI || "$argument" == -I || "$argument" == --head ]] && head_request=true
   if [[ "$previous" == --config && "$argument" == - ]]; then read_config=true; fi
   if [[ "$previous" == --config && "$argument" == /dev/fd/3 ]]; then read_config_fd=true; fi
+  if [[ "$previous" == --dump-header && "$argument" == - ]]; then dump_headers=true; fi
   if [[ "$previous" == --data-binary && "$argument" == @- ]]; then body_stdin=true; fi
   previous="$argument"
 done
@@ -170,6 +172,11 @@ fi
 code=404
 effective_url="$url"
 case "$url" in
+  http://chronicle.example.test/health)
+    [[ "$dump_headers" == true && "$*" == *'--connect-timeout 5'* && "$*" == *'--max-time 10'* ]] || exit 112
+    printf 'HTTP/1.1 308 Permanent Redirect\r\nLocation: https://chronicle.example.test/health\r\n\r\n'
+    code=308
+    ;;
   http://127.0.0.1:18080/health)
     code=204
     ;;

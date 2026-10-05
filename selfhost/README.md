@@ -235,12 +235,17 @@ infrastructure:
   cloud LB terminates TLS with the **institution's certificate** and forwards to
   `HTTP_BIND:HTTP_PORT`. Ensure it sends `X-Forwarded-Proto: https` — Caddy here honors it
   (`trusted_proxies static private_ranges`). This is the supported pattern behind an
-  institutional TLS-terminating proxy. Do not enable the tls overlay.
+  institutional TLS-terminating proxy. Do not enable the tls overlay. The load balancer
+  must also redirect requests arriving over external HTTP to the canonical HTTPS origin;
+  for example, `http://chronicle.your-university.edu/health` must return 301, 302, 307 or
+  308 with `Location: https://chronicle.your-university.edu/health`. A successful HTTPS
+  health check alone does not establish that typed `http://` links are upgraded.
 
   > **Set `HTTP_BIND` to an address your balancer can reach.** It defaults to `127.0.0.1`,
   > which works only when the proxy runs on this machine. `./chronicle verify` runs on the
-  > host and cannot detect a wrong bind; it ends by printing a `curl` command to run against
-  > your load balancer address. Run it.
+  > host and cannot prove outside clients reach the load balancer; it checks the canonical
+  > HTTP-to-HTTPS `/health` redirect as this host sees it and prints commands for the
+  > proxy-side and outside checks. Run those checks from the named hosts too.
 
   If your balancer **re-encrypts** to the pool member instead of forwarding plain HTTP,
   this mode is wrong — use "terminate TLS on the stack" below and give Caddy a certificate.

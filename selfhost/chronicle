@@ -218,6 +218,17 @@ export CHRONICLE_HOST_UID CHRONICLE_HOST_GID
 # this script -- there is nothing here for it to be missing.
 dc() { docker compose -p "$PROJECT" "$@"; }
 
+check_proxy_http_redirect() { # canonical HTTP /health URL, exact HTTPS /health Location
+  local http_url="$1" expected_location="$2" response status location
+  response="$(curl --noproxy '*' --silent --show-error --connect-timeout 5 --max-time 10 \
+    --dump-header - --output /dev/null --write-out $'\n%{http_code}' "$http_url" 2>/dev/null)" ||
+    return 1
+  status="${response##*$'\n'}"
+  location="$(awk 'tolower($1) == "location:" { sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); value=$0 } END { print value }' <<<"$response")"
+  [[ "$status" =~ ^(301|302|307|308)$ && "$location" == "$expected_location" ]] || return 1
+  printf '%s' "$status"
+}
+
 # Returns a secret-free state label for the operator-pinned Play reviewer scope. Inputs are
 # delivered over stdin and revalidated in the database container before entering SQL.
 reviewer_scope_state() {
@@ -1457,7 +1468,8 @@ cmd_verify() {
     dashboard_password="$DASHBOARD_PASSWORD"
     unset DASHBOARD_PASSWORD
   fi
-  local pub fail=0
+  local pub fail=0 external_origin="${CHRONICLE_PUBLIC_BASE_URL:-https://${DOMAIN}}"
+  local external_http_authority="" external_http_origin="" redirect_status=""
   # Probe the address the listener is actually published on. Assuming loopback silently
   # fails the moment HTTP_BIND points at a LAN/VPN interface so devices can reach it.
   local pub_host="${HTTP_BIND}"
@@ -1840,6 +1852,35 @@ cmd_verify() {
     fi
   fi
 
+  if [[ "$TLS_MODE" == behind-proxy ]]; then
+    external_origin="${external_origin%/}"
+    external_http_authority="$(python3 - "$external_origin" <<'PY'
+from urllib.parse import urlsplit
+import sys
+
+parsed = urlsplit(sys.argv[1])
+host = parsed.hostname
+if not host:
+    raise SystemExit(1)
+if ":" in host:
+    host = f"[{host}]"
+print(host)
+PY
+    )" || external_http_authority=""
+    external_http_origin="http://${external_http_authority}"
+    printf '\n%sExternal HTTP redirect%s (%s/health)\n' "$BLD" "$RST" "$external_http_origin"
+    if [[ -n "$external_http_authority" ]] &&
+       redirect_status="$(check_proxy_http_redirect \
+         "${external_http_origin}/health" "${external_origin}/health")"; then
+      printf '  %sok%s   %s redirects to the canonical HTTPS health URL (%s)\n' \
+        "$GRN" "$RST" "$redirect_status" "${external_origin}/health"
+    else
+      printf '  %sFAIL%s HTTP /health must redirect with 301, 302, 307 or 308 to exactly %s\n' \
+        "$RED" "$RST" "${external_origin}/health"
+      fail=1
+    fi
+  fi
+
   printf '\n'
   if [[ $fail -ne 0 ]]; then
     printf '%sVerification FAILED%s — the deployment is not exposed as configured.\n' "$RED" "$RST"
@@ -1847,17 +1888,20 @@ cmd_verify() {
   fi
   printf '%sVerified%s — exposure matches DASHBOARD_EXPOSURE=%s\n' "$GRN" "$RST" "$DASHBOARD_EXPOSURE"
 
-  # Everything above was probed from this machine, so a green run says nothing about
-  # whether the load balancer can actually reach the stack. State the limit rather than
-  # letting "Verified" imply an end-to-end check it never performed.
+  # The external redirect is observed from this host too; it does not prove outside
+  # clients reach the load balancer or that the load balancer reaches this stack.
   if [[ "$TLS_MODE" == behind-proxy ]]; then
-    local external_origin="${CHRONICLE_PUBLIC_BASE_URL:-https://${DOMAIN}}"
     printf '\n%sNot covered by this check:%s these probes ran from this host. They cannot tell\n' "$YEL" "$RST"
-    printf 'you whether your load balancer reaches the stack. Two different things to confirm:\n'
+    printf 'you whether outside clients reach the proxy or the proxy reaches this stack.\n'
+    printf 'The HTTP redirect above is the canonical hostname as this host sees it.\n'
     printf '  1. your proxy can reach this stack — run this ON THE PROXY host:\n'
-    printf '       curl --noproxy '"'"'*'"'"' -sS -o /dev/null -w '"'"'%%{http_code}\\n'"'"' http://%s:%s/health   # expect 200\n' "$HTTP_BIND" "$HTTP_PORT"
+    printf '       curl --noproxy '"'"'*'"'"' -sS -o /dev/null -w '"'"'%%{http_code}\\n'"'"' http://%s:%s/health   # expect 204\n' "$HTTP_BIND" "$HTTP_PORT"
     printf '  2. the world can reach your proxy — run this from anywhere outside:\n'
-    printf '       curl -sS -o /dev/null -w '"'"'%%{http_code}\\n'"'"' %s/health   # expect 200\n' "$external_origin"
+    printf '       curl -sS -o /dev/null -w '\''%%{http_code}\\n'\'' %s/health   # expect 204\n' "$external_origin"
+    printf '  3. confirm the public frontend from outside:\n'
+    printf "       curl -sS -o /dev/null -w '%%{http_code}\\n' %s/chronicle/   # expect 200 and a page\n" "$external_origin"
+    printf '  Confirm this redirect from outside too: %s/health -> %s/health\n' \
+      "$external_http_origin" "$external_origin"
     # Naming the upstream address matters: this stack listens on plain HTTP at
     # HTTP_BIND:HTTP_PORT (8080 by default, NOT 80), because TLS is terminated upstream in
     # this mode. Printing only the public-origin line invites the operator to curl
