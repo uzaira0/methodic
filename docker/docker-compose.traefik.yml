@@ -680,7 +680,7 @@ services:
     container_name: chronicle-backend
     restart: unless-stopped
     env_file:
-      - ./.env
+      - ${CHRONICLE_ENV_FILE:-./.env}
     user: "0:0"
     security_opt:
       - no-new-privileges:true

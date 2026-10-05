@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# rotate-secrets.sh — Comprehensive secret rotation for Chronicle production
+# rotate-secrets.sh — Transactional secret rotation for Chronicle production
 #
-# Rotates all secrets in docker/.env and restarts affected services in the
-# correct dependency order.
+# Rotates selected PostgreSQL, JWT, or Hazelcast credentials and recreates their
+# dependents. A failed health/credential check restores the prior authority.
 #
 # Usage:
-#   ./scripts/rotate-secrets.sh                # interactive — prompts before each step
-#   ./scripts/rotate-secrets.sh --auto         # non-interactive — rotates everything
-#   ./scripts/rotate-secrets.sh --dry-run      # show what would change, touch nothing
-#   ./scripts/rotate-secrets.sh --only <name>  # rotate a single secret by env var name
+#   ./scripts/rotate-secrets.sh --only JWT_SECRET
+#   ./scripts/rotate-secrets.sh --auto --only POSTGRES_PASSWORD
+#   ./scripts/rotate-secrets.sh --dry-run      # preview the legacy full inventory
+#   ./scripts/rotate-secrets.sh --only <name>  # PostgreSQL, JWT or Hazelcast password
+# Live batch/Grafana/CrowdSec/TDE rotations are refused before any side effect;
+# use their dedicated coordinated recovery procedures.
 #
 # Secrets that CANNOT be auto-rotated by THIS script (require external coordination):
 #   MOBILE_APP_KEY        — controlled legacy compatibility only; public apps do not carry it
@@ -20,6 +22,7 @@
 # above): rotate it via scripts/rotate-tde-principal-key.sh, invoked here by the
 # rotate_tde_principal_key helper. It creates a new principal-key version under
 # the active pg_tde provider and re-wraps the internal keys (no table rewrite).
+# This transaction script only previews that helper in --dry-run mode.
 #
 # Pre-requisites:
 #   - openssl, docker, docker compose
@@ -33,7 +36,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENV_FILE="${CHRONICLE_ENV_FILE:-$REPO_ROOT/docker/.env}"
 COMPOSE_FILE="$REPO_ROOT/docker/docker-compose.traefik.yml"
-BACKUP_DIR="$REPO_ROOT/docker/.env-backups"
+BACKUP_DIR="${CHRONICLE_ROTATION_BACKUP_DIR:-$REPO_ROOT/docker/.env-backups}"
+SECRET_DIR="$REPO_ROOT/docker/secrets"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 
 DRY_RUN=false
@@ -77,8 +81,19 @@ cleanup_private_files() {
   for path in "${PRIVATE_FILES[@]}"; do
     [[ -n "$path" && -f "$path" ]] && rm -f -- "$path"
   done
+  return 0
 }
-trap cleanup_private_files EXIT
+rotation_committed=false
+postgres_changed=false
+finish_rotation() {
+  local status=$?
+  if ! $DRY_RUN && [[ "$rotation_committed" != true && -n "${ENV_BACKUP:-}" ]]; then
+    rollback_rotation || { warn "Automatic rollback failed; retain the protected rotation backup for recovery"; status=1; }
+  fi
+  cleanup_private_files
+  return "$status"
+}
+trap finish_rotation EXIT
 
 new_private_file() {
   local _target_name="$1" _created_path
@@ -94,12 +109,12 @@ generate_secret_file() {
   case "$encoding" in
     base64)
       new_private_file raw
-      openssl rand "$bytes" -out "$raw"
+      openssl rand -out "$raw" "$bytes"
       openssl base64 -A -in "$raw" -out "$generated"
       rm -f -- "$raw"
       ;;
     hex)
-      openssl rand -hex "$bytes" -out "$generated"
+      openssl rand -hex -out "$generated" "$bytes"
       ;;
     *) err "Unsupported secret encoding: $encoding" ;;
   esac
@@ -171,12 +186,29 @@ PY
   mv -- "$tmp_file" "$ENV_FILE"
   grep -qE "^${key}=" "$ENV_FILE" \
     || err "$key not found in $ENV_FILE after write"
+  case "$key" in
+    POSTGRES_PASSWORD|JWT_SECRET|HAZELCAST_SERVER_PASSWORD|HAZELCAST_CLIENT_PASSWORD)
+      local authority="$SECRET_DIR/${key,,}" saved="$BACKUP_DIR/${key,,}.before"
+      if [[ ! -e "$saved" ]]; then
+        require_private_file "$authority" "$key authoritative secret"
+        install -m 0600 "$authority" "$saved"
+      fi
+      # A bind mount keeps its old inode until recreation; install first, then recreate.
+      install -m 0600 "$secret_file" "$authority"
+      ;;
+  esac
   log "Rotated $key ($length chars)"
 }
 
-dc() { docker compose -f "$COMPOSE_FILE" "$@"; }
+dc() { CHRONICLE_ENV_FILE="$ENV_FILE" docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"; }
 
 # ── Pre-flight ──────────────────────────────────────────────────────
+if ! $DRY_RUN; then
+  case "$ONLY" in
+    POSTGRES_PASSWORD|JWT_SECRET|HAZELCAST_SERVER_PASSWORD|HAZELCAST_CLIENT_PASSWORD) ;;
+    *) err "Transactional rotation requires --only POSTGRES_PASSWORD, JWT_SECRET, or HAZELCAST_*_PASSWORD. Other credentials require their dedicated coordinated recovery procedures." ;;
+  esac
+fi
 [[ -f "$ENV_FILE" ]] || err "$ENV_FILE not found — run from the repository root"
 require_private_file "$ENV_FILE" "Chronicle environment file"
 
@@ -185,7 +217,9 @@ if ! $DRY_RUN; then
   [[ -d "$BACKUP_DIR" && ! -L "$BACKUP_DIR" && -O "$BACKUP_DIR" ]] \
     || err "Secret backup directory must be a current-user-owned, non-symlink directory: $BACKUP_DIR"
   chmod 700 "$BACKUP_DIR"
-  install -m 0600 "$ENV_FILE" "$BACKUP_DIR/.env.$TIMESTAMP"
+  BACKUP_DIR="$(mktemp -d "$BACKUP_DIR/rotation.$TIMESTAMP.XXXXXX")"
+  ENV_BACKUP="$BACKUP_DIR/.env.$TIMESTAMP"
+  install -m 0600 "$ENV_FILE" "$ENV_BACKUP"
   log "Backed up .env → $BACKUP_DIR/.env.$TIMESTAMP"
 fi
 
@@ -197,6 +231,47 @@ export -n POSTGRES_PASSWORD JWT_SECRET GRAFANA_ADMIN_PASSWORD \
 
 # Track which services need restart (keyed by docker compose SERVICE name)
 declare -A RESTART_NEEDED
+
+# Restore both authoritative inputs before recreating dependents. Database rollback uses
+# protected stdin; neither the old nor the replacement credential is a process argument.
+rollback_rotation() {
+  local authority saved input candidate rolled_back
+  if [[ "${postgres_changed:-false}" == true ]]; then
+    rolled_back=false
+    # A lost ALTER response is ambiguous: try the new credential, then the old
+    # one. Both attempts set the role to the protected previous password.
+    for candidate in new old; do
+      new_private_file input
+      python3 - "$PG_NEW_FILE" "$ENV_BACKUP" "$input" "$candidate" <<'PYROLLBACK'
+import pathlib, sys
+def password(path):
+    return next(line.split(b"=", 1)[1] for line in pathlib.Path(path).read_bytes().splitlines()
+                if line.startswith(b"POSTGRES_PASSWORD="))
+old = password(sys.argv[2])
+current = pathlib.Path(sys.argv[1]).read_bytes().rstrip(b"\r\n") if sys.argv[4] == "new" else old
+quoted = old.replace(b"'", b"''")
+pathlib.Path(sys.argv[3]).write_bytes(current + b"\nALTER ROLE :\"role_name\" WITH PASSWORD '" + quoted + b"';\n")
+PYROLLBACK
+      [[ $? == 0 ]] || return 1
+      if docker exec -i chronicle-postgres sh -ceu '
+        IFS= read -r PGPASSWORD || [ -n "$PGPASSWORD" ]; export PGPASSWORD
+        exec psql -v ON_ERROR_STOP=1 --set=role_name="$1" -h 127.0.0.1 -U "$1" -d "$2"
+      ' sh "$(env_val POSTGRES_USER)" "$(env_val POSTGRES_DB)" < "$input"; then
+        rolled_back=true
+        break
+      fi
+    done
+    [[ "$rolled_back" == true ]] || return 1
+  fi
+  install -m 0600 "$ENV_BACKUP" "$ENV_FILE" || return 1
+  for saved in "$BACKUP_DIR"/*.before; do
+    [[ -f "$saved" ]] || continue
+    authority="$SECRET_DIR/$(basename "${saved%.before}")"
+    install -m 0600 "$saved" "$authority" || return 1
+  done
+  postgres_changed=false
+  if [[ -n "${RESTART_NEEDED[*]+x}" ]]; then restart_services; fi
+}
 
 # ── Individual rotation functions ───────────────────────────────────
 
@@ -231,12 +306,18 @@ payload = (
 output_path.write_bytes(payload)
 PY
     chmod 600 "$pg_input"
+    PG_NEW_FILE="$new_file"
+    postgres_changed=true
+    RESTART_NEEDED[chronicle-backend]=1
+    RESTART_NEEDED[chronicle-postgres-exporter]=1
+    RESTART_NEEDED[postgres]=1
+    RESTART_NEEDED[postgres-replica]=1
     if ! docker exec -i chronicle-postgres sh -ceu '
            IFS= read -r PGPASSWORD
            export PGPASSWORD
            exec psql -v ON_ERROR_STOP=1 --set=role_name="$1" -h 127.0.0.1 -U "$1" -d "$2"
          ' sh "$pg_user" "$pg_db" < "$pg_input" 2>/dev/null; then
-      err "Failed to ALTER ROLE in Postgres — .env NOT changed. Database password unchanged."
+      err "Postgres ALTER ROLE did not confirm success; restoring the previous credential"
     fi
     rm -f -- "$pg_input"
     log "ALTER ROLE succeeded in Postgres"
@@ -245,6 +326,8 @@ PY
   env_set POSTGRES_PASSWORD "$new_file"
   RESTART_NEEDED[chronicle-backend]=1
   RESTART_NEEDED[chronicle-postgres-exporter]=1
+  RESTART_NEEDED[postgres]=1
+  RESTART_NEEDED[postgres-replica]=1
 }
 
 rotate_jwt_secret() {
@@ -424,31 +507,25 @@ fi
 # ── Restart affected services ──────────────────────────────────────
 
 restart_services() {
-  # Restart in dependency order (compose service names, not container names):
-  # 1. traefik        — picks up new CrowdSec key via template rendering
-  # 2. chronicle-backend — picks up new DB password, JWT secret, Hazelcast passwords
-  # 3. chronicle-postgres-exporter — picks up new DB password
-  # 4. grafana        — picks up new admin password
-  local svc attempts
-  local -a order=(traefik chronicle-backend chronicle-postgres-exporter grafana)
+  local svc
+  local -a order=(postgres postgres-replica traefik chronicle-backend chronicle-postgres-exporter grafana)
   for svc in "${order[@]}"; do
     if [[ -n "${RESTART_NEEDED[$svc]:-}" ]]; then
-      log "Restarting $svc..."
-      dc restart "$svc"
-      attempts=0
-      while [[ $attempts -lt 60 ]]; do
-        if docker inspect -f '{{.State.Health.Status}}' "$(dc ps -q "$svc" 2>/dev/null)" 2>/dev/null | grep -q "healthy"; then
-          log "$svc is healthy"
-          break
-        fi
-        sleep 2
-        ((attempts++))
-      done
-      if [[ $attempts -ge 60 ]]; then
-        warn "$svc did not become healthy within 120s — check: docker compose -f $COMPOSE_FILE logs $svc"
+      log "Recreating $svc with the selected environment and mounted secrets..."
+      if ! dc config --services | grep -Fxq "$svc"; then
+        [[ "$svc" == chronicle-postgres-exporter || "$svc" == postgres-replica ]] && continue
+        return 1
       fi
+      dc up -d --force-recreate --wait --wait-timeout 120 "$svc" || return 1
     fi
   done
+  if [[ "${postgres_changed:-false}" == true ]]; then
+    # TCP authentication proves the new database credential, beyond container health.
+    docker exec -i chronicle-postgres sh -ceu '
+      IFS= read -r PGPASSWORD || [ -n "$PGPASSWORD" ]; export PGPASSWORD
+      exec psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$1" -d "$2" -c "SELECT 1"
+    ' sh "$(env_val POSTGRES_USER)" "$(env_val POSTGRES_DB)" < "$SECRET_DIR/postgres_password" || return 1
+  fi
 }
 
 # Guard: under `set -u`, an empty `declare -A` array errors on ${#arr[@]}.
@@ -460,13 +537,12 @@ if [[ -n "${RESTART_NEEDED[*]+x}" ]]; then
 
   if $DRY_RUN; then
     log "[dry-run] Would restart: ${!RESTART_NEEDED[*]}"
-  elif confirm "Restart affected services now?"; then
-    restart_services
   else
-    log "Services NOT restarted. Run manually:"
-    log "  docker compose -f $COMPOSE_FILE restart ${!RESTART_NEEDED[*]}"
+    restart_services || err "New credentials failed runtime verification; rolling back"
   fi
 fi
+
+rotation_committed=true
 
 # ── Summary ─────────────────────────────────────────────────────────
 

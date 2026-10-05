@@ -75,6 +75,90 @@ checkpoint_rows=''' + branch + '\nprintf accepted > "$MARKER"\n'
                 self.assertNotEqual(result.returncode, 0, values)
                 self.assertFalse(marker.exists())
 
+    def test_W03_rotation_updates_authority_and_rolls_back(self):
+        source = (ROOT / 'scripts/rotate-secrets.sh').read_text()
+        self.assertTrue('${CHRONICLE_ENV_FILE:-./.env}' in (ROOT / 'docker/docker-compose.traefik.yml').read_text(), 'Compose must consume the selected protected env file')
+        helper = source[source.index('file_mode() {'):source.index('# ── Pre-flight')]
+        restart = source[source.index('restart_services() {'):source.index('# Guard: under')]
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); secrets = root / 'secrets'; secrets.mkdir()
+            (root / 'before').write_text('JWT_SECRET=old\n')
+            (root / 'env').write_text('JWT_SECRET=old\n')
+            (root / 'new').write_text('new'); (secrets / 'jwt_secret').write_text('old')
+            for path in (root / 'env',root / 'new',secrets / 'jwt_secret'): path.chmod(0o600)
+            shell = 'set -euo pipefail\nlog() { :; }; warn() { :; }; err() { echo "$*" >&2; exit 1; }; DRY_RUN=false\n' + helper + '\ntrap - EXIT\n' + restart + '\n'
+            shell += 'declare -A RESTART_NEEDED=([chronicle-backend]=1)\nenv_set JWT_SECRET "$NEW"\n[[ $(cat "$SECRET_DIR/jwt_secret") == new ]] || exit 81\nrestart_services\n'
+            env = {**os.environ,'ENV_FILE':str(root / 'env'),'SECRET_DIR':str(secrets),
+                   'BACKUP_DIR':str(root),'ENV_BACKUP':str(root / 'before'),'NEW':str(root / 'new')}
+            # Stub only the Compose and credential checks; the file updates remain real.
+            shell = shell.replace('dc() { docker compose', 'dc() { docker compose')
+            stub = 'docker() { if [[ \"$*\" == *\"config --services\"* ]]; then echo chronicle-backend; return; fi; [[ "$*" == *"up -d --force-recreate --wait"* ]] || return 99; [[ "$FAIL_HEALTH" != true ]]; }; COMPOSE_FILE=fixture; FAIL_HEALTH=false\n'
+            result = subprocess.run(['bash','-c',stub + shell],env=env,capture_output=True)
+            self.assertEqual(result.returncode,0,result.stderr.decode())
+            self.assertEqual((secrets / 'jwt_secret').read_text(),'new')
+            # Rollback restores both sources after an unsuccessful health wait.
+            rollback = source[source.index('rollback_rotation() {'):source.index('# ── Individual rotation')]
+            result = subprocess.run(['bash','-c',stub + shell.split('declare -A RESTART_NEEDED')[0] + rollback + '\nrollback_rotation\n'],env=env,capture_output=True)
+            self.assertEqual(result.returncode,0,result.stderr.decode())
+            self.assertEqual((root / 'env').read_text(),'JWT_SECRET=old\n')
+            self.assertEqual((secrets / 'jwt_secret').read_text(),'old')
+
+        # Exercise the actual stdin reader and EXIT compensator after a failed health wait.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); secret_dir = root / 'secrets'; secret_dir.mkdir()
+            initial = 'POSTGRES_USER=chronicle\nPOSTGRES_DB=chronicle\nPOSTGRES_PASSWORD=old-password\n'
+            for name in ('env','before'):
+                (root/name).write_text(initial); (root/name).chmod(0o600)
+            (secret_dir/'postgres_password').write_text('old-password'); (secret_dir/'postgres_password').chmod(0o600)
+            (root/'db-password').write_text('old-password')
+            bin_dir=root/'bin'; bin_dir.mkdir()
+            psql_stub=bin_dir/'psql'
+            psql_stub.write_text("#!/usr/bin/env python3\nimport os,pathlib,re,sys\np=pathlib.Path(os.environ['DB_PASSWORD'])\nassert os.environ['PGPASSWORD']==p.read_text()\nif 'SELECT 1' not in ' '.join(sys.argv):\n text=sys.stdin.read()\n match=re.search(r\"new_password '([^']+)'\",text)\n p.write_text(match.group(1) if match else 'old-password')\n if match and os.environ.get('ALTER_RESPONSE_LOST') == 'true': sys.exit(28)\n")
+            psql_stub.chmod(0o755)
+            pg_rotate=source[source.index('rotate_postgres_password() {'):source.index('rotate_jwt_secret() {')]
+            rollback=source[source.index('rollback_rotation() {'):source.index('# ── Individual rotation')]
+            stub=r'''log() { :; }; warn() { :; }; err() { exit 1; }
+export DB_PASSWORD
+# Only the Compose API and container transport are replaced. Run its real sh stdin reader.
+docker() {
+  if [[ "$1" == compose ]]; then
+    if [[ "$*" == *"config --services"* ]]; then printf 'postgres\nchronicle-backend\n'; return; fi
+    [[ "$*" == *"--env-file $ENV_FILE"* && "$CHRONICLE_ENV_FILE" == "$ENV_FILE" && "$*" == *"--force-recreate --wait"* ]] || return 92
+    if [[ ! -f "$HEALTH_FAILURE" ]]; then touch "$HEALTH_FAILURE"; return 1; fi
+    return 0
+  fi
+  [[ "$1 $2 $3" == "exec -i chronicle-postgres" ]] || return 93
+  shift 3
+  "$@"
+}
+'''
+            shell='set -euo pipefail\nDRY_RUN=false\nCOMPOSE_FILE=fixture\n'+stub+helper+'\n'+rollback+'\n'+restart+'\n'+pg_rotate+'\ndeclare -A RESTART_NEEDED=()\nrotate_postgres_password\nrestart_services || err health\nrotation_committed=true\n'
+            env={**os.environ,'ENV_FILE':str(root/'env'),'ENV_BACKUP':str(root/'before'),
+                 'SECRET_DIR':str(secret_dir),'BACKUP_DIR':str(root),'DB_PASSWORD':str(root/'db-password'),
+                 'HEALTH_FAILURE':str(root/'failed-once'),'PATH':str(bin_dir)+':'+os.environ['PATH']}
+            (root/'failed-once').touch()
+            success=subprocess.run(['bash','-c',shell],env=env,capture_output=True)
+            self.assertEqual(success.returncode,0,success.stderr.decode())
+            self.assertNotEqual((root/'db-password').read_text(),'old-password')
+            self.assertEqual((root/'db-password').read_text(),(secret_dir/'postgres_password').read_text().strip())
+            (root/'env').write_text(initial)
+            (root/'db-password').write_text('old-password')
+            (secret_dir/'postgres_password').write_text('old-password')
+            (root/'failed-once').unlink()
+            result=subprocess.run(['bash','-c',shell],env=env,capture_output=True)
+            self.assertNotEqual(result.returncode,0)
+            self.assertTrue((root/'failed-once').exists(),result.stderr.decode())
+            self.assertEqual((root/'db-password').read_text(),'old-password',result.stderr.decode())
+            self.assertEqual((root/'env').read_text(),initial)
+            self.assertEqual((secret_dir/'postgres_password').read_text(),'old-password')
+            # The forward ALTER commits, but the transport loses its reply. The
+            # compensator must try the generated credential even before env_set.
+            lost = subprocess.run(['bash','-c',shell],env={**env,'ALTER_RESPONSE_LOST':'true'},capture_output=True)
+            self.assertNotEqual(lost.returncode,0)
+            self.assertEqual((root/'db-password').read_text(),'old-password',lost.stderr.decode())
+            self.assertEqual((root/'env').read_text(),initial)
+            self.assertEqual((secret_dir/'postgres_password').read_text(),'old-password')
+
     def test_W04_all_inverses_and_threshold_subsets(self):
         implementations = []
         for name in ('docker/key-recovery.sh','docker/key-ceremony.sh'):
