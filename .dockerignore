@@ -55,6 +55,8 @@ selfhost/backups
 *.md
 !README.md
 LICENSE
+!LICENSE
+!chronicle-web/LICENSE
 
 # OS files
 .DS_Store

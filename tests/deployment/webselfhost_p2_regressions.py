@@ -106,6 +106,27 @@ def check_w49() -> None:
     assert package.get("devDependencies", {}).get("bun") == "1.3.12"
 
 
+def check_w47() -> None:
+    for path in (
+        "docker/Dockerfile.backend",
+        "docker/Dockerfile.frontend.prod",
+        "selfhost/Dockerfile.frontend",
+        "selfhost/Dockerfile.caddy",
+    ):
+        dockerfile = read(path)
+        assert "COPY LICENSE /usr/share/doc/chronicle/LICENSE" in dockerfile, path
+        assert "org.opencontainers.image.source=\"https://github.com/uzaira0/methodic\"" in dockerfile, path
+        assert "Corresponding Chronicle source:" in dockerfile and "SOURCE_REF" in dockerfile, path
+    for path in ("docker/Dockerfile.frontend.prod", "selfhost/Dockerfile.frontend"):
+        assert "COPY chronicle-web/LICENSE /usr/share/doc/chronicle/LICENSE-chronicle-web" in read(path)
+    assert "!LICENSE" in read(".dockerignore")
+    assert "!chronicle-web/LICENSE" in read(".dockerignore")
+    assert read("LICENSE").lstrip().startswith("Apache License")
+    assert read("chronicle-web/LICENSE").lstrip().startswith("GNU GENERAL PUBLIC LICENSE")
+    publisher = read("scripts/publish-images.sh")
+    assert publisher.count('SOURCE_REF=$release') == 3
+
+
 def check_w50() -> None:
     spec = importlib.util.spec_from_file_location(
         "build_selfhost_release", ROOT / "scripts" / "build-selfhost-release.py"
@@ -330,6 +351,65 @@ def check_w61() -> None:
     assert "/var/run/docker.sock:/var/run/docker.sock:ro" in socket_proxy["volumes"]
 
 
+def check_w48() -> None:
+    publisher = read("scripts/publish-images.sh")
+    assert "for tool in docker gh git python3 trivy syft; do" in publisher
+    helper_call = publisher.index('run bash "$root/scripts/write-image-sboms.sh"')
+    release_call = publisher.index('run gh release create')
+    assert helper_call < release_call
+    assert '"${sbom_assets[@]}"' in publisher[release_call:]
+    assert "spdx-json" in read("scripts/write-image-sboms.sh")
+
+    refs = [
+        f"ghcr.io/example/chronicle-{name}:v1.2.3@sha256:{digit * 64}"
+        for name, digit in (("backend", "1"), ("frontend", "2"), ("caddy", "3"))
+    ]
+    scratch = Path("/home/opt/chronicle_work/launch-audit-1003/sol/testtmp")
+    scratch.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="W48-", dir=scratch) as temporary:
+        work = Path(temporary)
+        bin_dir = work / "bin"
+        bin_dir.mkdir()
+        log = work / "syft.log"
+        stub = bin_dir / "syft"
+        stub.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "[[ $# -eq 3 && $2 == -o && $3 == spdx-json ]]\n"
+            "printf '%s\\n' \"$1\" >> \"$SYFT_LOG\"\n"
+            "printf '{\"spdxVersion\":\"SPDX-2.3\",\"name\":\"%s\",\"packages\":[]}\\n' \"$1\"\n",
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["SYFT_LOG"] = str(log)
+        generated = subprocess.run(
+            ["bash", str(ROOT / "scripts" / "write-image-sboms.sh"), "v1.2.3", str(work / "assets"), *refs],
+            cwd=ROOT, env=env, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        assert generated.returncode == 0, generated.stderr
+        assert log.read_text(encoding="utf-8").splitlines() == refs
+
+        asset_dir = work / "assets"
+        manifest_name = "chronicle-image-sboms-1.2.3.json"
+        checksums_name = "chronicle-image-sboms-1.2.3.sha256"
+        manifest = json.loads((asset_dir / manifest_name).read_text(encoding="utf-8"))
+        assert manifest["release"] == "v1.2.3"
+        sboms = manifest["sboms"]
+        assert [item["image"] for item in sboms] == refs
+        for item in sboms:
+            content = (asset_dir / item["asset"]).read_bytes()
+            assert hashlib.sha256(content).hexdigest() == item["sha256"]
+            assert json.loads(content)["spdxVersion"] == "SPDX-2.3"
+        checksum_lines = (asset_dir / checksums_name).read_text(encoding="utf-8").splitlines()
+        for name in [item["asset"] for item in sboms] + [manifest_name]:
+            digest, recorded_name = checksum_lines.pop(0).split("  ", 1)
+            assert recorded_name == name
+            assert hashlib.sha256((asset_dir / name).read_bytes()).hexdigest() == digest
+        assert not checksum_lines
+
+
 def check_w76() -> None:
     compose = yaml.safe_load(read("selfhost/docker-compose.yml"))["services"]["backend"]
     env = compose["environment"]
@@ -453,6 +533,7 @@ CHECKS = {
     "W12": check_w12,
     "W13": check_w13,
     "W16": check_w16,
+    "W47": check_w47,
     "W49": check_w49,
     "W50": check_w50,
     "W51": check_w51,
@@ -461,6 +542,7 @@ CHECKS = {
     "W55": check_w55,
     "W56": check_w56,
     "W61": check_w61,
+    "W48": check_w48,
     "W76": check_w76,
     "W79": check_w79,
     "CROSS-S02": check_cross_s02,

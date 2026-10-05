@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Prerequisites: authenticated gh, Docker/BuildKit with a running daemon, git, python3,
-# trivy, initialized source submodules, a public root remote named public, and GHCR_TOKEN:
+# trivy, syft, initialized source submodules, a public root remote named public, and GHCR_TOKEN:
 # a dedicated token with only write:packages (never the operator's general gh token). Run from the
 # main session under CAP_MEM=12G cap: CAP_MEM=12G cap scripts/publish-images.sh <release>
 set -euo pipefail
@@ -54,7 +54,7 @@ if [[ -z "$dry_run" ]]; then
     echo 'error: GHCR_TOKEN is unset; export a dedicated token with only write:packages' >&2
     exit 1
   }
-  for tool in docker gh git python3 trivy; do
+  for tool in docker gh git python3 trivy syft; do
     command -v "$tool" >/dev/null || { echo "error: missing tool: $tool" >&2; exit 1; }
   done
   # The build tars the working tree but the release attests git rev-parse HEAD, so a dirty
@@ -118,13 +118,15 @@ scan_image() {
     --skip-db-update --skip-java-db-update --ignorefile "$root/.trivyignore.yaml" "$1"
 }
 stamp "build $caddy"
-build_image selfhost Dockerfile.caddy "$caddy"
+build_image . selfhost/Dockerfile.caddy "$caddy" --build-arg "SOURCE_REF=$release"
 scan_image "$caddy"
 stamp "build $frontend"
-build_image . selfhost/Dockerfile.frontend "$frontend" --build-arg "GIT_SHA=$revision"
+build_image . selfhost/Dockerfile.frontend "$frontend" \
+  --build-arg "GIT_SHA=$revision" --build-arg "SOURCE_REF=$release"
 scan_image "$frontend"
 stamp "build $backend"
-build_image . docker/Dockerfile.backend "$backend" --build-arg "VCS_REF=$revision"
+build_image . docker/Dockerfile.backend "$backend" \
+  --build-arg "VCS_REF=$revision" --build-arg "SOURCE_REF=$release"
 scan_image "$backend"
 stamp push
 run docker push "$backend"
@@ -141,6 +143,16 @@ capture public_revision git rev-parse refs/remotes/public/main
 run python3 scripts/build-selfhost-release.py --version "$release" \
   --source-revision "$revision" --public-revision "$public_revision" --source-date-epoch "$epoch" \
   --backend-image "$backend_digest" --frontend-image "$frontend_digest" --caddy-image "$caddy_digest"
+run bash "$root/scripts/write-image-sboms.sh" "$release" "$root/build/releases" \
+  "$backend_digest" "$frontend_digest" "$caddy_digest"
+sbom_version=${release#v}
+sbom_assets=(
+  "$root/build/releases/chronicle-backend-${sbom_version}.spdx.json"
+  "$root/build/releases/chronicle-frontend-${sbom_version}.spdx.json"
+  "$root/build/releases/chronicle-caddy-${sbom_version}.spdx.json"
+  "$root/build/releases/chronicle-image-sboms-${sbom_version}.json"
+  "$root/build/releases/chronicle-image-sboms-${sbom_version}.sha256"
+)
 capture public_repo git remote get-url public
 run mkdir -p "$HOME/tmp"
 capture notes_dir mktemp -d -p "$HOME/tmp" chronicle-release-notes.XXXXXX
@@ -200,7 +212,7 @@ See `CHANGELOG.md` in the bundle, section [{v}].
 ' "$release" "$notes_dir/notes.md"
 bundle="build/releases/chronicle-selfhost-${release#v}.tar.gz"
 run gh release create "$release" --repo "$public_repo" --target "$public_revision" \
-  "$bundle" "$bundle.sha256" --notes-file "$notes_dir/notes.md"
+  "$bundle" "$bundle.sha256" "${sbom_assets[@]}" --notes-file "$notes_dir/notes.md"
 if [[ -n "$dry_run" ]]; then
   run rm -rf -- "$notes_dir"
 fi

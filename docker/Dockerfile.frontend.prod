@@ -41,15 +41,24 @@ RUN apk add --no-cache brotli && \
 # binary-compatible with Alpine's nginx-mod-http-brotli package.
 FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
 
+ARG SOURCE_REF=unknown
+
 # Install nginx with Brotli module, upgrade packages, configure for rootless operation
 RUN apk upgrade --no-cache && \
     apk add --no-cache nginx nginx-mod-http-brotli && \
     sed -i 's|^user nginx;|#user nginx;|' /etc/nginx/nginx.conf && \
-    mkdir -p /var/lib/nginx/tmp /run/nginx /usr/share/nginx/html && \
+    mkdir -p /var/lib/nginx/tmp /run/nginx /usr/share/nginx/html /usr/share/doc/chronicle && \
     chown -R nginx:nginx /var/lib/nginx /run/nginx \
                          /etc/nginx/http.d /usr/share/nginx/html \
                          /var/log/nginx && \
     chmod -R g+w /var/lib/nginx
+
+COPY LICENSE /usr/share/doc/chronicle/LICENSE
+COPY chronicle-web/LICENSE /usr/share/doc/chronicle/LICENSE-chronicle-web
+RUN printf 'Corresponding Chronicle source: https://github.com/uzaira0/methodic/tree/%s\n' "$SOURCE_REF" \
+    > /usr/share/doc/chronicle/SOURCE-CODE
+LABEL org.opencontainers.image.source="https://github.com/uzaira0/methodic" \
+      org.opencontainers.image.version="${SOURCE_REF}"
 
 # Copy custom nginx config (must use port 8080)
 # Alpine nginx includes from /etc/nginx/http.d/ (not conf.d/)

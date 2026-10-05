@@ -82,6 +82,7 @@ RUN jlink --no-header-files --no-man-pages --compress=zip-6 --strip-debug \
 FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
 
 ARG VCS_REF=unknown
+ARG SOURCE_REF=unknown
 
 WORKDIR /server
 
@@ -94,8 +95,12 @@ ENV PATH="${JAVA_HOME}/bin:${PATH}"
 RUN apk upgrade --no-cache && \
     apk add --no-cache gettext su-exec && \
     addgroup -S chronicle && adduser -S -G chronicle -h /server -s /sbin/nologin chronicle && \
-    mkdir -p /var/log/chronicle /var/lib/chronicle/exports && \
+    mkdir -p /var/log/chronicle /var/lib/chronicle/exports /usr/share/doc/chronicle && \
     chown -R chronicle:chronicle /var/log/chronicle /var/lib/chronicle
+
+COPY LICENSE /usr/share/doc/chronicle/LICENSE
+RUN printf 'Corresponding Chronicle source: https://github.com/uzaira0/methodic/tree/%s\n' "$SOURCE_REF" \
+    > /usr/share/doc/chronicle/SOURCE-CODE
 
 # Copy built application from builder stage (--chown avoids a duplicate layer from chown -R)
 COPY --from=builder --chown=chronicle:chronicle /app/chronicle-server/build/install/chronicle-server /server
@@ -113,9 +118,10 @@ EXPOSE 40320
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=5 \
     CMD wget --quiet --tries=1 -O /dev/null http://127.0.0.1:40320/chronicle/internal/health/ready || exit 1
 
-LABEL org.opencontainers.image.source="https://github.com/uzaira0/chronicle"
+LABEL org.opencontainers.image.source="https://github.com/uzaira0/methodic"
 LABEL org.opencontainers.image.vendor="Chronicle Project"
 LABEL org.opencontainers.image.revision="${VCS_REF}"
+LABEL org.opencontainers.image.version="${SOURCE_REF}"
 
 USER chronicle
 
