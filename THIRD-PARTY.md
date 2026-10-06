@@ -19,10 +19,15 @@ it) whose submodules pin the exact `chronicle-server` and `chronicle-web` source
 
 Pulled unmodified by digest from their publishers. Licenses are the upstream projects'.
 
+`ghcr.io/uzaira0/chronicle-selfhost-backup` (backups overlay) is built by this project from
+https://github.com/prodrigestivill/docker-postgres-backup-local (MIT, scripts vendored unmodified in
+`selfhost/backup-image/`) with go-cron (MIT) and Debian run-parts (GPL-2.0, source:
+https://deb.debian.org/debian/pool/main/d/debianutils/) on the pinned Percona image; licenses ship in
+the image under /usr/share/doc.
+
 | Image | Used by | Upstream |
 |---|---|---|
 | Percona Distribution for PostgreSQL (`POSTGRES_IMAGE`) | database | https://github.com/percona/postgres |
-| `prodrigestivill/postgres-backup-local` | backups overlay | https://github.com/prodrigestivill/docker-postgres-backup-local |
 | `grafana/grafana` (AGPL-3.0) | monitoring overlay | https://github.com/grafana/grafana |
 | `victoriametrics/victoria-metrics`, `victoriametrics/victoria-logs` | monitoring overlay | https://github.com/VictoriaMetrics/VictoriaMetrics |
 | `fluent/fluent-bit` | monitoring overlay | https://github.com/fluent/fluent-bit |

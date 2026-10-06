@@ -1,0 +1,74 @@
+# Upstream: https://github.com/prodrigestivill/docker-postgres-backup-local
+# Commit: d00896ab15f6da29e0449390315a36c3bbda5082 (debian.Dockerfile, MIT).
+# Build with selfhost/Dockerfile.backup and backup-image/ as the only context files.
+# Keep upstream scripts, defaults, scheduler version and Debian hook semantics intact.
+FROM golang:1.27.1-bookworm@sha256:8d48e12ec56735e9358640898b9d9b9fcca110612ed8a5567438c0a1baa24e66 AS builder
+
+RUN CGO_ENABLED=0 GOTOOLCHAIN=local go install -trimpath \
+        -ldflags='-s -w -X main.version=v0.0.11' \
+        github.com/prodrigestivill/go-cron@v0.0.11
+
+# RHEL run-parts lacks Debian's -a, --reverse and --exit-on-error. Build the
+# same debianutils version shipped by the upstream image, statically, so its
+# glibc requirement does not depend on the builder's newer Debian release.
+RUN apt-get update && apt-get install -y --no-install-recommends xz-utils \
+    && mkdir -p /tmp/debianutils /out \
+    && curl --fail --show-error --location --retry 4 --retry-all-errors \
+        -o /tmp/debianutils.tar.xz \
+        https://deb.debian.org/debian/pool/main/d/debianutils/debianutils_5.23.2.tar.xz \
+    && echo '79e524b7526dba2ec5c409d0ee52ebec135815cf5b2907375d444122e0594b69  /tmp/debianutils.tar.xz' | sha256sum -c - \
+    && tar -xJf /tmp/debianutils.tar.xz -C /tmp/debianutils --strip-components=1 \
+    && gcc -O2 -static -DHAVE_GETOPT_H -DPACKAGE_VERSION='"5.23.2"' \
+        -o /out/run-parts /tmp/debianutils/run-parts.c
+
+# Must match toolchain-manifest.yaml postgres.image + postgres.index_digest.
+FROM percona/percona-distribution-postgresql:18.6.1-3@sha256:cf1ef553805898b73764a19276bf2fc9f78148a0215761ad7491c37c3ed31327
+
+USER 0
+WORKDIR /
+
+COPY --from=builder /go/bin/go-cron /usr/local/bin/go-cron
+COPY --from=builder /out/run-parts /usr/local/bin/run-parts
+COPY --from=builder /tmp/debianutils/debian/copyright /usr/share/doc/debianutils/copyright
+COPY --from=builder /usr/share/common-licenses/GPL-2 /usr/share/common-licenses/GPL-2
+COPY --from=builder /go/pkg/mod/github.com/prodrigestivill/go-cron@v0.0.11/LICENSE /usr/share/doc/go-cron/LICENSE
+COPY backup-image/LICENSE /usr/share/doc/postgres-backup-local/LICENSE
+
+ENV POSTGRES_DB="**None**" \
+    POSTGRES_DB_FILE="**None**" \
+    POSTGRES_HOST="**None**" \
+    POSTGRES_PORT=5432 \
+    POSTGRES_USER="**None**" \
+    POSTGRES_USER_FILE="**None**" \
+    POSTGRES_PASSWORD="**None**" \
+    POSTGRES_PASSWORD_FILE="**None**" \
+    POSTGRES_PASSFILE_STORE="**None**" \
+    POSTGRES_EXTRA_OPTS="-Z1" \
+    POSTGRES_CLUSTER="FALSE" \
+    SCHEDULE="@daily" \
+    VALIDATE_ON_START="TRUE" \
+    BACKUP_ON_START="FALSE" \
+    BACKUP_DIR="/backups" \
+    BACKUP_SUFFIX=".sql.gz" \
+    BACKUP_LATEST_TYPE="symlink" \
+    BACKUP_KEEP_DAYS=7 \
+    BACKUP_KEEP_WEEKS=4 \
+    BACKUP_KEEP_MONTHS=6 \
+    BACKUP_KEEP_MINS=1440 \
+    HEALTHCHECK_PORT=8080 \
+    WEBHOOK_URL="**None**" \
+    WEBHOOK_ERROR_URL="**None**" \
+    WEBHOOK_PRE_BACKUP_URL="**None**" \
+    WEBHOOK_POST_BACKUP_URL="**None**" \
+    WEBHOOK_EXTRA_ARGS=""
+
+COPY backup-image/hooks /hooks
+COPY backup-image/backup.sh backup-image/env.sh backup-image/init.sh /
+
+VOLUME /backups
+
+ENTRYPOINT []
+CMD ["/init.sh"]
+
+HEALTHCHECK --interval=5m --timeout=3s \
+    CMD curl -f "http://localhost:$HEALTHCHECK_PORT/" || exit 1
