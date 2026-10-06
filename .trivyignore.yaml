@@ -74,3 +74,2009 @@ vulnerabilities:
     statement: >-
       libsystemd0 in fluent-bit 5.1.3, no Debian fix; local privilege escalation through
       systemd-homed, which does not run in the container (fluent-bit is PID 1, no systemd).
+
+# Unfixed third-party runtime findings reviewed for release 2026.10.5.
+  - id: CVE-2023-53107
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2025-35973
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2025-38001
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2025-40186
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2025-40348
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2025-68182
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2025-68191
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2025-68192
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2025-68215
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2025-68284
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2025-68291
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2025-68297
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2025-68307
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-103111
+    purls:
+      - "pkg:rpm/redhat/pcre2-syntax@10.40-6.el9?arch=noarch&distro=redhat-9.8"
+      - "pkg:rpm/redhat/pcre2@10.40-6.el9?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). PostgreSQL uses its own regular-expression engine; Bash
+      helpers use fixed operator patterns and do not invoke the PCRE2 JIT or recursive DFA APIs on
+      attacker-supplied patterns.
+      quay.io/keycloak/keycloak:26.8.0: no upstream fix is available for the RHEL package in this image
+      (Trivy FixedVersion is empty). Keycloak uses Java regular expressions; the native PCRE2 JIT and DFA
+      APIs are not used by the experimental auth service configured in
+      selfhost/experimental/public-dashboard/auth.yml.
+  - id: CVE-2026-19553
+    purls:
+      - "pkg:rpm/redhat/python-unversioned-command@3.9.25-7.el9_8.3?arch=noarch&distro=redhat-9.8"
+      - "pkg:rpm/redhat/python3-libs@3.9.25-7.el9_8.3?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/python3.12-libs@3.12.14-1.0.1.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/python3.12@3.12.14-1.0.1.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/python3@3.9.25-7.el9_8.3?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). The PostgreSQL runtime and Bash/psql/OpenSSL helpers do
+      not invoke Python SSLContext.wrap_bio or a Python asynchronous TLS client without a server hostname.
+  - id: CVE-2026-19666
+    purls:
+      - "pkg:rpm/redhat/bind-libs@9.16.23-40.el9_8.9?arch=x86_64&distro=redhat-9.8&epoch=32"
+      - "pkg:rpm/redhat/bind-license@9.16.23-40.el9_8.9?arch=noarch&distro=redhat-9.8&epoch=32"
+      - "pkg:rpm/redhat/bind-utils@9.16.23-40.el9_8.9?arch=x86_64&distro=redhat-9.8&epoch=32"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). No BIND named resolver runs:
+      selfhost/docker-compose.yml starts postgres and Bash helpers, so DNS64, negative-cache and DNSSEC
+      resolver processing are absent.
+  - id: CVE-2026-19667
+    purls:
+      - "pkg:rpm/redhat/bind-libs@9.16.23-40.el9_8.9?arch=x86_64&distro=redhat-9.8&epoch=32"
+      - "pkg:rpm/redhat/bind-license@9.16.23-40.el9_8.9?arch=noarch&distro=redhat-9.8&epoch=32"
+      - "pkg:rpm/redhat/bind-utils@9.16.23-40.el9_8.9?arch=x86_64&distro=redhat-9.8&epoch=32"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). No BIND named resolver runs:
+      selfhost/docker-compose.yml starts postgres and Bash helpers, so DNS64, negative-cache and DNSSEC
+      resolver processing are absent.
+  - id: CVE-2026-23185
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-31678
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-43961
+    purls:
+      - "pkg:rpm/redhat/vim-filesystem@8.2.2637-26.el9_8.21?arch=noarch&distro=redhat-9.8&epoch=2"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). The package contains editor filesystem support;
+      Chronicle runs no Emacs or Vim image loader, TRAMP, Flymake, netrw or omni-completion in the
+      postgres or helper services.
+  - id: CVE-2026-45972
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-45998
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-46099
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-46174
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-46309
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-52951
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-53145
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-53360
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-53365
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-53398
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-53613
+    purls:
+      - "pkg:rpm/redhat/libblkid@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/libfdisk@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/libmount@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/libsmartcols@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/libuuid@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/util-linux-core@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/util-linux@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). The services do not invoke mount with user/users fstab
+      entries; Compose supplies the mounts and the containers have no SYS_ADMIN capability or local login
+      service.
+  - id: CVE-2026-54876
+    purls:
+      - "pkg:rpm/redhat/openssl-libs@3.5.8-1.el9_8?arch=x86_64&distro=redhat-9.8&epoch=1"
+      - "pkg:rpm/redhat/openssl@3.5.8-1.el9_8?arch=x86_64&distro=redhat-9.8&epoch=1"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). Certificate helpers and monitoring openssl s_client do
+      not enable OCSP response checking; PostgreSQL is not an OCSP-checking TLS client.
+  - id: CVE-2026-56860
+    purls:
+      - "pkg:rpm/redhat/go-srpm-macros@3.8.1-1.el9?arch=noarch&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). These are RPM build macros, not a Go network service;
+      Chronicle does not build Go packages inside the postgres or helper containers.
+  - id: CVE-2026-57585
+    purls:
+      - "pkg:rpm/redhat/python3-pip-wheel@21.3.1-2.el9_8?arch=noarch&distro=redhat-9.8"
+      - "pkg:rpm/redhat/python3.12-pip-wheel@23.2.1-5.el9?arch=noarch&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). The PostgreSQL runtime and Bash/psql/OpenSSL helpers do
+      not install packages with pip or deserialize attacker-supplied MessagePack with its vendored
+      Unpacker.
+  - id: CVE-2026-63829
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-63830
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-63899
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-63922
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-63924
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-63939
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-63956
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-63962
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-63970
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-63993
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-63994
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-64009
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-64026
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-64030
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-64279
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-64303
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-64366
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-64378
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-64385
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-64439
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-64558
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-64562
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-68123
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-68136
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-68138
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-68140
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-68160
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-68162
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-68202
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-68236
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-68335
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-68398
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-68409
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-68432
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-68470
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-72049
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-72052
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-72061
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-72083
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-72123
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-72221
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-72222
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-72255
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-72262
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-72318
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-72319
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-72323
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-72339
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-72446
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-72449
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-73073
+    purls:
+      - "pkg:rpm/redhat/vim-filesystem@8.2.2637-26.el9_8.21?arch=noarch&distro=redhat-9.8&epoch=2"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). The package contains editor filesystem support;
+      Chronicle runs no Emacs or Vim image loader, TRAMP, Flymake, netrw or omni-completion in the
+      postgres or helper services.
+  - id: CVE-2026-74269
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74270
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74310
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74345
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74359
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74394
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74469
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74476
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74488
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74503
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74509
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74516
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74520
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74569
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74573
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74580
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74582
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74588
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74597
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74615
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74616
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74630
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74631
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74640
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74662
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74669
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74705
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74743
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74744
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74746
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-74752
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-75804
+    purls:
+      - "pkg:rpm/redhat/openssl-libs@3.5.8-1.el9_8?arch=x86_64&distro=redhat-9.8&epoch=1"
+      - "pkg:rpm/redhat/openssl@3.5.8-1.el9_8?arch=x86_64&distro=redhat-9.8&epoch=1"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). PostgreSQL and certificate/monitoring helpers use TCP
+      TLS or local certificate operations, never the OpenSSL QUIC transport.
+  - id: CVE-2026-76641
+    purls:
+      - "pkg:rpm/redhat/expat@2.5.0-6.el9_8.3?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). Chronicle runs postgres with only pg_tde preloaded and
+      Bash/psql/OpenSSL helpers; none invokes Expat external-entity XML parsing.
+  - id: CVE-2026-77219
+    purls:
+      - "pkg:rpm/redhat/emacs-filesystem@27.2-18.el9?arch=noarch&distro=redhat-9.8&epoch=1"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). The package contains editor filesystem support;
+      Chronicle runs no Emacs or Vim image loader, TRAMP, Flymake, netrw or omni-completion in the
+      postgres or helper services.
+  - id: CVE-2026-79992
+    purls:
+      - "pkg:rpm/redhat/emacs-filesystem@27.2-18.el9?arch=noarch&distro=redhat-9.8&epoch=1"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). The package contains editor filesystem support;
+      Chronicle runs no Emacs or Vim image loader, TRAMP, Flymake, netrw or omni-completion in the
+      postgres or helper services.
+  - id: CVE-2026-80274
+    purls:
+      - "pkg:rpm/redhat/bind-libs@9.16.23-40.el9_8.9?arch=x86_64&distro=redhat-9.8&epoch=32"
+      - "pkg:rpm/redhat/bind-license@9.16.23-40.el9_8.9?arch=noarch&distro=redhat-9.8&epoch=32"
+      - "pkg:rpm/redhat/bind-utils@9.16.23-40.el9_8.9?arch=x86_64&distro=redhat-9.8&epoch=32"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). No BIND named resolver runs:
+      selfhost/docker-compose.yml starts postgres and Bash helpers, so DNS64, negative-cache and DNSSEC
+      resolver processing are absent.
+  - id: CVE-2026-80530
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-80586
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-80590
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-80725
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-80726
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-80792
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-80951
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-80985
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-84782
+    purls:
+      - "pkg:rpm/redhat/openssl-libs@3.5.8-1.el9_8?arch=x86_64&distro=redhat-9.8&epoch=1"
+      - "pkg:rpm/redhat/openssl@3.5.8-1.el9_8?arch=x86_64&distro=redhat-9.8&epoch=1"
+      - "pkg:rpm/redhat/python3.12-cryptography@41.0.7-3.el9_7?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). PostgreSQL and certificate/monitoring helpers do not
+      use DTLS or its suspended handshake retransmission path.
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). The PostgreSQL runtime and Bash/psql/OpenSSL helpers do
+      not invoke Python SSLContext.wrap_bio or a Python asynchronous TLS client without a server hostname.
+  - id: CVE-2026-86145
+    purls:
+      - "pkg:rpm/redhat/pcre2-syntax@10.40-6.el9?arch=noarch&distro=redhat-9.8"
+      - "pkg:rpm/redhat/pcre2@10.40-6.el9?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). PostgreSQL uses its own regular-expression engine; Bash
+      helpers use fixed operator patterns and do not invoke the PCRE2 JIT or recursive DFA APIs on
+      attacker-supplied patterns.
+      quay.io/keycloak/keycloak:26.8.0: no upstream fix is available for the RHEL package in this image
+      (Trivy FixedVersion is empty). Keycloak uses Java regular expressions; the native PCRE2 JIT and DFA
+      APIs are not used by the experimental auth service configured in
+      selfhost/experimental/public-dashboard/auth.yml.
+  - id: CVE-2026-89161
+    purls:
+      - "pkg:rpm/redhat/pcre2-syntax@10.40-6.el9?arch=noarch&distro=redhat-9.8"
+      - "pkg:rpm/redhat/pcre2@10.40-6.el9?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). PostgreSQL uses its own regular-expression engine; Bash
+      helpers use fixed operator patterns and do not invoke the PCRE2 JIT or recursive DFA APIs on
+      attacker-supplied patterns.
+      quay.io/keycloak/keycloak:26.8.0: no upstream fix is available for the RHEL package in this image
+      (Trivy FixedVersion is empty). Keycloak uses Java regular expressions; the native PCRE2 JIT and DFA
+      APIs are not used by the experimental auth service configured in
+      selfhost/experimental/public-dashboard/auth.yml.
+  - id: CVE-2026-89450
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89479
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89481
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89487
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89488
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89526
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89530
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89536
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89545
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89563
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89564
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89569
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89603
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89620
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89631
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89633
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89638
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89652
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89653
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89656
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89659
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89663
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89669
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89675
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89676
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89690
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89708
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-89713
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-93817
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-96442
+    purls:
+      - "pkg:rpm/redhat/emacs-filesystem@27.2-18.el9?arch=noarch&distro=redhat-9.8&epoch=1"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). The package contains editor filesystem support;
+      Chronicle runs no Emacs or Vim image loader, TRAMP, Flymake, netrw or omni-completion in the
+      postgres or helper services.
+  - id: CVE-2026-97417
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-97991
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-98039
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+  - id: CVE-2026-98116
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no upstream fix is available for the RHEL package
+      in this image (Trivy FixedVersion is empty). This package contains build headers, not a running
+      kernel; the postgres and helper containers use the host kernel and do not load these headers as
+      executable code.
+
+
+# Newest-vendor-image findings reviewed 2026-10-06; exact package/binary scopes.
+  - id: CVE-2025-68121
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2025-61726
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2025-61729
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-25679
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-27145
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-32280
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-32281
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-32283
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-33811
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-33814
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-33818
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-39820
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-39821
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-39822
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-39836
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-42499
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-42504
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-56853
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-56858
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-56859
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-56860
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-56862
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-11-30
+    statement: >-
+      postgres:18.6-alpine: newest vendor image still ships it (stable tag and digest rechecked
+      2026-10-06). The affected Go stdlib is embedded only in /usr/local/bin/gosu, a local
+      privilege-drop utility that parses the configured user and execs postgres; it serves no
+      HTTP, TLS, SSH, XML or template input. selfhost/experimental/public-dashboard/auth.yml
+      publishes no database host port; this experimental SSO database is reached only on the
+      Compose network.
+  - id: CVE-2026-84445
+    purls:
+      - "pkg:golang/google.golang.org/grpc@v1.83.0"
+      - "pkg:golang/google.golang.org/grpc@v1.83.1"
+    paths:
+      - "usr/share/grafana/data/plugins-bundled/grafana-postgresql-datasource/gpx_grafana_postgresql_datasource_linux_amd64"
+      - "usr/share/grafana/data/plugins-bundled/influxdb/gpx_grafana_influxdb_datasource_linux_amd64"
+      - "usr/share/grafana/data/plugins-bundled/jaeger/gpx_grafana-jaeger-datasource_linux_amd64"
+      - "usr/share/grafana/data/plugins-bundled/prometheus/gpx_grafana-prometheus-datasource_linux_amd64"
+      - "usr/share/grafana/data/plugins-bundled/stackdriver/gpx_grafana_cloudmonitoring_datasource_linux_amd64"
+    expired_at: 2026-11-30
+    statement: >-
+      grafana/grafana:13.2.3: newest vendor image still ships it (stable releases and digest
+      rechecked 2026-10-06). In selfhost/overlays/monitoring.yml Grafana binds to 127.0.0.1 by
+      default, requires admin authentication, and its datasource-plugin gRPC servers bind to
+      loopback for Grafana-to-plugin IPC. Only the Prometheus and VictoriaLogs datasources are
+      provisioned, pointing at internal victoriametrics:8428 and victorialogs:9428; no external
+      gRPC listener or attacker-selected gRPC peer is configured.
+  - id: CVE-2026-84304
+    purls:
+      - "pkg:golang/google.golang.org/grpc@v1.83.0"
+    paths:
+      - "usr/share/grafana/data/plugins-bundled/stackdriver/gpx_grafana_cloudmonitoring_datasource_linux_amd64"
+    expired_at: 2026-11-30
+    statement: >-
+      grafana/grafana:13.2.3: newest vendor image still ships it (stable releases and digest
+      rechecked 2026-10-06). In selfhost/overlays/monitoring.yml Grafana binds to 127.0.0.1 by
+      default, requires admin authentication, and its datasource-plugin gRPC servers bind to
+      loopback for Grafana-to-plugin IPC. Only the Prometheus and VictoriaLogs datasources are
+      provisioned, pointing at internal victoriametrics:8428 and victorialogs:9428; no external
+      gRPC listener or attacker-selected gRPC peer is configured.
+  - id: CVE-2026-21728
+    purls:
+      - "pkg:golang/github.com/grafana/tempo@v1.5.1-0.20260910130453-bcfe9f230c1d"
+    paths:
+      - "usr/share/grafana/data/plugins-bundled/tempo/gpx_grafana-tempo-datasource_linux_amd64"
+    expired_at: 2026-11-30
+    statement: >-
+      grafana/grafana:13.2.3: newest vendor image still ships it (stable releases and digest
+      rechecked 2026-10-06). The affected Tempo module is embedded in
+      /usr/share/grafana/data/plugins-bundled/tempo/gpx_grafana-tempo-datasource_linux_amd64, a
+      datasource client, not a Tempo query or storage server.
+      selfhost/monitoring/grafana-datasources.yml provisions only Prometheus and VictoriaLogs;
+      there is no Tempo server, Tempo datasource or S3 encryption-key configuration, and Grafana
+      defaults to authenticated loopback access.
+  - id: CVE-2026-28377
+    purls:
+      - "pkg:golang/github.com/grafana/tempo@v1.5.1-0.20260910130453-bcfe9f230c1d"
+    paths:
+      - "usr/share/grafana/data/plugins-bundled/tempo/gpx_grafana-tempo-datasource_linux_amd64"
+    expired_at: 2026-11-30
+    statement: >-
+      grafana/grafana:13.2.3: newest vendor image still ships it (stable releases and digest
+      rechecked 2026-10-06). The affected Tempo module is embedded in
+      /usr/share/grafana/data/plugins-bundled/tempo/gpx_grafana-tempo-datasource_linux_amd64, a
+      datasource client, not a Tempo query or storage server.
+      selfhost/monitoring/grafana-datasources.yml provisions only Prometheus and VictoriaLogs;
+      there is no Tempo server, Tempo datasource or S3 encryption-key configuration, and Grafana
+      defaults to authenticated loopback access.
+  - id: CVE-2026-14456
+    purls:
+      - "pkg:apk/alpine/libcrypto3@3.5.7-r0?arch=x86_64&distro=3.24.1"
+      - "pkg:apk/alpine/libssl3@3.5.7-r0?arch=x86_64&distro=3.24.1"
+    expired_at: 2026-11-30
+    statement: >-
+      tecnativa/docker-socket-proxy:v0.5.0: newest vendor image still ships it (stable releases
+      and digest rechecked 2026-10-06). OpenSSL is linked into HAProxy, but
+      selfhost/overlays/monitoring.yml uses plain HTTP on port 2375, publishes no host port and
+      attaches the proxy only to internal network docker-api with cAdvisor. No TLS or QUIC
+      listener is configured, so the vulnerable QUIC-server allocation path is not used.
+  - id: CVE-2026-103111
+    purls:
+      - "pkg:apk/alpine/pcre2@10.47-r1?arch=x86_64&distro=3.24.1"
+    expired_at: 2026-11-30
+    statement: >-
+      tecnativa/docker-socket-proxy:v0.5.0: newest vendor image still ships it (stable releases
+      and digest rechecked 2026-10-06). HAProxy uses fixed image-supplied ACL regular
+      expressions, not client-supplied patterns; the affected PCRE2 compiler/JIT cannot receive
+      attacker-chosen regexes. selfhost/overlays/monitoring.yml publishes no proxy port, isolates
+      it on internal network docker-api with cAdvisor, permits only GET containers/info/version
+      and sets POST=0.
+  - id: CVE-2026-86145
+    purls:
+      - "pkg:apk/alpine/pcre2@10.47-r1?arch=x86_64&distro=3.24.1"
+    expired_at: 2026-11-30
+    statement: >-
+      tecnativa/docker-socket-proxy:v0.5.0: newest vendor image still ships it (stable releases
+      and digest rechecked 2026-10-06). HAProxy uses fixed image-supplied ACL regular
+      expressions, not client-supplied patterns; the affected PCRE2 compiler/JIT cannot receive
+      attacker-chosen regexes. selfhost/overlays/monitoring.yml publishes no proxy port, isolates
+      it on internal network docker-api with cAdvisor, permits only GET containers/info/version
+      and sets POST=0.
+  - id: CVE-2026-89157
+    purls:
+      - "pkg:apk/alpine/pcre2@10.47-r1?arch=x86_64&distro=3.24.1"
+    expired_at: 2026-11-30
+    statement: >-
+      tecnativa/docker-socket-proxy:v0.5.0: newest vendor image still ships it (stable releases
+      and digest rechecked 2026-10-06). HAProxy uses fixed image-supplied ACL regular
+      expressions, not client-supplied patterns; the affected PCRE2 compiler/JIT cannot receive
+      attacker-chosen regexes. selfhost/overlays/monitoring.yml publishes no proxy port, isolates
+      it on internal network docker-api with cAdvisor, permits only GET containers/info/version
+      and sets POST=0.
+  - id: CVE-2026-89161
+    purls:
+      - "pkg:apk/alpine/pcre2@10.47-r1?arch=x86_64&distro=3.24.1"
+    expired_at: 2026-11-30
+    statement: >-
+      tecnativa/docker-socket-proxy:v0.5.0: newest vendor image still ships it (stable releases
+      and digest rechecked 2026-10-06). HAProxy uses fixed image-supplied ACL regular
+      expressions, not client-supplied patterns; the affected PCRE2 compiler/JIT cannot receive
+      attacker-chosen regexes. selfhost/overlays/monitoring.yml publishes no proxy port, isolates
+      it on internal network docker-api with cAdvisor, permits only GET containers/info/version
+      and sets POST=0.
+  - id: CVE-2026-56854
+    purls:
+      - "pkg:golang/golang.org/x/crypto@v0.54.0"
+    paths:
+      - "usr/bin/cadvisor"
+    expired_at: 2026-11-30
+    statement: >-
+      ghcr.io/google/cadvisor:v0.60.6: newest vendor image still ships it (stable releases and
+      digest rechecked 2026-10-06). The affected module is linked into /usr/bin/cadvisor.
+      selfhost/overlays/monitoring.yml sets --docker_only=true and
+      --docker=tcp://docker-socket-proxy:2375, using the internal GET-only Docker API, not a
+      containerd gRPC endpoint or an SSH server. The metrics HTTP listener on 8080 has no
+      published host port; no incoming gRPC or SSH service is configured.
+  - id: CVE-2026-84304
+    purls:
+      - "pkg:golang/google.golang.org/grpc@v1.81.1"
+    paths:
+      - "usr/bin/cadvisor"
+    expired_at: 2026-11-30
+    statement: >-
+      ghcr.io/google/cadvisor:v0.60.6: newest vendor image still ships it (stable releases and
+      digest rechecked 2026-10-06). The affected module is linked into /usr/bin/cadvisor.
+      selfhost/overlays/monitoring.yml sets --docker_only=true and
+      --docker=tcp://docker-socket-proxy:2375, using the internal GET-only Docker API, not a
+      containerd gRPC endpoint or an SSH server. The metrics HTTP listener on 8080 has no
+      published host port; no incoming gRPC or SSH service is configured.
+  - id: CVE-2026-84445
+    purls:
+      - "pkg:golang/google.golang.org/grpc@v1.81.1"
+    paths:
+      - "usr/bin/cadvisor"
+    expired_at: 2026-11-30
+    statement: >-
+      ghcr.io/google/cadvisor:v0.60.6: newest vendor image still ships it (stable releases and
+      digest rechecked 2026-10-06). The affected module is linked into /usr/bin/cadvisor.
+      selfhost/overlays/monitoring.yml sets --docker_only=true and
+      --docker=tcp://docker-socket-proxy:2375, using the internal GET-only Docker API, not a
+      containerd gRPC endpoint or an SSH server. The metrics HTTP listener on 8080 has no
+      published host port; no incoming gRPC or SSH service is configured.
+  - id: GHSA-hrxh-6v49-42gf
+    purls:
+      - "pkg:golang/google.golang.org/grpc@v1.81.1"
+    paths:
+      - "usr/bin/cadvisor"
+    expired_at: 2026-11-30
+    statement: >-
+      ghcr.io/google/cadvisor:v0.60.6: newest vendor image still ships it (stable releases and
+      digest rechecked 2026-10-06). The affected module is linked into /usr/bin/cadvisor.
+      selfhost/overlays/monitoring.yml sets --docker_only=true and
+      --docker=tcp://docker-socket-proxy:2375, using the internal GET-only Docker API, not a
+      containerd gRPC endpoint or an SSH server. The metrics HTTP listener on 8080 has no
+      published host port; no incoming gRPC or SSH service is configured.
+  - id: CVE-2026-66046
+    purls:
+      - "pkg:rpm/redhat/expat@2.5.0-6.el9_8.3?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: newest vendor image still ships it
+      (stable tags and digest rechecked 2026-10-06). The expat RPM is an XML parser used by
+      ancillary Python/package tooling; postgres and pg_dump use libxml2 for their XML support,
+      not Expat. selfhost/docker-compose.yml and its helpers run postgres, Bash, psql and OpenSSL
+      with no Expat-based XML ingestion; the same base in chronicle-selfhost-backup runs pg_dump
+      and go-cron, not XML-processing tooling.
+  - id: CVE-2026-93990
+    purls:
+      - "pkg:rpm/redhat/expat@2.5.0-6.el9_8.3?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: newest vendor image still ships it
+      (stable tags and digest rechecked 2026-10-06). The expat RPM is an XML parser used by
+      ancillary Python/package tooling; postgres and pg_dump use libxml2 for their XML support,
+      not Expat. selfhost/docker-compose.yml and its helpers run postgres, Bash, psql and OpenSSL
+      with no Expat-based XML ingestion; the same base in chronicle-selfhost-backup runs pg_dump
+      and go-cron, not XML-processing tooling.

@@ -1,4 +1,4 @@
-FROM docker.io/percona/percona-distribution-postgresql:18.6.1-1@sha256:18cde978e37580e8bf0bd47945e5d453f7753f3cae2ba7f19700e8f47b9bad27 AS curl-builder
+FROM docker.io/percona/percona-distribution-postgresql:18.6.1-3@sha256:cf1ef553805898b73764a19276bf2fc9f78148a0215761ad7491c37c3ed31327 AS curl-builder
 
 USER 0
 
@@ -59,7 +59,7 @@ RUN curl --proto '=https' --tlsv1.2 --fail --show-error --location \
 
 USER 26
 
-FROM docker.io/percona/percona-distribution-postgresql:18.6.1-1@sha256:18cde978e37580e8bf0bd47945e5d453f7753f3cae2ba7f19700e8f47b9bad27
+FROM docker.io/percona/percona-distribution-postgresql:18.6.1-3@sha256:cf1ef553805898b73764a19276bf2fc9f78148a0215761ad7491c37c3ed31327
 
 USER 0
 
@@ -83,7 +83,7 @@ RUN microdnf --disablerepo='*' \
     && microdnf clean all \
     && rm -rf /var/cache/dnf /var/cache/yum \
     && test "$(rpm -q --qf '%{VERSION}-%{RELEASE}' python3)" = '3.9.25-7.0.1.el9_8.2' \
-    && test "$(rpm -q --qf '%{VERSION}-%{RELEASE}' percona-postgresql18-server)" = '18.4-2.el9' \
+    && test "$(rpm -q --qf '%{VERSION}-%{RELEASE}' percona-postgresql18-server)" = '18.6-1.el9' \
     && rpm -e --nodeps \
         kernel-headers \
         curl-minimal \
@@ -101,7 +101,7 @@ RUN microdnf --disablerepo='*' \
 
 COPY --from=curl-builder /opt/curl/lib64/ /usr/lib64/
 
-LABEL org.opencontainers.image.revision="percona-18.6.1-1-chronicle-curl-8.21.0-20260903"
+LABEL org.opencontainers.image.revision="percona-18.6.1-3-chronicle-curl-8.21.0-20260903"
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=12 \
     CMD pg_isready -h 127.0.0.1 -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-postgres}" || exit 1

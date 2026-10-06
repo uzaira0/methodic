@@ -354,7 +354,7 @@ def check_w61() -> None:
 
 
 def check_w68() -> None:
-    percona = "percona/percona-distribution-postgresql:18.6.1-1@sha256:18cde978e37580e8bf0bd47945e5d453f7753f3cae2ba7f19700e8f47b9bad27"
+    percona = "percona/percona-distribution-postgresql:18.6.1-3@sha256:cf1ef553805898b73764a19276bf2fc9f78148a0215761ad7491c37c3ed31327"
     for path in ("docker/docker-compose.yml", "docker/docker-compose.dev.yml"):
         compose = yaml.safe_load(read(path))
         assert compose["services"]["postgres"]["image"] == percona, path
@@ -466,7 +466,7 @@ def check_w67() -> None:
     push_at = publisher.index("stamp push")
     assert scan_at < push_at < publisher.index('run docker push "$backend"')
     ignore = yaml.safe_load(read(".trivyignore.yaml"))["vulnerabilities"]
-    assert ignore and all(item.get("paths") and item.get("statement") and item.get("expired_at") for item in ignore)
+    assert ignore and all((item.get("paths") or item.get("purls")) and item.get("statement") and item.get("expired_at") for item in ignore)
 
     helper = ROOT / "scripts" / "scan-selfhost-release-images.sh"
     scratch = Path("/home/opt/chronicle_work/launch-audit-1003/sol/testtmp")

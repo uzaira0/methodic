@@ -55,7 +55,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: victoria-logs
-          image: victoriametrics/victoria-logs:v1.50.0@sha256:ae9bea8d8a3b0fc47c7f0058bcca410e79c84b4a0acd12d4dac71b9302526590
+          image: victoriametrics/victoria-logs:v1.53.0@sha256:251121fa882af99b95ba0c230a4a2f412ea602d2698c64a96c58dc9842bb755d
           imagePullPolicy: IfNotPresent
           args:
             - -storageDataPath=/victoria-logs-data

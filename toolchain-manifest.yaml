@@ -30,12 +30,12 @@ python: "3.12"              # floor for scripts/ tests/ selfhost/ helpers; pytho
                             # (RHEL 9 ships 3.9 as /usr/bin/python3: `uv python install 3.14 --default`; then `uv pip install --system --break-system-packages --python "$(command -v python3)" pyyaml`)
 
 postgres:
-  image: "percona/percona-distribution-postgresql:18.6.1-1"  # pg_tde pins prod; same image in dev/CI/testcontainers
-  index_digest: "sha256:18cde978e37580e8bf0bd47945e5d453f7753f3cae2ba7f19700e8f47b9bad27"
+  image: "percona/percona-distribution-postgresql:18.6.1-3"  # pg_tde pins prod; same image in dev/CI/testcontainers
+  index_digest: "sha256:cf1ef553805898b73764a19276bf2fc9f78148a0215761ad7491c37c3ed31327"
   # Percona, not stock Postgres, because pg_tde is a Percona extension and it IS the
   # encryption-at-rest model (init-db-encryption.sh, migrate-tde.sh, selfhost/init-tde.sh,
   # rotate-tde-principal-key.sh, the HIPAA evidence). Percona tracks upstream:
-  # 18.6.1-1 carries PostgreSQL 18.6, the current stable release — 19 is still beta.
+  # 18.6.1-3 carries PostgreSQL 18.6, the current stable release — 19 is still beta.
   #
   # 17.5-3 -> 18.4-5 is a MAJOR jump. Two consequences that are not image-swap-shaped:
   #   - The data directory is not forward-compatible. An existing cluster needs a
@@ -47,19 +47,19 @@ postgres:
 
 keycloak_postgres:
   image: "postgres:18.6-alpine"  # SSO tier only — stock Postgres, no pg_tde, no PHI
-  index_digest: "sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2"
+  index_digest: "sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873"
 
 selfhost_images:
   backup: "prodrigestivill/postgres-backup-local:18@sha256:f70742ebe42b2277689b028d1fd15aa80f77cffa01da163cc9f85a6ff1866e7f"
   # GET-only Docker API for cadvisor (monitoring overlay). Not in the stale-image sweep:
   # the dogfood compose still references it by tag.
-  docker_socket_proxy: "tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2"
-  cadvisor: "ghcr.io/google/cadvisor:v0.60.5@sha256:763aecf1c32c2be8a1a75f9abfc2fc461005c9dbbaa39cb356b354aac1296dbe"
-  victoria_metrics: "victoriametrics/victoria-metrics:v1.149.0@sha256:13b8951e35bb3589626816538483127785a9d8b53f9f5123769db0fcab1d961f"
-  victoria_logs: "victoriametrics/victoria-logs:v1.50.0@sha256:ae9bea8d8a3b0fc47c7f0058bcca410e79c84b4a0acd12d4dac71b9302526590"
+  docker_socket_proxy: "tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459"
+  cadvisor: "ghcr.io/google/cadvisor:v0.60.6@sha256:b8e7d1093144fd088f425ff003d75a4aa405de075db78dae3bc563730b1bd07a"
+  victoria_metrics: "victoriametrics/victoria-metrics:v1.153.0@sha256:5eff7af5341e401471002f58d106d399e614a62f3d240f2dbc21901e49eed5dd"
+  victoria_logs: "victoriametrics/victoria-logs:v1.53.0@sha256:251121fa882af99b95ba0c230a4a2f412ea602d2698c64a96c58dc9842bb755d"
   fluent_bit: "fluent/fluent-bit:5.1.3@sha256:c5542543523c9678398dd78d927c05e8425ec15b038f226b67b3b019b1a70845"
-  grafana: "grafana/grafana:13.1.3@sha256:ab5cb380e3ff3172d6c8bd2e7cfd31cce977d2881b260e1f5bc089bf0b759b43"
-  keycloak: "quay.io/keycloak/keycloak:26.0@sha256:09a381c715ab0b111835b70f2905955274843a219c6f27efb348e4d9f4086858"
+  grafana: "grafana/grafana:13.2.3@sha256:b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572"
+  keycloak: "quay.io/keycloak/keycloak:26.8.0@sha256:b0f60d489d51c5d113390bdf5461d4c06e6051be026c05549f2e1e10ec352bcc"
 
 flyway:
   version: "11.20.3"        # gradles/chronicle.gradle ext.flyway_version + scripts/flyway-migrate.sh image
