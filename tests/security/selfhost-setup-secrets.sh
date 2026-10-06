@@ -26,17 +26,50 @@ trap '/bin/rm -rf -- "$RUN_DIR"' EXIT
 FIXTURE_SELFHOST="${RUN_DIR}/selfhost"
 COMMAND_DIR="${RUN_DIR}/commands"
 /bin/mkdir -p "$FIXTURE_SELFHOST" "$COMMAND_DIR"
-/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" "${ROOT_DIR}/selfhost/network-policy.sh" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_SELFHOST/"
+/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" "${ROOT_DIR}/selfhost/network-policy.sh" "${ROOT_DIR}/selfhost/network-subnet.py" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_SELFHOST/"
 /bin/chmod 0755 "${FIXTURE_SELFHOST}/chronicle"
 
 PASSWORD='fixture-dashboard-password-never-print-9472'
 GENERATED='fixture-generated-secret-value-abcdefghijklmnopqrstuvwxyz0123456789'
 DOCKER_ARGS="${RUN_DIR}/docker-args.txt"
 PYTHON_ARGS="${RUN_DIR}/python-args.txt"
+export SELFHOST_SETUP_TEST_NETWORKS='[{"Name":"other_default","Labels":{"com.docker.compose.project":"other","com.docker.compose.network":"default"},"IPAM":{"Config":[{"Subnet":"172.28.0.0/16"},{"Subnet":"10.253.0.128/25"},{"Subnet":"fd00::/64"}]}}]'
 
 cat >"${COMMAND_DIR}/docker" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+[[ -z "${SELFHOST_SETUP_TEST_PREFLIGHT_CALLS:-}" ]] ||
+  printf '%s\n' "$*" >>"${SELFHOST_SETUP_TEST_PREFLIGHT_CALLS}"
+if [[ "${1:-}" == network ]]; then
+  [[ "${SELFHOST_SETUP_TEST_NETWORK_QUERY_FAIL:-0}" == 0 ]] || exit 98
+  case "${2:-}" in
+    ls) printf 'fixture-network\n' ;;
+    inspect) printf '%s\n' "${SELFHOST_SETUP_TEST_NETWORKS}" ;;
+    *) exit 99 ;;
+  esac
+  exit 0
+fi
+if [[ "${1:-}" == ps ]]; then exit 0; fi
+if [[ "${1:-}" == compose && "${2:-}" == version ]]; then
+  printf '2.39.0\n'
+  exit 0
+fi
+if [[ "${1:-}" == compose && "$*" == *' config --format json' ]]; then
+  python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+values = dict(line.split("=", 1) for line in Path(".env").read_text().splitlines()
+              if line and not line.startswith("#") and "=" in line)
+subnet = os.environ.get("SELFHOST_SETUP_TEST_RENDERED_SUBNET", values["CHRONICLE_SUBNET"])
+print(json.dumps({"name": values["COMPOSE_PROJECT_NAME"], "networks": {"default": {
+    "name": values["COMPOSE_PROJECT_NAME"] + "_default",
+    "ipam": {"config": [{"subnet": subnet}]},
+}}}))
+PY
+  exit 0
+fi
 if [[ "${1:-}" == compose && "$*" == *' ls '* ]]; then
   # Stands in for an operator rotating a secret while setup waits at a prompt.
   [[ -z "${SELFHOST_SETUP_TEST_MUTATE_ENV:-}" ]] ||
@@ -171,6 +204,7 @@ grep -Fqx -- '--network' "$DOCKER_ARGS" || fail "Caddy hash container did not di
 
 python3 - "${FIXTURE_SELFHOST}/.env" <<'PY'
 from pathlib import Path
+import ipaddress
 import re
 import sys
 
@@ -181,6 +215,11 @@ for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
         if match.group(1) in values:
             raise SystemExit(f"duplicate generated setting: {match.group(1)}")
         values[match.group(1)] = match.group(2)
+
+subnet = ipaddress.ip_network(values["CHRONICLE_SUBNET"])
+assert str(subnet) == "10.253.1.0/24", "setup did not select the first free candidate"
+assert not subnet.overlaps(ipaddress.ip_network("172.28.0.0/16"))
+assert not subnet.overlaps(ipaddress.ip_network("10.253.0.128/25"))
 
 for key in (
     "POSTGRES_PASSWORD",
@@ -216,6 +255,10 @@ PY
 
 grep -Fq 'Legacy shared-HMAC compatibility is disabled; no deployment-wide mobile key was generated.' "$OUTPUT" \
   || fail "setup did not explain the public per-device-key default"
+grep -Fq 'Docker network range 10.253.1.0/24 is free; using that for CHRONICLE_SUBNET.' "$OUTPUT" \
+  || fail "setup did not explain its selected subnet"
+bash "${FIXTURE_SELFHOST}/guard-config.sh" --validate-compose-subnet 10.253.1.0/24 10.253.1.0/24 \
+  || fail "selected subnet does not satisfy the trusted-proxy contract"
 
 # Re-running setup over an existing deployment (proxy mode answers, existing secrets kept).
 resetup_proxy() { # <output> [extra env assignments...]
@@ -240,9 +283,40 @@ resetup_proxy() { # <output> [extra env assignments...]
 
 # A rerun keeps the deployment's own Compose project (and so its database volume).
 sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=pilot-study/' "${FIXTURE_SELFHOST}/.env"
+sed -i 's|^CHRONICLE_SUBNET=.*|CHRONICLE_SUBNET=10.253.99.0/24|' "${FIXTURE_SELFHOST}/.env"
 resetup_proxy "${RUN_DIR}/setup-project-output.txt" || fail "re-setup with a custom project failed"
 grep -Fqx 'COMPOSE_PROJECT_NAME=pilot-study' "${FIXTURE_SELFHOST}/.env" \
   || fail "re-setup replaced the existing custom COMPOSE_PROJECT_NAME"
+grep -Fqx 'CHRONICLE_SUBNET=10.253.99.0/24' "${FIXTURE_SELFHOST}/.env" \
+  || fail "re-setup moved the existing deployment's subnet"
+
+# Up checks the rendered subnet before starting config-guard or any other container.
+sed -i -E 's~^(BACKEND_IMAGE|SELFHOST_FRONTEND_IMAGE|CADDY_IMAGE)=.*~\1=fixture/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa~' \
+  "${FIXTURE_SELFHOST}/.env"
+if env PATH="${COMMAND_DIR}:${PATH}" \
+    SELFHOST_SETUP_TEST_PASSWORD="$PASSWORD" \
+    SELFHOST_SETUP_TEST_GENERATED="$GENERATED" \
+    SELFHOST_SETUP_TEST_PYTHON_ARGS="$PYTHON_ARGS" \
+    SELFHOST_SETUP_TEST_REAL_PYTHON="$REAL_PYTHON" \
+    SELFHOST_SETUP_TEST_RENDERED_SUBNET=172.28.0.0/16 \
+    SELFHOST_SETUP_TEST_PREFLIGHT_CALLS="${RUN_DIR}/preflight-calls" \
+    /bin/bash "${FIXTURE_SELFHOST}/chronicle" up >"${RUN_DIR}/subnet-preflight-output.txt" 2>&1; then
+  fail "up accepted a subnet held by another Docker network"
+fi
+grep -Fq 'CHRONICLE_SUBNET 172.28.0.0/16 overlaps Docker network other_default (172.28.0.0/16); set CHRONICLE_SUBNET in .env to a free private range' \
+  "${RUN_DIR}/subnet-preflight-output.txt" || fail "up did not name the conflict and its remedy"
+! grep -Eq '(^| )(run|up)( |$)' "${RUN_DIR}/preflight-calls" \
+  || fail "up started a container before rejecting the subnet conflict"
+printf '%s\n' '{"name":"other","networks":{"default":{"name":"other_default","ipam":{"config":[{"subnet":"172.28.0.0/16"}]}}}}' |
+  PATH="${COMMAND_DIR}:${PATH}" "$REAL_PYTHON" "${FIXTURE_SELFHOST}/network-subnet.py" check \
+  || fail "subnet check rejected the project's own network"
+# Same name without this project's Compose labels is someone else's network, not ours.
+if printf '%s\n' '{"name":"other","networks":{"default":{"name":"other_default","ipam":{"config":[{"subnet":"172.28.0.0/16"}]}}}}' |
+  SELFHOST_SETUP_TEST_NETWORKS='[{"Name":"other_default","IPAM":{"Config":[{"Subnet":"172.28.0.0/16"}]}}]' \
+  PATH="${COMMAND_DIR}:${PATH}" "$REAL_PYTHON" "${FIXTURE_SELFHOST}/network-subnet.py" check 2>/dev/null; then
+  fail "subnet check excluded an unlabelled network that only shares the project's name"
+fi
+echo "PASS: subnet selection, rerun preservation, and pre-start overlap rejection"
 
 # Setup refuses while a rotation/restore/upgrade lock is held, and never publishes values it
 # read before another operation changed .env under it.
@@ -271,7 +345,7 @@ resetup_proxy "${RUN_DIR}/setup-lock-output.txt" SELFHOST_SETUP_TEST_LOCK_PROBE=
 
 FIXTURE_LOCAL_SELFHOST="${RUN_DIR}/selfhost-local"
 /bin/mkdir -p "$FIXTURE_LOCAL_SELFHOST"
-/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" "${ROOT_DIR}/selfhost/network-policy.sh" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_LOCAL_SELFHOST/"
+/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" "${ROOT_DIR}/selfhost/network-policy.sh" "${ROOT_DIR}/selfhost/network-subnet.py" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_LOCAL_SELFHOST/"
 /bin/chmod 0755 "${FIXTURE_LOCAL_SELFHOST}/chronicle"
 LOCAL_OUTPUT="${RUN_DIR}/setup-local-output.txt"
 if ! (
@@ -289,6 +363,7 @@ if ! (
       SELFHOST_SETUP_TEST_DOCKER_ARGS="$DOCKER_ARGS" \
       SELFHOST_SETUP_TEST_PYTHON_ARGS="$PYTHON_ARGS" \
       SELFHOST_SETUP_TEST_REAL_PYTHON="$REAL_PYTHON" \
+      SELFHOST_SETUP_TEST_NETWORK_QUERY_FAIL=1 \
       /bin/bash "${FIXTURE_LOCAL_SELFHOST}/chronicle" setup >"$LOCAL_OUTPUT" 2>&1
 ); then
   fail "local HTTPS setup fixture failed"
@@ -310,6 +385,8 @@ if values.get("CHRONICLE_PUBLIC_BASE_URL") != "https://192.168.50.10:444":
     raise SystemExit("local setup did not publish the exact selected HTTPS origin")
 if values.get("COMPOSE_FILE") != "docker-compose.yml:overlays/mode-local-https.yml:overlays/backups.yml":
     raise SystemExit("local setup did not select the local HTTPS deployment mode")
+if values.get("CHRONICLE_SUBNET") != "172.28.0.0/16":
+    raise SystemExit("setup did not keep the default when Docker networks were unavailable")
 PY
 grep -Fq 'Trial HTTPS/CA ports 444 and 81 are free; using those.' "$LOCAL_OUTPUT" \
   || fail "local setup did not explain its selected fallback ports"
@@ -341,7 +418,7 @@ fi
 
 FIXTURE_LEGACY_SELFHOST="${RUN_DIR}/selfhost-legacy"
 /bin/mkdir -p "$FIXTURE_LEGACY_SELFHOST"
-/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" "${ROOT_DIR}/selfhost/network-policy.sh" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_LEGACY_SELFHOST/"
+/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" "${ROOT_DIR}/selfhost/network-policy.sh" "${ROOT_DIR}/selfhost/network-subnet.py" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_LEGACY_SELFHOST/"
 /bin/chmod 0755 "${FIXTURE_LEGACY_SELFHOST}/chronicle"
 LEGACY_OUTPUT="${RUN_DIR}/setup-legacy-output.txt"
 if ! (

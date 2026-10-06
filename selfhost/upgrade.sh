@@ -184,6 +184,7 @@ def read_manifest(path, require_upgrade_script):
         required.update(
             {
                 "selfhost/upgrade.sh",
+                "selfhost/network-subnet.py",
                 "selfhost/rotate-secret.sh",
                 "selfhost/docs/DEPLOYMENT-COMPATIBILITY.md",
                 "selfhost/docs/SECRET-ROTATION.md",
@@ -634,28 +635,8 @@ printf '  PostgreSQL major %s is compatible with the running data volume.\n' "$O
 # 2026.10.5 pins the project network to CHRONICLE_SUBNET. Compose recreates the network only
 # after the previous release is stopped, so a range another Docker network already holds must
 # fail here, while the previous release is still serving.
-compose_new config --format json | python3 -c '
-import ipaddress, json, subprocess, sys
-
-network = (json.load(sys.stdin).get("networks") or {}).get("default") or {}
-wanted = [ipaddress.ip_network(c["subnet"], strict=False) for c in (network.get("ipam") or {}).get("config") or [] if c.get("subnet")]
-if not wanted:
-    sys.exit(0)
-ids = subprocess.run(["docker", "network", "ls", "-q"], check=True, capture_output=True, text=True).stdout.split()
-existing = json.loads(subprocess.run(["docker", "network", "inspect", *ids], check=True, capture_output=True, text=True).stdout) if ids else []
-for other in existing:
-    if other["Name"] == network.get("name"):
-        continue
-    name = other["Name"]
-    for config in (other.get("IPAM") or {}).get("Config") or []:
-        subnet = config.get("Subnet")
-        if not subnet:
-            continue
-        held = ipaddress.ip_network(subnet, strict=False)
-        for want in wanted:
-            if held.version == want.version and held.overlaps(want):
-                sys.exit(f"CHRONICLE_SUBNET {want} overlaps Docker network {name} ({held}); set CHRONICLE_SUBNET in .env to a free private range")
-' || fail "the new release network range is not free on this host; the previous release was left running"
+compose_new config --format json | python3 "${NEW_DIR}/network-subnet.py" check ||
+  fail "the new release network range is not free on this host; the previous release was left running"
 
 : "${UPGRADE_WAIT_TIMEOUT_SECONDS:=300}"
 [[ "$UPGRADE_WAIT_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] ||

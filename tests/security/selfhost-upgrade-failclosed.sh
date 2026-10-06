@@ -163,6 +163,7 @@ make_case() {
 
   /bin/cp "$UPGRADE_SCRIPT" "${new_bundle}/selfhost/upgrade.sh"
   /bin/chmod 0755 "${new_bundle}/selfhost/upgrade.sh"
+  /bin/cp "$(dirname "$UPGRADE_SCRIPT")/network-subnet.py" "${new_bundle}/selfhost/network-subnet.py"
   for bundle in "$old_bundle" "$new_bundle"; do
     cat >"${bundle}/selfhost/chronicle" <<'EOF'
 #!/usr/bin/env bash

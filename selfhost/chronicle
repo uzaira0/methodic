@@ -469,6 +469,11 @@ preflight() {
     fi
   done
 
+  local subnet_check
+  if ! subnet_check="$(dc config --format json | python3 ./network-subnet.py check 2>&1)"; then
+    bad "${subnet_check:-could not check CHRONICLE_SUBNET against Docker networks}"
+  fi
+
   # Refuse to adopt somebody else's stack. If a Compose project of this name already
   # exists and was not created from this directory, `up` would recreate ITS containers and
   # mount ITS volumes -- data loss in another deployment, from a command that looks routine.
@@ -666,6 +671,7 @@ cmd_setup() {
   local keep_reviewer_participant=""
   local keep_grafana="" keep_dash_hash="" keep_state="."
   local keep_http_port="" keep_internal_port="" keep_grafana_port="" keep_project=""
+  local keep_subnet=""
   # Rotation, restore and upgrade lock the state directory and rewrite .env. Setup must not
   # run under them, nor publish values it read before one of them changed .env.
   local setup_state_root="$STATE_ROOT" env_snapshot=""
@@ -700,6 +706,7 @@ cmd_setup() {
     keep_http_port=$(sed -n 's/^HTTP_PORT=//p' .env | head -1 | tr -d "'\"")
     keep_internal_port=$(sed -n 's/^INTERNAL_PORT=//p' .env | head -1 | tr -d "'\"")
     keep_grafana_port=$(sed -n 's/^GRAFANA_PORT=//p' .env | head -1 | tr -d "'\"")
+    keep_subnet=$(sed -n 's/^CHRONICLE_SUBNET=//p' .env | head -1 | tr -d "'\"")
     # Compose keys the database volume off this name: a rerun must keep the deployment's own.
     keep_project=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' .env | head -1 | tr -d "'\"")
     [[ "$keep_project" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || keep_project=""
@@ -914,6 +921,17 @@ cmd_setup() {
       die "'$project' is also taken by another deployment — choose a name nothing else uses"
   fi
 
+  # Never move an existing deployment's network during setup, even if it now overlaps.
+  local default_subnet subnet
+  default_subnet=$(sed -n 's/^CHRONICLE_SUBNET=//p' .env.example | head -1 | tr -d "'\"")
+  subnet="${keep_subnet:-$default_subnet}"
+  if [[ -z "$env_snapshot" ]]; then
+    subnet=$(python3 ./network-subnet.py select "$default_subnet" "$project") ||
+      die "could not select a free CHRONICLE_SUBNET"
+    [[ "$subnet" == "$default_subnet" ]] ||
+      printf 'Docker network range %s is free; using that for CHRONICLE_SUBNET.\n' "$subnet"
+  fi
+
   # Only after the explicit opt-in may setup inspect, reuse, or generate a deployment-wide
   # compatibility key. The normal public-client path never creates one.
   if [[ "$legacy_mobile_enabled" == true && -z "$keep_mob" ]]; then
@@ -1011,7 +1029,7 @@ cmd_setup() {
       "$keep_mob_previous" "$grafana_bind" "$metrics_retention" "$logs_retention" \
       "$project" "$http_port" "$internal_port" "$keep_reviewer_enabled" \
       "$keep_reviewer_secret" "$keep_reviewer_study" "$keep_reviewer_participant" \
-      "$keep_public_base_url" "$local_https_port" "$local_http_port" "$grafana_port" \
+      "$keep_public_base_url" "$local_https_port" "$local_http_port" "$grafana_port" "$subnet" \
     | python3 /dev/fd/3 3<<'PY'
 import os
 import re
@@ -1021,14 +1039,14 @@ import tempfile
 raw = sys.stdin.buffer.read().split(b"\0")
 if raw and raw[-1] == b"":
     raw.pop()
-if len(raw) != 32:
-    raise SystemExit(f"expected 32 setup values, received {len(raw)}")
+if len(raw) != 33:
+    raise SystemExit(f"expected 33 setup values, received {len(raw)}")
 (domain, compose_file, exposure, internal_bind, testing_login, pg, mob, mob_enabled,
  mob_required, jwt, metrics,
  dash_hash, http_bind, require_mfa, internal_web, state_dir, grafana, mob_previous,
  grafana_bind, metrics_retention, logs_retention, project, http_port,
  internal_port, reviewer_enabled, reviewer_secret, reviewer_study,
- reviewer_participant, public_base_url, local_https_port, local_http_port, grafana_port) = [
+ reviewer_participant, public_base_url, local_https_port, local_http_port, grafana_port, subnet) = [
     value.decode("utf-8") for value in raw
 ]
 s = open('.env.example', encoding='utf-8').read()
@@ -1042,6 +1060,7 @@ def fmt(k, v):
     return f"'{v}'" if k == 'DASHBOARD_PASSWORD_HASH' and v else v
 for k, v in [('DOMAIN', domain), ('COMPOSE_FILE', compose_file), ('HTTP_BIND', http_bind),
              ('COMPOSE_PROJECT_NAME', project),
+             ('CHRONICLE_SUBNET', subnet),
              ('HTTP_PORT', http_port), ('INTERNAL_PORT', internal_port),
              ('CHRONICLE_STATE_DIR', state_dir),
              ('INTERNAL_BIND', internal_bind),

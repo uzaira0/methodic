@@ -153,6 +153,9 @@ Server, dashboard and Android build 68 (Play internal, open flavor).
 
 ### Self-host
 
+- Fresh setup picks a free private Docker subnet when the default range is taken on the host,
+  and keeps the existing one on reruns. `up` and `upgrade` name an overlapping Docker network
+  before creating anything, instead of failing inside Compose with "Pool overlaps".
 - The public listener accepts researcher keys only for read-only Time Use Diary `/data` and
   `/participants/data`, and questionnaire `/data` downloads. These routes require `X-Api-Key`;
   dashboard bearer tokens and cookies do not pass the public boundary. Other researcher routes
