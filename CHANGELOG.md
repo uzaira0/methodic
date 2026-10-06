@@ -191,6 +191,15 @@ Server, dashboard and Android build 68 (Play internal, open flavor).
   and preprocessing responses retain their security headers. Shipped documentation describes
   always-recorded device/enrollment metadata, the external preprocessing fallback and archive
   release identities for support reports.
+- Third-party images updated: Percona PostgreSQL 18.6.1-3 (same PostgreSQL 18.6 and pg_tde 2.2),
+  Grafana 13.2.3, VictoriaMetrics 1.153.0, VictoriaLogs 1.53.0, cAdvisor 0.60.6,
+  docker-socket-proxy 0.5.0, fluent-bit 5.1.3, Keycloak 26.8.0.
+- Backups run on `chronicle-selfhost-backup`, the same backup scripts rebuilt from upstream
+  source on the pinned Percona image; the previous backup image is no longer maintained upstream.
+  Schedules, rotation folders and dump format are unchanged.
+- Upgrades from 2026.10.3 now recreate the Compose network for `CHRONICLE_SUBNET`, keep the
+  metrics exporter and Caddy volume helper startable after a rollback, and stop before touching
+  the running release if the subnet is taken.
 
 ## [2026.10.3]
 
