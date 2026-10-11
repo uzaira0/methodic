@@ -40,7 +40,9 @@ if not isinstance(runtime, dict) or not runtime:
 for name, image in runtime.items():
     if not isinstance(image, str) or not re.fullmatch(r"[^\s@]+@sha256:[0-9a-f]{64}", image):
         raise SystemExit(f"error: selfhost_images.{name} must be an immutable name@sha256 reference")
-    images.add(image)
+    # The release builds, scans and pins its own backup image; this entry is the previous release's.
+    if name != "backup":
+        images.add(image)
 
 for image in sorted(images):
     print(image)

@@ -448,7 +448,7 @@ def check_w67() -> None:
         f'{manifest[section]["image"]}@{manifest[section]["index_digest"]}'
         for section in ("postgres", "keycloak_postgres")
     }
-    expected.update(manifest["selfhost_images"].values())
+    expected.update(image for name, image in manifest["selfhost_images"].items() if name != "backup")
     assert expected and all(re.fullmatch(r"[^\s@]+@sha256:[0-9a-f]{64}", image) for image in expected)
 
     publisher = read("scripts/publish-images.sh")
