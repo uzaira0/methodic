@@ -128,6 +128,7 @@ services:
   # One-shot container for running tctl/temporal CLI commands.
   # Usage: docker compose exec temporal-admin temporal workflow list
   temporal-admin:
+    security_opt: ["no-new-privileges:true"]
     image: temporalio/admin-tools:1.25.2@sha256:${TEMPORAL_ADMIN_TOOLS_IMAGE_DIGEST:?Set TEMPORAL_ADMIN_TOOLS_IMAGE_DIGEST to the owner-approved SHA-256 digest}
     container_name: chronicle-temporal-admin
     restart: "no"

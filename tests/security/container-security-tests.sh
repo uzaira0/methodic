@@ -33,6 +33,7 @@ info() { echo -e "  \033[0;36m[INFO]\033[0m $*"; }
 # Discover containers belonging to the chronicle compose project
 # ---------------------------------------------------------------------------
 COMPOSE_PROJECT="${COMPOSE_PROJECT:-chronicle}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 
 mapfile -t CONTAINERS < <(
   docker ps --filter "label=com.docker.compose.project=${COMPOSE_PROJECT}" \
@@ -53,8 +54,9 @@ echo ""
 # Pre-fetch all container inspect data in a single docker call
 # (replaces N*8 individual docker inspect calls with one batch call)
 _INSPECT_JSON=$(docker inspect "${CONTAINERS[@]}" 2>/dev/null || echo "[]")
-eval "$(echo "$_INSPECT_JSON" | python3 -c "
+eval "$(echo "$_INSPECT_JSON" | PYTHONPATH="$ROOT_DIR/selfhost" python3 -c "
 import json, sys, shlex
+from chronicle_ops.common import WRITABLE_ROOT_REASON_LABEL
 data = json.load(sys.stdin)
 for c in data:
     name = c.get('Name','').lstrip('/')
@@ -63,6 +65,7 @@ for c in data:
     cap_add = ' '.join(c.get('HostConfig',{}).get('CapAdd') or [])
     sec_opts = ' '.join(c.get('HostConfig',{}).get('SecurityOpt') or [])
     readonly_rootfs = str(c.get('HostConfig',{}).get('ReadonlyRootfs', False)).lower()
+    writable_reason = (c.get('Config', {}).get('Labels') or {}).get(WRITABLE_ROOT_REASON_LABEL, '')
     pid_mode = c.get('HostConfig',{}).get('PidMode','')
     net_mode = c.get('HostConfig',{}).get('NetworkMode','')
     mem = c.get('HostConfig',{}).get('Memory', 0) or 0
@@ -75,6 +78,7 @@ for c in data:
     print(f'declare -- _capadd_{safe}={shlex.quote(cap_add)}')
     print(f'declare -- _secopt_{safe}={shlex.quote(sec_opts)}')
     print(f'declare -- _readonly_{safe}={shlex.quote(readonly_rootfs)}')
+    print(f'declare -- _writable_reason_{safe}={shlex.quote(writable_reason)}')
     print(f'declare -- _pidmode_{safe}={shlex.quote(pid_mode)}')
     print(f'declare -- _netmode_{safe}={shlex.quote(net_mode)}')
     print(f'declare -- _mem_{safe}={shlex.quote(str(mem))}')
@@ -212,7 +216,12 @@ for container in "${CONTAINERS[@]}"; do
   if [ "$readonly_rootfs" = "true" ]; then
     pass "$container — read-only root filesystem"
   else
-    info "$container — root filesystem is writable (consider enabling ReadonlyRootfs)"
+    reason=$(_cget writable_reason "$container")
+    if [[ -n "${reason//[[:space:]]/}" ]]; then
+      warn "$container — writable root exemption: $reason"
+    else
+      fail "$container — root filesystem is writable without a justified exemption"
+    fi
   fi
 done
 

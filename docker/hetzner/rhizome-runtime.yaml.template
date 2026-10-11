@@ -1,4 +1,4 @@
-enable-persistence: false
+enable-persistence: true
 session-clustering-enabled: false
 
 hazelcast:

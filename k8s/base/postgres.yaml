@@ -20,6 +20,10 @@ kind: StatefulSet
 metadata:
   name: postgres
   namespace: chronicle
+  annotations:
+    checkov.io/skip1: "CKV_K8S_40=The Percona image and database volumes use postgres UID 26; raising it requires a database storage ownership migration."
+    checkov.io/skip2: "CKV_K8S_35=The PostgreSQL and pg_tde bootstrap scripts consume environment secrets; moving to files requires changing the initialization contract."
+    checkov.io/skip3: "CKV_K8S_22=The Percona entrypoint writes socket and temporary bootstrap files outside the PVCs; a read-only root requires additional writable mounts."
   labels:
     app.kubernetes.io/name: chronicle-postgres
     app.kubernetes.io/part-of: chronicle

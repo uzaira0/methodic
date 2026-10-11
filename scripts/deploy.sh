@@ -640,24 +640,9 @@ rollback_deployment() {
     return 1
   fi
 
-  local prev_tag
-  prev_tag="$(cat "${STATE_DIR}/previous-tag")"
-  local prev_backend
-  prev_backend="$(cat "${STATE_DIR}/previous-backend-image" 2>/dev/null || echo "${BACKEND_IMAGE}")"
-  local prev_frontend
-  prev_frontend="$(cat "${STATE_DIR}/previous-frontend-image" 2>/dev/null || echo "${FRONTEND_IMAGE}")"
-  local prev_backend_digest
-  prev_backend_digest="$(cat "${STATE_DIR}/previous-backend-digest" 2>/dev/null || true)"
-  local prev_frontend_digest
-  prev_frontend_digest="$(cat "${STATE_DIR}/previous-frontend-digest" 2>/dev/null || true)"
+  load_rollback_state
+  log_info "Rolling back to: tag=${IMAGE_TAG}"
 
-  log_info "Rolling back to: tag=${prev_tag}"
-
-  IMAGE_TAG="${prev_tag}"
-  BACKEND_IMAGE="${prev_backend}"
-  FRONTEND_IMAGE="${prev_frontend}"
-  BACKEND_DIGEST="${prev_backend_digest}"
-  FRONTEND_DIGEST="${prev_frontend_digest}"
   pull_images
   export IMAGE_TAG BACKEND_IMAGE FRONTEND_IMAGE BACKEND_DIGEST FRONTEND_DIGEST
 
@@ -665,20 +650,20 @@ rollback_deployment() {
 
   if wait_for_healthy "backend" "http://127.0.0.1:40320/chronicle/internal/health/ready" "${BACKEND_HEALTH_TIMEOUT}" && \
      wait_for_healthy "frontend" "http://127.0.0.1:8080/health" "${FRONTEND_HEALTH_TIMEOUT}"; then
-    log_audit "ROLLBACK_COMPLETE environment=${ENVIRONMENT} restored_tag=${prev_tag}"
-    log_info "Rollback successful. Restored tag: ${prev_tag}"
+    log_audit "ROLLBACK_COMPLETE environment=${ENVIRONMENT} restored_tag=${IMAGE_TAG}"
+    log_info "Rollback successful. Restored tag: ${IMAGE_TAG}"
 
     # Update current state to reflect rollback
-    echo "${prev_tag}" > "${STATE_DIR}/current-tag"
-    echo "${prev_backend}" > "${STATE_DIR}/current-backend-image"
-    echo "${prev_frontend}" > "${STATE_DIR}/current-frontend-image"
+    echo "${IMAGE_TAG}" > "${STATE_DIR}/current-tag"
+    echo "${BACKEND_IMAGE}" > "${STATE_DIR}/current-backend-image"
+    echo "${FRONTEND_IMAGE}" > "${STATE_DIR}/current-frontend-image"
     echo "${BACKEND_DIGEST}" > "${STATE_DIR}/current-backend-digest"
     echo "${FRONTEND_DIGEST}" > "${STATE_DIR}/current-frontend-digest"
   else
     log_error "ROLLBACK FAILED. Manual intervention required!"
     log_error "Container logs:"
     compose_cmd logs --tail=50 chronicle-backend chronicle-frontend 2>&1 | tail -100
-    log_audit "ROLLBACK_FAILED environment=${ENVIRONMENT} attempted_tag=${prev_tag}"
+    log_audit "ROLLBACK_FAILED environment=${ENVIRONMENT} attempted_tag=${IMAGE_TAG}"
     return 1
   fi
 }

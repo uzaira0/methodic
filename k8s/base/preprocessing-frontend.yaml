@@ -30,6 +30,8 @@ kind: Deployment
 metadata:
   name: chronicle-preprocessing-frontend
   namespace: chronicle
+  annotations:
+    checkov.io/skip1: "CKV_K8S_40=Stock nginx UID 101 owns its runtime paths; raising the UID requires an image and filesystem ownership migration."
   labels:
     app.kubernetes.io/name: chronicle-preprocessing-frontend
     app.kubernetes.io/part-of: chronicle

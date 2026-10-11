@@ -9,7 +9,7 @@ metadataTest:
   workdir: "/server"
   labels:
     - key: "org.opencontainers.image.source"
-      value: "https://github.com/uzaira0/chronicle"
+      value: "https://github.com/uzaira0/methodic"
     - key: "org.opencontainers.image.vendor"
       value: "Chronicle Project"
   envVars:
@@ -55,6 +55,14 @@ fileExistenceTests:
     shouldExist: false
 
 fileContentTests:
+  - name: "server GPL license is shipped"
+    path: "/usr/share/doc/chronicle/chronicle-server-LICENSE"
+    expectedContents: ["GNU GENERAL PUBLIC LICENSE"]
+
+  - name: "corresponding source is referenced"
+    path: "/usr/share/doc/chronicle/SOURCE-CODE"
+    expectedContents: ["https://github.com/uzaira0/methodic/tree/"]
+
   - name: "launch script references chronicle-server main class"
     path: "/server/bin/chronicle-server"
     expectedContents: ["chronicle"]

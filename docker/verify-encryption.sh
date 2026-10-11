@@ -171,19 +171,16 @@ echo ""
 # Check 7: Public application tables encryption status
 echo "7. Checking public application tables encryption..."
 echo ""
-ALL_ENCRYPTED=true
 discover_sensitive_tables
 
 if [ "${#SENSITIVE_TABLES[@]}" -eq 0 ]; then
     print_status "  public application tables" "FAIL" "no public tables found; table discovery failed or migrations have not run"
-    ALL_ENCRYPTED=false
 fi
 
 for TABLE in "${SENSITIVE_TABLES[@]}"; do
     TABLE_EXISTS=$(run_psql "SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname = '$TABLE' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public'));")
     if [ "$TABLE_EXISTS" != "t" ]; then
         print_status "  $TABLE" "WARN" "table does not exist"
-        ALL_ENCRYPTED=false
         continue
     fi
 
@@ -192,7 +189,6 @@ for TABLE in "${SENSITIVE_TABLES[@]}"; do
         print_status "  $TABLE" "PASS" "tde_heap"
     else
         print_status "  $TABLE" "FAIL" "access method: $CURRENT_AM (expected: tde_heap)"
-        ALL_ENCRYPTED=false
     fi
 done
 

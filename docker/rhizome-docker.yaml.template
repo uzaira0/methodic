@@ -1,10 +1,8 @@
-enable-persistence: false
-session-clustering-enabled: false
+enable-persistence: true
 
 hazelcast:
   server: true
   group: "chronicle-prod"
-  password: "${HAZELCAST_SERVER_PASSWORD}"
   cp-member-count: 0
   seed-nodes:
     - "localhost"
@@ -14,7 +12,6 @@ hazelcast-clients:
   IDS:
     server: false
     group: "chronicle-prod"
-    password: "${HAZELCAST_CLIENT_PASSWORD}"
     cp-member-count: 0
     seed-nodes:
       - "127.0.0.1:5710"

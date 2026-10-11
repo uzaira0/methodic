@@ -25,7 +25,6 @@ fi
 
 DB_USER="${POSTGRES_USER:-chronicle}"
 DB_NAME="${POSTGRES_DB:-chronicle}"
-DB_PASS="${POSTGRES_PASSWORD:-chronicle}"
 
 echo "============================================"
 echo "Chronicle RLS Test Suite"

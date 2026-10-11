@@ -60,6 +60,9 @@ kind: StatefulSet
 metadata:
   name: keycloak-postgres
   namespace: chronicle
+  annotations:
+    checkov.io/skip1: "CKV_K8S_40=The Alpine PostgreSQL image and existing data volume use postgres UID 70; raising it requires a storage ownership migration."
+    checkov.io/skip2: "CKV_K8S_35=The PostgreSQL bootstrap script validates POSTGRES_PASSWORD from the environment before invoking the upstream entrypoint."
   labels:
     app.kubernetes.io/name: keycloak-postgres
     app.kubernetes.io/part-of: chronicle
@@ -183,6 +186,9 @@ kind: Deployment
 metadata:
   name: keycloak
   namespace: chronicle
+  annotations:
+    checkov.io/skip1: "CKV_K8S_40=The Keycloak image and writable runtime mounts use UID 1000; raising it requires changing image and volume ownership."
+    checkov.io/skip2: "CKV_K8S_35=The Keycloak bootstrap script and KC_DB_PASSWORD consume environment secrets; file-based handoff requires changing bootstrap logic."
   labels:
     app.kubernetes.io/name: keycloak
     app.kubernetes.io/part-of: chronicle

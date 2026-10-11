@@ -99,6 +99,7 @@ RUN apk upgrade --no-cache && \
     chown -R chronicle:chronicle /var/log/chronicle /var/lib/chronicle
 
 COPY LICENSE /usr/share/doc/chronicle/LICENSE
+COPY chronicle-server/LICENSE /usr/share/doc/chronicle/chronicle-server-LICENSE
 RUN printf 'Corresponding Chronicle source: https://github.com/uzaira0/methodic/tree/%s\n' "$SOURCE_REF" \
     > /usr/share/doc/chronicle/SOURCE-CODE
 

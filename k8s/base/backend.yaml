@@ -19,6 +19,9 @@ kind: Deployment
 metadata:
   name: chronicle-backend
   namespace: chronicle
+  annotations:
+    checkov.io/skip1: "CKV_K8S_40=UID and fsGroup 1000 are the existing backend storage ownership contract; raising them requires a volume ownership migration."
+    checkov.io/skip2: "CKV_K8S_35=The backend entrypoint consumes these secrets as environment variables to render configuration; file-based handoff requires an entrypoint change."
   labels:
     app.kubernetes.io/name: chronicle-backend
     app.kubernetes.io/part-of: chronicle

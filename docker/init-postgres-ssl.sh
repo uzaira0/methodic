@@ -53,7 +53,6 @@ CLIENT_CN="${SSL_CLIENT_CN:-chronicle-backend}"
 
 # Key sizes
 KEY_SIZE=4096
-EC_CURVE="secp384r1"  # For ECDSA keys (alternative to RSA)
 
 echo_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -259,7 +258,7 @@ EOF
         -name "chronicle-client" \
         -CAfile "${CA_DIR}/ca.crt" \
         -caname "Chronicle CA" \
-        -password pass:$(cat "${CLIENT_DIR}/p12-password" 2>/dev/null || openssl rand -hex 24 | tee "${CLIENT_DIR}/p12-password")
+        -password "pass:$(cat "${CLIENT_DIR}/p12-password" 2>/dev/null || openssl rand -hex 24 | tee "${CLIENT_DIR}/p12-password")"
 
     chmod 600 "${CLIENT_DIR}/client.p12"
 
@@ -378,7 +377,8 @@ verify_ssl() {
     echo_info "Checking file permissions..."
 
     if [[ -f "${SERVER_DIR}/server.key" ]]; then
-        local perms=$(stat -c "%a" "${SERVER_DIR}/server.key" 2>/dev/null || stat -f "%OLp" "${SERVER_DIR}/server.key")
+        local perms
+        perms=$(stat -c "%a" "${SERVER_DIR}/server.key" 2>/dev/null || stat -f "%OLp" "${SERVER_DIR}/server.key")
         if [[ "$perms" == "600" ]]; then
             echo_info "Server key permissions: OK (600)"
         else

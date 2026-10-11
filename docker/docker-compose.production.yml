@@ -12,6 +12,7 @@ services:
 
   # Override backend to use pre-built ghcr.io image instead of local build
   chronicle-backend:
+    security_opt: ["no-new-privileges:true"]
     build: !reset null
     image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE to the backend registry path}@sha256:${BACKEND_DIGEST:?deploy.sh resolves the pulled tag to its immutable digest}
     # Production JVM tuning
@@ -53,6 +54,12 @@ services:
 
   # Override frontend to use pre-built ghcr.io image instead of local build
   chronicle-frontend:
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     build: !reset null
     image: ${FRONTEND_IMAGE:?Set FRONTEND_IMAGE to the frontend registry path}@sha256:${FRONTEND_DIGEST:?deploy.sh resolves the pulled tag to its immutable digest}
     deploy:
@@ -76,6 +83,12 @@ services:
 
   # Production PostgreSQL tuning
   postgres:
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 10s
+      timeout: 5s
+      retries: 5
     deploy:
       resources:
         limits:
@@ -97,6 +110,12 @@ services:
 
   # Production Traefik tuning
   traefik:
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     deploy:
       resources:
         limits:
@@ -113,6 +132,13 @@ services:
 
   # Production monitoring tuning
   victoria-metrics:
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      disable: false
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8428/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     deploy:
       resources:
         limits:
@@ -128,6 +154,13 @@ services:
         tag: "chronicle-victoria-metrics"
 
   grafana:
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     logging:
       driver: json-file
       options:
@@ -136,6 +169,7 @@ services:
         tag: "chronicle-grafana"
 
   victoria-logs:
+    security_opt: ["no-new-privileges:true"]
     deploy:
       resources:
         limits:

@@ -225,7 +225,8 @@ fi
 # Ensure we have a token
 if [ -z "${VAULT_TOKEN:-}" ]; then
     if [ -f "${OUTPUT_DIR}/root-token.txt" ]; then
-        export VAULT_TOKEN=$(cat "${OUTPUT_DIR}/root-token.txt")
+        VAULT_TOKEN=$(cat "${OUTPUT_DIR}/root-token.txt")
+        export VAULT_TOKEN
     else
         log_err "VAULT_TOKEN is not set. Export it or provide root-token.txt."
         exit 1

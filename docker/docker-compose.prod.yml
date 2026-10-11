@@ -18,6 +18,8 @@ services:
   # Uses Percona Distribution for PostgreSQL with pg_tde extension for HIPAA/GDPR compliance
   # SSL/TLS encryption in transit protects data between application and database
   postgres:
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 2g
     profiles: ["legacy-standalone"]
     image: percona/percona-distribution-postgresql:18.6.1-3@sha256:cf1ef553805898b73764a19276bf2fc9f78148a0215761ad7491c37c3ed31327
     container_name: chronicle-postgres
@@ -79,6 +81,14 @@ services:
 
   # Chronicle Backend API
   backend:
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 3g
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:40320/chronicle/internal/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     profiles: ["legacy-standalone"]
     build:
       context: ..
@@ -158,6 +168,13 @@ services:
 
   # Chronicle Frontend (production build)
   frontend:
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     profiles: ["legacy-standalone"]
     build:
       context: ..
@@ -171,6 +188,13 @@ services:
 
   # Nginx Reverse Proxy with SSL
   nginx:
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "--no-check-certificate", "https://127.0.0.1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     profiles: ["legacy-standalone"]
     image: nginx:alpine@sha256:62ff2089abf5a9ed33bd232895bef5e22f7bb4b200675cec49a5ebc48e3d4ac8
     container_name: chronicle-nginx

@@ -40,6 +40,12 @@ services:
 
   # Promtail - Log shipper
   promtail:
+    # Ubuntu provides Bash; its built-ins probe readiness without curl or wget.
+    healthcheck:
+      test: ["CMD", "/bin/bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/9080; printf 'GET /ready HTTP/1.0\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     image: grafana/promtail:3.6.7@sha256:${PROMTAIL_IMAGE_DIGEST:?Set PROMTAIL_IMAGE_DIGEST to the owner-approved SHA-256 digest}
     container_name: chronicle-promtail
     restart: unless-stopped
@@ -66,6 +72,11 @@ services:
 
   # Grafana - Visualization & Alerting
   grafana:
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     image: grafana/grafana:13.2.3@sha256:b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572
     container_name: chronicle-grafana
     restart: unless-stopped

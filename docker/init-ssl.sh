@@ -13,7 +13,10 @@ WEBROOT_DIR="$SCRIPT_DIR/certbot-webroot"
 
 # Load environment variables
 if [ -f "$SCRIPT_DIR/.env" ]; then
-    export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
+    set -a
+    # shellcheck disable=SC1091
+    source "$SCRIPT_DIR/.env"
+    set +a
 fi
 
 # Check required variables
@@ -122,7 +125,7 @@ case "${1:-}" in
         echo "  2) Let's Encrypt (free, trusted, requires domain pointing to this server)"
         echo "  3) Exit (I'll provide my own certificates)"
         echo ""
-        read -p "Selection [1-3]: " choice
+        read -rp "Selection [1-3]: " choice
 
         case $choice in
             1)

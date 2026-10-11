@@ -14,7 +14,10 @@ WEBROOT_DIR="$SCRIPT_DIR/certbot-webroot"
 
 # Load environment variables
 if [ -f "$SCRIPT_DIR/.env" ]; then
-    export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
+    set -a
+    # shellcheck disable=SC1091
+    source "$SCRIPT_DIR/.env"
+    set +a
 fi
 
 echo "[$(date)] Starting certificate renewal check..."
