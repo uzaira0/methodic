@@ -107,7 +107,15 @@ deployment_image() {
 
 printf 'Chronicle rollback smoke\n'
 
-"$ROOT_DIR/scripts/chronicle-post-deploy-smoke.sh" "$@"
+arguments=("$@")
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --namespace) KUBE_NAMESPACE="${2:?--namespace requires a value}"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+CHRONICLE_KUBE_NAMESPACE="$KUBE_NAMESPACE" "$ROOT_DIR/scripts/chronicle-post-deploy-smoke.sh" "${arguments[@]}"
 
 validate_expected_image_ref "backend" "$EXPECTED_BACKEND_IMAGE" || true
 validate_expected_image_ref "frontend" "$EXPECTED_FRONTEND_IMAGE" || true

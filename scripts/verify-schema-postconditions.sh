@@ -56,7 +56,7 @@ psql_scalar() {
       IFS= read -r PGPASSWORD
       IFS= read -r query
       export PGPASSWORD
-      exec psql -h 127.0.0.1 -U "$1" -d "$2" -Atc "$query"
+      exec psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$1" -d "$2" -Atc "$query"
     ' chronicle-schema-verifier "${PGUSER}" "${PGDB}"
 }
 
@@ -179,6 +179,23 @@ PLAIN="$(psql_scalar "SELECT count(*) FROM pg_class c JOIN pg_am a ON c.relam=a.
 FLYWAY_AM="$(psql_scalar "SELECT a.amname FROM pg_class c JOIN pg_am a ON c.relam=a.oid WHERE c.relname='flyway_schema_history'")"
 [[ "${FLYWAY_AM:-missing}" == "tde_heap" ]] && ok "flyway_schema_history on tde_heap" || echo "  note: flyway_schema_history am=${FLYWAY_AM:-n/a} (run docker/migrate-tde.sh after first migrate)"
 fi
+
+echo "== 6. Foreign-key indexes =="
+MISSING_FK_INDEXES="$(psql_scalar "SELECT COALESCE(string_agg(c.conrelid::regclass::text || '.' || c.conname, ', ' ORDER BY c.conrelid::regclass::text, c.conname), '') FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE c.contype='f' AND n.nspname='public' AND NOT EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid=c.conrelid AND i.indisvalid AND i.indisready AND i.indpred IS NULL AND i.indexprs IS NULL AND i.indnkeyatts >= cardinality(c.conkey) AND (i.indkey::smallint[])[0:cardinality(c.conkey)-1] @> c.conkey)")"
+[[ -z "$MISSING_FK_INDEXES" ]] && ok "all foreign keys have usable leading-column indexes" || fail "foreign keys without indexes: $MISSING_FK_INDEXES"
+
+echo "== 7. Query statistics and representative plans =="
+EVIDENCE_DIR="${CHRONICLE_SCHEMA_EVIDENCE_DIR:-${PROJECT_ROOT}/build/schema-evidence}"
+umask 077
+mkdir -p "$EVIDENCE_DIR"
+if [[ "$(psql_scalar "SELECT to_regclass('public.pg_stat_statements') IS NOT NULL")" == t ]]; then
+  psql_scalar "SELECT queryid, calls, round((total_exec_time / NULLIF(calls,0))::numeric,3) AS mean_ms, rows, shared_blks_hit, shared_blks_read FROM pg_stat_statements WHERE dbid=(SELECT oid FROM pg_database WHERE datname=current_database()) ORDER BY total_exec_time DESC LIMIT 20" >"$EVIDENCE_DIR/query-statistics.tsv"
+  ok "normalized query fingerprints/statistics recorded without SQL text"
+else
+  fail "pg_stat_statements is missing; enable its preload and migration-owned extension"
+fi
+psql_scalar "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) SELECT participant_id FROM public.study_participants WHERE study_id=(SELECT study_id FROM public.studies ORDER BY study_id LIMIT 1) ORDER BY participant_id LIMIT 20" >"$EVIDENCE_DIR/study-participants-plan.json"
+ok "bounded participant-list EXPLAIN ANALYZE recorded at $EVIDENCE_DIR"
 
 echo
 if [[ "${FAILURES}" -gt 0 ]]; then

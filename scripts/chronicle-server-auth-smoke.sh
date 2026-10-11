@@ -16,6 +16,10 @@ if [[ -z "$JAVA_BIN" && -x "${HOME}/.local/jdks/temurin-21/bin/java" ]]; then
   JAVA_BIN="${HOME}/.local/jdks/temurin-21/bin/java"
 fi
 
+if [[ -z "$JAVA_BIN" ]] && command -v java >/dev/null 2>&1; then
+  JAVA_BIN="$(command -v java)"
+fi
+
 if [[ -z "$JAVA_BIN" ]] && ! command -v java >/dev/null 2>&1; then
   if command -v docker >/dev/null 2>&1; then
     echo "chronicle-server auth smoke will run in docker via eclipse-temurin:21-jdk."
@@ -26,6 +30,7 @@ if [[ -z "$JAVA_BIN" ]] && ! command -v java >/dev/null 2>&1; then
 fi
 
 if [[ -n "$JAVA_BIN" ]]; then
+  JAVA_BIN="$(readlink -f "$JAVA_BIN" 2>/dev/null || printf '%s' "$JAVA_BIN")"
   export JAVA_HOME="$(cd "$(dirname "$JAVA_BIN")/.." && pwd)"
   export PATH="${JAVA_HOME}/bin:${PATH}"
 fi

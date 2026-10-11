@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ADB_BIN="${ADB:-}"
 SERIAL="${ANDROID_SERIAL:-}"
 PACKAGE="${CHRONICLE_ANDROID_PACKAGE:-com.bcm.chronicle.debug}"
-STUDY_ID="${CHRONICLE_STUDY_ID:?Set CHRONICLE_STUDY_ID to the enrolled study UUID}"
+STUDY_ID="${CHRONICLE_STUDY_ID:-}"
 PARTICIPANT_ID="${CHRONICLE_PARTICIPANT_ID:-}"
 DURATION_SECONDS="${CHRONICLE_LONG_RUN_SECONDS:-}"
 CYCLE_SECONDS="${CHRONICLE_LONG_RUN_CYCLE_SECONDS:-}"
@@ -63,6 +63,8 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+[[ -n "$STUDY_ID" ]] || { echo "Set CHRONICLE_STUDY_ID or pass --study-id." >&2; exit 1; }
 
 # Profile defaults. An explicit --duration/--cycle always overrides the profile.
 profile_duration=28800

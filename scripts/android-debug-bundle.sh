@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ADB_BIN="${ADB:-}"
 SERIAL="${ANDROID_SERIAL:-}"
 PACKAGE="${CHRONICLE_ANDROID_PACKAGE:-com.bcm.chronicle.debug}"
-STUDY_ID="${CHRONICLE_STUDY_ID:?Set CHRONICLE_STUDY_ID to the enrolled study UUID}"
+STUDY_ID="${CHRONICLE_STUDY_ID:-}"
 PARTICIPANT_ID="${CHRONICLE_PARTICIPANT_ID:-}"
 OUTPUT_DIR="${CHRONICLE_DEBUG_BUNDLE_DIR:-/tmp}"
 INCLUDE_DB_REPORT=1
@@ -41,6 +41,11 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+if [[ "$INCLUDE_DB_REPORT" == 1 && -n "$PARTICIPANT_ID" && -z "$STUDY_ID" ]]; then
+  echo "Set CHRONICLE_STUDY_ID or pass --study-id for the server DB report." >&2
+  exit 1
+fi
 
 if [[ -z "$ADB_BIN" ]]; then
   for candidate in "$HOME/.local/android-sdk/platform-tools/adb" \
