@@ -16,7 +16,7 @@ and `./chronicle verify`; both must pass.
 | Backend/upload/enrollment/export/deletion/database errors | Correlate the Application dashboard time with Operational Logs | Bad requests, incompatible clients, failed background work, database pressure, or a backend defect. | Follow the correlated error ID, correct the cause, and verify the error rate returns to zero. |
 | Repeated restart or OOM | `docker inspect <container>`; compare memory panels to configured limits | Resource limit too small or runaway workload. | Raise the documented service limit only after identifying the pressured service. |
 | Certificate expiry | `openssl s_client -connect "$DOMAIN:443" -servername "$DOMAIN" </dev/null 2>/dev/null \| openssl x509 -noout -dates` | Upstream or local certificate was not renewed. | Replace/renew it and run `./chronicle verify`. |
-| Dashboard sign-in failures | Application dashboard, `chronicle_api_errors_total` for `/v3/auth/dashboard-login` | Password guessing, or one user with a forgotten password. | Restrict `DASHBOARD_ALLOWED_IPS`; run `./chronicle rotate-secret dashboard` if the password may be known. |
+| Dashboard sign-in failures | Chronicle Operational Metrics in Explore: `chronicle_api_errors_total` for POST `/v3/auth/dashboard-login` or `/chronicle/v3/auth/dashboard-login`, status 401 or 429; the alert counts more than 20 in 15 minutes on internal and public exposures. | Password guessing, or one user with a forgotten password; 429 denotes backend rate limiting. | Restrict `DASHBOARD_ALLOWED_IPS` for internal access or the institution's public edge policy; run `./chronicle rotate-secret dashboard` if the password may be known. |
 | Permission or role change | Study audit log at the alert time | An administrator granted or revoked study access. | Confirm the change was expected. If not, revoke it, rotate that administrator's credential, and follow [INCIDENT-RESPONSE.md](INCIDENT-RESPONSE.md). |
 | Operator command failed | Open Operational Events and correlate its timestamp with logs | A setup, check, upgrade, restore, rotation, or shutdown command exited unsuccessfully. | Rerun `./chronicle doctor`, then follow the command-specific runbook printed by the failed command. |
 
@@ -31,6 +31,14 @@ and `./chronicle verify`; both must pass.
 | Disk full | `df -h`; `./chronicle doctor` | Free or add space (never delete volumes), then `./chronicle up`. Postgres does not restart by itself after a failed start. |
 | Migration failed (first install) | `./chronicle logs backend` shows the first Flyway error | Correct the cause it names and run `./chronicle up`. For an upgrade, follow [UPGRADE-ROLLBACK.md](UPGRADE-ROLLBACK.md) "If the command fails". |
 | Upload rejected, clock skew | `timedatectl` shows `System clock synchronized: no` | `sudo timedatectl set-ntp true`; signed requests allow 30 s of skew. |
+
+For **Retention hold review is overdue**, run `./chronicle deletion-status STUDY_UUID`.
+`review_at` is the earliest review deadline among all active holds covering the operation,
+including a hold on an overlapping study or participant erasure; `review_overdue=t` requires action.
+Contact the recorded hold owner and the institution's authorized retention reviewer. Release
+an obsolete hold through the retention-hold API, or document an approved extension and its next
+review deadline. Do not bypass holds in SQL. Verify the alert clears after the server's next
+hold review scan and that any required erasure completes.
 
 Run these commands from the active release's `selfhost/` directory. They read only
 `CHRONICLE_STATE_DIR` from `.env`; a relative value is resolved against that directory, and
@@ -100,6 +108,12 @@ management, since it is overwritten on upgrade.
 
 ## Single-node scale ladder
 
+Configure an off-host uptime probe against the public HTTPS `/health` URL at least every
+minute, with a human notification destination. Test delivery by briefly stopping `web` in
+a maintenance window, confirm the failure notification, restart it and confirm recovery.
+The probe must run outside this host so a host outage can still produce a notification.
+Record the destination owner, probe URL and last delivery test in the operations register.
+
 1. Add disk when free-space, inode, or predicted-growth panels show pressure.
 2. Add RAM when PostgreSQL/backend memory or connection pressure is sustained; add CPU for
    sustained ingestion CPU after confirming disk is not the bottleneck.
@@ -109,3 +123,13 @@ management, since it is overwritten on upgrade.
    sidecar on one host. Use the dashboards as the cutover signal because data volume and
    collection modules dominate capacity. Multiple backend replicas, HA PostgreSQL, or
    multi-node storage require a separate deployment rather than `docker compose up --scale`.
+
+## Service privileges
+
+VictoriaMetrics and VictoriaLogs run as 65534, Fluent Bit as 100, Grafana as 472,
+and the metrics exporter as 10001. The one-shot configuration job owns volume setup.
+The root exceptions are cAdvisor, which reads host cgroups and Docker storage; the
+isolated GET-only socket proxy, which connects to the root-owned Docker socket;
+and the operational probe, which traverses private backup/export directories using
+only DAC_READ_SEARCH. Each keeps a read-only root, dropped capabilities and private
+mounts or networks. Audit the running UIDs and health after an image update.

@@ -164,7 +164,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "increase(container_memory_failures_total{failure_type=\"oom\"}[1h])",
+          "expr": "increase(container_oom_events_total{name!=\"\"}[1h])",
           "datasource": {
             "type": "prometheus",
             "uid": "chronicle-victoriametrics"

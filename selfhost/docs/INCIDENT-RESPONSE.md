@@ -21,10 +21,12 @@ docker compose ps -a >"$case_dir/compose-ps.txt"
 docker compose logs --timestamps --no-color >"$case_dir/compose.log" 2>&1
 # Application and audit log files (the file half of the audit trail)
 docker compose cp backend:/var/log/chronicle "$case_dir/backend-logs"
-# Database audit trail
-docker compose exec -T postgres sh -c \
-  'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\copy (SELECT * FROM audit_logs) TO STDOUT WITH CSV HEADER"' \
-  >"$case_dir/audit_logs.csv"
+# Database audit trail: request events and structured authorization/application events
+for audit_table in audit_logs audit; do
+  docker compose exec -T postgres sh -c \
+    'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\copy (SELECT * FROM public.$1) TO STDOUT WITH CSV HEADER"' \
+    sh "$audit_table" >"$case_dir/$audit_table.csv" || exit 1
+done
 # Operator receipts: setup, upgrade, restore and rotation history
 cp -a operator-receipts "$case_dir/" 2>/dev/null || true
 ls -la --time-style=full-iso . backups backups/last >"$case_dir/file-listing.txt" 2>&1
@@ -46,8 +48,11 @@ Pick the smallest step that stops the exposure:
 - **Shut the dashboard only:** remove the suspect source ranges from
   `DASHBOARD_ALLOWED_IPS` (or set it to `127.0.0.1/32`), or set `INTERNAL_BIND=127.0.0.1`,
   then `./chronicle up`. Mobile ingest keeps working.
-- **Shut the public listener:** remove the route on your load balancer, or stop `web`
-  with `docker compose stop web`.
+- **Shut the public listener:** remove the route on your load balancer, or run
+  `./chronicle reconcile stop` before `docker compose stop web`. This pauses the boot and
+  15-minute reconciliation schedule, which would otherwise restart `web`. The backend
+  remains available for evidence collection. `web` also serves the internal dashboard;
+  `./chronicle up` starts it again and resumes reconciliation when enabled.
 - **Suspected host compromise:** take the host off the network and treat everything on it,
   including `backups/` and the keyring copy, as exposed. Rebuild on a clean host from a
   release bundle and restore from a backup taken before the compromise

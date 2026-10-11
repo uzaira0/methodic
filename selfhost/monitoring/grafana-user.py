@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import ssl
 import sys
 import urllib.error
 import urllib.parse
@@ -25,8 +27,9 @@ base, admin_password, operation, login, viewer_password = (
 )
 if operation not in {"add", "remove", "reset"}:
     fail("unsupported operation")
-if not base.startswith("http://") and not base.startswith("https://"):
-    fail("Grafana URL must be HTTP or HTTPS")
+if not base.startswith("https://"):
+    fail("Grafana URL must be HTTPS")
+context = ssl.create_default_context(cafile=os.environ["GRAFANA_CA_FILE"])
 
 authorization = base64.b64encode(f"admin:{admin_password}".encode()).decode()
 
@@ -43,7 +46,7 @@ def request(method: str, path: str, payload: dict | None = None, expected=(200,)
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=10) as response:
+        with urllib.request.urlopen(req, timeout=10, context=context) as response:
             content = response.read()
             if response.status not in expected:
                 fail(f"Grafana returned HTTP {response.status}")

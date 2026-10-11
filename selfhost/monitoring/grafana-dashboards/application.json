@@ -299,7 +299,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(chronicle_participant_form_access_total{outcome!=\"success\"}[5m])) by (form_kind,outcome)",
+          "expr": "sum(rate(chronicle_participant_form_access_total{outcome=\"rejected\"}[5m])) by (form_kind,outcome)",
           "legendFormat": "{{form_kind}} {{outcome}}",
           "refId": "A"
         }

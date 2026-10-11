@@ -25,10 +25,15 @@ source "$(dirname "${BASH_SOURCE[0]}")/../network-policy.sh" || exit 1
 specific_private_bind "$GRAFANA_BIND" || fail "Grafana must bind one specific private or loopback IP"
 
 mkdir -p /monitoring-secrets /monitoring-config /metrics
+chown -R 65534:65534 /vmdata /vldata
+chown -R 100:101 /fluent-bit/state
 umask 077
 temporary="/monitoring-secrets/.metrics-password.$$"
 printf '%s' "$METRICS_PASSWORD" >"$temporary"
 mv -f "$temporary" /monitoring-secrets/metrics-password
+chown 65534:65534 /monitoring-secrets /monitoring-secrets/metrics-password
+cp /backend-tls/backend.crt /monitoring-config/backend.crt
+chmod 0644 /monitoring-config/backend.crt
 config_tmp="/monitoring-config/.scrape.yml.$$"
 cat >"$config_tmp" <<EOF
 global:
@@ -37,15 +42,20 @@ global:
 
 scrape_configs:
   - job_name: chronicle-backend
+    scheme: https
+    tls_config:
+      ca_file: /etc/vm/backend.crt
+      server_name: backend
     metrics_path: /prometheus/
     basic_auth:
       username: ${METRICS_USERNAME}
       password_file: /run/secrets/chronicle-metrics/metrics-password
     static_configs:
-      - targets: ["backend:40320"]
+      - targets: ["web:9091"]
     metric_relabel_configs:
+      # Dashboard-login refusals use the API error counter; retain endpoint/method/status labels.
       - source_labels: [__name__]
-        regex: 'chronicle_(enrollment_total|upload_total|upload_errors_total|sensor_materialization_runs_total|sensor_materialized_samples_total|sensor_materialization_quarantined_rows_total|sensor_materialization_duration_seconds(_bucket|_count|_sum)?|api_request_duration_seconds(_bucket|_count|_sum)?|api_errors_total|participant_form_access_total|participant_form_submission_total|data_deletion_operations_total|data_deletion_operation_duration_seconds(_bucket|_count|_sum)?|data_deletion_retention_holds_total|data_quality_evaluations_total|data_quality_alerts_total|export_artifact_bytes|export_storage_usable_bytes|export_storage_admission_rejections_total|export_jobs_total|active_requests)'
+        regex: 'chronicle_(api_errors_total|enrollment_total|upload_total|upload_errors_total|sensor_materialization_runs_total|sensor_materialized_samples_total|sensor_materialization_quarantined_rows_total|sensor_materialization_duration_seconds(_bucket|_count|_sum)?|api_request_duration_seconds(_bucket|_count|_sum)?|participant_form_access_total|participant_form_submission_total|data_deletion_operations_total|data_deletion_operation_duration_seconds(_bucket|_count|_sum)?|data_deletion_retention_holds_total|data_quality_evaluations_total|data_quality_alerts_total|export_artifact_bytes|export_storage_usable_bytes|export_storage_admission_rejections_total|export_jobs_total|active_requests|studies_retention_expired|retention_holds_overdue|operator_operation_timestamp_seconds)'
         action: keep
       - regex: '(study_ref|study_id|participant_id|device_id|user_id|source_ip|client_ip|key_name|key_prefix|instance)'
         action: labeldrop

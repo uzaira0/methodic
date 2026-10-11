@@ -1,0 +1,13 @@
+# Monitoring has no route to the application network. Only this scrape path crosses it.
+:9091 {
+	tls /etc/caddy/backend-tls/backend.crt /etc/caddy/backend-tls/backend.key
+	route {
+		@metrics path /prometheus/
+		reverse_proxy @metrics https://backend:8443 {
+			transport http {
+				tls_trust_pool file /etc/caddy/backend-tls/backend.crt
+			}
+		}
+		respond 404
+	}
+}

@@ -46,7 +46,7 @@ function sanitize(tag, timestamp, record)
     timestamp = event_timestamp or os.date("!%Y-%m-%dT%H:%M:%SZ"),
     service = service,
     stream = service == "audit" and "audit" or "operational",
-    severity = source["level"] or source["severity"] or "INFO",
+    severity = string.upper(token(source["level"] or source["severity"] or "INFO", 16)),
     request_id = token(source["requestId"] or source["request_id"], 64),
     error_id = token(source["errorId"] or source["error_id"], 64),
     operation = token(source["operation"] or source["eventType"], 64),
