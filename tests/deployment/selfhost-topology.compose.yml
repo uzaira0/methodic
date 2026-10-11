@@ -1,0 +1,89 @@
+services:
+  lb:
+    image: ${TOPOLOGY_LB_IMAGE:?}
+    user: "${TOPOLOGY_LB_UID:?}:${CHRONICLE_HOST_GID:?}"
+    entrypoint: [/bin/sh, /fixture/start.sh]
+    environment:
+      TOPOLOGY_TRANSPARENT_CLIENTS: ${TOPOLOGY_TRANSPARENT_CLIENTS:-}
+      TOPOLOGY_POOL_ADDRESS: ${TOPOLOGY_POOL_PREFIX:?}.2
+      TOPOLOGY_POOL_ENDPOINT: ${TOPOLOGY_POOL_ENDPOINT:?}
+      TOPOLOGY_MANAGEMENT_ENDPOINT: ${TOPOLOGY_MANAGEMENT_ENDPOINT:?}
+      TOPOLOGY_BODY_LIMIT: ${TOPOLOGY_BODY_LIMIT:-10485760}
+      TOPOLOGY_IDLE_TIMEOUT: ${TOPOLOGY_IDLE_TIMEOUT:-300s}
+      TOPOLOGY_FORWARD_CLIENT: ${TOPOLOGY_FORWARD_CLIENT:-true}
+      TOPOLOGY_REWRITE_HOST: ${TOPOLOGY_REWRITE_HOST:-${TOPOLOGY_PUBLIC_HOST:?}}
+      TOPOLOGY_PUBLIC_PORT: ${TOPOLOGY_PUBLIC_PORT:?}
+      TOPOLOGY_MANAGEMENT_PORT: ${TOPOLOGY_MANAGEMENT_PORT:?}
+    volumes:
+      - ${TOPOLOGY_FIXTURE:?}/lb:/fixture:ro
+    networks:
+      public:
+        ipv4_address: "${TOPOLOGY_PUBLIC_PREFIX:?}.2"
+        aliases: ["${TOPOLOGY_PUBLIC_HOST:?}"]
+      pool:
+        ipv4_address: "${TOPOLOGY_POOL_PREFIX:?}.2"
+      vpn:
+        ipv4_address: "${TOPOLOGY_VPN_PREFIX:?}.2"
+        aliases: ["${TOPOLOGY_MANAGEMENT_HOST:?}"]
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, NET_RAW]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/run, /tmp]
+    mem_limit: 64m
+    pids_limit: 64
+  phone-a: &client
+    image: ${TOPOLOGY_CLIENT_IMAGE:?}
+    user: "${CHRONICLE_HOST_UID:?}:${CHRONICLE_HOST_GID:?}"
+    entrypoint: [/bin/bash]
+    command: [-c, 'sleep infinity']
+    networks:
+      public: {ipv4_address: "${TOPOLOGY_PUBLIC_PREFIX:?}.10"}
+      vpn: {ipv4_address: "${TOPOLOGY_VPN_PREFIX:?}.10"}
+    volumes:
+      - ${TOPOLOGY_FIXTURE:?}/client:/fixture
+      - ./selfhost-client.py:/selfhost-client.py:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    mem_limit: 128m
+    pids_limit: 64
+  phone-b:
+    <<: *client
+    networks:
+      public: {ipv4_address: "${TOPOLOGY_PUBLIC_PREFIX:?}.11"}
+      vpn: {ipv4_address: "${TOPOLOGY_VPN_PREFIX:?}.11"}
+  forbidden:
+    <<: *client
+    networks:
+      peer: {ipv4_address: "${TOPOLOGY_PEER_PREFIX:?}.10"}
+# Each network stands for a routed segment: no NAT, so the stack answers client addresses directly.
+# Docker drops packets to a NAT-mode network's containers arriving from another bridge, replies included.
+networks:
+  public:
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: 'false'
+      com.docker.network.bridge.gateway_mode_ipv4: routed
+      com.docker.network.bridge.name: ${TOPOLOGY_PUBLIC_BRIDGE:?}
+    ipam:
+      config: [{subnet: "${TOPOLOGY_PUBLIC_PREFIX:?}.0/24"}]
+  pool:
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: 'false'
+      com.docker.network.bridge.gateway_mode_ipv4: routed
+      com.docker.network.bridge.name: ${TOPOLOGY_POOL_BRIDGE:?}
+    ipam:
+      config: [{subnet: "${TOPOLOGY_POOL_PREFIX:?}.0/24"}]
+  vpn:
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: 'false'
+      com.docker.network.bridge.gateway_mode_ipv4: routed
+    ipam:
+      config: [{subnet: "${TOPOLOGY_VPN_PREFIX:?}.0/24"}]
+  peer:
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: 'false'
+      com.docker.network.bridge.gateway_mode_ipv4: routed
+    ipam:
+      config: [{subnet: "${TOPOLOGY_PEER_PREFIX:?}.0/24"}]
