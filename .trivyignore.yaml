@@ -2424,3 +2424,199 @@ vulnerabilities:
       gosu shipped in percona/percona-distribution-postgresql:18.6.1-3, built with Go 1.26.7; no
       newer Percona image. HTTP/2, Range and TLS ECH denial of service; gosu only switches user and
       execs, with no networking.
+
+# Unfixed upstream monitoring-image findings reviewed for release 2026.10.9.
+  - id: CVE-2026-88647
+    purls:
+      - "pkg:deb/debian/libgnutls30t64@3.8.9-3%2Bdeb13u4?arch=amd64&distro=debian-13.7"
+    expired_at: 2026-11-30
+    statement: >-
+      GnuTLS in fluent-bit 5.1.3 (newest release); Debian has no fix. Certificate validation flaws
+      in TLS clients; Chronicle fluent-bit makes no TLS connections (forward input on loopback,
+      plain HTTP output to victorialogs).
+  - id: CVE-2026-88648
+    purls:
+      - "pkg:deb/debian/libgnutls30t64@3.8.9-3%2Bdeb13u4?arch=amd64&distro=debian-13.7"
+    expired_at: 2026-11-30
+    statement: >-
+      GnuTLS in fluent-bit 5.1.3 (newest release); Debian has no fix. Certificate validation flaws
+      in TLS clients; Chronicle fluent-bit makes no TLS connections (forward input on loopback,
+      plain HTTP output to victorialogs).
+  - id: CVE-2026-78667
+    paths:
+      - "usr/bin/cadvisor"
+    expired_at: 2026-11-30
+    statement: >-
+      cadvisor v0.60.6 (newest release) built with Go before 1.26.9; HTTP/2, Range and TLS ECH
+      denial of service. Plain HTTP on the monitoring network only (expose, no published port); only
+      the metrics scraper connects.
+  - id: CVE-2026-78669
+    paths:
+      - "usr/bin/cadvisor"
+    expired_at: 2026-11-30
+    statement: >-
+      cadvisor v0.60.6 (newest release) built with Go before 1.26.9; HTTP/2, Range and TLS ECH
+      denial of service. Plain HTTP on the monitoring network only (expose, no published port); only
+      the metrics scraper connects.
+  - id: CVE-2026-97031
+    paths:
+      - "usr/bin/cadvisor"
+    expired_at: 2026-11-30
+    statement: >-
+      cadvisor v0.60.6 (newest release) built with Go before 1.26.9; HTTP/2, Range and TLS ECH
+      denial of service. Plain HTTP on the monitoring network only (expose, no published port); only
+      the metrics scraper connects.
+  - id: CVE-2026-78667
+    paths:
+      - "usr/share/grafana/bin/grafana"
+      - "usr/share/grafana/data/plugins-bundled/opentsdb/gpx_grafana-opentsdb-datasource_linux_amd64"
+    expired_at: 2026-11-30
+    statement: >-
+      grafana 13.2.3 (newest release) and its bundled datasource plugins built with Go before
+      1.26.9; denial of service only. Reachable only by clients of GRAFANA_BIND (default 127.0.0.1);
+      no ECH keys are configured. Plugins talk to Grafana over local gRPC.
+  - id: CVE-2026-78669
+    paths:
+      - "usr/share/grafana/bin/grafana"
+      - "usr/share/grafana/data/plugins-bundled/elasticsearch/gpx_grafana_elasticsearch_datasource_linux_amd64"
+      - "usr/share/grafana/data/plugins-bundled/grafana-postgresql-datasource/gpx_grafana_postgresql_datasource_linux_amd64"
+      - "usr/share/grafana/data/plugins-bundled/grafana-pyroscope-datasource/gpx_grafana-pyroscope-datasource_linux_amd64"
+      - "usr/share/grafana/data/plugins-bundled/influxdb/gpx_grafana_influxdb_datasource_linux_amd64"
+      - "usr/share/grafana/data/plugins-bundled/jaeger/gpx_grafana-jaeger-datasource_linux_amd64"
+      - "usr/share/grafana/data/plugins-bundled/loki/gpx_grafana-loki-datasource_linux_amd64"
+      - "usr/share/grafana/data/plugins-bundled/mssql/gpx_grafana-mssql-datasource_linux_amd64"
+      - "usr/share/grafana/data/plugins-bundled/mysql/gpx_grafana-mysql-datasource_linux_amd64"
+      - "usr/share/grafana/data/plugins-bundled/opentsdb/gpx_grafana-opentsdb-datasource_linux_amd64"
+      - "usr/share/grafana/data/plugins-bundled/prometheus/gpx_grafana-prometheus-datasource_linux_amd64"
+      - "usr/share/grafana/data/plugins-bundled/stackdriver/gpx_grafana_cloudmonitoring_datasource_linux_amd64"
+      - "usr/share/grafana/data/plugins-bundled/tempo/gpx_grafana-tempo-datasource_linux_amd64"
+      - "usr/share/grafana/data/plugins-bundled/zipkin/gpx_grafana-zipkin-datasource_linux_amd64"
+    expired_at: 2026-11-30
+    statement: >-
+      grafana 13.2.3 (newest release) and its bundled datasource plugins built with Go before
+      1.26.9; denial of service only. Reachable only by clients of GRAFANA_BIND (default 127.0.0.1);
+      no ECH keys are configured. Plugins talk to Grafana over local gRPC.
+  - id: CVE-2026-97031
+    paths:
+      - "usr/share/grafana/bin/grafana"
+      - "usr/share/grafana/data/plugins-bundled/opentsdb/gpx_grafana-opentsdb-datasource_linux_amd64"
+    expired_at: 2026-11-30
+    statement: >-
+      grafana 13.2.3 (newest release) and its bundled datasource plugins built with Go before
+      1.26.9; denial of service only. Reachable only by clients of GRAFANA_BIND (default 127.0.0.1);
+      no ECH keys are configured. Plugins talk to Grafana over local gRPC.
+  - id: CVE-2026-78667
+    paths:
+      - "victoria-logs-prod"
+    expired_at: 2026-11-30
+    statement: >-
+      victoria-logs v1.53.0 (newest release) built with Go before 1.26.9; denial of service only.
+      Plain HTTP on the monitoring network only (expose, no published port); no TLS listener, so ECH
+      does not apply.
+  - id: CVE-2026-78669
+    paths:
+      - "victoria-logs-prod"
+    expired_at: 2026-11-30
+    statement: >-
+      victoria-logs v1.53.0 (newest release) built with Go before 1.26.9; denial of service only.
+      Plain HTTP on the monitoring network only (expose, no published port); no TLS listener, so ECH
+      does not apply.
+  - id: CVE-2026-97031
+    paths:
+      - "victoria-logs-prod"
+    expired_at: 2026-11-30
+    statement: >-
+      victoria-logs v1.53.0 (newest release) built with Go before 1.26.9; denial of service only.
+      Plain HTTP on the monitoring network only (expose, no published port); no TLS listener, so ECH
+      does not apply.
+  - id: CVE-2026-78667
+    paths:
+      - "victoria-metrics-prod"
+    expired_at: 2026-11-30
+    statement: >-
+      victoria-metrics v1.153.0 (newest release) built with Go before 1.26.9; denial of service
+      only. Plain HTTP on the monitoring network only (expose, no published port); no TLS listener,
+      so ECH does not apply.
+  - id: CVE-2026-78669
+    paths:
+      - "victoria-metrics-prod"
+    expired_at: 2026-11-30
+    statement: >-
+      victoria-metrics v1.153.0 (newest release) built with Go before 1.26.9; denial of service
+      only. Plain HTTP on the monitoring network only (expose, no published port); no TLS listener,
+      so ECH does not apply.
+  - id: CVE-2026-97031
+    paths:
+      - "victoria-metrics-prod"
+    expired_at: 2026-11-30
+    statement: >-
+      victoria-metrics v1.153.0 (newest release) built with Go before 1.26.9; denial of service
+      only. Plain HTTP on the monitoring network only (expose, no published port); no TLS listener,
+      so ECH does not apply.
+
+# Unfixed findings in the pinned Percona database image reviewed for release 2026.10.9.
+  - id: CVE-2026-19445
+    purls:
+      - "pkg:rpm/redhat/python3.12-libs@3.12.14-1.0.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      Same Python 3.12 advisory and reachability as python3.12 in the Percona database image.
+  - id: CVE-2026-19445
+    purls:
+      - "pkg:rpm/redhat/python3.12@3.12.14-1.0.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3 database image (newest Percona release), used
+      unmodified. Fixed RHEL build exists but the image predates it. Server-side SSLContext
+      sni_callback use-after-free; nothing in the container runs a Python TLS server (restore
+      helpers are local scripts).
+  - id: CVE-2026-77214
+    purls:
+      - "pkg:rpm/redhat/expat@2.5.0-6.el9_8.3?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3 database image (newest Percona release), used
+      unmodified. No fixed RHEL build. PostgreSQL XML functions use libxml2, not expat; no package
+      in the image requires expat.
+  - id: CVE-2026-88647
+    purls:
+      - "pkg:rpm/redhat/gnutls@3.8.10-8.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3 database image (newest Percona release), used
+      unmodified. No fixed RHEL build. PostgreSQL and libpq use OpenSSL; no package in the image
+      requires gnutls.
+  - id: CVE-2026-88648
+    purls:
+      - "pkg:rpm/redhat/gnutls@3.8.10-8.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3 database image (newest Percona release), used
+      unmodified. No fixed RHEL build. PostgreSQL and libpq use OpenSSL; no package in the image
+      requires gnutls.
+
+# Unfixed finding in the pinned SSO Postgres image reviewed for release 2026.10.9.
+  - id: CVE-2026-78667
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-11-30
+    statement: >-
+      gosu release binary in postgres:18.6-alpine (SSO database, no PHI), built with Go 1.24.6;
+      no newer gosu release. HTTP/2, Range and TLS ECH denial of service; gosu only switches user
+      and execs postgres, with no networking.
+  - id: CVE-2026-78669
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-11-30
+    statement: >-
+      gosu release binary in postgres:18.6-alpine (SSO database, no PHI), built with Go 1.24.6;
+      no newer gosu release. HTTP/2, Range and TLS ECH denial of service; gosu only switches user
+      and execs postgres, with no networking.
+  - id: CVE-2026-97031
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-11-30
+    statement: >-
+      gosu release binary in postgres:18.6-alpine (SSO database, no PHI), built with Go 1.24.6;
+      no newer gosu release. HTTP/2, Range and TLS ECH denial of service; gosu only switches user
+      and execs postgres, with no networking.
