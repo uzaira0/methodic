@@ -20,6 +20,7 @@ fi
 mkdir -p "${BACKUP_DIR}/last/" "${BACKUP_DIR}/daily/" "${BACKUP_DIR}/weekly/" "${BACKUP_DIR}/monthly/"
 
 #Loop all databases
+published=()
 for DB in ${POSTGRES_DBS}; do
   #Initialize filename vers
   LAST_FILENAME="${DB}-`date +%Y%m%d-%H%M%S`${BACKUP_SUFFIX}"
@@ -30,13 +31,13 @@ for DB in ${POSTGRES_DBS}; do
   DFILE="${BACKUP_DIR}/daily/${DAILY_FILENAME}"
   WFILE="${BACKUP_DIR}/weekly/${WEEKLY_FILENAME}"
   MFILE="${BACKUP_DIR}/monthly/${MONTHY_FILENAME}"
-  #Create dump
+  # Dump and restore-check before publishing any daily/weekly/monthly links.
   if [ "${POSTGRES_CLUSTER}" = "TRUE" ]; then
-    echo "Creating cluster dump of ${DB} database from ${POSTGRES_HOST}..."
-    pg_dumpall -l "${DB}" ${POSTGRES_EXTRA_OPTS} | gzip > "${FILE}"
+    echo 'Restore self-check FAIL: cluster dumps cannot be restore checked' >&2
+    exit 1
   else
     echo "Creating dump of ${DB} database from ${POSTGRES_HOST}..."
-    pg_dump -d "${DB}" -f "${FILE}" ${POSTGRES_EXTRA_OPTS}
+    timeout --signal=TERM --kill-after=30 "${BACKUP_VERIFY_TIMEOUT_SECONDS:-3600}" "$(dirname "$0")/selfcheck.sh" dump "$DB" "$FILE" ${POSTGRES_EXTRA_OPTS}
   fi
   #Copy (hardlink) for each entry
   if [ -d "${FILE}" ]; then
@@ -75,7 +76,7 @@ for DB in ${POSTGRES_DBS}; do
   if [ "${BACKUP_LATEST_TYPE}" = "symlink" ]; then
     LATEST_LN_ARG="-s"
   fi
-  if [ "${BACKUP_LATEST_TYPE}" = "symlink" -o "${BACKUP_LATEST_TYPE}" = "hardlink"  ]; then
+  if [[ "${BACKUP_LATEST_TYPE}" == symlink || "${BACKUP_LATEST_TYPE}" == hardlink ]]; then
     echo "Point last backup file to this last backup..."
     ln "${LATEST_LN_ARG}" -vf "${LAST_FILENAME}" "${BACKUP_DIR}/last/${DB}-latest${BACKUP_SUFFIX}"
     echo "Point latest daily backup to this last backup..."
@@ -93,6 +94,7 @@ for DB in ${POSTGRES_DBS}; do
   find "${BACKUP_DIR}/daily" -maxdepth 1 -mtime "+${KEEP_DAYS}" -name "${DB}-*${BACKUP_SUFFIX}" -exec rm -rvf '{}' ';'
   find "${BACKUP_DIR}/weekly" -maxdepth 1 -mtime "+${KEEP_WEEKS}" -name "${DB}-*${BACKUP_SUFFIX}" -exec rm -rvf '{}' ';'
   find "${BACKUP_DIR}/monthly" -maxdepth 1 -mtime "+${KEEP_MONTHS}" -name "${DB}-*${BACKUP_SUFFIX}" -exec rm -rvf '{}' ';'
+  published+=("$DFILE")
 done
 
 echo "SQL backup created successfully"
@@ -101,3 +103,6 @@ echo "SQL backup created successfully"
 if [ -d "${HOOKS_DIR}" ]; then
   run-parts -a "post-backup" --reverse --exit-on-error "${HOOKS_DIR}"
 fi
+
+printf '%s\n' "${published[@]}" >"${BACKUP_SUCCESS_MARKER:?}.new"
+mv -f "${BACKUP_SUCCESS_MARKER}.new" "$BACKUP_SUCCESS_MARKER"

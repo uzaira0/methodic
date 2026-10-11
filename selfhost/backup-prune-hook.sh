@@ -24,7 +24,7 @@ keep_days="${PRE_OP_BACKUP_KEEP_DAYS:-30}"
 }
 
 find "${BACKUP_DIR:-/backups}" -maxdepth 1 -type f \
-  \( -name 'pre-adopt-*.sql.gz' -o -name 'pre-upgrade-*.sql.gz' -o -name 'pre-restore-*.sql.gz' \) \
+  \( -name 'pre-adopt-*.sql.gz' -o -name 'pre-upgrade-*.sql.gz' -o -name 'pre-restore-*.sql.gz' -o -name '.reviewed-restore.*.sql.gz' \) \
   -mtime "+${keep_days}" -print -delete |
   sed 's/^/Pruned pre-operation safety dump older than '"${keep_days}"' days: /'
 
@@ -33,3 +33,35 @@ if [[ -d "${BACKUP_DIR:-/backups}/secret-rotation" ]]; then
     -mtime "+${keep_days}" -print -delete |
     sed 's/^/Pruned secret-rotation dump older than '"${keep_days}"' days: /'
 fi
+
+# Writers hold the fragment's flock, which also works across the backup bind mount.
+# A crash releases that lock, so old fragments can expire without deleting a live dump.
+python3 - "${BACKUP_DIR:-/backups}" "$keep_days" <<'PY'
+import fcntl
+import os
+from pathlib import Path
+import stat
+import sys
+import time
+
+root, keep_days = Path(sys.argv[1]), int(sys.argv[2])
+SECONDS_PER_DAY = 24 * 60 * 60
+now = time.time()
+for directory, pattern in ((root, "pre-upgrade-*.sql.gz.partial"),
+                           (root / "secret-rotation", "*.sql.gz.partial")):
+    for path in directory.glob(pattern):
+        if path.is_symlink() or not path.is_file():
+            continue
+        try:
+            with path.open("rb") as fragment:
+                try:
+                    fcntl.flock(fragment, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    continue
+                metadata = os.fstat(fragment.fileno())
+                if stat.S_ISREG(metadata.st_mode) and (now - metadata.st_mtime) // SECONDS_PER_DAY > keep_days:
+                    path.unlink()
+                    print(f"Pruned interrupted safety dump older than {keep_days} days: {path}")
+        except FileNotFoundError:
+            continue  # The writer can finish and rename a fragment during enumeration.
+PY

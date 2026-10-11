@@ -18,7 +18,7 @@ fail() {
 
 [[ "$#" -gt 0 ]] || fail "backup entrypoint requires the image startup command"
 
-startup_timeout="${BACKUP_STARTUP_TIMEOUT_SECONDS:-300}"
+startup_timeout="${BACKUP_STARTUP_TIMEOUT_SECONDS:-3600}"
 poll_interval="${BACKUP_STARTUP_INTERVAL_SECONDS:-2}"
 backend_url="${BACKUP_BACKEND_URL:-http://backend:40320/chronicle/v3/study}"
 postgres_host="${POSTGRES_HOST:-}"

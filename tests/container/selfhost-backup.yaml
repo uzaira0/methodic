@@ -1,0 +1,29 @@
+schemaVersion: "2.0.0"
+metadataTest:
+  cmd: [/init.sh]
+  workdir: /
+fileExistenceTests:
+  - name: backup scheduler entrypoint
+    path: /init.sh
+    shouldExist: true
+    isExecutableBy: owner
+  - name: recovery validator
+    path: /dump.py
+    shouldExist: true
+  - name: TDE backup guard
+    path: /init-tde.sh
+    shouldExist: true
+commandTests:
+  - name: PostgreSQL 18 dump tool
+    command: pg_dump
+    args: [--version]
+    expectedOutput: ['18\.']
+    exitCode: 0
+  - name: health and dump validation imports
+    command: python3
+    args: [-c, 'import dump; compile(open("/selfcheck.py").read(), "/selfcheck.py", "exec")']
+    exitCode: 0
+  - name: scheduler and lock tools
+    command: bash
+    args: [-ec, 'command -v go-cron; command -v flock; run-parts --version']
+    exitCode: 0

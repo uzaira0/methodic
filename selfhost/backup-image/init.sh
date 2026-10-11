@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -Eeo pipefail
 
+rm -f "${BACKUP_SUCCESS_MARKER:?}"
+
 # Prevalidate configuration (don't source)
 if [ "${VALIDATE_ON_START}" = "TRUE" ]; then
   /env.sh

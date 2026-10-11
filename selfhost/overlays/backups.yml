@@ -65,9 +65,12 @@ services:
     read_only: true
     tmpfs: ["/tmp:size=64m,mode=1777"]
     environment:
+      PGSSLMODE: verify-full
+      PGSSLROOTCERT: /etc/postgres-tls/postgres.crt
       POSTGRES_HOST: postgres
       POSTGRES_DB: ${POSTGRES_DB:-chronicle}
       POSTGRES_USER: ${POSTGRES_USER:-chronicle}
+      ENABLE_ENCRYPTION: ${ENABLE_ENCRYPTION:-true}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       SCHEDULE: ${BACKUP_SCHEDULE:-@daily}
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
@@ -77,15 +80,17 @@ services:
       # pg_dump waits for table locks instead of failing after the server's lock_timeout.
       PGOPTIONS: "-c lock_timeout=0"
       HEALTHCHECK_PORT: 8080
-      BACKUP_STARTUP_TIMEOUT_SECONDS: ${BACKUP_STARTUP_TIMEOUT_SECONDS:-300}
+      BACKUP_STARTUP_TIMEOUT_SECONDS: ${BACKUP_STARTUP_TIMEOUT_SECONDS:-3600}
       BACKUP_STARTUP_INTERVAL_SECONDS: ${BACKUP_STARTUP_INTERVAL_SECONDS:-2}
       BACKUP_BACKEND_URL: http://backend:40320/chronicle/v3/study
       # Take a dump immediately, not only on the SCHEDULE. Without this the first key-free
       # copy of the data is up to 24 hours away, and until it lands the stack sits in exactly
       # the state config-guard refuses to create: encrypted data with nothing that restores
       # without the keyring. go-cron gets -i from this and runs once at startup.
+      BACKUP_VERIFY_TIMEOUT_SECONDS: ${BACKUP_VERIFY_TIMEOUT_SECONDS:-3600}
       BACKUP_ON_START: "TRUE"
     volumes:
+      - postgres_tls:/etc/postgres-tls:ro
       - ./backup-entrypoint.sh:/selfhost/backup-entrypoint.sh:ro
       # Bounds the pre-upgrade/pre-restore safety dumps that the rotation below never sees.
       - ./backup-prune-hook.sh:/hooks/50-prune-pre-operation-dumps:ro
@@ -100,11 +105,11 @@ services:
     # interval so `docker compose ps` and `up --wait` report the successful startup dump
     # promptly, while still using the image's own health endpoint as the authority.
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${HEALTHCHECK_PORT:-8080}/ >/dev/null"]
+      test: ["CMD-SHELL", "python3 /selfcheck.py health && curl -fsS http://127.0.0.1:$${HEALTHCHECK_PORT:-8080}/ >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: ${START_WAIT_TIMEOUT_SECONDS:-3600}s
 
   # Tells config-guard that backups are actually composed in, rather than having it parse
   # COMPOSE_FILE and restate what this file already is.

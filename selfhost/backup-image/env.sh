@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Upstream prodrigestivill script kept verbatim; warnings reflect upstream syntax and sourced variables.
+# shellcheck disable=SC2034,SC2057,SC2155,SC2166,SC2307
 # Pre-validate the environment
 if [ "${POSTGRES_DB}" = "**None**" -a "${POSTGRES_DB_FILE}" = "**None**" ]; then
   echo "You need to set the POSTGRES_DB or POSTGRES_DB_FILE environment variable."
