@@ -22,7 +22,7 @@ messages. Experiments, reverts, and operational detail stay private.
 
    ```bash
    lefthook install                # secrets scan on commit, lint gates on push
-   scripts/local-ci.sh fast        # the same gates a publish runs
+   scripts/local-ci.sh fast        # run explicitly; publishing runs no test gate
    scripts/i18n-lint.sh            # no hardcoded user-facing English
    ```
 

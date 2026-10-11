@@ -1,0 +1,1 @@
+excluded_rules = ["prefer-robust-stmts"]

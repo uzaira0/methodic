@@ -1,0 +1,5 @@
+gradle.beforeProject { project ->
+    project.plugins.withId('com.android.application') {
+        project.android.lint.error('UnusedResources')
+    }
+}

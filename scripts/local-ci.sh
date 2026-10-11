@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+PMD_VERSION="7.18.0"
 # Run the parts of GitHub CI that are meaningful on a developer workstation.
 #
 # This intentionally does not emulate GitHub-only plumbing such as artifact
@@ -11,6 +12,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WEB_DIR="$ROOT_DIR/chronicle-web"
 LOCAL_BIN_DIR="${CHRONICLE_LOCAL_BIN_DIR:-$ROOT_DIR/.local/bin}"
 LOCAL_REPORT_DIR="${CHRONICLE_LOCAL_CI_REPORT_DIR:-}"
+# One NVD database for every checkout and worktree; a per-checkout copy re-downloads the whole feed.
+export CHRONICLE_DEPCHECK_DATA_DIR="${CHRONICLE_DEPCHECK_DATA_DIR:-$HOME/.cache/chronicle/dependency-check-data}"
 if [[ -n "$LOCAL_REPORT_DIR" && "$LOCAL_REPORT_DIR" != /* ]]; then
   LOCAL_REPORT_DIR="$PWD/$LOCAL_REPORT_DIR"
 fi
@@ -25,13 +28,17 @@ Fast jobs:
   preflight             Validate local toolchain and workspace basics
   architecture          Source ownership, dependency boundaries, negative fixtures
   migration-safety      Published migration immutability, additive SQL, version ordering
+  diff-coverage         Require 80% coverage of changed executable lines per repository
+  duplication           Reject new production clones against the CPD baseline
+  migration-lint        Squawk only SQL migrations added since the base
   web                   chronicle-web audit, checks, tests, build, size
   web-a11y              chronicle-web axe WCAG 2 A/AA scans in Chromium (Playwright)
-  jvm-smoke             Gradle project list, OpenAPI validation, API/server tests, JaCoCo
+  jvm-smoke             Gradle project list, OpenAPI validation, shared/API/server tests, JaCoCo, Checkstyle, SpotBugs, PIT
   repo-automation       Compose config + repo guardrail scripts
   linkml-ssot           LinkML schema freshness and domain contract drift checks
   cue-k8s               CUE deployment profile vs rendered Kubernetes checks
   dead-code             chronicle-web knip dead-code analysis
+  security-layers       every offline tests/security/run-all-security.sh layer
   dependency-sbom       Backend CycloneDX SBOM generation
   license-compliance    Backend and frontend license checks
   detekt                Kotlin Detekt scan with the pinned CI CLI jar
@@ -40,8 +47,9 @@ Container/IaC jobs:
   selfhost              Turnkey setup, monitoring privacy, release bundle, supported matrix
   dockerfile-lint       Hadolint the Dockerfiles
   iac-scan              Checkov Dockerfile and compose scans
-  container-structure   Build/test backend and frontend container structure
-  http-smoke-stack      Build/start local smoke stack, run HTTP smoke, tear down
+  container-structure   Build/test every shipped selfhost image structure
+  http-smoke-stack      Disposable-host only: build/start smoke stack, HTTP/upload tests, tear down
+  http-security         Upload, load smoke and race tests against a disposable self-host fixture
 
 Operator evidence job:
   operator-secret       Operator access and local secret-custody preflight
@@ -69,10 +77,10 @@ Slow/specialized jobs:
   ios-verify            iOS contract freshness + simulator test suite (macOS)
 
 Groups:
-  fast                  preflight migration-safety web jvm-smoke repo-automation linkml-ssot cue-k8s dead-code dependency-sbom license-compliance
+  fast                  preflight duplication migration-safety web jvm-smoke repo-automation linkml-ssot cue-k8s dead-code security-layers dependency-sbom license-compliance
   security              gradle-depcheck bun-audit deps-freshness detekt pmd bearer osv grype syft
-  containers            selfhost dockerfile-lint iac-scan container-structure fluent-bit-config http-smoke-stack
-  all                   fast security containers parity
+  containers            selfhost dockerfile-lint iac-scan container-structure fluent-bit-config
+  all                   fast security containers parity android-unit
 
 Environment:
   NVD_API_KEY           Required for gradle-depcheck
@@ -84,7 +92,10 @@ Environment:
   scripts/chronicle-store-nvd-api-key.sh
                         Safe one-time helper for installing the NVD key into
                         Keychain or a private file without printing it.
-  SKIP_NVD_UPDATE=1     Reuse existing .dependency-check-data for gradle-depcheck
+  SKIP_NVD_UPDATE=1     Reuse the existing NVD database for gradle-depcheck
+  CHRONICLE_DEPCHECK_DATA_DIR
+                        Shared NVD database for all checkouts, default
+                        ~/.cache/chronicle/dependency-check-data
   CHRONICLE_LOCAL_BIN_DIR
                         Tool download/cache dir, default ./.local/bin
   CHRONICLE_LOCAL_CI_REPORT_DIR
@@ -93,6 +104,18 @@ Environment:
                         For operator-secret, the bundle is written directly to
                         this directory.
   BASE_SPEC, HEAD_SPEC  Inputs for openapi-diff
+  API_KEY, TEST_STUDY_ID, TEST_PARTICIPANT_ID, TEST_DEVICE_ID
+                        Enrolled sensor fixture required by http-security and http-smoke-stack
+  BASE_URL, AUTH_TOKEN, MOBILE_SIGNING_SECRET
+                        Fixture URL, researcher bearer and legacy HMAC secret for http-security
+  HMAC_TEST_PATH, MOBILE_ENROLLMENT_BODY
+                        Valid legacy enrollment fixture for the strict HMAC live probe
+  CHRONICLE_DIFF_BASE   Optional root Git base for diff-coverage and migration-lint
+  CHRONICLE_DUPLICATION_UPDATE_BASELINE=1
+                        Regenerate the baseline with the duplication job (pinned PMD)
+  CHRONICLE_MIGRATION_BASE
+                        Optional server Git base for migration-lint; otherwise the
+                        root base's submodule commit, then origin/main / HEAD~1
   GRYPE_FAIL_ON         Failure threshold for grype; empty means evidence-only
   CHRONICLE_LOCAL_CI_KEEP_GOING=1
                         Continue running requested top-level jobs after a
@@ -110,7 +133,7 @@ Environment:
   CHRONICLE_DEPCHECK_NVD_VALID_FOR_HOURS
                         Fresh update window, default 0 for release evidence.
   CHRONICLE_DEPCHECK_CLEAN_STALE_LOCKS=1
-                        Remove stale .dependency-check-data/*.lock files before
+                        Remove stale NVD database *.lock files before
                         a fresh update, but only when no Gradle/Dependency-Check
                         process is running. Default is fail-closed on locks.
 EOF
@@ -280,7 +303,7 @@ PY
 
 dependency_check_data_snapshot() {
   local output="$1"
-  local data_dir="$ROOT_DIR/.dependency-check-data"
+  local data_dir="$CHRONICLE_DEPCHECK_DATA_DIR"
   ensure_dir "$(dirname "$output")"
   {
     printf 'timestamp_utc\t%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -304,7 +327,7 @@ dependency_check_data_snapshot() {
 }
 
 diagnose_dependency_check_data() {
-  local data_dir="$ROOT_DIR/.dependency-check-data"
+  local data_dir="$CHRONICLE_DEPCHECK_DATA_DIR"
   if [[ ! -d "$data_dir" ]]; then
     return
   fi
@@ -349,7 +372,7 @@ EOF
 }
 
 dependency_check_lock_listing() {
-  local data_dir="$ROOT_DIR/.dependency-check-data"
+  local data_dir="$CHRONICLE_DEPCHECK_DATA_DIR"
   find "$data_dir" -maxdepth 1 -type f -name '*.lock' -print 2>/dev/null | sort || true
 }
 
@@ -713,7 +736,7 @@ EOF
 }
 
 ensure_pmd() {
-  local version="7.9.0"
+  local version="$PMD_VERSION"
   local pmd_home="$LOCAL_BIN_DIR/pmd-${version}"
   if [[ -x "$pmd_home/bin/pmd" ]]; then
     return 0
@@ -874,6 +897,53 @@ job_migration_safety() {
   "$ROOT_DIR/tests/security/migration-safety.sh"
 }
 
+job_diff_coverage() {
+  require_cmd git
+  require_cmd python3
+  require_cmd diff-cover "install diff-cover 10.6.0"
+  local args=()
+  if [[ -n "${CHRONICLE_DIFF_BASE:-}" ]]; then
+    args=(--base "$CHRONICLE_DIFF_BASE")
+  fi
+  (cd "$ROOT_DIR" && scripts/diff-coverage.py "${args[@]}")
+}
+
+job_duplication() {
+  require_cmd python3
+  require_cmd pmd "put PMD $PMD_VERSION on PATH"
+  local args=()
+  if [[ "${CHRONICLE_DUPLICATION_UPDATE_BASELINE:-0}" == "1" ]]; then
+    args=(--update-baseline)
+  fi
+  python3 "$ROOT_DIR/scripts/check-duplication.py" "${args[@]}"
+}
+
+job_migration_lint() {
+  require_cmd git
+  require_cmd python3
+  require_cmd squawk "install squawk 2.67.0 and put it on PATH"
+  local server_dir="$ROOT_DIR/chronicle-server" base file status=0 count=0
+  base="${CHRONICLE_MIGRATION_BASE:-}"
+  if [[ -n "$base" ]]; then
+    base="$(git -C "$server_dir" rev-parse --verify "$base^{commit}")" || return 2
+  else
+    base="$(cd "$ROOT_DIR" && scripts/diff-coverage.py ${CHRONICLE_DIFF_BASE:+--base "$CHRONICLE_DIFF_BASE"} --print-base chronicle-server)" || return 2
+  fi
+  # Include untracked additions, but never modified or renamed published migrations.
+  local added
+  added="$(git -C "$server_dir" diff --name-only --diff-filter=A "$base" -- src/main/resources/db/migration)" || return 2
+  added+=$'\n'"$(git -C "$server_dir" ls-files --others --exclude-standard -- src/main/resources/db/migration)" || return 2
+  while IFS= read -r file; do
+    [[ "$file" == src/main/resources/db/migration/*.sql && -f "$server_dir/$file" ]] || continue
+    # An untracked replacement of a base migration is still an existing migration.
+    if git -C "$server_dir" cat-file -e "$base:$file" 2>/dev/null; then continue; fi
+    count=$((count + 1))
+    squawk --config "$ROOT_DIR/.squawk.toml" "$server_dir/$file" || status=1
+  done <<< "$added"
+  log "migration-lint: checked $count new migration(s) against $base"
+  return "$status"
+}
+
 job_selfhost() {
   require_cmd docker "install Docker with Compose v2"
   require_cmd python3 "install Python 3"
@@ -889,17 +959,7 @@ job_web() {
   log "web check"
   (cd "$WEB_DIR" && bun run check)
   log "web modern tests"
-  (
-    cd "$WEB_DIR"
-    failed=0
-    for dir in src/modern/lib src/modern/state src/modern/stores src/modern/features src/modern/components src/modern/routes; do
-      if [[ -d "$dir" ]]; then
-        echo "=== $dir ==="
-        bun test --coverage "$dir" || failed=1
-      fi
-    done
-    exit "$failed"
-  )
+  (cd "$WEB_DIR" && bun test --coverage src/modern src/core)
   log "OpenAPI type generation check"
   (cd "$WEB_DIR" && bun run check:api-types)
   log "contract drift detection"
@@ -931,7 +991,24 @@ job_web_a11y() {
     args=(--grep-invert "dark mode|mobile nav overlay")
   fi
   log "web accessibility (axe WCAG 2 A/AA)"
-  (cd "$WEB_DIR" && bunx playwright test e2e/pa11y.spec.ts e2e/accessibility.spec.ts --project=desktop-chromium "${args[@]}")
+  (
+    cd "$WEB_DIR"
+    if [[ -z "${CHRONICLE_PROXY_BASE_URL:-}" ]]; then
+      require_cmd python3 "install Python 3"
+      local proxy_port
+      proxy_port="$(python3 - <<'PY'
+import socket
+
+with socket.socket() as server:
+    server.bind(('127.0.0.1', 0))
+    print(server.getsockname()[1])
+PY
+      )" || exit $?
+      export CHRONICLE_PROXY_BASE_URL="http://127.0.0.1:$proxy_port"
+      log "CHRONICLE_PROXY_BASE_URL unset: using $CHRONICLE_PROXY_BASE_URL"
+    fi
+    bunx playwright test e2e/pa11y.spec.ts e2e/accessibility.spec.ts --project=desktop-chromium "${args[@]}"
+  )
 }
 
 job_jvm_smoke() {
@@ -942,10 +1019,15 @@ job_jvm_smoke() {
   gradle :chronicle-api:validateOpenApiSpec --build-cache --no-daemon
   log "chronicle-api tests"
   gradle :chronicle-api:test --build-cache --no-daemon
+  log "shared models and rhizome tests"
+  gradle :chronicle-models:test :rhizome:test :rhizome-client:test --build-cache --no-daemon
   log "chronicle-server tests"
   gradle :chronicle-server:test --build-cache --no-daemon
   log "JaCoCo report"
   gradle :chronicle-server:jacocoTestReport --build-cache --no-daemon
+  log "server Checkstyle and SpotBugs, rhizome SpotBugs"
+  gradle :chronicle-server:check :rhizome:spotbugsMain --build-cache --no-daemon
+  job_pit
 }
 
 job_repo_automation() {
@@ -999,6 +1081,16 @@ EOF
 job_dead_code() {
   require_cmd bun "install Bun 1.3.x"
   (cd "$WEB_DIR" && bun run dead-code)
+}
+
+job_security_layers() {
+  # Every offline layer of the security runner; sca (network installs) and license (gradle) run elsewhere.
+  local layer failed=()
+  for layer in sast secrets iac sso deploy mobile auth injection crypto collection compliance; do
+    bash "$ROOT_DIR/tests/security/run-all-security.sh" "$layer" \
+      "${LOCAL_REPORT_DIR:-$ROOT_DIR/tests/security/reports}/$layer" || failed+=("$layer")
+  done
+  [[ ${#failed[@]} -eq 0 ]] || { log "security layers failed: ${failed[*]}"; return 1; }
 }
 
 job_dependency_sbom() {
@@ -1062,6 +1154,12 @@ job_container_structure() {
   container-structure-test test --image chronicle-backend:test --config "$ROOT_DIR/tests/container/backend.yaml"
   docker build -f "$ROOT_DIR/docker/Dockerfile.frontend.prod" -t chronicle-frontend-prod:test "$ROOT_DIR"
   container-structure-test test --image chronicle-frontend-prod:test --config "$ROOT_DIR/tests/container/frontend-prod.yaml"
+  for component in frontend caddy backup; do
+    local context="$ROOT_DIR"
+    [[ "$component" != backup ]] || context="$ROOT_DIR/selfhost"
+    docker build -f "$ROOT_DIR/selfhost/Dockerfile.$component" -t "chronicle-selfhost-$component:test" "$context"
+    container-structure-test test --image "chronicle-selfhost-$component:test" --config "$ROOT_DIR/tests/container/selfhost-$component.yaml"
+  done
 }
 
 write_ci_smoke_files() {
@@ -1243,12 +1341,26 @@ job_http_smoke_stack() {
     cp "$env_file" "$repo_env_file"
     repo_env_created=1
   fi
-  compose_args=(--env-file "$env_file" -f "$ROOT_DIR/docker/docker-compose.traefik.yml" -f "$override_file")
+  # docker-compose.traefik.yml declares `name: chronicle` plus fixed container, network and
+  # volume names, so on a host that runs that stack the teardown below adopted it and
+  # `down -v` deleted its database (2026-10-07). Own project, and refuse to share a host
+  # with anything that file names.
+  compose_args=(-p chronicle-ci-smoke --env-file "$env_file" -f "$ROOT_DIR/docker/docker-compose.traefik.yml" -f "$override_file")
+  local clash
+  clash=$(docker compose "${compose_args[@]}" config --format json |
+    jq -r '(.services[] | .container_name // empty), (.networks[] | .name // empty)' |
+    grep -Fxf - <({ docker ps -a --format '{{.Names}}'; docker network ls --format '{{.Name}}'; }) || true)
+  if [[ -n "$clash" || -n "$(docker ps -aq --filter label=com.docker.compose.project=chronicle)" ]]; then
+    log "refusing: this host already runs the chronicle stack (${clash//$'\n'/ }); run http-smoke-stack on a disposable host"
+    [[ "$repo_env_created" != 1 ]] || rm -f "$repo_env_file"
+    rm -rf "$tmp_dir"
+    return 1
+  fi
 
   # Freeze these function-local paths now; they are out of scope when the
   # process-level EXIT trap runs after the selected job returns.
   # shellcheck disable=SC2064
-  trap "docker compose --env-file '$env_file' -f '$ROOT_DIR/docker/docker-compose.traefik.yml' -f '$override_file' down -v --remove-orphans >/dev/null 2>&1 || true; if [ '$repo_env_created' = '1' ]; then rm -f '$repo_env_file'; fi; rm -rf '$tmp_dir'" EXIT
+  trap "docker compose -p chronicle-ci-smoke --env-file '$env_file' -f '$ROOT_DIR/docker/docker-compose.traefik.yml' -f '$override_file' down -v --remove-orphans >/dev/null 2>&1 || true; if [ '$repo_env_created' = '1' ]; then rm -f '$repo_env_file'; fi; rm -rf '$tmp_dir'" EXIT
 
   docker build -f "$ROOT_DIR/docker/Dockerfile.backend" -t chronicle-backend:test "$ROOT_DIR"
   docker build -f "$ROOT_DIR/docker/Dockerfile.frontend.prod" -t chronicle-frontend-prod:test "$ROOT_DIR"
@@ -1297,17 +1409,50 @@ job_http_smoke_stack() {
     sleep 5
   done
 
-  "$ROOT_DIR/scripts/smoke-test.sh" "$backend_url" "$frontend_url"
+  "$ROOT_DIR/scripts/smoke-test.sh" "$backend_url" "$frontend_url" || return $?
+  BASE_URL="$backend_url" job_http_security
+}
+
+job_http_security() {
+  log "live upload, load smoke and race validation"
+  bash "$ROOT_DIR/tests/security/run-all-security.sh" upload \
+    "${LOCAL_REPORT_DIR:-$ROOT_DIR/tests/security/reports}/upload"
 }
 
 job_pit() {
   require_jdk21
-  gradle :chronicle-server:pitest -PpitMutationThreshold=50
+  log "server PIT mutation tests"
+  gradle :chronicle-server:pitest
 }
 
 job_fuzz() {
   require_jdk21
-  gradle :chronicle-server:test --tests "*FuzzTest" -Djazzer.maxRunsPerTarget=10000
+  require_cmd python3 "install Python 3"
+  local targets target
+  targets="$(python3 - "$ROOT_DIR/chronicle-server/src/test" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+for path in sorted(Path(sys.argv[1]).rglob('*FuzzTest.kt')):
+    source = path.read_text()
+    package = re.search(r'^package (\S+)', source, re.M).group(1)
+    methods = re.findall(r'@FuzzTest\((.*?)\)\s+fun\s+(\w+)\(', source, re.S)
+    if len(methods) != source.count('@FuzzTest'):
+        raise SystemExit(f'unrecognized fuzz target in {path}')
+    for options, method in methods:
+        if not re.search(r'maxDuration\s*=\s*"[1-9][0-9]*[smh]"', options):
+            raise SystemExit(f'fuzz target requires a bounded maxDuration: {path}:{method}')
+        print(f'{package}.{path.stem}.{method}')
+PY
+  )"
+  [[ -n "$targets" ]] || { log "no bounded fuzz targets found"; return 2; }
+  # Jazzer permits one target per JVM; each annotation supplies its time limit.
+  while IFS= read -r target; do
+    log "fuzz target: $target"
+    JAZZER_FUZZ=1 gradle :chronicle-server:test --tests "$target" \
+      --no-daemon --no-build-cache --rerun-tasks
+  done <<< "$targets"
 }
 
 job_parity() {
@@ -1319,10 +1464,24 @@ job_parity() {
 
 job_android_unit() {
   require_jdk21
-  bash "$ROOT_DIR/tests/security/run-all-security.sh" sast || return $?
+  require_cmd python3 "install Python 3"
+  bash "$ROOT_DIR/tests/security/run-all-security.sh" sast "${LOCAL_REPORT_DIR:-$ROOT_DIR/tests/security/reports}" || return $?
   (cd "$ROOT_DIR/chronicle" && ./gradlew :app:checkLicense --no-daemon) || return $?
-  log "Android unit tests (library modules + open/research app variants)"
-  (cd "$ROOT_DIR/chronicle" && ./gradlew testDebugUnitTest :app:testOpenDebugUnitTest :app:testResearchDebugUnitTest --no-daemon --build-cache)
+  (cd "$ROOT_DIR/chronicle" && ./gradlew -I "$ROOT_DIR/scripts/android-unused-resources.init.gradle" :app:lintOpenDebug --no-daemon) || return $?
+  python3 "$ROOT_DIR/chronicle/scripts/test-android-batch-1007.py" || return $?
+  log "Android Play and release verifier self-tests"
+  local audit_work="${LOCAL_REPORT_DIR:-$ROOT_DIR/chronicle/app/build}/release-audit-tests"
+  local suite android_status=0
+  mkdir -p "$audit_work/tmp"
+  for suite in test-verify-play-aab-runtime-helpers test-verify-play-submission; do
+    bash "$ROOT_DIR/chronicle/scripts/$suite.sh" || android_status=1
+  done
+  for suite in test-release-audit test-explicit-signing-input; do
+    ANDROID_AUDIT_WORK="$audit_work" python3 "$ROOT_DIR/chronicle/scripts/$suite.py" || android_status=1
+  done
+  log "Android unit tests (library modules + all distribution app variants)"
+  (cd "$ROOT_DIR/chronicle" && ./gradlew testDebugUnitTest :app:testOpenDebugUnitTest :app:testResearchDebugUnitTest :app:testPlayDebugUnitTest :app:testAmazonDebugUnitTest --no-daemon --build-cache) || android_status=1
+  return "$android_status"
 }
 
 job_ios_verify() {
@@ -1473,14 +1632,14 @@ job_gradle_depcheck() {
       return "$update_status"
     fi
     dependency_check_data_snapshot "$update_snapshot_after"
-  elif [[ ! -s "$ROOT_DIR/.dependency-check-data/odc.mv.db" ]]; then
+  elif [[ ! -s "$CHRONICLE_DEPCHECK_DATA_DIR/odc.mv.db" ]]; then
     if [[ "${CHRONICLE_DEPCHECK_ALLOW_MISSING_CACHE:-0}" == "1" ]]; then
-      local reason="SKIP_NVD_UPDATE=1 requested but no warmed .dependency-check-data/odc.mv.db cache was restored"
+      local reason="SKIP_NVD_UPDATE=1 requested but no warmed NVD database (odc.mv.db) was found"
       printf '[local-ci] %s; writing skip report.\n' "$reason" >&2
       write_dependency_check_skip_report "$reason"
       return 0
     fi
-    printf '[local-ci] SKIP_NVD_UPDATE=1 requires a warmed %s cache.\n' "$ROOT_DIR/.dependency-check-data/odc.mv.db" >&2
+    printf '[local-ci] SKIP_NVD_UPDATE=1 requires a warmed %s cache.\n' "$CHRONICLE_DEPCHECK_DATA_DIR/odc.mv.db" >&2
     exit 2
   fi
   local status=0
@@ -1552,11 +1711,13 @@ job_bun_audit() {
 
 job_detekt() {
   ensure_detekt
-  local sarif_report html_report
+  local sarif_report html_report android_sources
+  android_sources="$(printf '%s,' "$ROOT_DIR"/chronicle/*/src)"
   sarif_report="$(report_path "$ROOT_DIR/detekt-results.sarif" "detekt-results.sarif")"
   html_report="$(report_path "$ROOT_DIR/detekt-results.html" "detekt-results.html")"
   java -jar "$LOCAL_BIN_DIR/detekt-cli-1.23.7-all.jar" \
-    --input "$ROOT_DIR/chronicle-server/src,$ROOT_DIR/chronicle-api/src,$ROOT_DIR/rhizome/src" \
+    --input "$ROOT_DIR/chronicle-server/src,$ROOT_DIR/chronicle-api/src,$ROOT_DIR/rhizome/src,${android_sources%,}" \
+    --excludes '**/build/**,**/.gradle/**' \
     --config "$ROOT_DIR/detekt.yml" \
     --baseline "$ROOT_DIR/detekt-baseline.xml" \
     --report "sarif:$sarif_report" \
@@ -1567,9 +1728,9 @@ job_detekt() {
 job_pmd() {
   require_jdk21
   ensure_pmd
-  "$LOCAL_BIN_DIR/pmd-7.9.0/bin/pmd" check \
-    -d "$ROOT_DIR/chronicle-server/src/main/kotlin" \
-    -d "$ROOT_DIR/chronicle-api/src/main/kotlin" \
+  "$LOCAL_BIN_DIR/pmd-${PMD_VERSION}/bin/pmd" check \
+    -d "$ROOT_DIR/chronicle-server/src/main/java" \
+    -d "$ROOT_DIR/chronicle-api/src/main/java" \
     -R rulesets/java/quickstart.xml \
     -f text
 }
@@ -1603,6 +1764,7 @@ job_osv() {
   sarif_report="$(report_path "$ROOT_DIR/osv-results.sarif" "osv-results.sarif")"
   osv-scanner scan source \
     --recursive \
+    --config "$ROOT_DIR/osv-scanner.toml" \
     --experimental-exclude 'r:(^|/)gradle($|/)' \
     --format=sarif \
     --output-file="$sarif_report" \
@@ -1643,7 +1805,7 @@ job_openapi_diff() {
     exit 1
   fi
   echo "Comparing $base_spec vs $head_spec"
-  oasdiff breaking "$base_spec" "$head_spec" --format text
+  oasdiff breaking "$base_spec" "$head_spec" --fail-on ERR --format text || return $?
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     {
       echo "## API Changelog"
@@ -1694,9 +1856,30 @@ job_web_mutation() {
 
 run_job() {
   case "$1" in
+    fast|security|containers|all) ;;
+    *)
+      if [[ "${CHRONICLE_LOCAL_CI_KEEP_GOING:-0}" == "1" ]]; then
+        local status
+        # Testing a function with if/|| disables errexit in every nested call.
+        set +e
+        ( set -e; CHRONICLE_LOCAL_CI_KEEP_GOING=0 run_job "$1" )
+        status=$?
+        set -e
+        if [[ "$status" -ne 0 ]]; then
+          failures=$((failures + 1))
+          printf '[local-ci] job failed: %s status=%s\n' "$1" "$status" >&2
+        fi
+        return 0
+      fi
+      ;;
+  esac
+  case "$1" in
     preflight) job_preflight ;;
     architecture) job_architecture ;;
     migration-safety) job_migration_safety ;;
+    diff-coverage) job_diff_coverage ;;
+    duplication) job_duplication ;;
+    migration-lint) job_migration_lint ;;
     web) job_web ;;
     web-a11y) job_web_a11y ;;
     jvm-smoke) job_jvm_smoke ;;
@@ -1704,6 +1887,7 @@ run_job() {
     linkml-ssot) job_linkml_ssot ;;
     cue-k8s) job_cue_k8s ;;
     dead-code) job_dead_code ;;
+    security-layers) job_security_layers ;;
     dependency-sbom) job_dependency_sbom ;;
     selfhost) job_selfhost ;;
     dockerfile-lint) job_dockerfile_lint ;;
@@ -1711,6 +1895,7 @@ run_job() {
     license-compliance) job_license_compliance ;;
     container-structure) job_container_structure ;;
     http-smoke-stack) job_http_smoke_stack ;;
+    http-security) job_http_security ;;
     operator-secret) job_operator_secret ;;
     pit) job_pit ;;
     fuzz) job_fuzz ;;
@@ -1734,6 +1919,7 @@ run_job() {
     fast)
       run_job preflight
       run_job architecture
+      run_job duplication
       run_job migration-safety
       run_job web
       run_job web-a11y
@@ -1742,6 +1928,7 @@ run_job() {
       run_job linkml-ssot
       run_job cue-k8s
       run_job dead-code
+      run_job security-layers
       run_job dependency-sbom
       run_job license-compliance
       ;;
@@ -1762,13 +1949,13 @@ run_job() {
       run_job iac-scan
       run_job container-structure
       run_job fluent-bit-config
-      run_job http-smoke-stack
       ;;
     all)
       run_job fast
       run_job security
       run_job containers
       run_job parity
+      run_job android-unit
       ;;
     -h|--help|help) usage ;;
     *) printf '[local-ci] unknown job: %s\n\n' "$1" >&2; usage >&2; exit 2 ;;
@@ -1783,19 +1970,10 @@ fi
 failures=0
 for job in "$@"; do
   log "job: $job"
-  if [[ "${CHRONICLE_LOCAL_CI_KEEP_GOING:-0}" == "1" ]]; then
-    status=0
-    run_job "$job" || status=$?
-    if [[ "$status" -ne 0 ]]; then
-      failures=$((failures + 1))
-      printf '[local-ci] job failed: %s status=%s\n' "$job" "$status" >&2
-    fi
-  else
-    run_job "$job"
-  fi
+  run_job "$job"
 done
 
-if [[ "${CHRONICLE_LOCAL_CI_KEEP_GOING:-0}" == "1" && "$failures" -gt 0 ]]; then
+if [[ "$failures" -gt 0 ]]; then
   printf '[local-ci] %s job(s) failed\n' "$failures" >&2
   exit 1
 fi

@@ -100,6 +100,8 @@ style:
   ReturnCount:
     active: true
     max: 4
+    # Guard clauses are the house style for platform checks; only count returns after them.
+    excludeGuardClauses: true
   ThrowsCount:
     active: true
     max: 3

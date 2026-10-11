@@ -8,6 +8,8 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 LEFTHOOK_VERSION="1.11.13"
+CURL_CONNECT_TIMEOUT_SECONDS=10
+CURL_TOTAL_TIMEOUT_SECONDS=60
 
 # ── Check for lefthook ──────────────────────────────────────────────
 if command -v lefthook &>/dev/null; then
@@ -29,7 +31,7 @@ else
 
   URL="https://github.com/evilmartians/lefthook/releases/download/v${LEFTHOOK_VERSION}/lefthook_${LEFTHOOK_VERSION}_${OS}_${ARCH}"
   echo "Downloading from: $URL"
-  curl -fsSL "$URL" -o "${INSTALL_DIR}/lefthook"
+  curl -fsSL --connect-timeout "$CURL_CONNECT_TIMEOUT_SECONDS" --max-time "$CURL_TOTAL_TIMEOUT_SECONDS" "$URL" -o "${INSTALL_DIR}/lefthook"
   chmod +x "${INSTALL_DIR}/lefthook"
 
   if ! command -v lefthook &>/dev/null; then
