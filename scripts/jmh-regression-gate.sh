@@ -18,6 +18,12 @@ fi
 
 threshold="${JMH_REGRESSION_THRESHOLD:-0.90}"
 
+for file in "$baselines" "$results"; do
+    jq -e 'type == "array" and length > 0 and all(.[];
+        (.benchmark | type == "string") and
+        (.primaryMetric.score | type == "number" and . >= 0))' "$file" >/dev/null
+done
+
 has_real_baselines=$(jq '[.[].primaryMetric.score | select(. > 0)] | length > 0' "$baselines")
 if [ "$has_real_baselines" != "true" ]; then
     echo "Baselines contain only placeholder zeros — skipping regression check."
@@ -33,7 +39,7 @@ regressions=$(jq -r --slurpfile base "$baselines" --argjson thresh "$threshold" 
      select(($cur.primaryMetric.score / $old.primaryMetric.score) < $thresh) |
      "\($cur.benchmark): \($old.primaryMetric.score | round) → \($cur.primaryMetric.score | round) ops/s (\((($cur.primaryMetric.score / $old.primaryMetric.score - 1) * 100) | round)%)"
     ] | .[]
-' "$results" 2>/dev/null || echo "")
+' "$results")
 
 if [ -n "$regressions" ]; then
     echo "JMH regression detected (ratio dropped below ${threshold}):"

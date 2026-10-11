@@ -16,7 +16,22 @@ if [ ! -f "$current" ]; then
     exit 1
 fi
 
+if [[ "${K6_ALLOW_UNMEASURED_BUDGET:-false}" != true ]] &&
+    ! jq -e '.measurement.verified == true and (.measurement.runs >= 2) and
+      (.measurement.source_revision | type == "string" and length == 40) and
+      (.measurement.environment | type == "object") and
+      (.measurement.fixtures | type == "object") and
+      (.measurement.first_saturation_vus | type == "number" and . > 0)' "$baselines" >/dev/null; then
+    echo "ERROR: a verified clean-stack measurement and first saturation are required; the committed budget is unmeasured" >&2
+    exit 1
+fi
+
 threshold="${K6_REGRESSION_THRESHOLD:-1.15}"
+
+if ! jq -e '.metrics.http_req_duration.values["p(95)"] | type == "number" and isfinite and . >= 0' "$current" >/dev/null; then
+    echo "ERROR: k6 summary must contain a finite http_req_duration p95" >&2
+    exit 1
+fi
 
 has_real_baselines=$(jq -r '[.metrics[].values["p(95)"] // 0 | select(. > 0)] | length > 0' "$baselines")
 if [ "$has_real_baselines" != "true" ]; then
@@ -30,7 +45,8 @@ while IFS= read -r metric; do
     curr_p95=$(jq -r ".metrics[\"$metric\"].values[\"p(95)\"] // empty" "$current")
 
     if [ -z "$base_p95" ] || [ -z "$curr_p95" ]; then
-        continue
+        echo "ERROR: required p95 metric is missing: $metric" >&2
+        exit 1
     fi
 
     ratio=$(jq -nr --argjson current "$curr_p95" --argjson base "$base_p95" '$current / $base')
