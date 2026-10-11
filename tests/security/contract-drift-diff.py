@@ -51,6 +51,46 @@ def ts_tuple(text: str, name: str) -> list[str]:
     return re.findall(r"'([^']+)'", m.group(1))
 
 
+def check_upload_diagnostics(root, spec):
+    properties = spec["AndroidUploadDiagnosticEvent"]["properties"]
+    model = (root / "chronicle-models/src/main/kotlin/com/openlattice/chronicle/collection/AndroidUploadDiagnosticEvent.kt").read_text()
+    android = (root / "chronicle/app/src/main/java/com/openlattice/chronicle/services/upload/LocalUploadDiagnosticsStore.kt").read_text()
+    destination = (root / "chronicle/app/src/main/java/com/openlattice/chronicle/services/upload/UploadPolicy.kt").read_text()
+    web = (root / "chronicle-web/src/modern/types/chronicle-api.generated.ts").read_text()
+    block = re.search(r"\n        AndroidUploadDiagnosticEvent: \{(.*?)\n        \};", web, re.S)
+    if not block:
+        raise ValueError("web has no AndroidUploadDiagnosticEvent schema")
+    sql = {}
+    migrations = root / "chronicle-server/src/main/resources/db/migration"
+    for migration in sorted(migrations.glob("V*__*.sql"), key=lambda path: int(path.name.split("__")[0][1:])):
+        for column, values in re.findall(r"CHECK\s*\(\s*(module_family|issue_code)\s+IN\s*\((.*?)\)\s*\)", migration.read_text(), re.S | re.I):
+            sql[column] = set(re.findall(r"'([^']+)'", values))
+    for field, constant, column, enum in (
+        ("moduleFamily", "MODULE_FAMILIES", "module_family", "LocalUploadModuleFamily"),
+        ("issueCode", "ISSUE_CODES", "issue_code", "LocalOperationalIssue"),
+    ):
+        canonical = set(properties[field]["enum"])
+        kotlin = re.search(rf"val {constant} = setOf\((.*?)\)", model, re.S)
+        local = re.search(rf"enum class {enum}\s*\{{(.*?)\}}", android, re.S)
+        generated = re.search(rf"\b{field}: ([^;]+);", block.group(1))
+        if not canonical or not kotlin or not local or not generated or column not in sql:
+            raise ValueError(f"incomplete upload diagnostic catalog: {field}")
+        mobile = set(re.findall(r"\b[A-Z][A-Z_]+\b", local.group(1)))
+        if field == "issueCode":
+            missing = re.search(r"enum class UploadDestinationIssue\s*\{(.*?)\}", destination, re.S)
+            legacy = re.search(r"val LEGACY_SERVER_ISSUE_CODES:.*?setOf\((.*?)\)", android, re.S)
+            if not missing or not legacy:
+                raise ValueError("incomplete Android diagnostic issue catalog")
+            mobile |= set(re.findall(r"\b[A-Z][A-Z_]+\b", missing.group(1)))
+            mobile |= set(re.findall(r'"([^"]+)"', legacy.group(1)))
+        consumers = {"model": set(re.findall(r'"([^"]+)"', kotlin.group(1))),
+                     "SQL": sql[column], "Android": mobile,
+                     "web": set(re.findall(r'"([^"]+)"', generated.group(1)))}
+        for consumer, values in consumers.items():
+            if values != canonical:
+                failures.append(f"upload diagnostics {consumer} {field}: missing {sorted(canonical - values)}, extra {sorted(values - canonical)}")
+
+
 def main() -> int:
     linkml = json.loads(LINKML.read_text())["contracts"]
     models = json.loads(MODELS.read_text())["contracts"]
@@ -89,6 +129,8 @@ def main() -> int:
             failures.append(
                 f"OpenAPI {schema} drift: missing {sorted(set(canon) - set(got))}, extra {sorted(set(got) - set(canon))}"
             )
+
+    check_upload_diagnostics(ROOT, spec)
 
     # OpenAPI AndroidSensorSetting must carry the Kotlin model's fields (named units, so
     # no bare samplingRate) and the canonical sensor-type enum.

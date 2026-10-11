@@ -6,7 +6,7 @@
   "sourceFiles": {
     "linkml": {
       "path": "ontology/chronicle.linkml.yaml",
-      "sha256": "2fd067ed189ae38a7bfb908445a94a91d127a57333191846533f5a70daec29f7"
+      "sha256": "e3ab0899ef3026b45135a48d35f4a9cd176bb9a776a6e7504dfc7c38985c6743"
     }
   },
   "contracts": {
@@ -747,7 +747,8 @@
       "NOT_ENROLLED",
       "PAUSED",
       "COLLECTION_COMPLETED",
-      "UNKNOWN"
+      "UNKNOWN",
+      "ERASED"
     ],
     "studyLifecycleStatuses": [
       "ACTIVE",

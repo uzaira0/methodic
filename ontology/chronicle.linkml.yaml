@@ -83,6 +83,8 @@ enums:
         description: Participant completed collection for the study.
       UNKNOWN:
         description: Client fallback when status cannot be resolved.
+      ERASED:
+        description: A researcher erased this participant or device; the phone stops and wipes its local data and credentials.
   StudyLifecycleStatus:
     description: Study lifecycle values mirrored from chronicle-models.
     permissible_values:
