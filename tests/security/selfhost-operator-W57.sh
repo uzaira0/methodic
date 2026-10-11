@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
-WORK_DIR=/home/opt/chronicle_work/launch-audit-1003/sol/webselfhost-logs
+WORK_DIR="${SELFHOST_OPERATOR_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-operator-W57}"
+mkdir -p "$WORK_DIR"
 RUN_DIR=$(mktemp -d "${WORK_DIR}/W57.XXXXXX")
 trap 'rm -rf -- "$RUN_DIR"' EXIT
 SMOKE="$ROOT_DIR/tests/smoke/selfhost-release-smoke.sh"

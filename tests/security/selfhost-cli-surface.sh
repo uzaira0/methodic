@@ -30,6 +30,7 @@ echo 'PASS: help lists every dispatched command'
 # 2. `down --help` prints usage without running `docker compose down` (C4-3).
 mkdir -p "$RUN_DIR/bin" "$RUN_DIR/selfhost"
 cp "$CLI" "$RUN_DIR/selfhost/chronicle"
+/bin/cp -R "${ROOT_DIR}/selfhost/chronicle_ops" "$RUN_DIR/selfhost/"
 printf 'COMPOSE_PROJECT_NAME=cli-surface\n' >"$RUN_DIR/selfhost/.env"
 printf '#!/bin/sh\necho "$@" >> "%s/docker-calls"\n' "$RUN_DIR" >"$RUN_DIR/bin/docker"
 chmod +x "$RUN_DIR/bin/docker"
@@ -55,12 +56,12 @@ grep -Eq 'http_port=\$\(setup_port "\$project" web "\$keep_http_port"' "$CLI" \
 grep -Fq "('GRAFANA_PORT', grafana_port)" "$CLI" || fail 'setup does not write GRAFANA_PORT to .env'
 echo 'PASS: setup selects and writes a free Grafana port'
 
-# 5. The internal-listener guard meters every request per TCP peer before basic_auth (B3, S2).
+# 5. Bound requests before the app verifies the internal dashboard password.
 guard=$(awk '/^\(chronicle_dashboard_guard\) \{/ {on=1} on {print} on && /^\}/ {exit}' "$SNIPPETS")
 rl_line=$(grep -n 'rate_limit' <<<"$guard" | head -1 | cut -d: -f1 || true)
-ba_line=$(grep -n 'basic_auth' <<<"$guard" | head -1 | cut -d: -f1 || true)
-[[ -n "$rl_line" && -n "$ba_line" && "$rl_line" -lt "$ba_line" ]] \
-  || fail 'chronicle_dashboard_guard has no rate_limit ahead of basic_auth'
+auth_line=$(grep -n 'request_header /chronicle/v3/auth/' <<<"$guard" | head -1 | cut -d: -f1 || true)
+[[ -n "$rl_line" && -n "$auth_line" && "$rl_line" -lt "$auth_line" ]] \
+  || fail 'chronicle_dashboard_guard has no rate_limit ahead of password login'
 grep -Fq 'key {remote_ip}' <<<"$guard" || fail 'guard rate limit is not keyed on the TCP peer'
 echo 'PASS: internal guard rate-limits before basic_auth'
 
@@ -84,7 +85,10 @@ grep -Fq 'dc run --rm --no-deps ca-export' <<<"$up_command" || fail 'up does not
 echo 'PASS: trial CA export runs after healthy startup'
 
 # 9. Restore receipts record a duration (L5).
-grep -Fq 'durationSeconds' "$CLI" || fail 'operation receipts carry no duration'
+(cd "$ROOT_DIR/tests/selfhost-py" && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
+  test_receipts.ReceiptTests.test_receipt_contract_private_atomic_and_durable \
+  test_receipts.ReceiptTests.test_finish_records_one_matching_receipt_and_monitoring_outcome) \
+  || fail 'operation receipts carry no duration'
 echo 'PASS: operation receipts record duration'
 # 10. A mistyped command fails loudly; asking for help succeeds (I9).
 for help_arg in help --help -h; do

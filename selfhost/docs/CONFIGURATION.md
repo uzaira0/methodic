@@ -1,4 +1,4 @@
-# Configuration & Operations
+# Configuration and operations
 
 - [Managing studies](#managing-studies)
 - [Mobile apps](#mobile-apps)
@@ -7,48 +7,77 @@
 - [Data deletion and uninstall](#data-deletion-and-uninstall)
 - [Upgrading](#upgrading)
 
----
+
+## Institutional LB and management inputs
+
+Setup asks for the canonical public HTTPS origin, explicit LB source CIDRs,
+`POOL_ALLOWED_IPS`, and the fixed pool port. With no recorded remote LB sources, defaults
+retain loopback-only trust and an unrestricted pool allowlist governed by the host firewall;
+SNAT without client XFF can start without guessing trusted CIDRs. A port conflict is refused. When providing
+forwarded client/protocol headers, the LB must replace them; SNAT without XFF supplies no original client
+identity. The public HTTP surface defaults disabled; enable `PUBLIC_HTTP_ENABLED` only
+when the LB exposes HTTP and redirects it to the canonical HTTPS origin.
+
+The private researcher ACL defaults to loopback plus the selected Compose gateway, so host
+access and SSH tunnels work through Docker's translated TCP peer. Supply approved VPN/researcher CIDRs
+and `DASHBOARD_BASE_URL` for remote access. Setup derives its certificate SAN and browser
+Origin entry, preserving extra saved SANs/origins. New generated pairs use
+`tls/internal-ca.crt`; upgrades retain the existing dashboard trust anchor. Operator pairs
+only need to cover the management identity. A deliberately excluded management host can
+establish intentional source denial; complete dashboard sign-in from an allowed researcher
+browser. A loopback dashboard must remain accessible from the operator host, and verification
+fails on a 403 there. Existing operational answers survive a setup rerun.
+
+Environment files accept `KEY=value`, optional `export`, literal single/double quotes,
+and whitespace-separated comments. Quote spaces and shell punctuation. Commands,
+interpolation, concatenated quotes, and backslash escapes are rejected before sourcing;
+single quotes preserve dollar signs literally. The launcher and Python operations use
+this same contract.
+
+The upstream contract is at least 10 MiB bodies, 16 KiB headers, and 300-second idle
+timeouts. Setup collects these values and refuses a smaller contract. Qualify actual
+slow transfers and large exports using [platform procedures](../../tests/deployment/selfhost-platform.md).
 
 ## Managing studies
 
-Everything is done from the web dashboard on the **internal** listener,
+Everything is done from the web dashboard on the internal listener,
 `https://<INTERNAL_BIND>:8081/chronicle` (default `https://127.0.0.1:8081/chronicle`, reachable
-over an SSH tunnel) — there is no admin CLI. `https://<your-domain>` is the participant/mobile
-origin only: the SPA loads there, but the dashboard API answers 404 by design.
+over an SSH tunnel); there is no admin CLI. `https://<your-domain>` is the participant/mobile
+origin only: the SPA loads there, but the dashboard API answers 404.
 
-1. **Create a study.** Give it a name; it gets a study ID (UUID).
-2. **Choose data-collection modules.** Each module (app usage, accelerometer, step count,
-   battery, connectivity, activity recognition, etc.) is toggled **required / optional /
-   off** per study, and sensor modules carry their own sampling rate + duty cycle.
-3. **Add participants.** Each participant gets an enrollment code / QR that encodes the
+1. Create a study. Give it a name; it gets a study ID (UUID).
+2. Choose data-collection modules. Each module (app usage, accelerometer, step count,
+   battery, connectivity, activity recognition, etc.) is toggled required / optional /
+   off per study, and sensor modules carry their own sampling rate + duty cycle.
+3. Add participants. Each participant gets an enrollment code / QR that encodes the
    study ID, participant ID, and your server URL.
-4. **Monitor.** The dashboard shows enrolled devices and last-upload times.
-5. **Export.** The study's **Bulk Downloads** tab is the single place that covers every
-   data family — a full-study background export (choose data types, Excel/CSV/JSON, and an
+4. Monitor. The dashboard shows enrolled devices and last-upload times.
+5. Export. The study's Bulk Downloads tab is the single place that covers every
+   data family; a full-study background export (choose data types, Excel/CSV/JSON, and an
    optional date range), whole-study Time Use Diary CSVs, and per-questionnaire response
-   CSVs. For a subset of people, tick rows on **Participants** and use *Download Data*.
-   Output is plain and readable in R, Python, Excel — no proprietary tooling needed.
+   CSVs. For a subset of people, tick rows on Participants and use *Download Data*.
+   Output is plain and readable in R, Python, Excel; no proprietary tooling needed.
 
-Which modules a given phone actually collects is the **intersection** of what the study
-enables, what the participant consented to, and what the platform supports — a module a
+Which modules a given phone actually collects is the intersection of what the study
+enables, what the participant consented to, and what the platform supports; a module a
 device can't realize is silently dropped rather than blocking enrollment.
 
 ## Mobile apps
 
-Participants need a Chronicle app build that points at **your** server. Public builds use
+Participants need a Chronicle app build that points at your server. Public builds use
 one-time enrollment links followed by per-device API keys; they do not carry a shared
 deployment secret.
 
 ### Point the app at your server
 
-The Google Play build and the public **"open" sideload build** both trust any valid
+The Google Play build and the public "open" sideload build both trust any valid
 public-HTTPS Chronicle server:
 
-- **Android from Google Play** — issue a one-time enrollment link from the dashboard. The
+- Android from Google Play; issue a one-time enrollment link from the dashboard. The
   link configures the server URL and the app displays it before the participant enrolls.
   No app rebuild or deployment-wide mobile secret is required.
 
-- **Android sideload** — build the `open` product flavor:
+- Android sideload; build the `open` product flavor:
   ```bash
   cd chronicle           # the Android submodule
   ./gradlew :app:assembleOpenRelease
@@ -62,12 +91,12 @@ public-HTTPS Chronicle server:
   flavor as a distinct store app, give it its own `applicationId` and store/signing
   configuration.
 
-- **iOS** — in `chronicle-ios/chronicle/Config/Chronicle.local.xcconfig` set:
+- iOS; in `chronicle-ios/chronicle/Config/Chronicle.local.xcconfig` set:
   ```
   CHRONICLE_ALLOW_ANY_SERVER = YES
   ```
   then build. Release builds validate the server certificate against the system trust
-  store, so your server needs a valid publicly-trusted cert (Caddy handles this).
+  store, so your server needs a valid publicly trusted cert (Caddy handles this).
 
 ### Public-client credentials
 
@@ -100,9 +129,9 @@ recent upload time.
 Configure the scope through the dashboard; never reuse a real participant:
 
 1. Create a dedicated reviewer study with active start/end dates. Complete its participant
-   policy and save an explicit versioned **Data Collection** setting first. A legacy
+   policy and save an explicit versioned Data Collection setting first. A legacy
    `AndroidSensor`-only setting is not valid for public enrollment.
-2. Open **Participants**, add a synthetic non-PII ID such as `play-reviewer`, and keep it in
+2. Open Participants, add a synthetic non-PII ID such as `play-reviewer`, and keep it in
    `ENROLLED` state. The public reviewer route never changes researcher-controlled status.
 3. Put only that study UUID and participant ID in `.env`, leave
    `CHRONICLE_REVIEWER_ACCESS_ENABLED=false`, start the stack, and run `./chronicle doctor`.
@@ -184,4 +213,24 @@ an upgrade receipt. Flyway migrations are automatic.
 
 Read [UPGRADE-ROLLBACK.md](UPGRADE-ROLLBACK.md) before the first production upgrade. It
 contains the exact forward-recovery and tested rollback procedure. PostgreSQL major changes
-are deliberately refused and use the separate dump/restore runbook.
+are refused and use the separate dump/restore runbook.
+
+## Study webhook recipients
+
+Study webhooks are managed through the authenticated API, not the dashboard. Inventory
+registered recipients with `GET /chronicle/v3/study/{id}/webhooks` using a researcher session
+with study access. Create recipients before enrollment: adding a destination is refused
+while enrollments are active or pending. Creation, deletion and test delivery are audited. Enrollment and data-submission
+events include participant IDs, study context and record counts. Inventory every recipient,
+hosting country, transfer authorization and retention agreement before enabling delivery.
+Keep the study's participant sharing disclosure consistent with these recipients. Chronicle
+cannot erase copies already delivered: arrange and verify recipient-side deletion when a
+participant or study is erased, including the recipient's backups and downstream processors.
+
+## Upload body deadlines
+
+Every Caddy upload listener gives a request body 300 seconds to finish, even if bytes keep
+arriving. The existing 10 MiB ceiling therefore permits about 35 KiB/s for a maximum-size
+mobile batch. This total read deadline is independent of the upstream idle timeout. Keep
+both limits when replacing the supplied listeners; the topology drill checks an incomplete
+trickled body and a complete near-limit upload separately.

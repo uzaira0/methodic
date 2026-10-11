@@ -26,15 +26,16 @@ trap '/bin/rm -rf -- "$RUN_DIR"' EXIT
 FIXTURE_SELFHOST="${RUN_DIR}/selfhost"
 COMMAND_DIR="${RUN_DIR}/commands"
 /bin/mkdir -p "$FIXTURE_SELFHOST" "$COMMAND_DIR"
-/bin/cp "${ROOT_DIR}/selfhost/chronicle" "$FIXTURE_SELFHOST/"
+/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/network-policy.sh" "$FIXTURE_SELFHOST/"
+/bin/cp -R "${ROOT_DIR}/selfhost/chronicle_ops" "$FIXTURE_SELFHOST/"
 /bin/chmod 0755 "${FIXTURE_SELFHOST}/chronicle"
 
-# A normal release-app startup exceeds five requests in its first second. Keep this
-# regression adjacent to the live rate-limit probe so the documented default and the
-# Compose environment transport cannot silently drift back to the incompatible value.
-grep -Fq 'events {$RATE_LIMIT_MOBILE_EVENTS:20}' "${ROOT_DIR}/selfhost/caddy/snippets.caddy" \
-  || fail "mobile edge default does not admit the release app startup burst"
-for variable in RATE_LIMIT_MOBILE_EVENTS RATE_LIMIT_MOBILE_WINDOW RATE_LIMIT_WEB_EVENTS RATE_LIMIT_WEB_WINDOW; do
+# Assert the surviving aggregate zones and their Compose environment transport.
+for variable in RATE_LIMIT_MOBILE_ABUSE_EVENTS RATE_LIMIT_WEB_ABUSE_EVENTS; do
+  grep -Fq "events {\$${variable}:200}" "${ROOT_DIR}/selfhost/caddy/snippets.caddy" \
+    || fail "aggregate abuse zone is missing ${variable}"
+done
+for variable in RATE_LIMIT_MOBILE_ABUSE_EVENTS RATE_LIMIT_MOBILE_WINDOW RATE_LIMIT_WEB_ABUSE_EVENTS RATE_LIMIT_WEB_WINDOW; do
   grep -Eq "^[[:space:]]+${variable}:.*\\$\\{${variable}" "${ROOT_DIR}/selfhost/docker-compose.yml" \
     || fail "docker-compose.yml does not propagate ${variable} to Caddy"
 done
@@ -51,6 +52,15 @@ printf '%s' "$PASSWORD" >"$PASSWORD_FILE"
 printf '%s' "$POSTGRES_SECRET" >"$POSTGRES_PASSWORD_FILE"
 /bin/chmod 0600 "$PASSWORD_FILE" "$POSTGRES_PASSWORD_FILE"
 
+cat >"${COMMAND_DIR}/findmnt" <<'EOF'
+#!/usr/bin/env bash
+printf '/dev/mapper/fixture-encrypted\n'
+EOF
+cat >"${COMMAND_DIR}/lsblk" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' '{"blockdevices":[{"type":"crypt","children":[{"type":"disk"}]}]}'
+EOF
+chmod 0755 "${COMMAND_DIR}/findmnt" "${COMMAND_DIR}/lsblk"
 cat >"${FIXTURE_SELFHOST}/.env" <<'EOF'
 DOMAIN=chronicle.example.test
 COMPOSE_PROJECT_NAME=chronicle-selfhost-verify-fixture
@@ -62,7 +72,7 @@ INTERNAL_BIND=127.0.0.1
 INTERNAL_PORT=18081
 ENABLE_BACKUPS=true
 ENABLE_ENCRYPTION=true
-RATE_LIMIT_MOBILE_EVENTS=1
+RATE_LIMIT_MOBILE_ABUSE_EVENTS=1
 RATE_LIMIT_MOBILE_WINDOW=1s
 RATE_LIMIT_RETRY_SLEEP=0
 DASHBOARD_USER=researcher
@@ -80,7 +90,9 @@ EOF
 /bin/mkdir -p "${FIXTURE_SELFHOST}/backups/keyring" "${FIXTURE_SELFHOST}/backups/last"
 /bin/chmod 0700 "${FIXTURE_SELFHOST}/backups"
 printf 'fixture-keyring\n' >"${FIXTURE_SELFHOST}/backups/keyring/chronicle-keyring.per"
-printf 'fixture-dump\n' >"${FIXTURE_SELFHOST}/backups/last/chronicle.sql.gz"
+printf '%s\n' '-- PostgreSQL database dump' '\restrict fixture' 'SELECT 1;' \
+  '\unrestrict fixture' '-- PostgreSQL database dump complete' |
+  gzip -c >"${FIXTURE_SELFHOST}/backups/last/chronicle.sql.gz"
 
 cat >"${COMMAND_DIR}/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -105,6 +117,7 @@ read_config_fd=false
 body_stdin=false
 device_header=false
 request_body=''
+cookie_jar=''
 previous=""
 for argument in "$@"; do
   [[ "$argument" != *"$expected"* ]] || {
@@ -128,6 +141,7 @@ for argument in "$@"; do
   if [[ "$previous" == --config && "$argument" == /dev/fd/3 ]]; then read_config_fd=true; fi
   if [[ "$previous" == --dump-header && "$argument" == - ]]; then dump_headers=true; fi
   if [[ "$previous" == --data-binary && "$argument" == @- ]]; then body_stdin=true; fi
+  if [[ "$previous" == --cookie-jar ]]; then cookie_jar="$argument"; fi
   previous="$argument"
 done
 [[ -n "$url" ]] || exit 93
@@ -137,28 +151,24 @@ if [[ "$body_stdin" == true ]]; then
 fi
 
 if [[ "$read_config" == true || "$read_config_fd" == true ]]; then
-  if [[ "$read_config_fd" == true ]]; then
-    IFS= read -r config_line <&3 || exit 94
-  else
-    IFS= read -r config_line || exit 94
-  fi
-  escaped="${expected//\\/\\\\}"
-  escaped="${escaped//\"/\\\"}"
+  if [[ "$read_config_fd" == true ]]; then request_config="$(cat <&3)"; else request_config="$(cat)"; fi
   case "$url" in
-    https://127.0.0.1:18081/chronicle/)
-      [[ "$config_line" == "user = \"researcher:${escaped}\"" ]] || exit 95
-      printf '%s\n' correct >>"${SELFHOST_VERIFY_TEST_AUTH_MARKERS}"
-      ;;
-    https://127.0.0.1:18081/chronicle/api/web/study)
-      [[ "$config_line" == 'user = "researcher:not-the-'*'-password"' ]] || exit 96
-      printf '%s\n' wrong >>"${SELFHOST_VERIFY_TEST_AUTH_MARKERS}"
-      ;;
     https://127.0.0.1:18081/chronicle/v3/auth/dashboard-login)
-      [[ "$read_config_fd" == true ]] || exit 97
-      [[ "$config_line" == "user = \"researcher:${escaped}\"" ]] || exit 98
       expected_body="$(printf '%s' "$expected" | "${SELFHOST_VERIFY_TEST_REAL_PYTHON}" -c 'import json,sys; print(json.dumps({"password": sys.stdin.read()}), end="")')"
-      [[ "$request_body" == "$expected_body" ]] || exit 99
-      printf '%s\n' session-login >>"${SELFHOST_VERIFY_TEST_AUTH_MARKERS}"
+      escaped_body="${expected_body//\\/\\\\}"
+      escaped_body="${escaped_body//\"/\\\"}"
+      if [[ "$request_config" == "data-binary = \"${escaped_body}\"" ]]; then
+        printf '%s\n' correct session-login >>"${SELFHOST_VERIFY_TEST_AUTH_MARKERS}"
+        login_code=200
+      else
+        [[ "$request_config" == *not-the-*-password* ]] || exit 99
+        printf '%s\n' wrong >>"${SELFHOST_VERIFY_TEST_AUTH_MARKERS}"
+        login_code=401
+      fi
+      ;;
+    https://127.0.0.1:18081/chronicle/v3/auth/session)
+      [[ -z "$request_config" && "$*" == *--cookie* ]] || exit 98
+      printf '%s\n' session-cookie >>"${SELFHOST_VERIFY_TEST_AUTH_MARKERS}"
       ;;
     *) exit 97 ;;
   esac
@@ -177,28 +187,28 @@ case "$url" in
     printf 'HTTP/1.1 308 Permanent Redirect\r\nLocation: https://chronicle.example.test/health\r\n\r\n'
     code=308
     ;;
-  http://127.0.0.1:18080/health)
+  https://chronicle.example.test/health)
     code=204
     ;;
-  http://127.0.0.1:18080/chronicle|http://127.0.0.1:18080/chronicle/|http://127.0.0.1:18080/chronicle/survey)
+  https://chronicle.example.test/chronicle|https://chronicle.example.test/chronicle/|https://chronicle.example.test/chronicle/survey)
     code=200
     ;;
-  http://127.0.0.1:18080/privacy)
+  https://chronicle.example.test/privacy)
     # The live proxy follows these anonymous redirects to nonempty Chronicle pages.
     # The focused curl fixture models the final response because it does not implement
     # redirect traversal itself.
     code=200
-    effective_url=http://127.0.0.1:18080/chronicle/privacy
+    effective_url=https://chronicle.example.test/chronicle/privacy
     ;;
-  http://127.0.0.1:18080/withdrawal)
+  https://chronicle.example.test/withdrawal)
     code=200
-    effective_url=http://127.0.0.1:18080/chronicle/withdrawal
+    effective_url=https://chronicle.example.test/chronicle/withdrawal
     ;;
-  http://127.0.0.1:18080/reviewer)
+  https://chronicle.example.test/reviewer)
     code=200
-    effective_url=http://127.0.0.1:18080/chronicle/reviewer
+    effective_url=https://chronicle.example.test/chronicle/reviewer
     ;;
-  http://127.0.0.1:18080/chronicle/v4/study/x/upload)
+  https://chronicle.example.test/chronicle/v4/study/x/upload)
     count=0
     [[ ! -f "${SELFHOST_VERIFY_TEST_UPLOAD_COUNT}" ]] || count="$(cat "${SELFHOST_VERIFY_TEST_UPLOAD_COUNT}")"
     count=$((count + 1))
@@ -215,10 +225,10 @@ case "$url" in
     # to exceed the edge's one-second window on a normal TLS listener.
     if (( count == 1 || active_count < 2 )); then code=401; else code=429; fi
     ;;
-  http://127.0.0.1:18080/chronicle/study/x)
+  https://chronicle.example.test/chronicle/study/x)
     code=401
     ;;
-  http://127.0.0.1:18080/chronicle/v4/study/00000000-0000-0000-0000-000000000000/participant/reviewer/enroll)
+  https://chronicle.example.test/chronicle/v4/study/00000000-0000-0000-0000-000000000000/participant/reviewer/enroll)
     [[ "$device_header" == true ]] || exit 109
     [[ "$request_body" == *'"@class":"com.openlattice.chronicle.sources.AndroidDevice"'* ]] || exit 110
     [[ "$request_body" == *'"deviceId":"selfhost-verifier"'* ]] || exit 111
@@ -233,8 +243,13 @@ case "$url" in
   https://127.0.0.1:18081/chronicle/)
     [[ "$read_config" == true ]] && code=200
     ;;
-  https://127.0.0.1:18081/chronicle/v3/auth/dashboard-login)
-    [[ "$read_config_fd" == true && "$body_stdin" == true ]] && code=200
+  https://127.0.0.1:18081/chronicle/v3/auth/dashboard-login|https://127.0.0.1:18081/chronicle/v3/auth/session)
+    [[ "$read_config" == true ]] && code="${login_code:-200}"
+    # Like the backend, each answer sets a fresh CSRF cookie and returns that token.
+    csrf="fixture-csrf-${url##*/}"
+    [[ -z "$cookie_jar" ]] ||
+      printf '# Netscape HTTP Cookie File\n127.0.0.1\tFALSE\t/chronicle\tTRUE\t0\tol_csrf_token\t%s\n' "$csrf" >"$cookie_jar"
+    printf '{"authenticated":%s,"csrfToken":"%s"}\n' "$([[ "$code" == 200 ]] && echo true || echo false)" "$csrf"
     ;;
 esac
 
@@ -243,7 +258,7 @@ if [[ "$write_status" == true ]]; then
     printf '%s|%s|128' "$code" "$effective_url"
   elif [[ "$write_format" == *size_download* ]]; then
     printf '%s 128' "$code"
-  elif [[ "$write_format" == *'\n'* ]]; then
+  elif [[ "$write_format" == *'\n'* || "$write_format" == *$'\n'* ]]; then
     printf '%s\n' "$code"
   else
     printf '%s' "$code"
@@ -276,11 +291,20 @@ done
 if [[ "$*" == *'exec -T backend grep -qF'*'/server/rendered-config/cors.yaml'* ]]; then
   exit 0
 fi
+if [[ "${1:-}" == exec && "${2:-}" == "$SELFHOST_VERIFY_TEST_POSTGRES_CONTAINER_ID" &&
+      "$*" == *'has_table_privilege('* ]]; then
+  printf 't\n'
+  exit 0
+fi
 
 [[ "${1:-}" == compose ]] || exit 103
 shift
 [[ "${1:-}" == -p ]] || exit 104
 shift 2
+if [[ "$*" == 'ps -q postgres' ]]; then
+  printf '%s\n' "$SELFHOST_VERIFY_TEST_POSTGRES_CONTAINER_ID"
+  exit 0
+fi
 [[ "${1:-}" == exec ]] || exit 105
 
 IFS= read -r -d '' supplied_password || exit 106
@@ -302,6 +326,7 @@ printf '%s\n' "$PASSWORD" | PATH="${COMMAND_DIR}:${PATH}" \
   SELFHOST_VERIFY_TEST_PASSWORD_FILE="$PASSWORD_FILE" \
   SELFHOST_VERIFY_TEST_REAL_PYTHON="$REAL_PYTHON" \
   SELFHOST_VERIFY_TEST_POSTGRES_PASSWORD_FILE="$POSTGRES_PASSWORD_FILE" \
+  SELFHOST_VERIFY_TEST_POSTGRES_CONTAINER_ID=fixture-postgres \
   SELFHOST_VERIFY_TEST_CURL_ARGS="$CURL_ARGS" \
   SELFHOST_VERIFY_TEST_DOCKER_ARGS="$DOCKER_ARGS" \
   SELFHOST_VERIFY_TEST_AUTH_MARKERS="$CURL_AUTH_MARKERS" \

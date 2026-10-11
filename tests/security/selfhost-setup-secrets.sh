@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+source "${ROOT_DIR}/tests/security/lib/selfhost-fixtures.sh"
 RUN_PARENT="${SELFHOST_SETUP_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-setup-secrets}"
 REAL_PYTHON="$(command -v python3)"
 
@@ -26,15 +27,19 @@ trap '/bin/rm -rf -- "$RUN_DIR"' EXIT
 FIXTURE_SELFHOST="${RUN_DIR}/selfhost"
 COMMAND_DIR="${RUN_DIR}/commands"
 /bin/mkdir -p "$FIXTURE_SELFHOST" "$COMMAND_DIR"
-/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" "${ROOT_DIR}/selfhost/network-policy.sh" "${ROOT_DIR}/selfhost/network-subnet.py" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_SELFHOST/"
-/bin/chmod 0755 "${FIXTURE_SELFHOST}/chronicle"
+copy_selfhost_setup_fixture "$FIXTURE_SELFHOST"
 
-PASSWORD='fixture-dashboard-password-never-print-9472'
+PASSWORD='fixture-pass-123' # Exactly 16 characters; shared setup/rotation boundary fixture. gitleaks:allow (test fixture)
 GENERATED='fixture-generated-secret-value-abcdefghijklmnopqrstuvwxyz0123456789'
 DOCKER_ARGS="${RUN_DIR}/docker-args.txt"
 PYTHON_ARGS="${RUN_DIR}/python-args.txt"
 export SELFHOST_SETUP_TEST_NETWORKS='[{"Name":"other_default","Labels":{"com.docker.compose.project":"other","com.docker.compose.network":"default"},"IPAM":{"Config":[{"Subnet":"172.28.0.0/16"},{"Subnet":"10.253.0.128/25"},{"Subnet":"fd00::/64"}]}}]'
 
+cat >"${COMMAND_DIR}/crontab" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == -l ]]; then echo "no crontab for fixture" >&2; exit 1; fi
+cat >/dev/null
+EOF
 cat >"${COMMAND_DIR}/docker" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -49,7 +54,16 @@ if [[ "${1:-}" == network ]]; then
   esac
   exit 0
 fi
-if [[ "${1:-}" == ps ]]; then exit 0; fi
+if [[ "${1:-}" == ps ]]; then
+  if [[ -n "${SELFHOST_SETUP_TEST_OWN_PROJECT:-}" && "$*" == *"project=${SELFHOST_SETUP_TEST_OWN_PROJECT}"* && "$*" == *'service=web'* ]]; then
+    printf 'fixture-web\n'
+  fi
+  exit 0
+fi
+if [[ "${1:-}" == inspect && "$*" == *NetworkSettings.Ports* ]]; then
+  printf '%s\n' '{"443/tcp":[{"HostIp":"0.0.0.0","HostPort":"444"}],"80/tcp":[{"HostIp":"0.0.0.0","HostPort":"81"}],"8081/tcp":[{"HostIp":"127.0.0.1","HostPort":"8082"}]}'
+  exit 0
+fi
 if [[ "${1:-}" == compose && "${2:-}" == version ]]; then
   printf '2.39.0\n'
   exit 0
@@ -72,8 +86,16 @@ PY
 fi
 if [[ "${1:-}" == compose && "$*" == *' ls '* ]]; then
   # Stands in for an operator rotating a secret while setup waits at a prompt.
-  [[ -z "${SELFHOST_SETUP_TEST_MUTATE_ENV:-}" ]] ||
-    printf 'POSTGRES_PASSWORD=rotated-while-setup-waited\n' >>"${SELFHOST_SETUP_TEST_MUTATE_ENV}"
+  if [[ -n "${SELFHOST_SETUP_TEST_MUTATE_ENV:-}" ]]; then
+    count_file="${SELFHOST_SETUP_TEST_MUTATE_ENV}.ownership-probes"
+    count=0
+    [[ ! -f "$count_file" ]] || read -r count <"$count_file"
+    count=$((count + 1)); printf '%s\n' "$count" >"$count_file"
+    # The first probe guards ownership before the snapshot; race after that snapshot.
+    if ((count == 2)); then
+      sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=rotated-while-setup-waited/' "${SELFHOST_SETUP_TEST_MUTATE_ENV}"
+    fi
+  fi
   printf '[]\n'
   exit 0
 fi
@@ -105,11 +127,13 @@ set -euo pipefail
 [[ "$*" == "-lnt" ]] || exit 96
 cat <<'SOCKETS'
 State  Recv-Q Send-Q Local Address:Port Peer Address:Port
-LISTEN 0      128    127.0.0.1:8080   0.0.0.0:*
 LISTEN 0      128    127.0.0.1:8081   0.0.0.0:*
 LISTEN 0      128    0.0.0.0:443      0.0.0.0:*
 LISTEN 0      128    0.0.0.0:80       0.0.0.0:*
 SOCKETS
+if [[ "${SELFHOST_SETUP_TEST_HELD_TRIAL:-false}" == true ]]; then
+  printf '%s\n' 'LISTEN 0 128 0.0.0.0:444 0.0.0.0:*' 'LISTEN 0 128 0.0.0.0:81 0.0.0.0:*'
+fi
 EOF
 
 cat >"${COMMAND_DIR}/ifconfig" <<'EOF'
@@ -126,7 +150,8 @@ EOF
 cat >"${COMMAND_DIR}/ip" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-[[ "$*" == '-4 -o addr show' ]] || exit 97
+if [[ "$*" == *'-j route show table all'* ]]; then printf '[]\n'; exit 0; fi
+[[ "$*" == '-o addr show' ]] || exit 97
 printf '%s\n' \
   '1: lo    inet 127.0.0.1/8 scope host lo' \
   '2: en0   inet 192.168.50.10/24 brd 192.168.50.255 scope global en0'
@@ -154,12 +179,24 @@ fi
 exec "${SELFHOST_SETUP_TEST_REAL_PYTHON}" "$@"
 EOF
 /bin/chmod 0755 \
+  "${COMMAND_DIR}/crontab" \
   "${COMMAND_DIR}/docker" \
   "${COMMAND_DIR}/ifconfig" \
   "${COMMAND_DIR}/ip" \
   "${COMMAND_DIR}/openssl" \
   "${COMMAND_DIR}/python3" \
   "${COMMAND_DIR}/ss"
+
+SHORT_SELFHOST="${RUN_DIR}/short-selfhost"
+copy_selfhost_setup_fixture "$SHORT_SELFHOST"
+if printf '1\nchronicle.study-host.org\n\n\n\n\n\n\n\n\n\n\n\n\n123456789012345\n123456789012345\n' |
+    env PATH="${COMMAND_DIR}:${PATH}" SELFHOST_SETUP_TEST_PASSWORD="$PASSWORD" \
+      SELFHOST_SETUP_TEST_GENERATED="$GENERATED" SELFHOST_SETUP_TEST_DOCKER_ARGS="$DOCKER_ARGS" \
+      SELFHOST_SETUP_TEST_PYTHON_ARGS="$PYTHON_ARGS" SELFHOST_SETUP_TEST_REAL_PYTHON="$REAL_PYTHON" \
+      bash "$SHORT_SELFHOST/chronicle" setup >"${RUN_DIR}/short-password.log" 2>&1; then
+  fail "setup accepted a 15-character dashboard password"
+fi
+grep -Fq 'dashboard password must be at least 16 characters' "${RUN_DIR}/short-password.log" || { cat "${RUN_DIR}/short-password.log" >&2; fail "setup omitted the short-password diagnostic"; }
 
 OUTPUT="${RUN_DIR}/setup-output.txt"
 printf 'MemTotal:        3900000 kB\n' >"${RUN_DIR}/meminfo-4g"
@@ -173,6 +210,7 @@ if ! (
     printf 'chronicle.study-host.org\n'    # hostname
     printf '\n'                          # loopback proxy bind
     printf '\n'                          # loopback dashboard bind
+    printf '\n%.0s' {1..10}              # saved/default public, LB and researcher settings
     printf '%s\n' "$PASSWORD"
     printf '%s\n' "$PASSWORD"
     printf '\n'                          # public per-device-key flow; no legacy shared HMAC
@@ -186,8 +224,30 @@ if ! (
       CHRONICLE_MEMINFO="${RUN_DIR}/meminfo-4g" \
       /bin/bash "${FIXTURE_SELFHOST}/chronicle" setup >"$OUTPUT" 2>&1
 ); then
+  cat "$OUTPUT" >&2
   fail "interactive setup fixture failed"
 fi
+
+if ! PYTHONPATH="$FIXTURE_SELFHOST" "$REAL_PYTHON" - "$FIXTURE_SELFHOST" <<'PY_SANS'
+import ipaddress, sys
+from pathlib import Path
+from urllib.parse import urlsplit
+from chronicle_ops.release import read_env,value
+settings=read_env(Path(sys.argv[1])/'.env')
+sans=value(settings,'INTERNAL_CERT_SANS').split(',')
+assert all(sans), 'fresh setup generated an empty INTERNAL_CERT_SANS entry'
+host=urlsplit(value(settings,'DASHBOARD_BASE_URL')).hostname
+try:
+    ipaddress.ip_address(host)
+    san='IP:'+host
+except ValueError:
+    san='DNS:'+host
+assert san in sans, 'fresh setup omitted the management SAN'
+PY_SANS
+then
+  fail "fresh setup generated invalid internal certificate SANs"
+fi
+echo 'PASS: fresh proxy setup has non-empty internal certificate SANs and the management SAN'
 
 [[ -s "${FIXTURE_SELFHOST}/.env" ]] || fail "setup did not create .env"
 mode="$(stat -c '%a' "${FIXTURE_SELFHOST}/.env" 2>/dev/null || stat -f '%Lp' "${FIXTURE_SELFHOST}/.env")"
@@ -239,9 +299,9 @@ if values.get("MOBILE_SIGNING_SECRET"):
     raise SystemExit("public-client setup generated an unnecessary deployment-wide mobile key")
 if values.get("MOBILE_SIGNING_SECRET_PREVIOUS"):
     raise SystemExit("public-client setup retained an unnecessary previous mobile key")
-if values.get("HTTP_PORT") != "8082":
-    raise SystemExit("setup did not move the occupied public listener to port 8082")
-if values.get("INTERNAL_PORT") != "8083":
+if values.get("HTTP_PORT") != "8080":
+    raise SystemExit("setup changed the reviewed pool port")
+if values.get("INTERNAL_PORT") != "8082":
     raise SystemExit("setup reused the selected public port for the internal listener")
 # A 4 GB host gets memory ceilings that fit it (README sizing: pilot minimum 2 vCPU / 4 GB).
 for key, expected in (("BACKEND_MEM_LIMIT", "1536m"), ("BACKEND_XMX", "-Xmx1g"),
@@ -270,6 +330,7 @@ resetup_proxy() { # <output> [extra env assignments...]
     printf 'chronicle.study-host.org\n'    # hostname
     printf '\n'                          # loopback proxy bind
     printf '\n'                          # loopback dashboard bind
+    printf '\n%.0s' {1..10}              # saved/default public, LB and researcher settings
     printf '\n'                          # public per-device-key flow
     printf 'n\n'                         # monitoring off
   } | env PATH="${COMMAND_DIR}:${PATH}" \
@@ -281,6 +342,19 @@ resetup_proxy() { # <output> [extra env assignments...]
       "$@" /bin/bash "${FIXTURE_SELFHOST}/chronicle" setup >"$output" 2>&1
 }
 
+# Unasked production controls and the canonical alias survive a real blank-answer rerun.
+PYTHONPATH="$FIXTURE_SELFHOST" "$REAL_PYTHON" - "$FIXTURE_SELFHOST" <<'PY_PRESERVE'
+import shlex, sys
+from pathlib import Path
+from chronicle_ops.release import read_env
+path=Path(sys.argv[1])/'.env'
+settings=read_env(path)
+changed={'POSTGRES_DB':'customdb','POSTGRES_USER':'customuser','CHRONICLE_PUBLIC_BASE_URL':'https://alias.study-host.org:8443',
+         'DASHBOARD_ALLOWED_IPS':'10.242.0.0/24 fd42:242::/64','INTERNAL_CERT_SANS':'DNS:saved.mgmt.example.org',
+         'SMTP_HOST':'smtp.example.org','BACKUP_KEEP_DAYS':'3','CHRONICLE_EXPORT_WORKERS':'2'}
+settings.update({key:shlex.quote(val) for key,val in changed.items()})
+path.write_text('\n'.join(key+'='+val for key,val in settings.items())+'\n')
+PY_PRESERVE
 # A rerun keeps the deployment's own Compose project (and so its database volume).
 sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=pilot-study/' "${FIXTURE_SELFHOST}/.env"
 sed -i 's|^CHRONICLE_SUBNET=.*|CHRONICLE_SUBNET=10.253.99.0/24|' "${FIXTURE_SELFHOST}/.env"
@@ -289,6 +363,20 @@ grep -Fqx 'COMPOSE_PROJECT_NAME=pilot-study' "${FIXTURE_SELFHOST}/.env" \
   || fail "re-setup replaced the existing custom COMPOSE_PROJECT_NAME"
 grep -Fqx 'CHRONICLE_SUBNET=10.253.99.0/24' "${FIXTURE_SELFHOST}/.env" \
   || fail "re-setup moved the existing deployment's subnet"
+
+PYTHONPATH="$FIXTURE_SELFHOST" "$REAL_PYTHON" - "$FIXTURE_SELFHOST" <<'PY_PRESERVE'
+import sys
+from pathlib import Path
+from chronicle_ops.release import read_env,value
+settings=read_env(Path(sys.argv[1])/'.env')
+for key,wanted in {'POSTGRES_DB':'customdb','POSTGRES_USER':'customuser','CHRONICLE_PUBLIC_BASE_URL':'https://alias.study-host.org:8443',
+                   'DASHBOARD_ALLOWED_IPS':'10.242.0.0/24 fd42:242::/64','SMTP_HOST':'smtp.example.org','BACKUP_KEEP_DAYS':'3',
+                   'CHRONICLE_EXPORT_WORKERS':'2'}.items():
+    assert value(settings,key)==wanted,key+' reset during setup'
+assert 'DNS:saved.mgmt.example.org' in value(settings,'INTERNAL_CERT_SANS')
+assert value(settings,'DASHBOARD_BASE_URL')=='https://127.0.0.1:8082'
+PY_PRESERVE
+echo 'PASS: production re-setup preserves database, ACL, SAN, SMTP, retention and public alias'
 
 # Up checks the rendered subnet before starting config-guard or any other container.
 sed -i -E 's~^(BACKEND_IMAGE|SELFHOST_FRONTEND_IMAGE|CADDY_IMAGE)=.*~\1=fixture/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa~' \
@@ -323,7 +411,7 @@ echo "PASS: subnet selection, rerun preservation, and pre-start overlap rejectio
 /bin/cp "${FIXTURE_SELFHOST}/.env" "${RUN_DIR}/env-before-locked-setup"
 /bin/mkdir "${FIXTURE_SELFHOST}/.chronicle-secret-rotation"
 ! resetup_proxy "${RUN_DIR}/setup-locked-output.txt" || fail "setup ran while a secret rotation was active"
-grep -Fq 'cannot run setup while an incomplete secret-rotation' "${RUN_DIR}/setup-locked-output.txt" \
+grep -Fq 'incomplete operation at' "${RUN_DIR}/setup-locked-output.txt" \
   || fail "setup did not explain the rotation interlock"
 cmp -s "${FIXTURE_SELFHOST}/.env" "${RUN_DIR}/env-before-locked-setup" || fail "locked setup changed .env"
 /bin/rmdir "${FIXTURE_SELFHOST}/.chronicle-secret-rotation"
@@ -345,8 +433,7 @@ resetup_proxy "${RUN_DIR}/setup-lock-output.txt" SELFHOST_SETUP_TEST_LOCK_PROBE=
 
 FIXTURE_LOCAL_SELFHOST="${RUN_DIR}/selfhost-local"
 /bin/mkdir -p "$FIXTURE_LOCAL_SELFHOST"
-/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" "${ROOT_DIR}/selfhost/network-policy.sh" "${ROOT_DIR}/selfhost/network-subnet.py" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_LOCAL_SELFHOST/"
-/bin/chmod 0755 "${FIXTURE_LOCAL_SELFHOST}/chronicle"
+copy_selfhost_setup_fixture "$FIXTURE_LOCAL_SELFHOST"
 LOCAL_OUTPUT="${RUN_DIR}/setup-local-output.txt"
 if ! (
   umask 000
@@ -391,6 +478,19 @@ PY
 grep -Fq 'Trial HTTPS/CA ports 444 and 81 are free; using those.' "$LOCAL_OUTPUT" \
   || fail "local setup did not explain its selected fallback ports"
 
+trial_project=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "${FIXTURE_LOCAL_SELFHOST}/.env")
+if ! printf 'y\n3\n192.168.50.10\n\nn\n' |
+    env PATH="${COMMAND_DIR}:${PATH}" SELFHOST_SETUP_TEST_PASSWORD="$PASSWORD" \
+      SELFHOST_SETUP_TEST_GENERATED="$GENERATED" SELFHOST_SETUP_TEST_DOCKER_ARGS="$DOCKER_ARGS" \
+      SELFHOST_SETUP_TEST_PYTHON_ARGS="$PYTHON_ARGS" SELFHOST_SETUP_TEST_REAL_PYTHON="$REAL_PYTHON" \
+      SELFHOST_SETUP_TEST_OWN_PROJECT="$trial_project" SELFHOST_SETUP_TEST_HELD_TRIAL=true \
+      bash "${FIXTURE_LOCAL_SELFHOST}/chronicle" setup >"${RUN_DIR}/trial-rerun.log" 2>&1; then
+  fail "running trial setup could not be repeated"
+fi
+for assignment in LOCAL_HTTPS_PORT=444 LOCAL_HTTP_PORT=81 CHRONICLE_PUBLIC_BASE_URL=https://192.168.50.10:444; do
+  grep -Fqx "$assignment" "${FIXTURE_LOCAL_SELFHOST}/.env" || fail "running trial changed $assignment"
+done
+
 # Re-running setup to leave the trial must not carry the trial's private-address origin into
 # a production .env: guard-config rejects it and names a variable setup never asked about.
 RESETUP_OUTPUT="${RUN_DIR}/setup-resetup-output.txt"
@@ -401,6 +501,7 @@ if ! (
     printf 'chronicle.study-host.org\n'    # hostname
     printf '\n'                          # loopback proxy bind
     printf '\n'                          # loopback dashboard bind
+    printf '\n%.0s' {1..10}              # saved/default public, LB and researcher settings
     printf '\n'                          # public per-device-key flow
     printf 'n\n'                         # monitoring off
   } | PATH="${COMMAND_DIR}:${PATH}" \
@@ -418,8 +519,7 @@ fi
 
 FIXTURE_LEGACY_SELFHOST="${RUN_DIR}/selfhost-legacy"
 /bin/mkdir -p "$FIXTURE_LEGACY_SELFHOST"
-/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" "${ROOT_DIR}/selfhost/network-policy.sh" "${ROOT_DIR}/selfhost/network-subnet.py" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE_LEGACY_SELFHOST/"
-/bin/chmod 0755 "${FIXTURE_LEGACY_SELFHOST}/chronicle"
+copy_selfhost_setup_fixture "$FIXTURE_LEGACY_SELFHOST"
 LEGACY_OUTPUT="${RUN_DIR}/setup-legacy-output.txt"
 if ! (
   umask 000
@@ -428,6 +528,7 @@ if ! (
     printf 'legacy.study-host.org\n'       # hostname
     printf '\n'                          # loopback proxy bind
     printf '\n'                          # loopback dashboard bind
+    printf '\n%.0s' {1..10}              # saved/default public, LB and researcher settings
     printf '%s\n' "$PASSWORD"
     printf '%s\n' "$PASSWORD"
     printf 'y\n'                         # explicit controlled-legacy opt-in
@@ -465,3 +566,28 @@ grep -Fq 'Controlled legacy HMAC compatibility is enabled' "$LEGACY_OUTPUT" \
   || fail "explicit legacy setup did not explain the controlled compatibility boundary"
 
 echo "self-host setup secret-custody test passed"
+
+# Optional delivery destination is collected silently and only HTTPS is accepted.
+webhook='https://alerts.example.test/fixture-private-destination'
+for scheme in https http; do
+  alert_selfhost="${RUN_DIR}/alerts-${scheme}/selfhost"
+  copy_selfhost_setup_fixture "$alert_selfhost"
+  alert_output="${RUN_DIR}/alerts-${scheme}.log"
+  alert_status=0
+  printf '1\nchronicle.study-host.org\n\n\n\n\n\n\n\n\n\n\n\n\n%s\n%s\n\ny\n\n\n\n%s\n' \
+    "$PASSWORD" "$PASSWORD" "${webhook/https:/$scheme:}" |
+    env PATH="${COMMAND_DIR}:${PATH}" SELFHOST_SETUP_TEST_PASSWORD="$PASSWORD" \
+      SELFHOST_SETUP_TEST_GENERATED="$GENERATED" SELFHOST_SETUP_TEST_DOCKER_ARGS="$DOCKER_ARGS" \
+      SELFHOST_SETUP_TEST_PYTHON_ARGS="$PYTHON_ARGS" SELFHOST_SETUP_TEST_REAL_PYTHON="$REAL_PYTHON" \
+      bash "$alert_selfhost/chronicle" setup >"$alert_output" 2>&1 || alert_status=$?
+  ! grep -Fq 'fixture-private-destination' "$alert_output" || fail 'setup printed the secret destination'
+  if [[ "$scheme" == https ]]; then
+    [[ "$alert_status" == 0 ]] || fail 'setup rejected the HTTPS alert destination'
+    grep -Fqx "CHRONICLE_ALERT_WEBHOOK_URL=$webhook" "$alert_selfhost/.env" || fail 'setup did not save the HTTPS alert destination'
+    grep -Fq 'Alert destination saved' "$alert_output" || fail 'setup did not request a delivery test'
+  else
+    [[ "$alert_status" != 0 ]] || fail 'setup accepted an HTTP alert destination'
+    [[ ! -e "$alert_selfhost/.env" ]] || fail 'invalid destination was published'
+  fi
+done
+echo 'PASS: optional HTTPS alert destination is private and validated before publication'

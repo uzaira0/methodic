@@ -35,6 +35,7 @@ OPERATION_ID='aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
 
 /bin/mkdir -p "$SELFHOST_DIR" "$COMMAND_DIR"
 /bin/cp "${ROOT_DIR}/selfhost/chronicle" "$SELFHOST_DIR/chronicle"
+/bin/cp -R "${ROOT_DIR}/selfhost/chronicle_ops" "$SELFHOST_DIR/"
 /bin/chmod 0755 "$SELFHOST_DIR/chronicle"
 
 cat >"${SELFHOST_DIR}/.env" <<'EOF'

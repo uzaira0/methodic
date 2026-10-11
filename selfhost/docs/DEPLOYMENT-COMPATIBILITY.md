@@ -11,11 +11,11 @@ A combination is supported only when it appears below.
 | `mode-own-tls-internal.yml` | **Supported production mode** | Caddy uses the supplied certificate; mobile traffic is public and researcher routes use a private HTTPS listener. |
 | `mode-local-https.yml` | **Supported trial mode** | Caddy's private CA is for operator-owned test devices on one LAN, never study participants. |
 | `backups.yml` | **Supported** | Required in both production modes and whenever TDE encryption is enabled. Optional only for an unencrypted local trial. |
-| `monitoring.yml` | **Supported optional overlay** | cAdvisor, VictoriaMetrics, VictoriaLogs, Fluent Bit, operational probes, and private Grafana. It is not required by the base stack and is tested with every row below. |
+| `monitoring.yml` | **Supported optional overlay** | cAdvisor, VictoriaMetrics, VictoriaLogs, Fluent Bit, operational probes, and private Grafana. It is not required by the base stack and is rendered with every row below; rendering does not establish runtime acceptance. |
 
-The supported release has no public researcher dashboard. Its built-in login mints a single
-admin session without an MFA claim, so it is accepted only with an internal mode,
-`TESTING_LOGIN_ENABLED=true`, and `REQUIRE_MFA=false`. If no login method is configured,
+The supported release has no public researcher dashboard. Its dashboard password login requires explicit password entry against the setup bcrypt hash.
+It mints a single admin session without an MFA claim, so it is accepted only with an internal mode,
+`TESTING_LOGIN_ENABLED=false`, and `REQUIRE_MFA=false`. If no login method is configured,
 startup fails instead of producing an apparently healthy but unusable dashboard.
 
 ## Researcher API keys on the public listener
@@ -31,7 +31,9 @@ API routes remain on the internal listener.
 
 ## Declared profiles
 
-Each profile works with or without `overlays/monitoring.yml`.
+Each profile is declared with or without `overlays/monitoring.yml`. All 14 runtime cases
+must complete the [VM acceptance procedures](../../tests/deployment/selfhost-platform.md)
+for the release; the combination guard provides rendering evidence only.
 
 | Profile ID | Mode overlay | `ENABLE_ENCRYPTION` | Backups overlay | Intended use |
 |---|---|---:|---:|---|
@@ -58,8 +60,14 @@ backend `CHRONICLE_TRUSTED_PROXY_CIDRS` value use the same input and are checked
 consistency at startup.
 
 Caddy separately trusts upstream load balancers through `CADDY_TRUSTED_PROXIES`, a
-space-separated list of explicit CIDRs. It defaults to loopback only; set it to the exact
-source ranges used by your TLS-terminating proxy. All split modes process the forwarded chain
+space-separated list of explicit CIDRs. The default is the Compose gateway (`172.28.0.1/32`)
+for a same-host proxy. A remote F5 uses its exact SNAT source ranges; client XFF is optional.
+Upgrade migrates legacy loopback trust to the configured gateway for a loopback HTTP bind,
+or to an existing explicit `POOL_ALLOWED_IPS` for a remote bind. It also adds the gateway to
+a legacy loopback dashboard allowlist so an SSH-tunnel operator retains access.
+Without recorded remote sources, legacy trust is retained and startup warns rather than
+refusing an F5 that uses SNAT without client XFF.
+All split modes process the forwarded chain
 from right to left, so a forged leading X-Forwarded-For value does not replace the nearest
 untrusted client address. Direct clients continue to use their socket address, regardless of
 an X-Forwarded-For header they send themselves.
@@ -140,7 +148,7 @@ The dashboard is the frontend image of the same release; it is never mixed acros
 
 | Server release | Android build shipped with it | Server change the app depends on |
 |---|---|---|
-| 2026.10.5 | versionCode 68 (Play internal, open flavor) | V114/V115 keep erased device-key hashes so an offline phone can learn NOT_ENROLLED after participant or study erasure; V116/V117 preserve those markers through restore |
+| 2026.10.9 | versionCode 69 (Play internal, open flavor) | V114/V115 keep erased device-key hashes so an offline phone can learn NOT_ENROLLED after participant or study erasure; V116/V117 preserve those markers through restore |
 | 2026.10.3 | versionCode 67 (Play internal) | as 2026.10.2 |
 | 2026.10.2 | versionCode 67 (Play internal) | V113 accepts the access-missing diagnostic; an older server rejects it and the app keeps it until the server is upgraded |
 | 2026.10.1 | versionCode 66 (Play internal); needs Android 8.0 or newer | none |
@@ -158,3 +166,9 @@ upload, so an upgraded server receives them
 (`LocalUploadDiagnosticsStore.parkUnsupportedByLegacyServer`). Servers before V107 also delete
 diagnostics after 30 days; the phone keeps its copy and re-sends it once a day. Update the
 server first anyway.
+
+Internal installs always use `TESTING_LOGIN_ENABLED=false` and `REQUIRE_MFA=false`. Upgrade,
+adopt and reconciliation migrate credentialless testing login when a dashboard hash exists;
+otherwise run `./chronicle setup` before retrying. Caddy retains network isolation and
+pre-auth limits; researcher data requires the app session. Sign-out and idle lock require
+password entry again, without a second Caddy Basic password prompt.

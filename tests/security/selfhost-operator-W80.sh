@@ -2,7 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-WORK_DIR=/home/opt/chronicle_work/launch-audit-1003/sol/webselfhost-logs
+source "${ROOT_DIR}/tests/security/lib/selfhost-fixtures.sh"
+WORK_DIR="${SELFHOST_OPERATOR_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-operator-W80}"
+mkdir -p "$WORK_DIR"
 RUN_DIR="$(mktemp -d "${WORK_DIR}/W80.XXXXXX")"
 trap 'rm -rf -- "$RUN_DIR"' EXIT
 FIXTURE="${RUN_DIR}/selfhost"
@@ -13,57 +15,17 @@ HASH='$2a$14$syntheticbcryptvalueabcdefghijklmnopqrstuv0123456789ABCDE'
 
 fail() { echo "FAIL W80: $*" >&2; exit 1; }
 
-mkdir -p "$FIXTURE" "$BIN"
-cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" \
-  "${ROOT_DIR}/selfhost/network-policy.sh" "${ROOT_DIR}/selfhost/.env.example" "$FIXTURE/"
-chmod 0755 "${FIXTURE}/chronicle"
-
-cat >"${BIN}/docker" <<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
-if [[ "$*" == 'compose ls --all --format json' ]]; then
-  printf '[]\n'
-elif [[ "${1:-}" == run ]]; then
-  cat >/dev/null
-  printf '%s\n' "$W80_HASH"
-fi
-exit 0
-SH
-cat >"${BIN}/openssl" <<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
-[[ "$*" == 'rand -base64 32' ]] || exit 91
-printf '%s\n' "$W80_GENERATED"
-SH
-cat >"${BIN}/ip" <<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
-[[ "$*" == '-4 -o addr show' ]] || exit 92
-printf '%s\n' '1: lo inet 127.0.0.1/8 scope host lo'
-SH
-cat >"${BIN}/ss" <<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
-[[ "$*" == '-lnt' ]] || exit 93
-printf '%s\n' 'State Recv-Q Send-Q Local Address:Port Peer Address:Port'
-SH
-chmod 0755 "${BIN}/"*
+make_selfhost_setup_fixture "$RUN_DIR"
 
 run_setup() {
   local output="$1" overwrite="$2"
-  local -a answers=()
-  if [[ "$overwrite" == true ]]; then
-    answers+=(y 1 chronicle.study-host.org '' '' '' n)
-  else
-    answers+=(1 chronicle.study-host.org '' '' "$PASSWORD" "$PASSWORD" '' n)
-  fi
   (
     cd "$FIXTURE"
-    printf '%s\n' "${answers[@]}" | env \
+    write_selfhost_setup_answers "$PASSWORD" "$overwrite" "$overwrite" | env \
       "PATH=${BIN}:${PATH}" \
       "COMPOSE_PROJECT_NAME=pilot-study" \
-      "W80_GENERATED=${GENERATED}" \
-      "W80_HASH=${HASH}" \
+      "SELFHOST_FIXTURE_GENERATED=${GENERATED}" \
+      "SELFHOST_FIXTURE_BCRYPT=${HASH}" \
       bash ./chronicle setup
   ) >"$output" 2>&1
 }

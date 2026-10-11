@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export CHRONICLE_RECONCILE_ENABLED=false
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 RUN_PARENT="${SELFHOST_ADOPT_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-adopt-command}"
@@ -29,7 +30,9 @@ args = sys.argv[1:]
 with open(os.environ["ADOPT_RECORD"], "a") as handle:
     handle.write(json.dumps([str(Path.cwd()), *args]) + "\n")
 failure = os.environ.get("ADOPT_FAILURE")
-if args[0] == "inspect":
+if args[:2] == ["compose", "ls"]:
+    print("[]")
+elif args[0] == "inspect":
     print("true unhealthy" if failure == "health" else "true healthy")
 elif args[0] == "exec":
     # upgrade.sh's source-database preconditions, answered per query.
@@ -54,7 +57,7 @@ elif "pg_dump" in " ".join(args):
     if failure == "dump":
         sys.exit(1)
     if failure != "empty-dump":
-        print("-- fixture dump\nSELECT 1;")
+        print("-- PostgreSQL database dump\n\\restrict fixture\nSELECT 1;\n-- PostgreSQL database dump complete\n\\unrestrict fixture")
 elif "config-guard" in args:
     sys.exit(1 if failure == "guard" else 0)
 elif "pull" in args:
@@ -114,6 +117,7 @@ fixture() {
   mkdir -p "$source_dir/backups" "$source_dir/tls" "$source_dir/overlays" \
     "$new_dir/backups" "$new_dir/tls" "$new_dir/overlays"
   cp "$ROOT_DIR/selfhost/chronicle" "$new_dir/operator"
+  /bin/cp -R "${ROOT_DIR}/selfhost/chronicle_ops" "$new_dir/"
   printf '{"release_version":"1.2.3"}\n' >"$RUN_DIR/release/release-manifest.json"
   for name in docker-compose.yml overlays/mode-behind-proxy-internal.yml overlays/backups.yml; do
     touch "$source_dir/$name" "$new_dir/$name"
@@ -125,6 +129,7 @@ CHRONICLE_STATE_DIR=.
 BACKEND_IMAGE=local/backend:source
 SELFHOST_FRONTEND_IMAGE=local/frontend:source
 CADDY_IMAGE=local/caddy:source
+DASHBOARD_PASSWORD_HASH='$2a$14$syntheticbcryptvalueabcdefghijklmnopqrstuv0123456789ABCDE'
 POSTGRES_PASSWORD='fixture-only-password'
 OPERATOR_CUSTOM='keep me'
 EOF
@@ -151,9 +156,13 @@ from pathlib import Path
 import sys
 with open(os.environ["ADOPT_RECORD"], "a") as handle:
     handle.write(json.dumps([str(Path.cwd()), "chronicle", *sys.argv[1:]]) + "\n")
+if sys.argv[1] in ('up', 'verify'):
+    assert os.environ.get('CHRONICLE_RECONCILE_ENABLED') == 'false', 'adoption lost its reconciliation opt-out'
 sys.exit(1 if os.environ.get("ADOPT_FAILURE") == sys.argv[1] else 0)
 PY
   chmod +x "$new_dir/chronicle"
+  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tests/selfhost-py:$ROOT_DIR/selfhost" \
+    python3 -c 'import sys; from test_release import complete_manifest_fixture; complete_manifest_fixture(sys.argv[1])' "$RUN_DIR/release"
 }
 
 expect_failure() {
@@ -165,6 +174,20 @@ expect_failure() {
   grep -Fq "$diagnostic" "$RUN_DIR/output" || { cat "$RUN_DIR/output" >&2; fail "missing diagnostic: $diagnostic"; }
 }
 
+fixture
+printf '\n# damage\n' >>"$new_dir/restore.sh"
+expect_failure 'checksum mismatch' --from "$source_dir"
+[[ ! -s "$ADOPT_RECORD" ]] || fail 'damaged release reached source Docker calls'
+fixture
+python3 - "$RUN_DIR/release/release-manifest.json" <<'PY'
+import json, sys
+from pathlib import Path
+path = Path(sys.argv[1]); data = json.loads(path.read_text())
+data['images']['backend'] = 'mismatched@sha256:' + 'b' * 64
+path.write_text(json.dumps(data))
+PY
+expect_failure 'image inventory does not match' --from "$source_dir"
+[[ ! -s "$ADOPT_RECORD" ]] || fail 'mismatched images reached source Docker calls'
 fixture
 expect_failure 'usage:'
 expect_failure 'usage:' --from
@@ -202,7 +225,17 @@ for lock in .chronicle-restore.lock .chronicle-upgrade.lock .chronicle-secret-ro
   expect_failure 'incomplete operation preserved' --from "$source_dir"
   [[ ! -s "$ADOPT_RECORD" ]] || fail "$lock reached docker"
 done
-echo 'PASS: arguments, release source, missing/private env, state directories, and existing destination refused'
+echo 'PASS: arguments, release integrity, source, missing/private env, state directories, and existing destination refused'
+
+fixture
+for tool in crontab logger systemctl; do
+  printf '#!/bin/sh\nexit 1\n' >"$RUN_DIR/bin/$tool"
+  chmod +x "$RUN_DIR/bin/$tool"
+done
+CHRONICLE_RECONCILE_ENABLED=true expect_failure 'enabled, active cron/crond service' --from "$source_dir"
+! grep -Fq '"stop"' "$ADOPT_RECORD" || fail 'scheduler preflight stopped source writers'
+rm "$RUN_DIR/bin/crontab" "$RUN_DIR/bin/logger" "$RUN_DIR/bin/systemctl"
+echo 'PASS: scheduler prerequisites fail before adoption stops writers'
 
 for failure in health missing-postgres query pg-major encrypted-study encrypted-payloads \
     stop writers-running encrypted-late dump empty-dump check-busy guard pull adopt-precheck down; do
@@ -230,16 +263,15 @@ assert bool(restarts) == (failure not in before_stop), rows
 assert failure not in before_stop - {"health", "missing-postgres"} or not any("stop" in row for row in rows), rows
 assert all(row[0] == source and "--env-file" in row and "--wait" in row for row in restarts), rows
 assert [row[2:] for row in rows if row[1] == "chronicle"] == (
-    [["adopt-precheck", source]] if failure in {"adopt-precheck", "down"} else []), rows
+    [["adopt-precheck", source]] if failure in {"adopt-precheck", "down"} else []), (failure, rows)
 if failure in {"guard", "pull", "adopt-precheck"}:
     # The new release's guard, images and host checks run before the source stack is taken down.
     assert not any("down" in row and "pilot-project" in row for row in rows), rows
-copied = failure in {"check-busy", "guard", "pull", "adopt-precheck", "down"}
 if failure == "check-busy":
     # Never `down` a check project that another deployment already uses.
     assert not any("down" in row and any("adopt-check" in a for a in row) for row in rows), rows
 cleanups = [row for row in rows if row[1] == "run" and "/bin/find" in row]
-assert len(cleanups) == (2 if copied else 0), rows
+assert not cleanups, rows
 assert not list((Path(new) / "backups").iterdir())
 assert not list((Path(new) / "tls").iterdir())
 PY
@@ -250,7 +282,7 @@ for failure in '' up verify; do
   fixture
   export ADOPT_FAILURE=$failure
   if [[ -n "$failure" ]]; then
-    expect_failure 'Restore ' --from "$source_dir"
+    expect_failure './chronicle rollback --from' --from "$source_dir"
   else
     # Exported Compose/image overrides must not change the selected project or image pins.
     COMPOSE_PROJECT_NAME=wrong-project BACKEND_IMAGE=wrong-image \
@@ -283,15 +315,13 @@ assert all("--project-name" not in row or row[row.index("--project-name") + 1] =
            or (row[row.index("--project-name") + 1].startswith("pilot-project-adopt-check-") and checks & set(row))
            for row in rows)
 assert not any("down" in row and ("-v" in row or "--volumes" in row) for row in rows)
-assert not (source / ".chronicle-upgrade.lock").exists()
+assert (source / ".chronicle-upgrade.lock").exists() == bool(failure)
 version = next(i for i, row in enumerate(rows) if "server_version_num" in " ".join(row))
 encrypted = [i for i, row in enumerate(rows) if "encrypted_payloads" in " ".join(row)]
 # Checked while the source runs, and again once its writers are stopped, before the dump.
 assert version < encrypted[0] < stop < encrypted[-1] < dump
 copies = [row for row in rows if row[1] == "run" and "/bin/cp" in row]
-assert len(copies) == 2 and all(row[row.index("--user") + 1] == "0:0" for row in copies), rows
-assert all(row[-4] == "registry/postgres:fixture" and ":/from:ro" in " ".join(row) for row in copies), rows
-assert all(":source" not in " ".join(row) for row in copies), rows
+assert not copies, rows
 assert [row[2] for row in rows if row[1] == "chronicle"] == (
     ["adopt-precheck", "up"] if failure == "up" else ["adopt-precheck", "up", "verify"])
 assert all(row[0] == str(new) for row in rows if row[1] == "chronicle")
@@ -310,14 +340,18 @@ backup = Path(receipt["pre_adopt_backup"]["path"])
 assert backup.parent == source / "backups"
 assert hashlib.sha256(backup.read_bytes()).hexdigest() == receipt["pre_adopt_backup"]["sha256"]
 assert b"SELECT 1" in gzip.decompress(backup.read_bytes())
-assert (new / "backups" / backup.name).read_bytes() == backup.read_bytes()
-assert (new / "tls/cert.pem").read_bytes() == (source / "tls/cert.pem").read_bytes()
-for path in [backup, receipt_path, new / "tls/cert.pem"]:
+assert not list((new / "backups").iterdir())
+assert not list((new / "tls").iterdir())
+assert str(source) in env
+if failure:
+    checkpoint = json.loads((source / ".chronicle-upgrade.lock/recovery.json").read_text())
+    assert checkpoint["owner"] == str(new) and checkpoint["phase"] == "migration-started"
+for path in [backup, receipt_path]:
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
 assert not (new / "backups").is_symlink() and not (new / "tls").is_symlink()
 PY
 done
-echo 'PASS: stop/dump/copy/handoff order, pins, project, verified receipt, and post-up recovery boundary'
+echo 'PASS: stop/dump/handoff order and retained shared state, pins, project, verified receipt, and post-up recovery boundary'
 
 fixture
 sed -i '/^COMPOSE_PROJECT_NAME=/d' "$source_dir/.env"
@@ -334,4 +368,11 @@ assert all(row[row.index("--project-name") + 1] == "chronicle-selfhost"
            for row in rows if "--project-name" in row)
 PY
 echo 'PASS: absent COMPOSE_PROJECT_NAME uses and persists chronicle-selfhost'
+fixture
+printf 'CHRONICLE_RECONCILE_ENABLED=false\n' >>"$source_dir/.env"
+env -u CHRONICLE_RECONCILE_ENABLED bash "$new_dir/operator" adopt --from "$source_dir" >"$RUN_DIR/output" 2>&1 \
+  || { cat "$RUN_DIR/output" >&2; fail 'saved reconciliation opt-out was ignored without an exported override'; }
+grep -Fxq 'CHRONICLE_RECONCILE_ENABLED=false' "$new_dir/.env" || fail 'saved reconciliation opt-out was not preserved'
+[[ ! -e "$source_dir/reconcile.sh" ]] || fail 'adoption installed an opted-out schedule'
+echo 'PASS: saved reconciliation opt-out is honored without an exported variable'
 echo 'PASS: selfhost-adopt-command'

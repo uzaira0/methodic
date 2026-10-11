@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-WORK_DIR=/home/opt/chronicle_work/launch-audit-1003/sol/webselfhost-logs
+WORK_DIR="${SELFHOST_OPERATOR_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-operator-W28}"
+mkdir -p "$WORK_DIR"
 RUN_DIR="$(mktemp -d "${WORK_DIR}/W28.XXXXXX")"
 trap 'rm -rf -- "$RUN_DIR"' EXIT
 CHRONICLE_SCRIPT="${ROOT_DIR}/selfhost/chronicle"
@@ -18,6 +19,7 @@ make_fixture() {
   local case_dir="$1"
   mkdir -p "${case_dir}/selfhost" "${case_dir}/bin"
   cp "$CHRONICLE_SCRIPT" "${case_dir}/selfhost/chronicle"
+  /bin/cp -R "${ROOT_DIR}/selfhost/chronicle_ops" "${case_dir}/selfhost/"
   cp "$ROTATE_SCRIPT" "${case_dir}/selfhost/rotate-secret.sh"
   chmod 0755 "${case_dir}/selfhost/chronicle" "${case_dir}/selfhost/rotate-secret.sh"
   cat >"${case_dir}/bin/docker" <<'SH'

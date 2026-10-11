@@ -94,7 +94,7 @@ values = {
     "MOBILE_SIGNING_SECRET": "",
     "MOBILE_SIGNING_SECRET_PREVIOUS": "",
     "CHRONICLE_INTERNAL_WEB_SECRET": "matrix-internal-web-key-not-a-secret-123456",
-    "TESTING_LOGIN_ENABLED": "true",
+    "TESTING_LOGIN_ENABLED": "false",
     "REQUIRE_MFA": "false",
     "MOBILE_SIGNING_ENABLED": "false",
     "MOBILE_SIGNING_REQUIRED": "false",
@@ -162,7 +162,7 @@ expected_guard = {
     "BACKUPS_ENABLED": backups_text,
     "MONITORING_ENABLED": monitoring_text,
     "AUTH_OVERLAY_ENABLED": "false",
-    "TESTING_LOGIN_ENABLED": "true",
+    "TESTING_LOGIN_ENABLED": "false",
     "REQUIRE_MFA": "false",
 }
 for key, value in expected_guard.items():
@@ -276,7 +276,7 @@ base["DASHBOARD_PASSWORD_HASH"] = base.get("DASHBOARD_PASSWORD_HASH", "").replac
 cases = [
     ("production-without-backups", {"BACKUPS_ENABLED": "false", "ENABLE_ENCRYPTION": "false"}, "production deployment modes require"),
     ("encrypted-without-backups", {"TLS_MODE": "local-https", "BACKUPS_ENABLED": "false", "ENABLE_ENCRYPTION": "true", "COMPOSE_FILE_SELECTION": "docker-compose.yml:overlays/mode-local-https.yml"}, "encryption at rest is on"),
-    ("no-login", {"TESTING_LOGIN_ENABLED": "false", "REQUIRE_MFA": "true"}, "no dashboard login method"),
+    ("legacy-login", {"TESTING_LOGIN_ENABLED": "true"}, "TESTING_LOGIN_ENABLED must be false"),
     ("invalid-boolean", {"ENABLE_ENCRYPTION": "treu"}, "must be exactly true or false"),
     ("duplicate-mode", {"COMPOSE_FILE_SELECTION": "docker-compose.yml:overlays/mode-behind-proxy-internal.yml:overlays/mode-own-tls-internal.yml:overlays/backups.yml"}, "exactly one mode overlay"),
     ("public-without-auth", {"TLS_MODE": "behind-proxy", "DASHBOARD_EXPOSURE": "public", "TESTING_LOGIN_ENABLED": "false", "REQUIRE_MFA": "true", "AUTH_OVERLAY_ENABLED": "false", "COMPOSE_FILE_SELECTION": "docker-compose.yml:experimental/public-dashboard/mode-behind-proxy-public.yml:overlays/backups.yml"}, "public dashboard requires"),
@@ -284,6 +284,8 @@ cases = [
     ("internal-bind-any-v4", {"INTERNAL_BIND": "0.0.0.0"}, "INTERNAL_BIND must be one specific"),
     ("internal-bind-any-v6", {"INTERNAL_BIND": "::"}, "INTERNAL_BIND must be one specific"),
     ("internal-bind-any-v6-bracketed", {"INTERNAL_BIND": "[::]"}, "INTERNAL_BIND must be one specific"),
+    ("internal-bind-ipv6", {"INTERNAL_BIND": "fd42:242::1"}, "INTERNAL_BIND=fd42:242::1 is IPv6"),
+    ("http-bind-ipv6", {"HTTP_BIND": "fd42:241::1"}, "HTTP_BIND=fd42:241::1 is IPv6"),
     ("jwt-short", {"JWT_SECRET": "only-twenty-chars-xx"}, "JWT_SECRET is only 20 characters"),
     ("session-minutes-text", {"DASHBOARD_SESSION_MINUTES": "8h"}, "DASHBOARD_SESSION_MINUTES must be a whole number"),
     ("allowlist-empty", {"DASHBOARD_ALLOWED_IPS": ""}, "DASHBOARD_ALLOWED_IPS is empty"),
@@ -342,4 +344,4 @@ if errors:
     raise SystemExit("\n".join(errors))
 PY
 
-echo "self-host combination matrix passed (${case_count} supported renders plus rejected-shape checks)"
+echo "self-host combination RENDER matrix passed (${case_count} renders plus rejected-shape checks; runtime qualification: tests/deployment/selfhost-platform.md)"

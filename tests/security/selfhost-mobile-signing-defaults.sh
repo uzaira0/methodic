@@ -72,7 +72,7 @@ guard_case() {
     CHRONICLE_INTERNAL_WEB_SECRET=fixture-internal-web-secret-not-a-secret-12345 \
     JWT_SECRET=fixture-jwt-signing-secret-not-a-secret-123456 \
     METRICS_PASSWORD=fixture-metrics-password-not-a-secret-123456 \
-    TESTING_LOGIN_ENABLED=true \
+    TESTING_LOGIN_ENABLED=false \
     REQUIRE_MFA=false \
     INTERNAL_BIND=127.0.0.1 \
     INTERNAL_PORT=8081 \

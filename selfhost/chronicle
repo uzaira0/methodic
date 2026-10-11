@@ -10,13 +10,17 @@
 #                         `up` gates on) PLUS the host checks no container can make:
 #                         does this bind address exist here, is this port already taken,
 #                         would another Compose project of this name be adopted
-#   ./chronicle up        check, then `docker compose up -d`
+#   ./chronicle up [--no-reconcile]  check, then `docker compose up -d`
 #   ./chronicle verify    prove from outside that the exposure boundary holds; add
 #                         --dashboard-password to read and verify it without shell history
 #   ./chronicle upgrade --from DIR  upgrade from a previous release with a verified pre-upgrade dump
 #   ./chronicle update [--check]  fetch the latest release and hand off to upgrade
 #   ./chronicle adopt --from DIR  switch a source checkout to this release bundle
 #   ./chronicle adopt-precheck DIR  (run by adopt) host checks before the source is torn down
+#   ./chronicle rollback --from OLD_DIR --trusted-sha256 SHA DUMP
+#                         restore and transfer reconciliation to the previous release
+#   ./chronicle cleanup --releases-dir DIR [--apply]
+#                         review or remove old releases, retaining active and recovery owners
 #   ./chronicle restore [--yes] [--no-start] --trusted-sha256=SHA256 [DUMP]
 #                         stop every database writer, restore a separately trusted dump
 #   ./chronicle rotate-secret [--yes] KIND [ACTION] [--forward|--rollback]
@@ -28,6 +32,7 @@
 #   ./chronicle monitoring status|add-viewer|remove-viewer|reset-viewer
 #   ./chronicle logs      follow logs
 #   ./chronicle down      stop
+#   ./chronicle reconcile stop|uninstall  pause or remove this deployment's schedule
 #
 # .env is the single source of truth, and COMPOSE_FILE in it decides the shape of the
 # deployment -- which Caddy config is mounted and which ports are published. See
@@ -35,9 +40,13 @@
 set -uo pipefail
 umask 077
 
-SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
+SCRIPT_PATH="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$0")"
 cd "$(dirname "$SCRIPT_PATH")" || exit 1
 
+MONITORING_MIN_MEMORY_KIB=$((10 * 1024 * 1024))
+LB_MIN_BODY_BYTES=$((10 * 1024 * 1024))
+LB_MIN_HEADER_BYTES=$((16 * 1024))
+LB_MIN_IDLE_SECONDS=300
 RED=$'\033[31m'; GRN=$'\033[32m'; YEL=$'\033[33m'; BLD=$'\033[1m'; RST=$'\033[0m'
 die()  { printf '%s\n' "${RED}error:${RST} $1" >&2; exit 1; }
 warn() { printf '%s\n' "${YEL}warning:${RST} $1" >&2; }
@@ -53,12 +62,12 @@ bad()  { printf '  %sFAIL%s %s\n' "$RED" "$RST" "$1"; PREFLIGHT_FAILED=1; }
 # Each helper prefers the Linux tool and falls back, so a missing tool is visible as an
 # empty answer only when the host genuinely has none of them.
 
-# Every IPv4 address configured on this host, one per line.
+# Every IP address configured on this host, one per line.
 host_addrs() {
   if command -v ip >/dev/null 2>&1; then
-    ip -4 -o addr show 2>/dev/null | awk '{split($4,a,"/"); print a[1]}'
+    ip -o addr show 2>/dev/null | awk '{split($4,a,"/"); print a[1]}'
   elif command -v ifconfig >/dev/null 2>&1; then
-    ifconfig 2>/dev/null | awk '$1 == "inet" { print $2 }'
+    ifconfig 2>/dev/null | awk '$1 == "inet" || $1 == "inet6" { sub(/%.*/,"",$2); print $2 }'
   fi
 }
 
@@ -76,7 +85,7 @@ host_listening() {
     netstat -an -p tcp 2>/dev/null | awk '/LISTEN/ { print $4 }' | sed 's/\.\([0-9][0-9]*\)$/:\1/'
   elif command -v lsof >/dev/null 2>&1; then
     lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR > 1 { print $9 }'
-  fi
+  fi | sed 's/^\[\(.*\)\]:/\1:/'
 }
 
 # GNU stat takes -c, BSD stat takes -f; neither accepts the other's flag.
@@ -91,7 +100,6 @@ lan_addr() {
 }
 
 stat_mode() { stat_field '%a' '%Lp' "$1"; }
-stat_uid()  { stat_field '%u' '%u'  "$1"; }
 # Deliberately NOT "chronicle": Docker Compose keys everything -- containers, networks and
 # especially VOLUMES -- off the project name. A project named "chronicle" next to any other
 # "chronicle" stack on the same host makes Compose treat the two as one, tearing down the
@@ -100,11 +108,6 @@ stat_uid()  { stat_field '%u' '%u'  "$1"; }
 PROJECT="${COMPOSE_PROJECT_NAME:-chronicle-selfhost}"
 STATE_ROOT="$(pwd -P)"
 BACKUPS_HOST_DIR="${STATE_ROOT}/backups"
-RESTORE_LOCK_DIR=""
-RESTORE_LOCK_HELD=false
-RESTORE_LOCK_PRESERVE=false
-RESTORE_RESTART_ON_EXIT=false
-RESTORE_PREVIOUSLY_RUNNING_SERVICES=()
 ACTIVE_OPERATION=""
 ACTIVE_OPERATION_OUTCOME=failure
 ACTIVE_OPERATION_CATEGORY=command_failed
@@ -146,6 +149,7 @@ validate_legacy_mobile_values() {
 }
 
 need_env() {
+  local reconcile_override_present="${CHRONICLE_RECONCILE_ENABLED+x}" reconcile_override="${CHRONICLE_RECONCILE_ENABLED:-}"
   [[ -f .env && ! -L .env ]] ||
     die ".env must be a regular file. Run ./chronicle setup, or copy .env.example and chmod 600 .env"
   local env_mode
@@ -157,7 +161,9 @@ need_env() {
   # curl repeatedly; exporting .env here made database, JWT, mobile, and metrics secrets
   # visible in every curl process even though curl never consumes them.
   # shellcheck disable=SC1091
+  ops_python -c 'from chronicle_ops.release import read_env; read_env(".env")' || die "unsupported .env syntax"
   . ./.env
+  [[ "$reconcile_override_present" != x ]] || CHRONICLE_RECONCILE_ENABLED="$reconcile_override"
   validate_legacy_mobile_values \
     "${MOBILE_SIGNING_ENABLED:-false}" "${MOBILE_SIGNING_REQUIRED:-false}" \
     "${MOBILE_SIGNING_SECRET:-}" "${MOBILE_SIGNING_SECRET_PREVIOUS:-}"
@@ -167,7 +173,7 @@ need_env() {
   for secret_name in POSTGRES_PASSWORD MOBILE_SIGNING_SECRET MOBILE_SIGNING_SECRET_PREVIOUS \
       CHRONICLE_INTERNAL_WEB_SECRET CHRONICLE_REVIEWER_ACCESS_SECRET \
       JWT_SECRET METRICS_PASSWORD GRAFANA_ADMIN_PASSWORD \
-      DASHBOARD_PASSWORD_HASH SMTP_PASSWORD OIDC_CLIENT_SECRET; do
+      DASHBOARD_PASSWORD_HASH SMTP_PASSWORD OIDC_CLIENT_SECRET CHRONICLE_ALERT_WEBHOOK_URL; do
     export -n "${secret_name?}" 2>/dev/null || true
   done
   # Recomputed here, not at script start: .env is only sourced now, and the collision
@@ -218,17 +224,6 @@ export CHRONICLE_HOST_UID CHRONICLE_HOST_GID
 # this script -- there is nothing here for it to be missing.
 dc() { docker compose -p "$PROJECT" "$@"; }
 
-check_proxy_http_redirect() { # canonical HTTP /health URL, exact HTTPS /health Location
-  local http_url="$1" expected_location="$2" response status location
-  response="$(curl --noproxy '*' --silent --show-error --connect-timeout 5 --max-time 10 \
-    --dump-header - --output /dev/null --write-out $'\n%{http_code}' "$http_url" 2>/dev/null)" ||
-    return 1
-  status="${response##*$'\n'}"
-  location="$(awk 'tolower($1) == "location:" { sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); value=$0 } END { print value }' <<<"$response")"
-  [[ "$status" =~ ^(301|302|307|308)$ && "$location" == "$expected_location" ]] || return 1
-  printf '%s' "$status"
-}
-
 # Returns a secret-free state label for the operator-pinned Play reviewer scope. Inputs are
 # delivered over stdin and revalidated in the database container before entering SQL.
 reviewer_scope_state() {
@@ -272,78 +267,13 @@ SQL
   '
 }
 
-terminate_host_process_tree() {
-  local root_pid="$1" signal="$2" child_pid
-  while IFS= read -r child_pid; do
-    [[ -n "$child_pid" ]] || continue
-    terminate_host_process_tree "$child_pid" "$signal"
-  done < <(ps -eo pid=,ppid= 2>/dev/null | awk -v parent="$root_pid" '$2 == parent { print $1 }')
-  kill "-${signal}" "$root_pid" 2>/dev/null || true
-}
-
 record_operation() {
-  local operation="$1" outcome="$2" category="${3:-none}"
-  local record_pid watchdog_pid record_status=0
-  [[ "${COMPOSE_FILE:-}" == *overlays/monitoring.yml* ]] || return 0
-  dc ps --status running --services 2>/dev/null | grep -Fxq operational-probe || return 0
-  dc run --rm --no-deps --entrypoint /monitoring/record-operation.sh \
-    operational-probe "$operation" "$outcome" "$category" >/dev/null 2>&1 &
-  record_pid=$!
-  (
-    sleep 15
-    terminate_host_process_tree "$record_pid" TERM
-    sleep 1
-    terminate_host_process_tree "$record_pid" KILL
-  ) &
-  watchdog_pid=$!
-  wait "$record_pid" || record_status=$?
-  kill "$watchdog_pid" 2>/dev/null || true
-  wait "$watchdog_pid" 2>/dev/null || true
-  if (( record_status != 0 )); then
-    warn "the command completed, but its monitoring event could not be recorded within 15 seconds"
-  fi
+  ops_python record-operation "$1" "$2" "${3:-none}"
 }
 
 write_operation_receipt() {
-  local operation="$1" outcome="$2" category="${3:-none}"
-  local receipt_root="${STATE_ROOT}/operator-receipts/operations" temporary receipt
-  [[ "$operation" =~ ^[a-z0-9-]{1,64}$ ]] || return 1
-  [[ "$outcome" =~ ^(success|failure)$ ]] || return 1
-  [[ "$category" =~ ^[a-z0-9_-]{1,48}$ ]] || return 1
-  if [[ -L "${STATE_ROOT}/operator-receipts" || -L "$receipt_root" ]]; then
-    return 1
-  fi
-  /bin/mkdir -p "$receipt_root" || return 1
-  /bin/chmod 0700 "${STATE_ROOT}/operator-receipts" "$receipt_root" || return 1
-  receipt="${receipt_root}/$(date -u +%Y%m%dT%H%M%SZ)-${operation}-$$.json"
-  temporary="${receipt}.tmp"
-  OPERATION_RECEIPT_OPERATION="$operation" \
-  OPERATION_RECEIPT_OUTCOME="$outcome" \
-  OPERATION_RECEIPT_CATEGORY="$category" \
-  OPERATION_RECEIPT_VERSION="${RELEASE_VERSION:-unknown}" \
-  OPERATION_RECEIPT_DURATION="$(( SECONDS - ${OPERATION_STARTED_SECONDS:-$SECONDS} ))" \
-    python3 - "$temporary" <<'PY' || return 1
-import datetime
-import json
-import os
-import sys
-
-receipt = {
-    "operation": os.environ["OPERATION_RECEIPT_OPERATION"],
-    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
-    "releaseVersion": os.environ["OPERATION_RECEIPT_VERSION"],
-    "outcome": os.environ["OPERATION_RECEIPT_OUTCOME"],
-    "failureCategory": os.environ["OPERATION_RECEIPT_CATEGORY"],
-    "durationSeconds": int(os.environ["OPERATION_RECEIPT_DURATION"]),
-}
-with open(sys.argv[1], "x", encoding="utf-8") as handle:
-    json.dump(receipt, handle, separators=(",", ":"), sort_keys=True)
-    handle.write("\n")
-    handle.flush()
-    os.fsync(handle.fileno())
-os.chmod(sys.argv[1], 0o600)
-PY
-  /bin/mv -f "$temporary" "$receipt" || { /bin/rm -f "$temporary"; return 1; }
+  ops_python write-operation-receipt "$1" "$2" "${3:-none}" \
+    "$(( SECONDS - ${OPERATION_STARTED_SECONDS:-$SECONDS} ))"
 }
 
 operation_exit() {
@@ -446,9 +376,7 @@ preflight() {
     rest="${rest%:*}"
     local pport="${rest%%:*}" paddr="${rest#*:}"
     [[ "$pname" == INTERNAL_PORT && "$DASHBOARD_EXPOSURE" != internal ]] && continue
-    if docker ps --filter "label=com.docker.compose.project=${PROJECT}" \
-         --filter "label=com.docker.compose.service=${pservice}" --format '{{.Names}}' 2>/dev/null |
-         grep -q .; then
+    if owns_listener "$PROJECT" "$pservice" "$paddr" "$pport"; then
       continue
     fi
     # A bind on 0.0.0.0 collides with a listener on ANY address, not just 0.0.0.0 --
@@ -458,7 +386,7 @@ preflight() {
     # with Tailscale serving on 100.x.x.x:443 and the own-tls/local-https modes publishing
     # 0.0.0.0:443 -- the old pattern below only matched the exact bind address or 0.0.0.0,
     # so it reported nothing and the failure looked like a broken deployment.
-    local pattern="(^|:)(${paddr}|0\.0\.0\.0|\*):${pport}$"
+    local pattern="(^|:)(${paddr//./\.}|0\.0\.0\.0|::|\*):${pport}$"
     [[ "$paddr" == "0.0.0.0" ]] && pattern=":${pport}$"
     local holder; holder=$(host_listening | grep -E "$pattern" | head -1)
     if [[ -n "$holder" ]]; then
@@ -478,7 +406,7 @@ preflight() {
   # exists and was not created from this directory, `up` would recreate ITS containers and
   # mount ITS volumes -- data loss in another deployment, from a command that looks routine.
   local foreign
-  foreign=$(foreign_project "$PROJECT")
+  foreign=$(foreign_project "$PROJECT") || die "could not establish Compose project ownership"
   if [[ -n "$foreign" ]]; then
     bad "a different Compose project named '${PROJECT}' already exists on this host (${foreign}). Starting would recreate its containers and mount its volumes. Set COMPOSE_PROJECT_NAME in .env to something unique."
   else
@@ -491,12 +419,13 @@ preflight() {
   # umask leaves every directory 0700 and every file 0600, which fails inside the container
   # as a bare "Permission denied", so say it here with the fix. ./backups,
   # ./operator-receipts, ./tls and .env are deliberately owner-only and are left alone.
-  local -a keep_private=( '(' -path ./backups -o -path ./operator-receipts -o -path ./upgrade-receipts -o -path ./tls -o -name '.env*' -o -name .git ')' -prune )
-  local unreadable
+  local -a keep_private=( '(' -path ./backups -o -path ./operator-receipts -o -path ./upgrade-receipts -o -path ./tls -o -name '.env*' -o -name .git -o -name '.chronicle-*' -o -name '.reconcile*' -o -name 'reconcile.*' -o -name __pycache__ ')' -prune )
+  local unreadable permission_repair
   unreadable=$(find . "${keep_private[@]}" -o \
     '(' '(' -type d ! -perm -0005 ')' -o '(' -type f ! -perm -0004 ')' ')' -print 2>/dev/null | sort | head -5 | tr '\n' ' ')
   if [[ -n "$unreadable" ]]; then
-    bad "bundle paths the container users cannot read (a private umask on extraction does this): ${unreadable}. Run: find '$(pwd -P)' \\( -path '*/backups' -o -path '*/operator-receipts' -o -path '*/upgrade-receipts' -o -path '*/tls' -o -name '.env*' \\) -prune -o -exec chmod a+rX {} +"
+    printf -v permission_repair '%q ' find . "${keep_private[@]}" -o -exec chmod a+rX '{}' +
+    bad "bundle paths the container users cannot read (a private umask on extraction does this): ${unreadable}. From this selfhost directory run: ${permission_repair}"
   else
     ok "bundle files and directories are readable by the container users"
   fi
@@ -519,12 +448,10 @@ preflight() {
   # Postgres stops hard when the disk fills and does not come back on its own. Refuse to
   # start below a floor so operators without the monitoring overlay are still stopped
   # before that happens.
-  local free_kb min_free_gib="${MIN_FREE_DISK_GIB:-5}"
-  free_kb=$(df -Pk "${STATE_ROOT:-.}" 2>/dev/null | awk 'NR == 2 { print $4 }')
-  if [[ "$free_kb" =~ ^[0-9]+$ ]] && (( free_kb < min_free_gib * 1048576 )); then
-    bad "only $(( free_kb / 1048576 )) GiB free under ${STATE_ROOT:-.} (floor MIN_FREE_DISK_GIB=${min_free_gib}); free space with df -h / docker system df before starting"
-  elif [[ "$free_kb" =~ ^[0-9]+$ ]]; then
-    ok "$(( free_kb / 1048576 )) GiB free under the state directory"
+  if ops_python storage-check; then
+    ok "state, Docker data and database filesystems have byte and inode reserve"
+  else
+    bad "storage reserve failed; inspect df -h and df -i on the reported backing filesystems"
   fi
 
   local tool missing_tools=""
@@ -535,6 +462,10 @@ preflight() {
     bad "missing host tools:${missing_tools}. Install them with the system package manager (apt/dnf/brew)"
   else
     ok "host tools present (curl, openssl, python3)"
+  fi
+
+  if [[ "${ENABLE_BACKUPS:-true}" == true ]] && ! ops_python backup-storage; then
+    warn "backup storage does not meet encryption readiness"
   fi
 
   # up/restore use --wait-timeout, which Compose added in 2.17.
@@ -583,18 +514,8 @@ preflight() {
 # this directory, or nothing. `up` refuses to adopt such a stack; setup uses the same
 # answer to pick a name that will not need refusing.
 foreign_project() {
-  docker compose ls --all --format json 2>/dev/null \
-    | PROJECT="$1" ADOPT_SOURCE="${ADOPT_SOURCE:-}" python3 -c 'import sys,json,os
-try: rows = json.load(sys.stdin)
-except Exception: sys.exit(0)
-# adopt-precheck: the source checkout being adopted owns the project until adopt tears it down.
-owners = {os.path.realpath(p) for p in (".", os.environ["ADOPT_SOURCE"]) if p}
-for r in rows:
-    if r.get("Name") != os.environ["PROJECT"]: continue
-    cfgs = [c for c in (r.get("ConfigFiles") or "").split(",") if c]
-    if cfgs and not any(os.path.realpath(os.path.dirname(c)) in owners for c in cfgs):
-        print(",".join(cfgs))
-' 2>/dev/null
+  ops_python -c 'import sys; from chronicle_ops.release import foreign_project; print(foreign_project(".", sys.argv[1], sys.argv[2]))' \
+    "$1" "${ADOPT_SOURCE:-}" || die "could not establish Compose project ownership"
 }
 
 # The first port at or above $1 that nothing on this host is already listening on for
@@ -603,7 +524,7 @@ for r in rows:
 free_port() {
   local port="$1" addr="$2" excluded_port="${3:-}" pattern tries=0
   while ((tries < 100)); do
-    pattern="(^|:)(${addr//./\\.}|0\.0\.0\.0|\*):${port}\$"
+    pattern="(^|:)(${addr//./\\.}|0\.0\.0\.0|::|\*):${port}\$"
     [[ "$addr" == "0.0.0.0" ]] && pattern=":${port}\$"
     if [[ "$port" != "$excluded_port" ]] && ! host_listening | grep -Eq "$pattern"; then
       printf '%s\n' "$port"
@@ -614,15 +535,29 @@ free_port() {
   return 1
 }
 
+owns_listener() { # <project> <service> <address> <port>
+  local container
+  while IFS= read -r container; do
+    [[ -n "$container" ]] || continue
+    if docker inspect --format '{{json .NetworkSettings.Ports}}' "$container" 2>/dev/null |
+      python3 -c 'import ipaddress,json,sys
+ports=json.load(sys.stdin) or {}
+wanted=ipaddress.ip_address(sys.argv[1])
+sys.exit(not any(ipaddress.ip_address(p["HostIp"]) == wanted and p["HostPort"] == sys.argv[2]
+                 for bindings in ports.values() for p in bindings or []))' "$3" "$4"; then
+      return 0
+    fi
+  done < <(docker ps --filter "label=com.docker.compose.project=$1" \
+      --filter "label=com.docker.compose.service=$2" --format '{{.ID}}' 2>/dev/null)
+  return 1
+}
+
 # The port an existing .env gave <service> when this project's own container for it is
 # running and so holds that port; otherwise free_port from the saved value or the default.
 # Without this, re-running setup on a live deployment moves it to the next free port.
 setup_port() { # <project> <service> <saved> <default> <addr> [excluded]
   local project="$1" service="$2" saved="$3" default="$4" addr="$5" excluded="${6:-}"
-  if [[ -n "$saved" && "$saved" != "$excluded" ]] &&
-    docker ps --filter "label=com.docker.compose.project=${project}" \
-      --filter "label=com.docker.compose.service=${service}" --format '{{.Names}}' 2>/dev/null |
-    grep -q .; then
+  if [[ -n "$saved" && "$saved" != "$excluded" ]] && owns_listener "$project" "$service" "$addr" "$saved"; then
     printf '%s\n' "$saved"
     return 0
   fi
@@ -652,6 +587,10 @@ ask_bind_addr() { # <default> [wildcard]
 # ------------------------------------------------------------------------------- setup
 cmd_setup() {
   shift || true
+  local signing_fingerprint
+  signing_fingerprint="$(ssh-keygen -lf release-signing.pub)" || die "cannot read the installed release-signing public key"
+  printf 'Installed release-signing key: %s\n' "$signing_fingerprint"
+  printf 'Compare this fingerprint with SECURITY.md and your independent institution handoff.\n'
   begin_operation setup setup_failed
   # Secrets carried over from an existing .env rather than regenerated. Two of them are not
   # cosmetic to change:
@@ -667,15 +606,19 @@ cmd_setup() {
   local keep_pg="" keep_mob="" keep_mob_previous="" keep_jwt="" keep_metrics="" keep_internal=""
   local keep_mob_enabled=false keep_mob_required=false
   local keep_public_base_url=""
+  local keep_alert_webhook=""
   local keep_reviewer_enabled="false" keep_reviewer_secret="" keep_reviewer_study=""
   local keep_reviewer_participant=""
   local keep_grafana="" keep_dash_hash="" keep_state="."
   local keep_http_port="" keep_internal_port="" keep_grafana_port="" keep_project=""
+  local keep_local_https_port="" keep_local_http_port=""
   local keep_subnet=""
   # Rotation, restore and upgrade lock the state directory and rewrite .env. Setup must not
   # run under them, nor publish values it read before one of them changed .env.
   local setup_state_root="$STATE_ROOT" env_snapshot=""
   if [[ -f .env ]]; then
+    need_env
+    ops_python owner-check || die "setup must run from the active selfhost directory"
     read -rp "$(printf '%s.env already exists. Overwrite? [y/N] %s' "$YEL" "$RST")" a
     [[ "$a" =~ ^[Yy]$ ]] || {
       echo "Keeping existing .env."
@@ -685,30 +628,31 @@ cmd_setup() {
     }
     env_snapshot=".env.backup.$(date +%Y%m%d%H%M%S)"
     cp .env "$env_snapshot"
-    keep_pg=$(sed -n 's/^POSTGRES_PASSWORD=//p' .env | head -1 | tr -d "'\"")
-    keep_mob=$(sed -n 's/^MOBILE_SIGNING_SECRET=//p' .env | head -1 | tr -d "'\"")
-    keep_mob_previous=$(sed -n 's/^MOBILE_SIGNING_SECRET_PREVIOUS=//p' .env | head -1 | tr -d "'\"")
-    keep_mob_enabled=$(sed -n 's/^MOBILE_SIGNING_ENABLED=//p' .env | head -1 | tr -d "'\"")
-    keep_mob_required=$(sed -n 's/^MOBILE_SIGNING_REQUIRED=//p' .env | head -1 | tr -d "'\"")
-    keep_mob_enabled="${keep_mob_enabled:-false}"
-    keep_mob_required="${keep_mob_required:-false}"
-    keep_jwt=$(sed -n 's/^JWT_SECRET=//p' .env | head -1 | tr -d "'\"")
-    keep_metrics=$(sed -n 's/^METRICS_PASSWORD=//p' .env | head -1 | tr -d "'\"")
-    keep_internal=$(sed -n 's/^CHRONICLE_INTERNAL_WEB_SECRET=//p' .env | head -1 | tr -d "'\"")
-    keep_public_base_url=$(sed -n 's/^CHRONICLE_PUBLIC_BASE_URL=//p' .env | head -1 | tr -d "'\"")
-    keep_reviewer_enabled=$(sed -n 's/^CHRONICLE_REVIEWER_ACCESS_ENABLED=//p' .env | head -1 | tr -d "'\"")
-    keep_reviewer_secret=$(sed -n 's/^CHRONICLE_REVIEWER_ACCESS_SECRET=//p' .env | head -1 | tr -d "'\"")
-    keep_reviewer_study=$(sed -n 's/^CHRONICLE_REVIEWER_STUDY_ID=//p' .env | head -1 | tr -d "'\"")
-    keep_reviewer_participant=$(sed -n 's/^CHRONICLE_REVIEWER_PARTICIPANT_ID=//p' .env | head -1 | tr -d "'\"")
-    keep_grafana=$(sed -n 's/^GRAFANA_ADMIN_PASSWORD=//p' .env | head -1 | tr -d "'\"")
-    keep_dash_hash=$(sed -n 's/^DASHBOARD_PASSWORD_HASH=//p' .env | head -1 | tr -d "'\"")
-    keep_state=$(sed -n 's/^CHRONICLE_STATE_DIR=//p' .env | head -1 | tr -d "'\"")
-    keep_http_port=$(sed -n 's/^HTTP_PORT=//p' .env | head -1 | tr -d "'\"")
-    keep_internal_port=$(sed -n 's/^INTERNAL_PORT=//p' .env | head -1 | tr -d "'\"")
-    keep_grafana_port=$(sed -n 's/^GRAFANA_PORT=//p' .env | head -1 | tr -d "'\"")
-    keep_subnet=$(sed -n 's/^CHRONICLE_SUBNET=//p' .env | head -1 | tr -d "'\"")
-    # Compose keys the database volume off this name: a rerun must keep the deployment's own.
-    keep_project=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' .env | head -1 | tr -d "'\"")
+    need_env
+    keep_pg="${POSTGRES_PASSWORD:-}"
+    keep_mob="${MOBILE_SIGNING_SECRET:-}"
+    keep_mob_previous="${MOBILE_SIGNING_SECRET_PREVIOUS:-}"
+    keep_mob_enabled="${MOBILE_SIGNING_ENABLED:-}"
+    keep_mob_required="${MOBILE_SIGNING_REQUIRED:-}"
+    keep_jwt="${JWT_SECRET:-}"
+    keep_metrics="${METRICS_PASSWORD:-}"
+    keep_internal="${CHRONICLE_INTERNAL_WEB_SECRET:-}"
+    keep_public_base_url="${CHRONICLE_PUBLIC_BASE_URL:-}"
+    keep_alert_webhook="${CHRONICLE_ALERT_WEBHOOK_URL:-}"
+    keep_reviewer_enabled="${CHRONICLE_REVIEWER_ACCESS_ENABLED:-}"
+    keep_reviewer_secret="${CHRONICLE_REVIEWER_ACCESS_SECRET:-}"
+    keep_reviewer_study="${CHRONICLE_REVIEWER_STUDY_ID:-}"
+    keep_reviewer_participant="${CHRONICLE_REVIEWER_PARTICIPANT_ID:-}"
+    keep_grafana="${GRAFANA_ADMIN_PASSWORD:-}"
+    keep_dash_hash="${DASHBOARD_PASSWORD_HASH:-}"
+    keep_state="${CHRONICLE_STATE_DIR:-}"
+    keep_http_port="${HTTP_PORT:-}"
+    keep_local_https_port="${LOCAL_HTTPS_PORT:-}"
+    keep_local_http_port="${LOCAL_HTTP_PORT:-}"
+    keep_internal_port="${INTERNAL_PORT:-}"
+    keep_grafana_port="${GRAFANA_PORT:-}"
+    keep_subnet="${CHRONICLE_SUBNET:-}"
+    keep_project="${COMPOSE_PROJECT_NAME:-}"
     [[ "$keep_project" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || keep_project=""
     case "$keep_pg" in *CHANGE_ME*|"") keep_pg="" ;; esac
     validate_legacy_mobile_values \
@@ -741,16 +685,19 @@ cmd_setup() {
   printf '  1) A server behind my institution'\''s load balancer, which terminates TLS  (recommended)\n'
   printf '  2) A server that terminates TLS itself, with a certificate I already have\n'
   printf '  3) A trial on this machine, with test phones on the same wifi  (no domain needed)\n'
-  read -rp "Choice [1]: " tls_choice
+  local mode_default=1 previous_mode="${TLS_MODE:-}"
+  [[ "$previous_mode" != own-tls ]] || mode_default=2
+  [[ "$previous_mode" != local-https ]] || mode_default=3
+  read -rp "Choice [$mode_default]: " tls_choice
   local tls_mode=behind-proxy
-  case "${tls_choice:-1}" in
+  case "${tls_choice:-$mode_default}" in
     2) tls_mode=own-tls ;;
     3) tls_mode=local-https ;;
   esac
   # A re-setup that leaves the trial mode must not carry the trial's private-IP
   # CHRONICLE_PUBLIC_BASE_URL into a production .env; guard-config rejects it and names a
   # variable this wizard never asked about. Only the local-https branch below sets it.
-  [[ "$tls_mode" == local-https ]] || keep_public_base_url=""
+  [[ "$previous_mode" != local-https || "$tls_mode" == local-https ]] || keep_public_base_url=""
 
   local domain http_bind=127.0.0.1 exposure=internal internal_bind=127.0.0.1
 
@@ -778,7 +725,8 @@ cmd_setup() {
     # and the dashboard has no reason to leave this machine.
     printf '\nThe dashboard will be at https://127.0.0.1:%s on this machine only.\n' "${INTERNAL_PORT:-8081}"
   else
-    read -rp "Hostname participants' phones and researchers will use (e.g. chronicle.your-university.edu): " domain
+    read -rp "Public hostname for participants [${DOMAIN:-chronicle.example.org}]: " domain
+    domain="${domain:-${DOMAIN:-chronicle.example.org}}"
     [[ -n "$domain" ]] || die "a hostname is required"
     # The same classifier `up` runs in config-guard. Asked here, a mistyped or private name
     # costs one question, not the whole wizard.
@@ -793,25 +741,85 @@ cmd_setup() {
       printf '\nWhich address will your load balancer connect to?\n'
       printf '  This host has: %s\n' "$(host_addrs | tr '\n' ' ')"
       printf '  Use 127.0.0.1 ONLY if the proxy runs on this same machine.\n'
-      http_bind=$(ask_bind_addr 127.0.0.1 wildcard)
+      http_bind=$(ask_bind_addr "${HTTP_BIND:-127.0.0.1}" wildcard)
     fi
 
     printf '\nThe supported release always keeps the researcher dashboard on a private listener.\n'
     printf 'Which address should the dashboard listen on?\n'
     printf '  Your VPN or management interface, e.g. 10.0.0.5.\n'
     printf '  Leave blank for 127.0.0.1 (reach it over an SSH tunnel).\n'
-    internal_bind=$(ask_bind_addr 127.0.0.1)
+    internal_bind=$(ask_bind_addr "${INTERNAL_BIND:-127.0.0.1}")
   fi
 
-  # With the dashboard internal-only, the built-in login is safe and saves them standing
-  # up an SSO server; otherwise it must stay off.
+  source ./network-policy.sh
+  local initial_subnet gateway researcher_sources_default trusted_proxies_default
+  initial_subnet="${keep_subnet:-$(sed -n 's/^CHRONICLE_SUBNET=//p' .env.example | head -1 | tr -d "'\"")}"
+  gateway=$(ops_python -c 'import sys; from chronicle_ops.common import compose_gateway; print(compose_gateway(sys.argv[1]))' "$initial_subnet") || die "invalid Compose subnet"
+  researcher_sources_default="$gateway/32 127.0.0.1/32 ::1/128"
+  trusted_proxies_default="$gateway/32"
+  local public_origin="${keep_public_base_url:-https://$domain}" trusted_proxies="${CADDY_TRUSTED_PROXIES:-$trusted_proxies_default}"
+  local pool_sources="${POOL_ALLOWED_IPS:-}" pool_port="${HTTP_PORT:-8080}" public_http="${PUBLIC_HTTP_ENABLED:-false}"
+  local researcher_sources="${DASHBOARD_ALLOWED_IPS:-$researcher_sources_default}" management_url="${DASHBOARD_BASE_URL:-}" management_url_default=false
+  if [[ "$internal_bind" == 127.* || "$internal_bind" == ::1 ]] && loopback_networks "$researcher_sources"; then
+    researcher_sources="$researcher_sources_default"
+  fi
+  [[ -n "$management_url" ]] || management_url_default=true
+  if [[ "$tls_mode" != local-https ]]; then
+    read -rp "Exact public HTTPS origin [$public_origin]: " a
+    keep_public_base_url="${a:-$public_origin}"
+    read -rp "Public HTTP redirect exposed? [${public_http}]: " a
+    public_http="${a:-$public_http}"
+    [[ "$public_http" == true || "$public_http" == false ]] || die "HTTP policy must be true or false"
+    if [[ "$tls_mode" == behind-proxy ]]; then
+      # Host-loopback traffic reaches Caddy through the Docker gateway. A remote F5's
+      # source range cannot be inferred from the destination interface.
+      if [[ "$http_bind" == 127.* ]] && loopback_networks "$trusted_proxies"; then
+        trusted_proxies="$trusted_proxies_default"
+      elif [[ "$http_bind" != 127.* ]] && { [[ -z "${CADDY_TRUSTED_PROXIES:-}" ]] || loopback_networks "$trusted_proxies"; }; then
+        trusted_proxies="${CADDY_TRUSTED_PROXIES:-127.0.0.1/32}"
+      fi
+      read -rp "Load balancer source CIDRs [$trusted_proxies]: " a
+      trusted_proxies="${a:-$trusted_proxies}"
+      [[ -n "$trusted_proxies" ]] || die "remote load balancer source CIDRs are required"
+      if [[ -z "$pool_sources" ]] && ! loopback_networks "$trusted_proxies"; then
+        pool_sources="$trusted_proxies"
+      fi
+      read -rp "Pool ingress source CIDRs, '-' for any source [${pool_sources:--}]: " a
+      a="${a:-$pool_sources}"; [[ "$a" == - ]] && a=""
+      pool_sources="$a"
+      printf 'The LB must replace X-Forwarded-Proto with https. Client X-Forwarded-For is optional.\n'
+      printf 'SNAT without client XFF groups phones under the LB address; trust settings cannot recover the client.\n'
+      read -rp "LB destination port [$pool_port]: " a
+      pool_port="${a:-$pool_port}"
+      [[ "$pool_port" =~ ^[0-9]+$ ]] && ((pool_port > 0 && pool_port <= 65535)) || die "invalid LB destination port"
+      keep_http_port="$pool_port"
+    fi
+    local lb_body="${LB_MAX_BODY_BYTES:-$LB_MIN_BODY_BYTES}" lb_idle="${LB_IDLE_TIMEOUT_SECONDS:-$LB_MIN_IDLE_SECONDS}" lb_headers="${LB_MAX_HEADER_BYTES:-$LB_MIN_HEADER_BYTES}"
+    read -rp "LB maximum request bytes [$lb_body]: " a; lb_body="${a:-$lb_body}"
+    read -rp "LB idle timeout seconds [$lb_idle]: " a; lb_idle="${a:-$lb_idle}"
+    read -rp "LB maximum header bytes [$lb_headers]: " a; lb_headers="${a:-$lb_headers}"
+    [[ "$lb_body" =~ ^[0-9]+$ && "$lb_idle" =~ ^[0-9]+$ && "$lb_headers" =~ ^[0-9]+$ ]] || die "LB limits must be positive integers"
+    (( lb_body >= LB_MIN_BODY_BYTES && lb_idle >= LB_MIN_IDLE_SECONDS && lb_headers >= LB_MIN_HEADER_BYTES )) || die "LB must support 10 MiB bodies, 16 KiB headers and 300-second idle streaming"
+    printf 'Host access and SSH tunnels reach Caddy through the Compose gateway; the default includes it.\n'
+    read -rp "Researcher source CIDRs [$researcher_sources]: " a
+    researcher_sources="${a:-$researcher_sources}"
+    local management_host="$internal_bind"
+    [[ "$management_host" != *:* ]] || management_host="[$management_host]"
+    management_url="${management_url:-https://$management_host:${INTERNAL_PORT:-8081}}"
+    read -rp "Researcher HTTPS origin [$management_url]: " a
+    [[ -z "$a" ]] || management_url_default=false
+    management_url="${a:-$management_url}"
+    ops_python reconcile preflight || die "reconciliation prerequisites failed before publishing settings"
+  fi
+  source ./network-policy.sh
+  validate_dashboard_networks "$researcher_sources" || die "invalid researcher source CIDRs"
+  validate_dashboard_networks "$trusted_proxies" || die "invalid trusted proxy CIDRs"
+  [[ -z "$pool_sources" ]] || validate_dashboard_networks "$pool_sources" || die "invalid pool ingress CIDRs"
+
+  # Internal dashboards require explicit password entry through dashboard-login.
   local testing_login=false
-  [[ "$exposure" == internal ]] && testing_login=true
-  # One decision, two settings: the built-in login mints tokens with no MFA claim, so leaving
-  # MFA enforcement on would sign researchers in and then 401 every dashboard API call. Choose
-  # both here rather than letting the operator discover the pairing from a failed check.
   local require_mfa=true
-  [[ "$testing_login" == true ]] && require_mfa=false
+  [[ "$exposure" == internal ]] && require_mfa=false
 
   gen() { openssl rand -base64 32 | tr -d '\n'; }
   hash_pw() {
@@ -875,22 +883,35 @@ cmd_setup() {
   local mode_file="overlays/mode-${tls_mode}-${exposure}.yml"
   [[ "$tls_mode" == local-https ]] && mode_file="overlays/mode-local-https.yml"
   local compose_file="docker-compose.yml:${mode_file}:overlays/backups.yml"
-  local monitoring_enabled=true grafana_bind=127.0.0.1 metrics_retention=30d logs_retention=14d
-  printf '\nEnable private Grafana monitoring with metrics and sanitized logs? [Y/n] '
+  local monitoring_enabled=false grafana_bind="${GRAFANA_BIND:-127.0.0.1}" metrics_retention="${METRICS_RETENTION:-30d}" logs_retention="${LOGS_RETENTION:-14d}"
+  local mem_kb=0 monitoring_default=N
+  mem_kb=$(awk '/^MemTotal:/ { print $2 }' "${CHRONICLE_MEMINFO:-/proc/meminfo}" 2>/dev/null || true)
+  [[ "$mem_kb" =~ ^[0-9]+$ ]] && ((mem_kb >= MONITORING_MIN_MEMORY_KIB)) && monitoring_default=Y
+  if [[ -n "$env_snapshot" ]]; then
+    monitoring_default=N
+    [[ "${COMPOSE_FILE:-}" != *overlays/monitoring.yml* ]] || monitoring_default=Y
+  fi
+  printf '\nEnable private Grafana monitoring with metrics and sanitized logs? [%s] ' "$monitoring_default"
   read -r monitoring_answer
+  monitoring_answer="${monitoring_answer:-$monitoring_default}"
   if [[ "$monitoring_answer" =~ ^[Nn]$ ]]; then
     monitoring_enabled=false
   else
+    monitoring_enabled=true
     compose_file+=":overlays/monitoring.yml"
     printf 'Which private address should Grafana listen on?\n'
     printf '  Use 127.0.0.1 for an SSH tunnel, or a VPN/management address for viewers.\n'
-    grafana_bind=$(ask_bind_addr "$internal_bind")
-    read -rp "Metrics retention [30d]: " metrics_answer
-    metrics_retention="${metrics_answer:-30d}"
+    grafana_bind=$(ask_bind_addr "${GRAFANA_BIND:-$internal_bind}")
+    read -rp "Metrics retention [$metrics_retention]: " metrics_answer
+    metrics_retention="${metrics_answer:-$metrics_retention}"
     [[ "$metrics_retention" =~ ^[1-9][0-9]*d$ ]] || die "metrics retention must be whole days, for example 30d"
-    read -rp "Sanitized log retention [14d]: " logs_answer
-    logs_retention="${logs_answer:-14d}"
+    read -rp "Sanitized log retention [$logs_retention]: " logs_answer
+    logs_retention="${logs_answer:-$logs_retention}"
     [[ "$logs_retention" =~ ^[1-9][0-9]*d$ ]] || die "log retention must be whole days, for example 14d"
+    local alert_webhook=""
+    printf 'Optional HTTPS alert webhook (blank preserves an existing destination).\n'
+    read -rsp 'Webhook URL: ' alert_webhook || true; printf '\n'
+    keep_alert_webhook="${alert_webhook:-$keep_alert_webhook}"
   fi
 
   # Compose keys volumes off the project name, so a second deployment that keeps the
@@ -900,14 +921,18 @@ cmd_setup() {
   local project="${keep_project:-${COMPOSE_PROJECT_NAME:-chronicle-selfhost}}"
   [[ "$project" =~ ^[a-z0-9][a-z0-9_-]*$ ]] ||
     die "a deployment name must be lowercase letters, digits, dashes or underscores"
-  if [[ -n "$(foreign_project "$project")" ]]; then
+  local foreign
+  foreign=$(foreign_project "$project") || return 1
+  if [[ -n "$foreign" ]]; then
     # Numbered rather than named after the directory: a clone usually sits in one called
     # `chronicle`, and `chronicle` is the production deployment's own project name -- the
     # one name that must never be suggested, because Compose would mount its database.
     local suggested n=2
     suggested="${project}-2"
-    while [[ -n "$(foreign_project "$suggested")" ]]; do
+    foreign=$(foreign_project "$suggested") || return 1
+    while [[ -n "$foreign" ]]; do
       n=$((n + 1)); suggested="${project}-${n}"
+      foreign=$(foreign_project "$suggested") || return 1
     done
     printf '\n%sAnother Chronicle deployment named %s already exists on this host.%s\n' \
       "$YEL" "$project" "$RST"
@@ -917,7 +942,8 @@ cmd_setup() {
     project="${project:-$suggested}"
     [[ "$project" =~ ^[a-z0-9][a-z0-9_-]*$ ]] ||
       die "a deployment name must be lowercase letters, digits, dashes or underscores"
-    [[ -z "$(foreign_project "$project")" ]] ||
+    foreign=$(foreign_project "$project") || return 1
+    [[ -z "$foreign" ]] ||
       die "'$project' is also taken by another deployment — choose a name nothing else uses"
   fi
 
@@ -931,6 +957,11 @@ cmd_setup() {
     [[ "$subnet" == "$default_subnet" ]] ||
       printf 'Docker network range %s is free; using that for CHRONICLE_SUBNET.\n' "$subnet"
   fi
+
+  gateway=$(ops_python -c 'import sys; from chronicle_ops.common import compose_gateway; print(compose_gateway(sys.argv[1]))' "$subnet") || die "invalid Compose subnet"
+  [[ "$researcher_sources" != "$researcher_sources_default" ]] || researcher_sources="$gateway/32 127.0.0.1/32 ::1/128"
+  [[ "$trusted_proxies" != "$trusted_proxies_default" ]] || trusted_proxies="$gateway/32"
+  [[ "$pool_sources" != "$trusted_proxies_default" ]] || pool_sources="$trusted_proxies"
 
   # Only after the explicit opt-in may setup inspect, reuse, or generate a deployment-wide
   # compatibility key. The normal public-client path never creates one.
@@ -967,11 +998,23 @@ cmd_setup() {
 
   local http_port internal_port local_https_port=443 local_http_port=80
   local want_http="${keep_http_port:-${HTTP_PORT:-8080}}" want_internal="${keep_internal_port:-${INTERNAL_PORT:-8081}}"
-  http_port=$(setup_port "$project" web "$keep_http_port" "${HTTP_PORT:-8080}" "$http_bind") ||
-    die "no free public listener port was found near ${want_http}"
+  if [[ "$tls_mode" == behind-proxy ]]; then
+    http_port="$pool_port"
+    if ! owns_listener "$project" web "$http_bind" "$http_port" &&
+        [[ "$(free_port "$http_port" "$http_bind")" != "$http_port" ]]; then
+      die "LB pool endpoint $http_bind:$http_port is occupied; change the LB and setup together"
+    fi
+  else
+    http_port=$(setup_port "$project" web "$keep_http_port" "${HTTP_PORT:-8080}" "$http_bind") || die "no free public port"
+  fi
   internal_port=$(setup_port "$project" web "$keep_internal_port" "${INTERNAL_PORT:-8081}" \
     "$internal_bind" "$http_port") ||
     die "no free internal listener port was found near ${want_internal}"
+  if [[ "$management_url_default" == true ]]; then
+    local resolved_management_host="$internal_bind"
+    [[ "$resolved_management_host" != *:* ]] || resolved_management_host="[$resolved_management_host]"
+    management_url="https://$resolved_management_host:$internal_port"
+  fi
   [[ "$http_port" == "$want_http" && "$internal_port" == "$want_internal" ]] ||
     printf '\nPorts %s and %s are free on this host; using those.\n' "$http_port" "$internal_port"
   local grafana_port="${GRAFANA_PORT:-3000}"
@@ -990,9 +1033,9 @@ cmd_setup() {
     # A VPN or management service may legitimately own :443 on one of this host's other
     # interfaces. Docker Desktop cannot safely publish another wildcard :443 in that case,
     # so select the first free host ports and make the canonical app URL explicit.
-    local_https_port=$(free_port 443 0.0.0.0) ||
+    local_https_port=$(setup_port "$project" web "$keep_local_https_port" 443 0.0.0.0) ||
       die "no free trial HTTPS port was found between 443 and 542"
-    local_http_port=$(free_port 80 0.0.0.0 "$local_https_port") ||
+    local_http_port=$(setup_port "$project" web "$keep_local_http_port" 80 0.0.0.0 "$local_https_port") ||
       die "no free trial CA/redirect port was found between 80 and 179"
     if [[ "$local_https_port" == 443 ]]; then
       keep_public_base_url="https://${domain}"
@@ -1007,7 +1050,10 @@ cmd_setup() {
   # The prompts above can wait indefinitely. Recheck right before publishing, holding upgrade's
   # lock through the write: rotation, restore and upgrade refuse to start while it exists, so
   # none can change .env between this check and the write.
-  STATE_ROOT="$setup_state_root" assert_no_incomplete_mutation "run setup"
+  STATE_ROOT="$setup_state_root"
+  lock_operation
+  [[ -z "$env_snapshot" ]] || ops_python owner-check || die "setup must run from the active selfhost directory"
+  assert_no_incomplete_mutation "run setup"
   /bin/mkdir "${setup_state_root}/.chronicle-upgrade.lock" 2>/dev/null ||
     die "another upgrade, adopt or setup is active (${setup_state_root}/.chronicle-upgrade.lock); setup did not write .env"
   OPERATION_LOCK_DIR="${setup_state_root}/.chronicle-upgrade.lock"
@@ -1030,36 +1076,47 @@ cmd_setup() {
       "$project" "$http_port" "$internal_port" "$keep_reviewer_enabled" \
       "$keep_reviewer_secret" "$keep_reviewer_study" "$keep_reviewer_participant" \
       "$keep_public_base_url" "$local_https_port" "$local_http_port" "$grafana_port" "$subnet" \
-    | python3 /dev/fd/3 3<<'PY'
+      "$keep_alert_webhook" "$trusted_proxies" "$pool_sources" "$researcher_sources" "$management_url" "$public_http" "${lb_body:-$LB_MIN_BODY_BYTES}" "${lb_idle:-$LB_MIN_IDLE_SECONDS}" "${lb_headers:-$LB_MIN_HEADER_BYTES}" \
+    | PYTHONPATH="$(pwd -P)" PYTHONDONTWRITEBYTECODE=1 python3 /dev/fd/3 3<<'PY'
 import os
 import re
 import sys
 import tempfile
+from urllib.parse import urlsplit
 
 raw = sys.stdin.buffer.read().split(b"\0")
 if raw and raw[-1] == b"":
     raw.pop()
-if len(raw) != 33:
-    raise SystemExit(f"expected 33 setup values, received {len(raw)}")
+if len(raw) != 42:
+    raise SystemExit(f"expected 42 setup values, received {len(raw)}")
 (domain, compose_file, exposure, internal_bind, testing_login, pg, mob, mob_enabled,
  mob_required, jwt, metrics,
  dash_hash, http_bind, require_mfa, internal_web, state_dir, grafana, mob_previous,
  grafana_bind, metrics_retention, logs_retention, project, http_port,
  internal_port, reviewer_enabled, reviewer_secret, reviewer_study,
- reviewer_participant, public_base_url, local_https_port, local_http_port, grafana_port, subnet) = [
+ reviewer_participant, public_base_url, local_https_port, local_http_port, grafana_port, subnet, alert_webhook, trusted_proxies, pool_sources, researcher_sources, management_url, public_http, lb_body, lb_idle, lb_headers) = [
     value.decode("utf-8") for value in raw
 ]
-s = open('.env.example', encoding='utf-8').read()
+if alert_webhook:
+    parsed = urlsplit(alert_webhook)
+    if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or any(
+        char in alert_webhook for char in "'\"\\\r\n"
+    ):
+        raise SystemExit('alert webhook must be an HTTPS URL without credentials, quotes or line breaks')
+from pathlib import Path
+from chronicle_ops.release import read_env, merge_env, quote_env
+existing = read_env('.env') if Path('.env').exists() else {}
+s = merge_env(existing, Path('.env.example').read_text(), None, state_dir, compose_file.split(':'), preserve_images=True)
 def setkv(s, k, v):
     if re.search(rf'^{k}=.*$', s, re.M):
-        return re.sub(rf'^{k}=.*$', f'{k}={v}', s, count=1, flags=re.M)
+        return re.sub(rf'^{k}=.*$', lambda _: f'{k}={v}', s, count=1, flags=re.M)
     return s.rstrip() + f'\n{k}={v}\n'
-# A bcrypt hash contains $2a$14$..., which bash would expand as variables when .env is
-# sourced. Single-quote it so it survives verbatim.
-def fmt(k, v):
-    return f"'{v}'" if k == 'DASHBOARD_PASSWORD_HASH' and v else v
 for k, v in [('DOMAIN', domain), ('COMPOSE_FILE', compose_file), ('HTTP_BIND', http_bind),
              ('COMPOSE_PROJECT_NAME', project),
+             ('CADDY_TRUSTED_PROXIES', trusted_proxies), ('POOL_ALLOWED_IPS', pool_sources),
+             ('DASHBOARD_ALLOWED_IPS', researcher_sources), ('DASHBOARD_BASE_URL', management_url),
+             ('PUBLIC_HTTP_ENABLED', public_http),
+             ('LB_MAX_BODY_BYTES', lb_body), ('LB_IDLE_TIMEOUT_SECONDS', lb_idle), ('LB_MAX_HEADER_BYTES', lb_headers),
              ('CHRONICLE_SUBNET', subnet),
              ('HTTP_PORT', http_port), ('INTERNAL_PORT', internal_port),
              ('CHRONICLE_STATE_DIR', state_dir),
@@ -1076,12 +1133,30 @@ for k, v in [('DOMAIN', domain), ('COMPOSE_FILE', compose_file), ('HTTP_BIND', h
              ('CHRONICLE_REVIEWER_STUDY_ID', reviewer_study),
              ('CHRONICLE_REVIEWER_PARTICIPANT_ID', reviewer_participant),
              ('CHRONICLE_PUBLIC_BASE_URL', public_base_url),
+             ('CHRONICLE_ALERT_WEBHOOK_URL', alert_webhook),
              ('LOCAL_HTTPS_PORT', local_https_port),
              ('LOCAL_HTTP_PORT', local_http_port),
              ('GRAFANA_ADMIN_PASSWORD', grafana), ('GRAFANA_BIND', grafana_bind),
              ('GRAFANA_PORT', grafana_port),
              ('METRICS_RETENTION', metrics_retention), ('LOGS_RETENTION', logs_retention)]:
-    s = setkv(s, k, fmt(k, v))
+    s = setkv(s, k, quote_env(v))
+if management_url:
+    parsed = urlsplit(management_url)
+    if parsed.scheme != 'https' or not parsed.hostname or parsed.path or parsed.query or parsed.fragment or parsed.username:
+        raise SystemExit('researcher URL must be an HTTPS origin')
+    import ipaddress
+    try:
+        ipaddress.ip_address(parsed.hostname)
+        san = 'IP:' + parsed.hostname
+    except ValueError:
+        san = 'DNS:' + parsed.hostname
+    from chronicle_ops.release import value
+    for key, extra in (('INTERNAL_CERT_SANS', san), ('DASHBOARD_ORIGINS', management_url)):
+        saved = value(existing, key)
+        items = [item for item in saved.split(',') if item] if key == 'INTERNAL_CERT_SANS' else saved.split()
+        if extra not in items:
+            items.append(extra)
+        s = setkv(s, key, quote_env((',' if key == 'INTERNAL_CERT_SANS' else ' ').join(items)))
 # The shipped ceilings (6.25 GB) assume an 8 GB host. On a smaller Linux host, size them to
 # the documented 4 GB pilot minimum so load cannot push the stack into the OOM killer.
 try:
@@ -1089,12 +1164,18 @@ try:
         mem_kb = next(int(line.split()[1]) for line in meminfo if line.startswith('MemTotal:'))
 except (OSError, StopIteration, ValueError, IndexError):
     mem_kb = None
-if mem_kb is not None and mem_kb < 7_500_000:
+if not existing and mem_kb is not None and mem_kb < 7_500_000:
     for k, v in (('POSTGRES_MEM_LIMIT', '1g'), ('POSTGRES_SHARED_BUFFERS', '256MB'),
                  ('POSTGRES_EFFECTIVE_CACHE_SIZE', '768MB'), ('BACKEND_MEM_LIMIT', '1536m'),
-                 ('BACKEND_XMX', '-Xmx1g')):
+                 ('BACKEND_XMX', '-Xmx1g'), ('FRONTEND_MEM_LIMIT', '256m'),
+                 ('BACKUP_MEM_LIMIT', '256m'), ('WEB_MEM_LIMIT', '128m')):
         s = setkv(s, k, v)
     print(f"Host has {mem_kb // 1024} MiB of memory; sized backend/Postgres limits for a 4 GB host (see README Sizing).")
+if mem_kb is not None:
+    from chronicle_ops.common import require_memory
+    from chronicle_ops.release import assignment
+    proposed = {match[1]: match[2] for line in s.splitlines() if (match := assignment.fullmatch(line))}
+    require_memory(proposed, mem_kb, 'overlays/monitoring.yml' in compose_file)
 descriptor, temporary = tempfile.mkstemp(prefix='.env.setup-', dir='.')
 try:
     os.fchmod(descriptor, 0o600)
@@ -1118,6 +1199,11 @@ PY
   chmod 600 .env
   /bin/rmdir "$OPERATION_LOCK_DIR" 2>/dev/null || true
   OPERATION_LOCK_DIR=""
+
+  if [[ "$tls_mode" != local-https && "$(uname -s)" == Linux ]]; then
+    need_env
+    ops_python reconcile || die "could not install the operator boot/periodic reconciliation schedule"
+  fi
 
   local credentials_preserved=false credentials_generated=false credential_value
   for credential_value in "$keep_pg" "$keep_jwt" "$keep_metrics" "$keep_internal" "$keep_grafana"; do
@@ -1152,10 +1238,14 @@ PY
     printf '  Only its bcrypt hash is stored, so the cleartext cannot be recovered here.\n\n'
   fi
   if [[ "$monitoring_enabled" == true ]]; then
-    printf '%sMonitoring:%s Grafana will listen on http://%s:%s with %s metrics and %s sanitized logs.\n' \
+    printf '%sMonitoring:%s Grafana will listen on https://%s:%s with %s metrics and %s sanitized logs.\n' \
       "$BLD" "$RST" "$grafana_bind" "$grafana_port" "$metrics_retention" "$logs_retention"
     printf '  After startup: ./chronicle monitoring add-viewer NAME\n\n'
-    printf '  Alert delivery is not configured; Grafana keeps alerts local until CHRONICLE_ALERT_WEBHOOK_URL is set and tested.\n'
+    if [[ -n "$keep_alert_webhook" ]]; then
+      printf '  Alert destination saved. Send a Grafana contact-point test and confirm receipt before relying on delivery.\n'
+    else
+      printf '  Alert delivery is not configured; Grafana keeps alerts local until CHRONICLE_ALERT_WEBHOOK_URL is set and tested.\n'
+    fi
     printf '  See selfhost/docs/MONITORING-RUNBOOK.md, “Attach a notification channel.”\n\n'
   fi
 
@@ -1401,31 +1491,55 @@ PY
 # ---------------------------------------------------------------------------------- up
 # Start the configured services after host checks, then run the trial CA export separately.
 assert_no_incomplete_mutation() {
-  local path label
-  for label in restore upgrade secret-rotation; do
-    case "$label" in
-      restore) path="${STATE_ROOT}/.chronicle-restore.lock" ;;
-      upgrade) path="${STATE_ROOT}/.chronicle-upgrade.lock" ;;
-      secret-rotation) path="${STATE_ROOT}/.chronicle-secret-rotation" ;;
-    esac
-    if [[ -e "$path" || -L "$path" ]]; then
-      die "cannot ${1:-start Chronicle} while an incomplete ${label} operation is preserved at ${path}. Follow the corresponding recovery runbook before removing that exact lock."
-    fi
-  done
+  ops_python reconcile "${2:-check}" || die "cannot ${1:-start Chronicle}; follow the operation recovery runbook"
+}
+
+lock_operation() {
+  local path
+  path=$(ops_python reconcile lock-path) || die "could not resolve the operation lock"
+  if [[ "${CHRONICLE_OPERATION_LOCK_FD:-}" =~ ^[0-9]+$ ]] &&
+      [[ "$path" -ef "/dev/fd/$CHRONICLE_OPERATION_LOCK_FD" ]]; then
+    return
+  fi
+  # Lock in place rather than re-running the command under the lock: a re-run replays setup's
+  # prompts against stdin it already consumed. flock belongs to the open file, so the lock the
+  # helper takes through fd 9 stays held by this shell. Fixed fd: macOS bash 3.2 has no {fd}.
+  [[ ! -L "$path" ]] || die "operation lock $path is a symlink"
+  exec 9<>"$path" || die "could not open the operation lock $path"
+  export CHRONICLE_OPERATION_LOCK_FD=9
+  ops_python -c 'import sys; from chronicle_ops.common import acquire_operation_lock; sys.exit(acquire_operation_lock(sys.argv[1]) is not None)' \
+    "$STATE_ROOT" || die "could not acquire the operation lock"
 }
 
 cmd_up() {
   shift || true
   need_env
+  if [[ "${1:-}" == --no-reconcile ]]; then
+    export CHRONICLE_RECONCILE_ENABLED=false
+  fi
   # A destructive restore can leave a deliberately stopped, partially replaced schema.
   # The preserved lock must be an enforced interlock, not merely a warning printed by the
   # failed restore process. Apply the same rule to failed upgrades and rotations: `up` is
   # the ordinary recovery shortcut operators will reach for after a failure, so it must not
   # bypass the state-changing command's fail-closed boundary (including dangling symlinks).
-  assert_no_incomplete_mutation
   begin_operation up startup_failed
+  local locked_state="$STATE_ROOT" locked_project="$PROJECT"
+  lock_operation
+  need_env
+  [[ "$STATE_ROOT" == "$locked_state" && "$PROJECT" == "$locked_project" ]] ||
+    die "state directory or Compose project changed while acquiring the lock; retry startup"
+  ops_python owner-check || die "startup must run from the active selfhost directory"
+  if [[ "${CHRONICLE_RECONCILE_RUN:-false}" == true ]] && ops_python reconcile stopped; then return 0; fi
+  assert_no_incomplete_mutation "start Chronicle" check-start
+  local dashboard_login_migrated
+  dashboard_login_migrated=$(ops_python dashboard-login-migrate) || die "dashboard password migration failed"
+  need_env
   ensure_images
   preflight
+  local certificate_applied certificate_after certificate_marker="$STATE_ROOT/tls/.applied-certificates"
+  certificate_applied=$(cat "$certificate_marker" 2>/dev/null || true)
+  dc run --rm --no-deps cert-init || die "certificate preparation failed"
+  certificate_after=$(find "$STATE_ROOT/tls" -type f \( -name '*cert.pem' -o -name '*.crt' -o -name '*.sha256' \) -exec sha256sum {} + 2>/dev/null | sort)
   printf '%sStarting%s (%s)\n' "$BLD" "$RST" "${COMPOSE_FILE:-docker-compose.yml}"
   printf '  on a first run this also initialises the database — no output until it settles\n\n'
   # Compose's own progress stream prints one line per container per state transition: 34
@@ -1435,7 +1549,12 @@ cmd_up() {
   # ca-export exits after it writes the local CA. Run it after the long-running services are
   # healthy, because Compose --wait treats an exited one-shot service as a startup failure.
   local configured_services service has_ca_export=false
-  local -a startup_services=()
+  local -a startup_services=() startup_options=()
+  if [[ "$certificate_applied" != "$certificate_after" || "$dashboard_login_migrated" == changed ]]; then
+    startup_options+=(--force-recreate)
+  elif [[ "${CHRONICLE_RECONCILE_RUN:-false}" == true ]]; then
+    startup_options+=(--no-recreate)
+  fi
   if ! configured_services="$(dc config --services)"; then
     die "could not resolve the Compose service list"
   fi
@@ -1448,494 +1567,32 @@ cmd_up() {
     fi
   done <<<"$configured_services"
   ((${#startup_services[@]} > 0)) || die "Compose has no long-running services to start"
-  dc --progress quiet up -d --wait --wait-timeout 300 "${startup_services[@]}" ||
+  dc --progress quiet up -d --wait --wait-timeout "${START_WAIT_TIMEOUT_SECONDS:-3600}" --remove-orphans "${startup_options[@]}" "${startup_services[@]}" ||
     die "startup failed — see ./chronicle logs"
   if [[ "$has_ca_export" == true ]]; then
     dc run --rm --no-deps ca-export || die "local trial CA export failed; review the CA export error above"
   fi
+  ops_python public-check || die "public HTTPS acceptance failed; verify the LB route, DNS and certificate"
+  printf '%s\n' "$certificate_after" | ops_python -c 'import sys; from chronicle_ops.receipts import write_text; write_text(sys.argv[1], sys.stdin.read().rstrip("\n"))' \
+    "$certificate_marker" || die "could not record the certificates applied at startup"
   dc ps --format '{{.Service}}\t{{.Status}}' 2>/dev/null | sort | sed 's/^/  /'
   printf '\n%sStarted.%s Next: ./chronicle verify\n' "$GRN" "$RST"
+  if [[ "${CHRONICLE_RECONCILE_RUN:-false}" != true && "${CHRONICLE_RECONCILE_ENABLED:-true}" == true ]]; then
+    ops_python reconcile resume || die "could not resume periodic reconciliation"
+  fi
   operation_succeeded
 }
 
 # ------------------------------------------------------------------------------ verify
 # Proves the boundary from outside the stack rather than trusting the config.
 cmd_verify() {
-  # DASHBOARD_PASSWORD is an optional one-run input, not deployment configuration. Capture
-  # it before loading .env and immediately remove its exported form so neither Python nor
-  # any of the curl probes can expose it through their process environments.
-  local dashboard_password="${DASHBOARD_PASSWORD:-}"
-  unset DASHBOARD_PASSWORD
-  shift || true
-  if (($#)); then
-    [[ "$#" -eq 1 && "$1" == --dashboard-password ]] ||
-      die "usage: ./chronicle verify [--dashboard-password]"
-    [[ -z "$dashboard_password" ]] ||
-      die "use either --dashboard-password or DASHBOARD_PASSWORD, not both"
-    if [[ -t 0 ]]; then
-      read -rsp 'Dashboard password: ' dashboard_password
-      printf '\n'
-    else
-      IFS= read -r dashboard_password ||
-        die "--dashboard-password expected one password line on stdin"
-    fi
-    [[ -n "$dashboard_password" ]] || die "dashboard password must not be empty"
-  fi
+  ops_require_python
   need_env
-  begin_operation verify verification_failed
-  if [[ -n "${DASHBOARD_PASSWORD:-}" ]]; then
-    dashboard_password="$DASHBOARD_PASSWORD"
-    unset DASHBOARD_PASSWORD
-  fi
-  local pub fail=0 external_origin="${CHRONICLE_PUBLIC_BASE_URL:-https://${DOMAIN}}"
-  local external_http_authority="" external_http_origin="" redirect_status=""
-  # Probe the address the listener is actually published on. Assuming loopback silently
-  # fails the moment HTTP_BIND points at a LAN/VPN interface so devices can reach it.
-  local pub_host="${HTTP_BIND}"
-  [[ "$pub_host" == "0.0.0.0" ]] && pub_host=127.0.0.1
-  if [[ "$TLS_MODE" == own-tls || "$TLS_MODE" == local-https ]]; then
-    # Setup may select a nonstandard trial HTTPS port when another host service owns 443.
-    # Probe the same canonical origin rendered into enrollment manifests and the app.
-    pub="${CHRONICLE_PUBLIC_BASE_URL:-https://${DOMAIN}}"
-  else
-    pub="http://${pub_host}:${HTTP_PORT}"
-  fi
-
-  # These checks fire faster than any real client, so they trip the rate limiter on their
-  # own. A 429 says nothing about exposure -- back off past the window and ask again.
-  hit() { # url path -> status code, retrying past rate-limit windows
-    local code i
-    for i in 1 2 3 4; do
-      code=$(curl --noproxy '*' -sk -o /dev/null -w '%{http_code}' --max-time 10 "$1$2")
-      [[ "$code" != 429 ]] && break
-      sleep "${RATE_LIMIT_RETRY_SLEEP:-1.2}"
-    done
-    printf '%s' "$code"
-  }
-  probe() { # url path expected label
-    local code; code=$(hit "$1" "$2")
-    if [[ "$code" == "$3" ]]; then printf '  %sok%s   %-3s %s %s\n' "$GRN" "$RST" "$code" "$2" "$4"
-    else printf '  %sFAIL%s %-3s %s (expected %s) %s\n' "$RED" "$RST" "$code" "$2" "$3" "$4"; fail=1; fi
-  }
-  probe_health() { # url path label — Spring readiness intentionally returns no content
-    local code; code=$(hit "$1" "$2")
-    if [[ "$code" == 200 || "$code" == 204 ]]; then
-      printf '  %sok%s   %-3s %s %s\n' "$GRN" "$RST" "$code" "$2" "$3"
-    else
-      printf '  %sFAIL%s %-3s %s (expected 200 or 204) %s\n' \
-        "$RED" "$RST" "$code" "$2" "$3"
-      fail=1
-    fi
-  }
-  probe_served() { # url path label — follows redirects and insists on a real page
-    # Status alone is not enough here. A route that matches nothing answers 200 with an
-    # empty body, which every status-only probe above passes while the browser shows a
-    # blank screen. Follow redirects, because the documented path is a redirect by design.
-    local out code size i
-    for i in 1 2 3 4; do
-      out=$(curl --noproxy '*' -skL -o /dev/null -w '%{http_code} %{size_download}' --max-time 10 "$1$2")
-      [[ "${out%% *}" != 429 ]] && break
-      sleep "${RATE_LIMIT_RETRY_SLEEP:-1.2}"
-    done
-    code="${out%% *}"; size="${out##* }"
-    if [[ "$code" == 200 && "${size:-0}" -gt 0 ]]; then
-      printf '  %sok%s   %-3s %s %s\n' "$GRN" "$RST" "$code" "$2" "$3"
-    else
-      printf '  %sFAIL%s %-3s %s served %s bytes (expected 200 and a page) %s\n' \
-        "$RED" "$RST" "$code" "$2" "${size:-0}" "$3"; fail=1
-    fi
-  }
-  probe_any() { # url path label — any of 200/401/403 means "reachable"
-    local code; code=$(hit "$1" "$2")
-    if [[ "$code" =~ ^(200|401|403)$ ]]; then printf '  %sok%s   %-3s %s %s\n' "$GRN" "$RST" "$code" "$2" "$3"
-    else printf '  %sFAIL%s %-3s %s (expected reachable) %s\n' "$RED" "$RST" "$code" "$2" "$3"; fail=1; fi
-  }
-  curl_basic_code() { # username password url -> status, credentials delivered over stdin
-    local credentials="${1}:${2}" escaped
-    case "$credentials" in
-      *$'\n'*|*$'\r'*) return 2 ;;
-    esac
-    escaped="${credentials//\\/\\\\}"
-    escaped="${escaped//\"/\\\"}"
-    printf 'user = "%s"\n' "$escaped" |
-      curl --config - --noproxy '*' -sk -o /dev/null -w '%{http_code}' --max-time 10 "$3"
-  }
-  curl_dashboard_login_code() { # username password url -> status, password sent as JSON on stdin
-    local credentials="${1}:${2}" escaped
-    case "$credentials" in
-      *$'\n'*|*$'\r'*) return 2 ;;
-    esac
-    escaped="${credentials//\\/\\\\}"
-    escaped="${escaped//\"/\\\"}"
-    printf '%s' "$2" |
-      python3 -c 'import json,sys; sys.stdout.write(json.dumps({"password": sys.stdin.read()}))' |
-      curl --config /dev/fd/3 --noproxy '*' -sk -o /dev/null -w '%{http_code}' --max-time 15 \
-        -H 'Content-Type: application/json' --data-binary @- "$3" \
-        3< <(printf 'user = "%s"\n' "$escaped")
-  }
-  curl_header_code() { # header-name header-value method url -> status, value delivered over stdin
-    local name="$1" value="$2" method="$3" url="$4" escaped
-    [[ "$name" =~ ^[A-Za-z0-9-]+$ ]] || return 2
-    case "$value" in
-      *$'\n'*|*$'\r'*) return 2 ;;
-    esac
-    escaped="${value//\\/\\\\}"
-    escaped="${escaped//\"/\\\"}"
-    printf 'header = "%s: %s"\n' "$name" "$escaped" |
-      curl --config - --noproxy '*' -sk -o /dev/null -w '%{http_code}' --max-time 10 -X "$method" "$url"
-  }
-  postgres_scalar() { # SQL -> one scalar result; DB password delivered over stdin
-    local sql="$1"
-    # Expansion belongs to the container shell; no credential is interpolated into argv.
-    # shellcheck disable=SC2016
-    {
-      printf '%s\0' "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set}"
-      printf '%s\n' "$sql"
-    } | dc exec -T postgres /bin/bash -euc '
-      IFS= read -r -d "" PGPASSWORD
-      export PGPASSWORD
-      exec psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 \
-        -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" -f -
-    '
-  }
-
-  # One fast probe before the real ones. Every check below retries past the rate limiter,
-  # so against a listener that is not reachable at all they each burn ~40s and `verify`
-  # appears to hang for ten minutes before reporting anything. Fail in five seconds with the
-  # one thing worth saying instead.
-  if [[ "$(curl --noproxy '*' -sk -o /dev/null -w '%{http_code}' --max-time 5 "${pub}/health")" == 000 ]]; then
-    printf '%sCannot reach %s at all.%s\n\n' "$RED" "$pub" "$RST" >&2
-    printf 'Nothing was probed. Usual causes, in order:\n' >&2
-    printf '  * the published port is held by another process — run: ./chronicle check\n' >&2
-    printf '  * the stack is not running — run: ./chronicle status\n' >&2
-    printf '  * DOMAIN does not resolve to this machine from this machine\n' >&2
-    exit 1
-  fi
-
-  printf '%sPublic surface%s (%s)\n' "$BLD" "$RST" "$pub"
-  probe_health "$pub" /health "ready"
-  probe_served "$pub" /chronicle "dashboard (the path the README gives operators)"
-  probe_served "$pub" /chronicle/ "dashboard assets"
-  probe     "$pub" /chronicle/survey 200 "participant form"
-  probe_any "$pub" /chronicle/v4/study/x/upload "mobile upload reachable"
-  probe_any "$pub" /chronicle/study/x "legacy mobile API reachable"
-  for p in /chronicle/datastore/ /chronicle/principal/ /chronicle/compliance/ /chronicle/import/ /prometheus/; do
-    probe "$pub" "$p" 404 "direct backend route blocked"
-  done
-
-  if [[ "$DASHBOARD_EXPOSURE" == internal ]]; then
-    printf '\n%sPublic surface must NOT expose the dashboard%s\n' "$BLD" "$RST"
-    for p in /chronicle/v3/auth/testing-login /chronicle/v3/auth/session /chronicle/v3/auth/oidc/login \
-             /chronicle/api/web/study \
-             /chronicle/v3/time-use-diary/S/data /chronicle/v3/survey/S/questionnaire/Q/responses; do
-      probe "$pub" "$p" 404 ""
-    done
-    printf '\n%sInternal surface%s (https://%s:%s)\n' "$BLD" "$RST" "$INTERNAL_BIND" "$INTERNAL_PORT"
-    local int="https://${INTERNAL_BIND}:${INTERNAL_PORT}"
-
-    # TLS must actually be on, or the password would cross the wire in the clear.
-    if curl --noproxy '*' -sk -o /dev/null --max-time 10 "$int/health"; then
-      printf '  %sok%s   internal listener is HTTPS (credentials are not sent in clear)\n' "$GRN" "$RST"
-    else
-      printf '  %sFAIL%s internal listener did not answer over HTTPS\n' "$RED" "$RST"; fail=1
-    fi
-
-    # No credentials -> must be refused, and must actually be the password gate.
-    local code hdrs
-    code=$(curl --noproxy '*' -sk -o /dev/null -w '%{http_code}' --max-time 10 "$int/chronicle/api/web/study")
-    hdrs=$(curl --noproxy '*' -sk -sI --max-time 10 "$int/chronicle/api/web/study" | tr -d '\r')
-    if [[ "$code" == 401 ]] && grep -qi '^WWW-Authenticate:' <<<"$hdrs"; then
-      printf '  %sok%s   401 dashboard API demands the global password\n' "$GRN" "$RST"
-    else
-      printf '  %sFAIL%s dashboard API answered %s without credentials (expected a 401 password challenge)\n' "$RED" "$RST" "$code"; fail=1
-    fi
-
-    # A wrong password must not get in.
-    # Built from a variable rather than an inline user:pass literal, which secret
-    # scanners flag -- suppressing that rule to keep a fake credential is a bad trade.
-    local wrong_pw="not-the-${RANDOM}-password"
-    code=$(curl_basic_code "${DASHBOARD_USER:-researcher}" "$wrong_pw" "$int/chronicle/api/web/study")
-    if [[ "$code" == 401 ]]; then
-      printf '  %sok%s   401 a wrong password is rejected\n' "$GRN" "$RST"
-    else
-      printf '  %sFAIL%s wrong password produced %s (expected 401)\n' "$RED" "$RST" "$code"; fail=1
-    fi
-
-    # The browser origin has to be on the backend's CORS allowlist, and nothing else here
-    # would notice if it were not. CorsValidationFilter refuses the sign-in POST, the SPA
-    # renders in full, the header sits at "awaiting-sso" forever, and every probe above
-    # still passes -- a deployment that looks perfect and cannot be logged into. Ask the
-    # backend directly, with the Origin a browser on this listener would send.
-    # Asked of the rendered allowlist rather than over HTTP: the endpoint that would prove
-    # it sits behind the password gate, so an unauthenticated probe gets 401 and could not
-    # tell an allowed origin from a refused one.
-    if dc exec -T backend grep -qF "\"${int}\"" /server/rendered-config/cors.yaml 2>/dev/null; then
-      printf '  %sok%s   the dashboard origin is on the API allowlist\n' "$GRN" "$RST"
-    else
-      printf '  %sFAIL%s the dashboard origin %s is not on the API allowlist — sign-in cannot complete.\n' \
-        "$RED" "$RST" "$int"
-      printf '       Add it to DASHBOARD_ORIGINS in .env and run ./chronicle up again.\n'; fail=1
-    fi
-
-    # Only if the operator supplies it at run time -- it is deliberately not stored.
-    if [[ -n "$dashboard_password" ]]; then
-      # First check Caddy's Basic Auth gate, then ask the backend to mint an authenticated
-      # cookie session using the same hash. The session endpoint returns 200 only after the
-      # password matches and a local dashboard token has been issued.
-      code=$(curl_basic_code "${DASHBOARD_USER:-researcher}" "$dashboard_password" "$int/chronicle/")
-      if [[ "$code" == 200 ]]; then
-        printf '  %sok%s   200 correct password passes the dashboard gate\n' "$GRN" "$RST"
-      else
-        printf '  %sFAIL%s correct password produced %s (expected 200)\n' "$RED" "$RST" "$code"; fail=1
-      fi
-      # The backend allows 5 logins a minute; wait out a 429 instead of reporting a bad password.
-      local login_deadline=$((SECONDS + 75))
-      while :; do
-        code=$(curl_dashboard_login_code "${DASHBOARD_USER:-researcher}" "$dashboard_password" \
-          "$int/chronicle/v3/auth/dashboard-login") || code=000
-        [[ "$code" == 429 && $SECONDS -lt $login_deadline ]] || break
-        sleep 15
-      done
-      if [[ "$code" == 200 ]]; then
-        printf '  %sok%s   200 backend issued an authenticated dashboard session\n' "$GRN" "$RST"
-      else
-        printf '  %sFAIL%s dashboard login produced %s (expected 200)\n' "$RED" "$RST" "$code"; fail=1
-      fi
-    else
-      printf '  %s--%s   rerun with --dashboard-password to also check the correct password\n' "$YEL" "$RST"
-    fi
-  fi
-
-  # ---------------------------------------------------------------------------
-  # Public mobile bootstrap boundary. The public app must be able to read the exact
-  # non-sensitive settings route without a global secret, while enrollment without a
-  # one-time code and private mobile routes remain closed.
-  # ---------------------------------------------------------------------------
-  printf '\n%sPublic mobile bootstrap%s\n' "$BLD" "$RST"
-  local settings_path enrollment_path reviewer_path settings_code enrollment_code
-  local reviewer_unauth_code reviewer_code public_page expected_page page_result
-  settings_path="/chronicle/v3/study/00000000-0000-0000-0000-000000000000/settings/type/DataCollection"
-  enrollment_path="/chronicle/v4/study/00000000-0000-0000-0000-000000000000/participant/reviewer/enroll"
-  reviewer_path="/chronicle/v4/mobile/reviewer-enrollment"
-  settings_code=$(curl --noproxy '*' -sk -o /dev/null -w '%{http_code}' --max-time 10 "${pub}${settings_path}")
-  enrollment_code=$(curl --noproxy '*' -sk -o /dev/null -w '%{http_code}' --max-time 10 -X POST \
-    -H 'Content-Type: application/json' \
-    -H 'X-Chronicle-Device-Id: selfhost-verifier' \
-    --data '{"@class":"com.openlattice.chronicle.sources.AndroidDevice","device":"selfhost-verifier","model":"selfhost-verifier","codename":"selfhost-verifier","brand":"selfhost-verifier","osVersion":"1","sdkVersion":"1","product":"selfhost-verifier","deviceId":"selfhost-verifier"}' \
-    "${pub}${enrollment_path}")
-  reviewer_unauth_code=$(curl --noproxy '*' -sk -o /dev/null -w '%{http_code}' --max-time 10 -X POST \
-    "${pub}${reviewer_path}")
-
-  # /privacy and /withdrawal were retired with the public research policy page; store
-  # listings point at the institutional privacy URL instead.
-  for public_page in reviewer; do
-    expected_page="${pub}/chronicle/${public_page}"
-    page_result=$(curl --noproxy '*' -skL -o /dev/null \
-      -w '%{http_code}|%{url_effective}|%{size_download}' --max-time 10 \
-      "${pub}/${public_page}")
-    case "$page_result" in
-      "200|${expected_page}|"[1-9]*)
-        printf '  %sok%s   /%s reaches the anonymous Chronicle page (%s)\n' \
-          "$GRN" "$RST" "$public_page" "$expected_page" ;;
-      *)
-        printf '  %sFAIL%s /%s did not reach a nonempty anonymous Chronicle page (%s)\n' \
-          "$RED" "$RST" "$public_page" "$page_result"; fail=1 ;;
-    esac
-  done
-
-  case "$settings_code" in
-    000|401|403)
-      printf '  %sFAIL%s public collection settings are unavailable without a global app secret (%s)\n' \
-        "$RED" "$RST" "$settings_code"; fail=1 ;;
-    5??)
-      printf '  %sFAIL%s public collection settings returned a server error (%s)\n' \
-        "$RED" "$RST" "$settings_code"; fail=1 ;;
-    2??|400|404|409|422)
-      printf '  %sok%s   public collection settings are reachable (%s)\n' "$GRN" "$RST" "$settings_code" ;;
-    *)
-      printf '  %sFAIL%s public collection settings returned an unexpected status (%s)\n' \
-        "$RED" "$RST" "$settings_code"; fail=1 ;;
-  esac
-  case "$enrollment_code" in
-    401|403) printf '  %sok%s   enrollment without a one-time code is refused (%s)\n' "$GRN" "$RST" "$enrollment_code" ;;
-    000) printf '  %sFAIL%s enrollment endpoint did not answer\n' "$RED" "$RST"; fail=1 ;;
-    *) printf '  %sFAIL%s enrollment without a one-time code was not refused (%s)\n' \
-         "$RED" "$RST" "$enrollment_code"; fail=1 ;;
-  esac
-  case "$reviewer_unauth_code" in
-    401|403|404)
-      printf '  %sok%s   exact reviewer route refuses requests without its credential (%s)\n' \
-        "$GRN" "$RST" "$reviewer_unauth_code" ;;
-    5??)
-      printf '  %sFAIL%s exact reviewer route returned a server error (%s)\n' \
-        "$RED" "$RST" "$reviewer_unauth_code"; fail=1 ;;
-    *)
-      printf '  %sFAIL%s exact reviewer route accepted an unauthenticated request (%s)\n' \
-        "$RED" "$RST" "$reviewer_unauth_code"; fail=1 ;;
-  esac
-
-  if [[ "${CHRONICLE_REVIEWER_ACCESS_ENABLED:-false}" == true ]]; then
-    reviewer_code=$(curl_header_code X-Chronicle-Reviewer-Secret \
-      "${CHRONICLE_REVIEWER_ACCESS_SECRET:-}" POST "${pub}${reviewer_path}")
-    if [[ "$reviewer_code" == 200 ]]; then
-      printf '  %sok%s   reviewer bootstrap minted a fresh one-time invitation with the configured credential\n' "$GRN" "$RST"
-    else
-      printf '  %sFAIL%s reviewer bootstrap rejected the configured credential (%s)\n' \
-        "$RED" "$RST" "$reviewer_code"; fail=1
-    fi
-  else
-    printf '  %s--%s   reviewer bootstrap is disabled; authenticated mint probe skipped\n' "$YEL" "$RST"
-  fi
-
-  printf '\n%sRate limiting%s\n' "$BLD" "$RST"
-  local burst=$(( ${RATE_LIMIT_MOBILE_EVENTS:-20} * 3 )) got429=0 i burst_codes
-  # A sequential curl loop spends enough time establishing TLS that a healthy one-second
-  # edge bucket may refill before the loop reaches its configured capacity. Generate the
-  # same shape as an actual abusive burst: all requests are in flight concurrently, while
-  # keeping the total bounded by the configured event limit.
-  burst_codes="$({
-    for ((i=0; i<burst; i++)); do
-      curl --noproxy '*' -sk -o /dev/null -w '%{http_code}\n' --max-time 10 \
-        "${pub}/chronicle/v4/study/x/upload" &
-    done
-    wait
-  } || true)"
-  grep -qx 429 <<<"$burst_codes" && got429=1
-  if [[ $got429 -eq 1 ]]; then
-    printf '  %sok%s   mobile ingest is rate limited (%s/%s)\n' "$GRN" "$RST" "${RATE_LIMIT_MOBILE_EVENTS:-20}" "${RATE_LIMIT_MOBILE_WINDOW:-1s}"
-  else
-    printf '  %sFAIL%s %s requests to mobile ingest were never rate limited\n' "$RED" "$RST" "$burst"; fail=1
-  fi
-  sleep "${RATE_LIMIT_RETRY_SLEEP:-1.2}"
-
-  # Every dump is the whole database. The backup image writes them 0644 and has no umask
-  # option, so the only thing standing between them and any other local account is the mode
-  # on the directory itself.
-  if [[ "${ENABLE_BACKUPS:-true}" == true && -d "$BACKUPS_HOST_DIR" ]]; then
-    printf '\n%sDatabase dumps%s\n' "$BLD" "$RST"
-    local bmode; bmode=$(stat_mode "$BACKUPS_HOST_DIR"); bmode="${bmode:-?}"
-    if [[ "$bmode" == 700 ]]; then
-      printf '  %sok%s   %s is 0700 — dumps are not readable by other local accounts\n' "$GRN" "$RST" "$BACKUPS_HOST_DIR"
-    else
-      printf '  %sFAIL%s %s is %s — every local account can read the full database (want 0700)\n' "$RED" "$RST" "$BACKUPS_HOST_DIR" "$bmode"; fail=1
-    fi
-
-    # Confidentiality is the mode above; this is the other half. db-backup used to run as
-    # root, which left the rotation subdirectories and dumps root-owned inside that 0700
-    # parent -- readable by the operator, but impossible for them to prune, move, or delete
-    # without sudo, so a full disk had no non-root remedy. Test the property that actually
-    # matters (can this account write in there) rather than comparing uids, which says the
-    # wrong thing when the operator is in a shared group.
-    local unwritable=0 d
-    for d in "$BACKUPS_HOST_DIR" "$BACKUPS_HOST_DIR"/*/; do
-      [[ -d "$d" ]] || continue
-      [[ -w "$d" ]] || unwritable=$((unwritable + 1))
-    done
-    if ((unwritable == 0)); then
-      printf '  %sok%s   dumps belong to this account — they can be pruned and copied without sudo\n' "$GRN" "$RST"
-    else
-      printf '  %sFAIL%s %s director(y/ies) under %s are not writable by this account — backups cannot be pruned without sudo\n' \
-        "$RED" "$RST" "$unwritable" "$BACKUPS_HOST_DIR"; fail=1
-    fi
-  fi
-
-  # Encryption at rest, checked at the storage layer rather than by asking whether the
-  # extension is installed -- an installed pg_tde with every table still on plain heap
-  # encrypts nothing.
-  if [[ "${ENABLE_ENCRYPTION:-true}" == true ]]; then
-    printf '\n%sEncryption at rest%s\n' "$BLD" "$RST"
-    local plain enc
-    enc=$(postgres_scalar \
-      "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_am a ON a.oid=c.relam WHERE n.nspname='public' AND c.relkind='r' AND a.amname='tde_heap';" \
-      2>/dev/null || echo 0)
-    plain=$(postgres_scalar \
-      "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_am a ON a.oid=c.relam WHERE n.nspname='public' AND c.relkind='r' AND a.amname<>'tde_heap';" \
-      2>/dev/null || echo 999)
-    if [[ "$plain" == 0 && "$enc" -gt 0 ]]; then
-      printf '  %sok%s   all %s tables are encrypted (tde_heap)\n' "$GRN" "$RST" "$enc"
-    else
-      printf '  %sFAIL%s %s table(s) still on plain heap\n' "$RED" "$RST" "$plain"; fail=1
-    fi
-
-    # The recovery path matters more than the encryption. A dump older than the data, or
-    # a keyring with no copy outside the volume, is how "encrypted" becomes "lost".
-    if [[ -s "${BACKUPS_HOST_DIR}/keyring/chronicle-keyring.per" ]]; then
-      printf '  %sok%s   keyring copied into %s/keyring\n' "$GRN" "$RST" "$BACKUPS_HOST_DIR"
-    else
-      printf '  %sFAIL%s no keyring copy in %s — the data volume could not be remounted\n' "$RED" "$RST" "$BACKUPS_HOST_DIR"; fail=1
-    fi
-    if compgen -G "${BACKUPS_HOST_DIR}/last/*.sql.gz" >/dev/null; then
-      printf '  %sok%s   a key-free SQL dump exists (restores without pg_tde)\n' "$GRN" "$RST"
-    else
-      printf '  %sFAIL%s no SQL dump yet — nothing recoverable if the keyring is lost\n' "$RED" "$RST"; fail=1
-    fi
-  fi
-
-  if [[ "$TLS_MODE" == behind-proxy ]]; then
-    external_origin="${external_origin%/}"
-    external_http_authority="$(python3 - "$external_origin" <<'PY'
-from urllib.parse import urlsplit
-import sys
-
-parsed = urlsplit(sys.argv[1])
-host = parsed.hostname
-if not host:
-    raise SystemExit(1)
-if ":" in host:
-    host = f"[{host}]"
-print(host)
-PY
-    )" || external_http_authority=""
-    external_http_origin="http://${external_http_authority}"
-    printf '\n%sExternal HTTP redirect%s (%s/health)\n' "$BLD" "$RST" "$external_http_origin"
-    if [[ -n "$external_http_authority" ]] &&
-       redirect_status="$(check_proxy_http_redirect \
-         "${external_http_origin}/health" "${external_origin}/health")"; then
-      printf '  %sok%s   %s redirects to the canonical HTTPS health URL (%s)\n' \
-        "$GRN" "$RST" "$redirect_status" "${external_origin}/health"
-    else
-      printf '  %sFAIL%s HTTP /health must redirect with 301, 302, 307 or 308 to exactly %s\n' \
-        "$RED" "$RST" "${external_origin}/health"
-      fail=1
-    fi
-  fi
-
-  printf '\n'
-  if [[ $fail -ne 0 ]]; then
-    printf '%sVerification FAILED%s — the deployment is not exposed as configured.\n' "$RED" "$RST"
-    exit 1
-  fi
-  printf '%sVerified%s — exposure matches DASHBOARD_EXPOSURE=%s\n' "$GRN" "$RST" "$DASHBOARD_EXPOSURE"
-
-  # The external redirect is observed from this host too; it does not prove outside
-  # clients reach the load balancer or that the load balancer reaches this stack.
-  if [[ "$TLS_MODE" == behind-proxy ]]; then
-    printf '\n%sNot covered by this check:%s these probes ran from this host. They cannot tell\n' "$YEL" "$RST"
-    printf 'you whether outside clients reach the proxy or the proxy reaches this stack.\n'
-    printf 'The HTTP redirect above is the canonical hostname as this host sees it.\n'
-    printf '  1. your proxy can reach this stack — run this ON THE PROXY host:\n'
-    printf '       curl --noproxy '"'"'*'"'"' -sS -o /dev/null -w '"'"'%%{http_code}\\n'"'"' http://%s:%s/health   # expect 204\n' "$HTTP_BIND" "$HTTP_PORT"
-    printf '  2. the world can reach your proxy — run this from anywhere outside:\n'
-    printf '       curl -sS -o /dev/null -w '\''%%{http_code}\\n'\'' %s/health   # expect 204\n' "$external_origin"
-    printf '  3. confirm the public frontend from outside:\n'
-    printf "       curl -sS -o /dev/null -w '%%{http_code}\\n' %s/chronicle/   # expect 200 and a page\n" "$external_origin"
-    printf '  Confirm this redirect from outside too: %s/health -> %s/health\n' \
-      "$external_http_origin" "$external_origin"
-    # Naming the upstream address matters: this stack listens on plain HTTP at
-    # HTTP_BIND:HTTP_PORT (8080 by default, NOT 80), because TLS is terminated upstream in
-    # this mode. Printing only the public-origin line invites the operator to curl
-    # https://localhost, get "connection refused" from a perfectly healthy stack, and go
-    # hunting for a fault that is not there.
-    if [[ "$HTTP_BIND" == 127.0.0.1 || "$HTTP_BIND" == localhost ]]; then
-      printf '  %snote%s HTTP_BIND=%s is loopback, so (1) only works if the proxy runs on THIS host.\n' \
-        "$YEL" "$RST" "$HTTP_BIND"
-    fi
-  fi
-  operation_succeeded
+  shift || true
+  ops_python verify "$@"
 }
 
-# Validates .env and the bundle without building or starting anything, so an operator can
-# get the configuration right before spending a build on it.
+# Validates .env and the bundle without building or starting anything.
 cmd_check() {
   shift || true
   need_env
@@ -1958,7 +1615,10 @@ cmd_down() {
   [[ $# -eq 0 ]] || die "usage: ./chronicle down (takes no arguments)"
   need_env
   begin_operation down shutdown_failed
-  dc down || die "Compose shutdown failed"
+  lock_operation
+  ops_python owner-check || die "shutdown must run from the active selfhost directory"
+  ops_python reconcile stop || die "could not pause periodic reconciliation before shutdown"
+  dc down --remove-orphans || die "Compose shutdown failed"
   operation_succeeded
 }
 
@@ -1977,7 +1637,15 @@ cmd_doctor() {
   need_env
   begin_operation doctor diagnosis_failed
   local -a DOCTOR_ROWS=()
-  local DOCTOR_FAILED=0 running="" free_kb=0 free_gib=0 free_pct=0 latest="" age=0
+  local disk_warn_free_percent=15
+  local DOCTOR_FAILED=0 running="" free_kb=0 free_gib=0 free_pct=0
+
+  if ops_python reconcile stopped; then
+    doctor_add reconciliation warn "Periodic reconciliation is paused" "Run ./chronicle up from the active release to resume"
+  fi
+  if ! ops_python reconcile check >/dev/null 2>&1; then
+    doctor_add operation-lock warn "An incomplete operation is preserved" "Follow the recorded recovery owner's restore, upgrade or rotation runbook"
+  fi
 
   if docker info >/dev/null 2>&1; then
     doctor_add docker ok "Docker daemon is reachable" "none"
@@ -1991,15 +1659,29 @@ cmd_doctor() {
     doctor_add compose fail "Compose configuration does not render" "Run docker compose config and correct the reported .env or YAML error"
   fi
 
+  if ops_python public-check >/dev/null 2>&1; then
+    doctor_add public-readiness ok "Public HTTPS has dependency-aware readiness" "none"
+  else
+    doctor_add public-readiness fail "Public HTTPS is unavailable or unready" "Inspect DNS, TLS and LB pool routing"
+  fi
+
   running="$(dc ps --status running --services 2>/dev/null || true)"
   local service
   for service in postgres backend web; do
-    if grep -Fxq "$service" <<<"$running"; then
-      doctor_add "service-${service}" ok "${service} is running" "none"
+    local health
+    health=$(dc ps -q "$service" | xargs -r docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' 2>/dev/null)
+    if [[ "$health" == healthy ]]; then
+      doctor_add "service-${service}" ok "${service} is healthy" "none"
     else
       doctor_add "service-${service}" fail "${service} is not running" "Run ./chronicle logs ${service}, correct the first error, then run ./chronicle up"
     fi
   done
+
+  if ops_python database-privileges >/dev/null 2>&1; then
+    doctor_add database-privileges ok "Database runtime roles retain audit and restore privilege restrictions" "none"
+  else
+    doctor_add database-privileges fail "Database audit/restore privileges could not be verified" "Recover a reviewed backup that preserves ACLs"
+  fi
 
   if [[ "${CHRONICLE_REVIEWER_ACCESS_ENABLED:-false}" == true ||
         -n "${CHRONICLE_REVIEWER_STUDY_ID:-}" ||
@@ -2036,7 +1718,7 @@ cmd_doctor() {
   if [[ "$free_kb" =~ ^[0-9]+$ && "$free_pct" =~ ^[0-9]+$ ]]; then
     free_gib=$(( free_kb / 1048576 ))
   fi
-  if [[ "$free_pct" =~ ^[0-9]+$ ]] && (( free_pct >= 15 )); then
+  if [[ "$free_pct" =~ ^[0-9]+$ ]] && (( free_pct >= disk_warn_free_percent )); then
     doctor_add disk ok "Host filesystem has ${free_pct}% free (${free_gib} GiB)" "none"
   elif [[ "$free_kb" =~ ^[0-9]+$ && "$free_pct" =~ ^[0-9]+$ ]] && (( free_kb >= 20971520 )); then
     doctor_add disk warn \
@@ -2051,26 +1733,36 @@ cmd_doctor() {
   fi
 
   if [[ "${COMPOSE_FILE:-}" == *overlays/backups.yml* ]]; then
-    latest="$(python3 - "$BACKUPS_HOST_DIR/last" <<'PY'
-from pathlib import Path
-import sys
-root = Path(sys.argv[1])
-files = list(root.glob("*.sql.gz")) if root.is_dir() else []
-if files:
-    print(max(files, key=lambda path: path.stat().st_mtime))
-PY
-)"
-    if [[ -n "$latest" ]]; then
-      age=$(( $(date +%s) - $(stat_field '%Y' '%m' "$latest") ))
-      if gzip -t "$latest" >/dev/null 2>&1 && (( age <= 129600 )); then
-        doctor_add backup ok "Latest backup is readable and less than 36 hours old" "none"
-      else
-        doctor_add backup fail "Latest backup is stale or unreadable" "Run docker compose restart db-backup, inspect its logs, and verify a new dump with gzip -t"
-      fi
+    if ! ops_python backup-storage >/dev/null 2>&1; then
+      doctor_add backup-encryption warn "Backup backing-device encryption is unconfirmed" \
+        "Enable storage encryption or record a reviewed BACKUP_STORAGE_ENCRYPTION_WAIVER"
+    fi
+    if ops_python - >/dev/null 2>&1 <<'PY_BACKUP'
+from chronicle_ops.verify import verify_backup
+from chronicle_ops.release import read_env, value
+import os
+raise SystemExit(verify_backup(os.environ['CHRONICLE_OPS_BACKUPS'], value(read_env('.env'), 'POSTGRES_DB', 'chronicle')))
+PY_BACKUP
+    then
+      doctor_add backup ok "Active database has a fresh restore-verified backup" "none"
     else
-      doctor_add backup fail "No local SQL backup exists" "Run docker compose up -d db-backup and inspect ./chronicle logs db-backup"
+      doctor_add backup fail "Active database has no fresh verified backup" "Inspect db-backup logs and available scratch capacity"
     fi
   fi
+  while IFS=$'\x1f' read -r ident outcome summary action; do
+      doctor_add "$ident" "$outcome" "$summary" "$action"
+    done < <(ops_python - <<'PY_CAPACITY'
+from chronicle_ops.verify import capacity_checks
+from chronicle_ops.release import read_env
+import os
+try:
+    rows = capacity_checks(read_env('.env'), os.environ['CHRONICLE_OPS_BACKUPS'])
+except Exception:
+    rows = [('backup-capacity', 'fail', 'Could not measure database/backup/WAL capacity', 'Inspect PostgreSQL and backing filesystems')]
+for row in rows:
+    print('\x1f'.join(row))
+PY_CAPACITY
+)
 
   if [[ "${COMPOSE_FILE:-}" == *overlays/monitoring.yml* ]]; then
     local monitor_service
@@ -2081,16 +1773,18 @@ PY
         doctor_add "monitor-${monitor_service}" fail "${monitor_service} is not running" "Run ./chronicle logs ${monitor_service}, correct the first error, then docker compose up -d ${monitor_service}"
       fi
     done
-    if dc exec -T grafana wget -T 8 -qO- http://victoriametrics:8428/api/v1/targets 2>/dev/null | grep -q '"health":"up"'; then
-      doctor_add metrics-pipeline ok "VictoriaMetrics has a live scrape target" "none"
-    else
-      doctor_add metrics-pipeline fail "No live VictoriaMetrics scrape target was found" "Run ./chronicle logs victoriametrics monitoring-config"
-    fi
-    if dc exec -T grafana wget -T 8 -q --spider http://victorialogs:9428/health 2>/dev/null; then
-      doctor_add logs-pipeline ok "VictoriaLogs is healthy" "none"
-    else
-      doctor_add logs-pipeline fail "VictoriaLogs is unavailable" "Run ./chronicle logs victorialogs fluent-bit"
-    fi
+    while IFS=$'\x1f' read -r ident outcome summary action; do
+      doctor_add "$ident" "$outcome" "$summary" "$action"
+    done < <(ops_python - <<'PY_MONITORING'
+from chronicle_ops.verify import monitoring_checks
+try:
+    rows = monitoring_checks()
+except Exception:
+    rows = [('monitoring-pipeline', 'fail', 'Could not qualify metrics/log delivery', 'Inspect monitoring service logs')]
+for row in rows:
+    print('\x1f'.join(row))
+PY_MONITORING
+)
     if [[ -n "${CHRONICLE_ALERT_WEBHOOK_URL:-}" ]]; then
       doctor_add alert-route ok "A human alert destination is configured" "none"
     else
@@ -2135,14 +1829,9 @@ print(json.dumps({"overall":"fail" if os.environ["DOCTOR_FAILED"]=="1" else "ok"
   return 1
 }
 
-grafana_base_url() {
-  local host="${GRAFANA_BIND:-127.0.0.1}"
-  [[ "$host" == 0.0.0.0 ]] && host=127.0.0.1
-  [[ "$host" == *:* && "$host" != \[*\] ]] && host="[$host]"
-  printf 'http://%s:%s' "$host" "${GRAFANA_PORT:-3000}"
-}
 
 require_monitoring() {
+  source "$(dirname "$SCRIPT_PATH")/network-policy.sh"
   [[ "${COMPOSE_FILE:-}" == *overlays/monitoring.yml* ]] ||
     die "monitoring is disabled; rerun ./chronicle setup and enable the monitoring overlay"
 }
@@ -2175,7 +1864,7 @@ cmd_monitoring() {
       printf '%sPrivate monitoring%s (%s)\n' "$BLD" "$RST" "$base"
       dc ps monitoring-config cadvisor operational-probe metrics-exporter victoriametrics victorialogs fluent-bit grafana ||
         die "could not inspect monitoring service status"
-      if curl --noproxy '*' -fsS --max-time 8 "$base/api/health" >/dev/null 2>&1; then
+      if curl --noproxy '*' -fsS --max-time 8 --cacert "$STATE_ROOT/tls/monitoring.crt" "$base/api/health" >/dev/null 2>&1; then
         printf '  %sok%s   Grafana answers on the configured private listener\n' "$GRN" "$RST"
       else
         die "Grafana is not reachable at $base; run ./chronicle doctor"
@@ -2192,7 +1881,7 @@ cmd_monitoring() {
         password="$VIEWER_PASSWORD"
       fi
       if ! printf '%s\0' "$base" "${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is not set}" \
-        "$operation" "$name" "$password" | python3 ./monitoring/grafana-user.py; then
+        "$operation" "$name" "$password" | GRAFANA_CA_FILE="$STATE_ROOT/tls/monitoring.crt" python3 ./monitoring/grafana-user.py; then
         VIEWER_PASSWORD=""; password=""
         die "Grafana viewer operation failed"
       fi
@@ -2203,362 +1892,52 @@ cmd_monitoring() {
   operation_succeeded
 }
 
-write_restore_lock_file() {
-  local name="$1" value="$2"
-  local temporary="${RESTORE_LOCK_DIR}/.${name}.$$"
-  [[ "$name" =~ ^[a-z-]+$ ]] || die "internal error: invalid restore lock field"
-  printf '%s\n' "$value" >"$temporary" || die "could not write restore operation metadata"
-  /bin/chmod 0600 "$temporary" || die "could not protect restore operation metadata"
-  /bin/mv -f "$temporary" "${RESTORE_LOCK_DIR}/${name}" ||
-    die "could not publish restore operation metadata"
+ops_require_python() {
+  command -v python3 >/dev/null 2>&1 || die "required command is unavailable: python3"
+  python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' ||
+    die "python3 3.9 or newer is required"
 }
 
-release_restore_lock() {
-  [[ "$RESTORE_LOCK_HELD" == true ]] || return 0
-  [[ -d "$RESTORE_LOCK_DIR" && ! -L "$RESTORE_LOCK_DIR" ]] || return 1
-  /bin/rm -f -- \
-    "${RESTORE_LOCK_DIR}/owner-pid" \
-    "${RESTORE_LOCK_DIR}/phase" \
-    "${RESTORE_LOCK_DIR}/restore-file" \
-    "${RESTORE_LOCK_DIR}/.owner-pid.$$" \
-    "${RESTORE_LOCK_DIR}/.phase.$$" \
-    "${RESTORE_LOCK_DIR}/.restore-file.$$"
-  /bin/rmdir "$RESTORE_LOCK_DIR" || return 1
-  RESTORE_LOCK_HELD=false
-}
-
-restore_exit_cleanup() {
-  local original_status=$?
-  trap - EXIT HUP INT TERM
-  set +e
-  if [[ "$ACTIVE_OPERATION" == restore ]]; then
-    write_operation_receipt restore failure restore_failed ||
-      warn "restore failed, and its local operation receipt could not be written"
-    record_operation restore failure restore_failed
-  fi
-  if [[ "$RESTORE_RESTART_ON_EXIT" == true ]]; then
-    if ((${#RESTORE_PREVIOUSLY_RUNNING_SERVICES[@]})); then
-      printf '%s\n' "${YEL}warning:${RST} restore had not begun; restarting the services that were running before the stop attempt: ${RESTORE_PREVIOUSLY_RUNNING_SERVICES[*]}" >&2
-      if dc up -d --wait --wait-timeout "$RESTORE_START_WAIT_TIMEOUT_SECONDS" --no-deps \
-          "${RESTORE_PREVIOUSLY_RUNNING_SERVICES[@]}"; then
-        printf '%s\n' "         The pre-restore service state was restored." >&2
-      else
-        printf '%s\n' "${YEL}warning:${RST} the database was not changed, but the previous application services could not all be restarted." >&2
-        printf '%s\n' "         Diagnose Docker Compose, then run ./chronicle up." >&2
-      fi
-    fi
-    RESTORE_RESTART_ON_EXIT=false
-    # This cleanup path is reachable only before the restore container is invoked. Its lock
-    # must not claim that the unchanged database is in a destructive recovery state.
-    RESTORE_LOCK_PRESERVE=false
-  fi
-  if [[ "$RESTORE_LOCK_HELD" == true ]]; then
-    if [[ "$RESTORE_LOCK_PRESERVE" == true ]]; then
-      printf '%s\n' "${YEL}warning:${RST} do not start Chronicle application services against this database." >&2
-      printf '%s\n' "         Restore state is preserved at ${RESTORE_LOCK_DIR}." >&2
-      printf '%s\n' "         Confirm no restore process or restore container is running, diagnose the" >&2
-      printf '%s\n' "         failure, then follow docs/BACKUP-RESTORE.md to release only that lock." >&2
-    elif ! release_restore_lock; then
-      printf '%s\n' "${YEL}warning:${RST} could not release restore lock ${RESTORE_LOCK_DIR}" >&2
-    fi
-  fi
-  return "$original_status"
-}
-
-resolve_restore_host_path() {
-  local container_path="$1"
-  python3 - "$BACKUPS_HOST_DIR" "$container_path" <<'PY'
-from pathlib import Path, PurePosixPath
-import os
-import sys
-
-root_text, container_text = sys.argv[1:]
-container = PurePosixPath(container_text)
-parts = container.parts
-if len(parts) < 3 or parts[:2] != ("/", "backups"):
-    raise SystemExit("restore path must be below /backups")
-relative = parts[2:]
-if any(part in {"", ".", ".."} for part in relative):
-    raise SystemExit("restore path contains an unsafe component")
-if not relative[-1].endswith(".sql.gz"):
-    raise SystemExit("restore path must end in .sql.gz")
-
-try:
-    root = Path(root_text).resolve(strict=True)
-    target = root.joinpath(*relative).resolve(strict=True)
-except (OSError, RuntimeError) as error:
-    raise SystemExit(f"cannot resolve restore path: {error}") from None
-if any(character in str(target) for character in ("\n", "\r", "\x00")):
-    raise SystemExit("restore path resolves to a name containing a control character")
-if os.path.commonpath((str(root), str(target))) != str(root):
-    raise SystemExit("restore path resolves outside the backups directory")
-if not target.is_file():
-    raise SystemExit("restore path is not a regular file")
-print(target)
-PY
-}
-
-verify_restore_dump() {
-  local file="$1" expected="$2" actual
-  [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || {
-    printf 'FAIL restore requires an independently reviewed --trusted-sha256 digest\n' >&2
-    return 1
-  }
-  if command -v sha256sum >/dev/null 2>&1; then
-    actual="$(sha256sum "$file" | awk '{print $1}')"
-  else
-    actual="$(shasum -a 256 "$file" | awk '{print $1}')"
-  fi
-  [[ "$actual" == "$expected" ]] || { printf 'FAIL restore provenance digest mismatch\n' >&2; return 1; }
-  # Framing is additional defense, not authentication. Only the independently reviewed
-  # digest above establishes trust. COPY payload lines are data, including backslashes.
-  gzip -dc "$file" | awk '
-    function active_sql(line, i, c, nextc, rest, tag, code) {
-      code=""
-      for (i=1; i<=length(line); i++) {
-        c=substr(line,i,1); nextc=substr(line,i+1,1)
-        if (comment) { if (c == "*" && nextc == "/") { comment=0; i++ }; continue }
-        if (quote == "single" || quote == "double") {
-          mark=(quote == "single" ? "\047" : "\042")
-          if (c == mark) { if (nextc == mark) i++; else quote="" }
-          else if (quote == "single" && c == "\\") i++
-          continue
-        }
-        if (quote != "") {
-          if (substr(line,i,length(quote)) == quote) { i+=length(quote)-1; quote="" }
-          continue
-        }
-        if (c == "-" && nextc == "-") break
-        if (c == "/" && nextc == "*") { comment=1; i++; continue }
-        if (c == "\047") { quote="single"; continue }
-        if (c == "\042") { quote="double"; continue }
-        rest=substr(line,i)
-        if (c == "$" && match(rest,/^\$([A-Za-z_][A-Za-z0-9_]*)?\$/)) {
-          quote=substr(rest,1,RLENGTH); i+=RLENGTH-1; continue
-        }
-        code=code c
-      }
-      return code
-    }
-    BEGIN { restricted=0; finished=0; copying=0; header=0; failed=0 }
-    /^-- PostgreSQL database dump$/ { header=1; next }
-    copying { if ($0 == "\\.") copying=0; next }
-    /^\\restrict [A-Za-z0-9]+$/ {
-      if (restricted || finished) failed=1
-      restricted=1; token=$2; next
-    }
-    /^\\unrestrict [A-Za-z0-9]+$/ {
-      if (!restricted || finished || $2 != token) failed=1
-      finished=1; next
-    }
-    /^[[:space:]]*\\/ { failed=1; next }
-    /^[[:space:]]*(--.*)?$/ { next }
-    {
-      if (!restricted || finished) failed=1
-      code=active_sql($0)
-      if (code ~ /\\/) failed=1
-      upper=toupper(code)
-      if (upper ~ /(^|[^A-Z0-9_])PROGRAM([^A-Z0-9_]|$)/) failed=1
-      if (upper ~ /^COPY .* FROM STDIN;$/) copying=1
-    }
-    END { if (failed || !header || !restricted || !finished || copying || quote != "" || comment) exit 1 }
-  ' || { printf 'FAIL restore lacks safe pg_dump restricted framing or contains executable commands\n' >&2; return 1; }
+ops_python() {
+  local script_dir launch=command
+  script_dir="$(dirname "$SCRIPT_PATH")"
+  export CHRONICLE_OPS_PROJECT="${PROJECT:-chronicle-selfhost}"
+  export CHRONICLE_OPS_STATE="${STATE_ROOT:-$(pwd -P)}"
+  export CHRONICLE_OPS_BACKUPS="${BACKUPS_HOST_DIR:-${CHRONICLE_OPS_STATE}/backups}"
+  export CHRONICLE_OPS_VERSION="${RELEASE_VERSION:-unknown}"
+  export CHRONICLE_OPS_TLS_MODE="${TLS_MODE:-}" CHRONICLE_OPS_EXPOSURE="${DASHBOARD_EXPOSURE:-}"
+  export COMPOSE_FILE="${COMPOSE_FILE:-}"
+  # These settings were resolved by need_env; deployment secrets stay out of child environments.
+  local setting
+  for setting in HTTP_BIND HTTP_PORT INTERNAL_BIND INTERNAL_PORT CHRONICLE_PUBLIC_BASE_URL DOMAIN \
+      ENABLE_BACKUPS ENABLE_ENCRYPTION POSTGRES_DB POSTGRES_IMAGE START_WAIT_TIMEOUT_SECONDS DASHBOARD_USER CHRONICLE_REVIEWER_ACCESS_ENABLED \
+      RATE_LIMIT_MOBILE_ABUSE_EVENTS RATE_LIMIT_MOBILE_WINDOW RATE_LIMIT_RETRY_SLEEP \
+      RESTORE_START_WAIT_TIMEOUT_SECONDS UPGRADE_WAIT_TIMEOUT_SECONDS MIN_FREE_DISK_GIB CHRONICLE_RECONCILE_ENABLED; do
+    [[ -z "${!setting+x}" ]] || export "${setting?}"
+  done
+  case "$1" in restore|verify|adopt|upgrade|rollback|operation-lock) launch="exec" ;; esac
+  case "$1" in -|-c) ;; *) set -- -m chronicle_ops "$@" ;; esac
+  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$script_dir" "$launch" python3 "$@"
 }
 
 cmd_restore() {
-  shift || true
-  local assume_yes=false no_start=false restore_container_path="" trusted_sha256=""
-  local argument
-  for argument in "$@"; do
-    case "$argument" in
-      --yes) assume_yes=true ;;
-      --trusted-sha256=*) trusted_sha256="${argument#*=}" ;;
-      --no-start) no_start=true ;;
-      -h|--help)
-        printf '%s\n' 'usage: ./chronicle restore [--yes] [--no-start] --trusted-sha256=SHA256 [/backups/path/to/dump.sql.gz]'
-        return 0
-        ;;
-      --*) die "unknown restore option: $argument" ;;
-      *)
-        [[ -z "$restore_container_path" ]] ||
-          die "usage: ./chronicle restore [--yes] [--no-start] --trusted-sha256=SHA256 [/backups/path/to/dump.sql.gz]"
-        restore_container_path="$argument"
-        ;;
-    esac
-  done
-
+  ops_require_python
   need_env
-  ACTIVE_OPERATION=restore
-  OPERATION_STARTED_SECONDS=$SECONDS
-  command -v gzip >/dev/null 2>&1 || die "required command is unavailable: gzip"
-  : "${RESTORE_START_WAIT_TIMEOUT_SECONDS:=300}"
-  [[ "$RESTORE_START_WAIT_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] ||
-    die "RESTORE_START_WAIT_TIMEOUT_SECONDS must be a positive integer"
-  (( RESTORE_START_WAIT_TIMEOUT_SECONDS <= 3600 )) ||
-    die "RESTORE_START_WAIT_TIMEOUT_SECONDS must not exceed 3600"
-  [[ -d "$STATE_ROOT" ]] || die "CHRONICLE_STATE_DIR does not exist: $STATE_ROOT"
+  lock_operation
+  need_env
+  ops_python owner-check || die "restore must run from the active selfhost directory"
+  shift || true
+  ops_python restore "$@"
+}
 
-  restore_container_path="${restore_container_path:-/backups/last/chronicle-latest.sql.gz}"
-  case "$restore_container_path" in
-    *$'\n'*|*$'\r'*) die "restore path must not contain control characters" ;;
-  esac
-  local restore_host_path
-  restore_host_path="$(resolve_restore_host_path "$restore_container_path")" ||
-    die "restore dump is unavailable or unsafe: $restore_container_path"
-  [[ -s "$restore_host_path" ]] || die "restore dump is empty: $restore_container_path"
-  printf '%sRestoring Chronicle from%s %s\n' "$BLD" "$RST" "$restore_container_path"
-  printf '  Checking gzip integrity before stopping application services.\n'
-  gzip -t "$restore_host_path" || die "restore dump failed gzip integrity verification"
-  verify_restore_dump "$restore_host_path" "$trusted_sha256" || die "restore dump trust verification failed"
-
-  local service_list
-  # The one-shot restore service is intentionally hidden behind a profile so a normal
-  # `docker compose up` can never launch it. Enable that profile only while inspecting or
-  # invoking the restore service; post-restore `up` below must remain profile-free.
-  service_list="$(dc --profile restore config --services)" ||
-    die "Docker Compose configuration is invalid"
-  for argument in postgres backend web restore; do
-    grep -Fxq "$argument" <<<"$service_list" ||
-      die "Docker Compose configuration is missing required service: $argument"
-  done
-  local -a stopped_services=(backend web db-init)
-  if grep -Fxq db-backup <<<"$service_list"; then
-    stopped_services+=(db-backup)
-  fi
-  local running_services
-  running_services="$(dc --profile restore ps --status running --services)" ||
-    die "could not inspect running Compose services"
-  grep -Fxq restore <<<"$running_services" &&
-    die "a one-shot restore container is already running; do not start another restore"
-  RESTORE_PREVIOUSLY_RUNNING_SERVICES=()
-  for argument in "${stopped_services[@]}"; do
-    if grep -Fxq "$argument" <<<"$running_services"; then
-      RESTORE_PREVIOUSLY_RUNNING_SERVICES+=("$argument")
-    fi
-  done
-
-  if [[ "$assume_yes" != true ]]; then
-    [[ -t 0 ]] ||
-      die "confirmation requires a terminal; review the restore runbook, then repeat with --yes"
-    local answer
-    read -rp "Stop Chronicle and replace its database with this dump? [y/N] " answer
-    [[ "$answer" =~ ^[Yy]$ ]] || die "restore cancelled"
-  fi
-
-  umask 077
-  RESTORE_LOCK_DIR="${STATE_ROOT}/.chronicle-restore.lock"
-  local upgrade_lock="${STATE_ROOT}/.chronicle-upgrade.lock"
-  local rotation_lock="${STATE_ROOT}/.chronicle-secret-rotation"
-  [[ ! -e "$upgrade_lock" && ! -L "$upgrade_lock" ]] ||
-    die "an upgrade is active or incomplete ($upgrade_lock); do not restore concurrently"
-  [[ ! -e "$rotation_lock" && ! -L "$rotation_lock" ]] ||
-    die "a secret rotation is active or incomplete ($rotation_lock); do not restore concurrently"
-  if ! /bin/mkdir "$RESTORE_LOCK_DIR" 2>/dev/null; then
-    die "another restore is active or incomplete ($RESTORE_LOCK_DIR). Follow docs/BACKUP-RESTORE.md before removing the lock."
-  fi
-  RESTORE_LOCK_HELD=true
-  RESTORE_LOCK_PRESERVE=false
-  trap restore_exit_cleanup EXIT
-  trap 'exit 129' HUP
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  /bin/chmod 0700 "$RESTORE_LOCK_DIR" || die "could not protect restore lock"
-
-  # Recheck after acquiring our lock. Without this second check, restore and upgrade (or
-  # rotation) can both pass their first check and create their own locks concurrently.
-  [[ ! -e "$upgrade_lock" && ! -L "$upgrade_lock" ]] ||
-    die "an upgrade started while the restore lock was being acquired; restore did not start"
-  [[ ! -e "$rotation_lock" && ! -L "$rotation_lock" ]] ||
-    die "a secret rotation started while the restore lock was being acquired; restore did not start"
-  write_restore_lock_file owner-pid "$$"
-  write_restore_lock_file restore-file "$restore_container_path"
-  write_restore_lock_file phase prepared
-
-  printf '  Stopping application access and backup activity: %s\n' "${stopped_services[*]}"
-  write_restore_lock_file phase stopping-services
-  RESTORE_RESTART_ON_EXIT=true
-  if ! dc stop "${stopped_services[@]}"; then
-    die "could not stop every application service; restore was not started"
-  fi
-  running_services="$(dc --profile restore ps --status running --services)" ||
-    die "could not verify that application services stopped"
-  for argument in "${stopped_services[@]}"; do
-    if grep -Fxq "$argument" <<<"$running_services"; then
-      die "Compose service '$argument' is still running; restore was not started"
-    fi
-  done
-  grep -Fxq restore <<<"$running_services" &&
-    die "a different one-shot restore container is running; restore was not started"
-
-  # From this point onward a failure may leave a partial replacement schema. Preserve the
-  # interlock until the operator follows the documented recovery procedure.
-  RESTORE_LOCK_PRESERVE=true
-  RESTORE_RESTART_ON_EXIT=false
-  write_restore_lock_file phase restoring
-  local -a restore_args=(run --rm -e CHRONICLE_RESTORE_ORCHESTRATED=true)
-  if [[ "$no_start" == true ]]; then
-    # The prior binary cannot consume a newer restore-continuity checkpoint. The restore
-    # service therefore permits rollback only when every immutable protected fact already
-    # exists identically in the selected backup; any post-backup withdrawal leaves the stack
-    # stopped and the operation lock intact.
-    restore_args+=(-e CHRONICLE_RESTORE_LEAVE_STOPPED=true)
-  fi
-  restore_args+=(-e "CHRONICLE_RESTORE_TRUSTED_SHA256=$trusted_sha256" -e "RESTORE_FILE=${restore_container_path}" restore)
-  if ! dc --profile restore "${restore_args[@]}"; then
-    die "database restore failed; Chronicle was deliberately left stopped"
-  fi
-  write_restore_lock_file phase database-restored
-
-  if [[ "$no_start" == true ]]; then
-    printf '  Database restored; application services remain stopped because --no-start was used.\n'
-  else
-    printf '  Starting Chronicle (bounded health wait: %ss).\n' "$RESTORE_START_WAIT_TIMEOUT_SECONDS"
-    write_restore_lock_file phase starting-services
-    local -a startup_services=()
-    local service has_ca_export=false configured_services
-    configured_services="$(dc config --services)" ||
-      die "could not resolve the post-restore Compose services"
-    while IFS= read -r service; do
-      [[ -n "$service" ]] || continue
-      if [[ "$service" == ca-export ]]; then
-        has_ca_export=true
-      else
-        startup_services+=("$service")
-      fi
-    done <<<"$configured_services"
-    [[ "${#startup_services[@]}" -gt 0 ]] || die "restore found no long-running services to start"
-    if ! dc up -d --wait --wait-timeout "$RESTORE_START_WAIT_TIMEOUT_SECONDS" \
-        --remove-orphans "${startup_services[@]}"; then
-      warn "post-restore startup failed; stopping application services again"
-      dc stop "${stopped_services[@]}" >/dev/null 2>&1 ||
-        warn "could not confirm every application service stopped after startup failure"
-      die "database restored, but Chronicle did not return healthy"
-    fi
-    if [[ "$has_ca_export" == true ]] && ! dc run --rm --no-deps ca-export; then
-      warn "local CA export failed after restore; stopping application services again"
-      dc stop "${stopped_services[@]}" >/dev/null 2>&1 ||
-        warn "could not confirm every application service stopped after CA export failure"
-      die "database restored, but Chronicle could not publish its local CA"
-    fi
-    write_restore_lock_file phase verified
-  fi
-
-  RESTORE_LOCK_PRESERVE=false
-  if ! release_restore_lock; then
-    RESTORE_LOCK_PRESERVE=true
-    die "restore completed, but its operation lock could not be released"
-  fi
-  trap - EXIT HUP INT TERM
-  printf 'Restore took %s seconds.\n' "$(( SECONDS - OPERATION_STARTED_SECONDS ))"
-  if [[ "$no_start" == true ]]; then
-    printf '%sRestore complete.%s The Chronicle application remains stopped.\n' "$GRN" "$RST"
-  else
-    printf '%sRestore complete.%s Chronicle is healthy; run ./chronicle verify next.\n' "$GRN" "$RST"
-  fi
-  write_operation_receipt restore success none ||
-    warn "restore completed, but its local operation receipt could not be written"
-  record_operation restore success none
-  ACTIVE_OPERATION=""
+cmd_reconcile() {
+  shift || true
+  need_env
+  lock_operation
+  ops_python owner-check || die "reconciliation changes must run from the active selfhost directory"
+  ops_python dashboard-login-migrate >/dev/null || die "dashboard password migration failed"
+  need_env
+  ops_python reconcile "$@" || die "could not change the reconciliation schedule"
 }
 
 cmd_deletion_status() {
@@ -2599,15 +1978,22 @@ SELECT operation.operation_id,
          WHEN operation.status = '\''COMPLETED'\'' THEN '\''missing-proof'\''
          ELSE '\''pending'\''
        END AS proof_state,
-       EXISTS (
-         SELECT 1 FROM retention_holds AS hold
-          WHERE hold.operation_id = operation.operation_id
-            AND hold.released_at IS NULL
-       ) AS active_hold,
+       holds.review_at IS NOT NULL AS active_hold,
+       holds.review_at,
+       COALESCE(holds.review_at < now(), false) AS review_overdue,
        COALESCE(operation.failure_code, '\'''\'') AS failure_code
   FROM data_deletion_operations AS operation
   LEFT JOIN data_deletion_tombstones AS tombstone
     ON tombstone.operation_id = operation.operation_id
+  LEFT JOIN LATERAL (
+    SELECT min(hold.review_at) AS review_at
+      FROM retention_holds AS hold
+      JOIN data_deletion_operations AS overlap ON overlap.operation_id = hold.operation_id
+     WHERE hold.released_at IS NULL
+       AND overlap.study_id = operation.study_id
+       AND (overlap.mode = '\''STUDY_ERASURE'\'' OR operation.mode = '\''STUDY_ERASURE'\''
+            OR overlap.participant_block_token = operation.participant_block_token)
+  ) AS holds ON true
  WHERE operation.study_id = '\''${study_id}'\''::uuid
    ${operation_predicate}
  ORDER BY operation.created_at DESC;
@@ -2622,27 +2008,31 @@ cmd_update() {
   shift || true
   [[ $# -eq 0 || ( $# -eq 1 && "$1" == --check ) ]] || die "usage: ./chronicle update [--check]"
   local tool
-  for tool in curl python3; do
+  for tool in curl python3 ssh-keygen; do
     command -v "$tool" >/dev/null 2>&1 || die "update requires missing tool: $tool"
   done
-  python3 - "$STATE_ROOT" "${1:-}" \
+  ops_python - "$(pwd -P)" "${1:-}" \
     "${CHRONICLE_RELEASES_URL:-https://api.github.com/repos/uzaira0/methodic/releases/latest}" <<'PY'
-import hashlib
 import json
 import os
+from chronicle_ops.dump import file_sha256
+from chronicle_ops.release import RELEASE_SIGNER, UPDATE_AVAILABLE_EXIT, free_disk_floor, parse_version, read_env, read_manifest, require_current_owner, value
+from chronicle_ops.common import require_storage, UPDATE_PEAK_BYTES
+from chronicle_ops.receipts import durable_replace, sync_directory
 from pathlib import Path, PurePosixPath
 import re
+import shlex
 import shutil
 import signal
 import subprocess
 import sys
 import tarfile
+import tempfile
 from urllib.parse import urlparse
 
 selfhost = Path(sys.argv[1]).resolve()
 check = sys.argv[2] == "--check"
-downloads = []
-created_bundle = None
+staging = None
 
 
 def fail(message):
@@ -2652,19 +2042,7 @@ def fail(message):
 def version_key(version):
     if not isinstance(version, str):
         fail("missing release_version or release tag")
-    match = re.fullmatch(
-        r"v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
-        r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
-        r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?", version)
-    if not match:
-        fail(f"invalid semantic release version: {version!r}")
-    pre = match.group(4)
-    parts = []
-    for part in pre.split(".") if pre else []:
-        if part.isdigit() and len(part) > 1 and part.startswith("0"):
-            fail(f"invalid numeric prerelease identifier: {part!r}")
-        parts.append((0, int(part)) if part.isdigit() else (1, part))
-    return (*map(int, match.group(1, 2, 3)), (0, *parts) if pre else (1,))
+    return parse_version(version.removeprefix("v"), "release metadata")
 
 
 # Bound every download and the archive inventory before anything is parsed or extracted.
@@ -2700,54 +2078,98 @@ try:
         fail(f"missing current release manifest: {manifest}")
     current = json.loads(manifest.read_text()).get("release_version")
     current_key = version_key(current)
+    env_file = selfhost / ".env"
+    if not env_file.is_file() or env_file.is_symlink() or env_file.stat().st_mode & 0o777 != 0o600:
+        fail("update requires the active release's regular .env with mode 0600")
+    settings = read_env(env_file)
+    state = (selfhost / value(settings, "CHRONICLE_STATE_DIR", ".")).resolve()
+    require_current_owner(selfhost, state, value(settings, "COMPOSE_PROJECT_NAME", "chronicle-selfhost"))
     release = json.loads(curl(sys.argv[3]))
     latest = release.get("tag_name")
     latest_key = version_key(latest)
     version = latest.removeprefix("v")
     name = f"chronicle-selfhost-{version}"
     archive_name = f"{name}.tar.gz"
+    checksum_name = archive_name + ".sha256"
+    signature_name = checksum_name + ".sig"
     assets = {}
-    for asset_name in (archive_name, archive_name + ".sha256"):
+    for asset_name in (archive_name, checksum_name, signature_name):
         matches = [a for a in release.get("assets", []) if a.get("name") == asset_name]
         if len(matches) != 1 or not matches[0].get("browser_download_url"):
-            fail(f"missing or ambiguous release asset: {asset_name}")
+            kind = "release signature asset" if asset_name == signature_name else "release asset"
+            fail(f"missing or ambiguous {kind}: {asset_name}")
         assets[asset_name] = matches[0]["browser_download_url"]
     print(f"Current: {current}; latest: {latest}", flush=True)
-    print("Release notes:", flush=True)
-    print(release.get("body") or "(no release notes)", flush=True)
     newer = latest_key > current_key
     if check:
-        sys.exit(3 if newer else 0)
+        sys.exit(UPDATE_AVAILABLE_EXIT if newer else 0)
     if not newer:
         fail("latest release is not newer than the current release")
 
+    public_key = selfhost / "release-signing.pub"
+    if not public_key.is_file() or public_key.is_symlink():
+        fail("missing installed release-signing.pub; cannot verify the release signature")
+    key = public_key.read_text().strip()
+    if not key.startswith("ssh-ed25519 ") or "\n" in key or "\r" in key:
+        fail("invalid installed release-signing.pub; expected one SSH ed25519 public key")
+
+    require_storage(state, value(settings, "COMPOSE_PROJECT_NAME", "chronicle-selfhost"),
+                    free_disk_floor(settings), UPDATE_PEAK_BYTES)
     parent = selfhost.parent.parent
     bundle = parent / name
-    # Never merge with a previous extraction, or follow an existing download symlink.
-    for path in (bundle, parent / archive_name, parent / (archive_name + ".sha256")):
-        if os.path.lexists(path):
-            fail(f"refusing to overwrite existing release path: {path}")
-    for asset_name, url in assets.items():
-        path = parent / asset_name
-        with path.open("xb") as output:
-            downloads.append(path)
-            curl(url, output, MAX_ARCHIVE_BYTES if asset_name == archive_name else MAX_METADATA_BYTES)
+    # A failed exec handoff retains its verified download and clean extraction for retry.
+    paths = (bundle, *(parent / asset_name for asset_name in assets))
+    reuse = os.path.lexists(bundle)
+    recovery_command = (f"cd {shlex.quote(str(bundle / 'selfhost'))} && ./chronicle upgrade --from "
+                        f"{shlex.quote(str(selfhost))}")
+    if any(path.is_symlink() for path in paths) or any(
+            os.path.lexists(path) and not path.is_file() for path in paths[1:]):
+        fail("refusing to overwrite unsafe existing release paths")
+    asset_root = parent
+    if reuse:
+        if (not bundle.is_dir()
+                or not all(path.is_file() for path in paths[1:])
+                or os.path.lexists(bundle / "selfhost" / ".env")):
+            fail(f"refusing to overwrite existing release path; inspect the retained bundle. "
+                 f"For a clean pre-start failure, retry: {recovery_command}. "
+                 "If migrations started, use up/verify or reviewed rollback from that bundle.")
+    else:
+        staging = tempfile.TemporaryDirectory(prefix=".chronicle-update-", dir=parent)
+        asset_root = Path(staging.name)
+        for asset_name, url in assets.items():
+            path = asset_root / asset_name
+            with path.open("xb") as output:
+                try:
+                    curl(url, output, MAX_ARCHIVE_BYTES if asset_name == archive_name else MAX_METADATA_BYTES)
+                except subprocess.CalledProcessError:
+                    if asset_name == signature_name:
+                        fail("missing or unavailable release signature; nothing extracted or executed")
+                    raise
+                output.flush()
+                os.fsync(output.fileno())
 
-    checksum = parent / (archive_name + ".sha256")
+    checksum = asset_root / checksum_name
+    with tempfile.TemporaryDirectory(prefix=".chronicle-signature-", dir=parent) as directory:
+        allowed = Path(directory) / "allowed_signers"
+        allowed.write_text(f"{RELEASE_SIGNER} {key}\n")
+        with checksum.open("rb") as message:
+            verified = subprocess.run(
+                ["ssh-keygen", "-Y", "verify", "-f", str(allowed), "-I", RELEASE_SIGNER,
+                 "-n", RELEASE_SIGNER, "-s", str(asset_root / signature_name)],
+                stdin=message, capture_output=True, timeout=30)
+        if verified.returncode:
+            fail("invalid release signature; nothing extracted or executed")
     # Restrict the checksum file to exactly this archive, then verify it in-process:
-    # macOS has no sha256sum, and the rest of this script supports macOS.
+    # Use the same stdlib hash on Linux and macOS.
     entry = re.fullmatch(r"([0-9a-fA-F]{64}) [ *]" + re.escape(archive_name) + r"\n?",
                          checksum.read_text())
     if not entry:
         fail("bad checksum file: expected one SHA-256 entry for the release archive")
-    digest = hashlib.sha256()
-    with (parent / archive_name).open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    if digest.hexdigest() != entry[1].lower():
+    if file_sha256(asset_root / archive_name) != entry[1].lower():
         fail("bad checksum: release archive verification failed; nothing extracted")
 
-    with tarfile.open(parent / archive_name, "r:gz") as archive:
+    extracted = bundle if reuse else asset_root / name
+    with tarfile.open(asset_root / archive_name, "r:gz") as archive:
         members = []
         unpacked = 0
         for member in archive:
@@ -2775,13 +2197,13 @@ try:
         operators = [m for m in members if m.name == f"{name}/selfhost/chronicle" and m.isfile()]
         if len(operators) != 1 or not operators[0].mode & 0o111:
             fail("missing executable selfhost/chronicle in release archive")
-        bundle.mkdir(mode=0o755)
-        created_bundle = bundle
+        if not reuse:
+            extracted.mkdir(mode=0o755)
         # This script runs under umask 077, so every mkdir would land at 0700. Compose
         # bind-mounts selfhost/ into containers running as their image's user (config-guard
         # as the postgres uid): an owner-only directory fails there as a bare "Permission
         # denied". Set directory modes explicitly; archive members keep their own mode.
-        bundle.chmod(0o755)
+        extracted.chmod(0o755)
 
         def ensure_dir(path):
             if not path.is_dir():
@@ -2791,7 +2213,9 @@ try:
 
         # Extract only ordinary files/directories after validating the entire inventory.
         for member in members:
-            target = parent / member.name
+            if reuse:
+                break
+            target = asset_root / member.name
             if member.isdir():
                 ensure_dir(target)
                 target.chmod(member.mode & 0o777)
@@ -2799,8 +2223,13 @@ try:
                 ensure_dir(target.parent)
                 with archive.extractfile(member) as source, target.open("xb") as output:
                     shutil.copyfileobj(source, output)
-                target.chmod(member.mode & 0o777)
-    changelog = bundle / "CHANGELOG.md"
+                    target.chmod(member.mode & 0o777)
+                    output.flush()
+                    os.fsync(output.fileno())
+    retained, _ = read_manifest(extracted / "release-manifest.json", True)
+    if retained != new_manifest:
+        fail("extraction does not match the verified archive manifest")
+    changelog = extracted / "CHANGELOG.md"
     if not changelog.is_file() or changelog.is_symlink():
         fail("release archive is missing a regular CHANGELOG.md")
     sections = []
@@ -2842,392 +2271,37 @@ try:
         print(f"\n## [{section_version}]", flush=True)
         print(section_text or "(no release notes)", flush=True)
 
+    if staging is not None:
+        # Publish the bundle last: asset-only remnants after a hard interruption can be
+        # replaced on retry, while an existing bundle is always complete and verified.
+        for directory in [extracted, *(path for path in extracted.rglob("*") if path.is_dir())]:
+            sync_directory(directory)
+        for asset_name in assets:
+            durable_replace(asset_root / asset_name, parent / asset_name)
+        durable_replace(extracted, bundle)
+        staging.cleanup()
+        staging = None
     operator = bundle / "selfhost" / "chronicle"
     print(f"Handing off to {operator} upgrade --from {selfhost}", flush=True)
     os.execv(str(operator), [str(operator), "upgrade", "--from", str(selfhost)])
 except (OSError, ValueError, KeyError, TypeError, AttributeError, tarfile.TarError,
-        subprocess.CalledProcessError) as error:
-    if created_bundle is not None:
-        shutil.rmtree(created_bundle)
-    for path in downloads:
-        path.unlink(missing_ok=True)
+        subprocess.SubprocessError) as error:
+    if staging is not None:
+        staging.cleanup()
     sys.exit(f"error: update failed: {error}")
 PY
 }
 
 cmd_adopt() {
+  ops_require_python
   shift || true
-  [[ $# -eq 2 && "$1" == --from && -n "$2" ]] ||
-    die "usage: ./chronicle adopt --from /absolute/path/to/source/selfhost"
-  command -v python3 >/dev/null || die "adopt requires python3"
-  python3 - "$2" <<'PY'
-from pathlib import Path
-import datetime
-import gzip
-import hashlib
-import json
-import os
-import re
-import shutil
-import signal
-import stat
-import subprocess
-import sys
-
-new = Path.cwd().resolve()
-source = Path(sys.argv[1]).resolve()
-copied = []
-original_dirs = {}
-stopped = started = lock_held = False
-receipt = None
-# The lock upgrade/restore/rotate-secret/up already honor in the source state directory.
-lock = source / ".chronicle-upgrade.lock"
-assignment = re.compile(r"^([A-Z][A-Z0-9_]*)=(.*)$")
-
-
-def require(condition, message):
-    if not condition:
-        raise ValueError(message)
-
-
-def read_env(path):
-    return dict(match.groups() for line in path.read_text().splitlines()
-                if (match := assignment.match(line)))
-
-
-def value(values, key, default=""):
-    return values.get(key, default).strip().strip("\"'")
-
-
-def run(args, **kwargs):
-    return subprocess.run(args, check=True, **kwargs)
-
-
-def compose(*args, capture=False):
-    return run(["docker", "compose", "--env-file", str(source / ".env"),
-                "--project-name", project, *compose_files, *args], cwd=source,
-               env=child_env, text=True, stdout=subprocess.PIPE if capture else None)
-
-
-def write_receipt(status):
-    payload["status"] = status
-    temporary = receipt.with_suffix(".tmp")
-    try:
-        with temporary.open("x", encoding="utf-8") as handle:
-            os.chmod(temporary, 0o600)
-            json.dump(payload, handle, indent=2, sort_keys=True)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, receipt)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def interrupted(signum, _frame):
-    raise InterruptedError(f"adopt interrupted by signal {signum}")
-
-
-for signum in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
-    signal.signal(signum, interrupted)
-
-try:
-    require(source.is_dir(), f"source selfhost directory does not exist: {source}")
-    require(source != new and source not in new.parents and new not in source.parents,
-            "--from must name a separate source checkout, outside the new bundle")
-    require(not os.path.lexists(source.parent / "release-manifest.json"),
-            f"source has a release manifest; use ./chronicle upgrade --from '{source}' instead")
-    require(not os.path.lexists(new / ".env"),
-            "new release already has .env; extract a clean bundle")
-    # Same fail-closed interlocks as up/upgrade/rotate-secret: adopting a source checkout
-    # must not launder a preserved lock by leaving it behind in the old directory.
-    for preserved in (".chronicle-restore.lock", ".chronicle-upgrade.lock", ".chronicle-secret-rotation"):
-        require(not os.path.lexists(source / preserved),
-                f"source has an incomplete operation preserved at {source / preserved}; "
-                "follow its recovery runbook before adopting")
-    # Hold upgrade's lock for the whole handoff so no rotation, restore, upgrade or setup can
-    # change the source settings this command caches below. Same stale-lock rule as upgrade.
-    try:
-        os.mkdir(lock, 0o700)
-    except FileExistsError:
-        raise ValueError(f"another upgrade or adopt may be active (lock exists: {lock}). If none is "
-                         "running, remove only that empty directory and retry.") from None
-    lock_held = True
-    for other in (".chronicle-restore.lock", ".chronicle-secret-rotation"):
-        require(not os.path.lexists(source / other),
-                f"an operation started while the adopt lock was being acquired ({source / other}); "
-                "adopt did not start")
-    old_env = source / ".env"
-    require(old_env.is_file() and not old_env.is_symlink(),
-            "source .env must be a regular file")
-    require(stat.S_IMODE(old_env.stat().st_mode) == 0o600, "source .env must have mode 0600")
-    for name in ("backups", "tls"):
-        require((source / name).is_dir() and not (source / name).is_symlink(),
-                f"source {name}/ must be a directory, not a symlink")
-        target = new / name
-        require(not os.path.lexists(target) or
-                (target.is_dir() and not target.is_symlink() and not any(target.iterdir())),
-                f"new {name}/ must be absent or empty; extract a clean bundle")
-        if target.exists():
-            original_dirs[name] = stat.S_IMODE(target.stat().st_mode)
-    require((new.parent / "release-manifest.json").is_file(), "new release manifest is missing")
-    manifest = json.loads((new.parent / "release-manifest.json").read_text())
-    old = read_env(old_env)
-    template = (new / ".env.example").read_text()
-    defaults = read_env(new / ".env.example")
-    for key in ("BACKEND_IMAGE", "SELFHOST_FRONTEND_IMAGE", "CADDY_IMAGE"):
-        require(re.fullmatch(r"[^\s@]+@sha256:[0-9a-f]{64}", value(defaults, key)),
-                f"new .env.example must contain a digest-pinned {key}")
-    project = value(old, "COMPOSE_PROJECT_NAME", "chronicle-selfhost")
-    require(re.fullmatch(r"[a-z0-9][a-z0-9_-]*", project), "invalid source COMPOSE_PROJECT_NAME")
-    require((source / value(old, "CHRONICLE_STATE_DIR", ".")).resolve() == source,
-            "source CHRONICLE_STATE_DIR must resolve to the source selfhost directory")
-    require(not any(key.startswith("COMPOSE_") and key not in
-                    {"COMPOSE_FILE", "COMPOSE_PROJECT_NAME"} for key in old),
-            "unsupported source Compose control setting")
-    allowed = {"docker-compose.yml", "overlays/backups.yml", "overlays/monitoring.yml",
-               "overlays/mode-behind-proxy-internal.yml", "overlays/mode-local-https.yml",
-               "overlays/mode-own-tls-internal.yml"}
-    names = []
-    for token in value(old, "COMPOSE_FILE",
-                       "docker-compose.yml:overlays/mode-behind-proxy-internal.yml:overlays/backups.yml").split(":"):
-        path = Path(token)
-        name = str(path.relative_to(source)) if path.is_absolute() else token
-        require(name in allowed and name not in names, "unsupported source COMPOSE_FILE")
-        require((source / name).is_file() and (new / name).is_file(),
-                f"Compose file missing in source or new release: {name}")
-        names.append(name)
-    require("docker-compose.yml" in names and sum(name.startswith("overlays/mode-") for name in names) == 1,
-            "source COMPOSE_FILE must select the base file and exactly one supported mode")
-    compose_files = [arg for name in names for arg in ("-f", str(source / name))]
-    # Like upgrade.sh, remove inherited deployment overrides before using explicit env/files.
-    child_env = {key: val for key, val in os.environ.items()
-                 if key not in old and key not in defaults and not key.startswith("COMPOSE_")}
-    for tool in ("docker", "gzip", "cp"):
-        require(shutil.which(tool), f"required command is unavailable: {tool}")
-    postgres = compose("ps", "-q", "postgres", capture=True).stdout.strip()
-    require(postgres and len(postgres.splitlines()) == 1, "source PostgreSQL container is not running")
-    health = run(["docker", "inspect", "--format",
-                  '{{.State.Running}} {{if .State.Health}}{{.State.Health.Status}}{{end}}', postgres],
-                 text=True, stdout=subprocess.PIPE).stdout.strip()
-    require(health == "true healthy", "source PostgreSQL container must be running and healthy")
-    services = compose("config", "--services", capture=True).stdout.splitlines()
-    require(all(name in services for name in ("postgres", "backend", "web", "db-init")),
-            "source Compose configuration is missing required services")
-
-    # upgrade.sh's database preconditions, checked while the source is still fully running.
-    # A failed query is indeterminate and refuses adoption rather than reading as "clear".
-    def source_sql(query):
-        return run(["docker", "exec", postgres, "/bin/bash", "-ceu",
-                    'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "${POSTGRES_USER:-chronicle}" '
-                    '-d "${POSTGRES_DB:-chronicle}" -tAqc "' + query + '"'],
-                   text=True, stdout=subprocess.PIPE).stdout.strip()
-
-    version_num = source_sql("SHOW server_version_num")
-    require(version_num.isdigit(), "running PostgreSQL returned an invalid server_version_num")
-    new_postgres_image = value(defaults, "POSTGRES_IMAGE")
-    require(new_postgres_image, "new .env.example has no POSTGRES_IMAGE")
-    new_postgres_version = run(["docker", "run", "--rm", "--network", "none", "--read-only",
-                                "--cap-drop", "ALL", "--entrypoint", "postgres", new_postgres_image,
-                                "--version"], text=True, stdout=subprocess.PIPE).stdout
-    new_major = re.search(r"PostgreSQL\)?\s+([0-9]+)", new_postgres_version)
-    require(new_major, f"could not parse the PostgreSQL version in {new_postgres_image}")
-    old_major = int(version_num) // 10000
-    require(int(new_major[1]) == old_major,
-            f"adopt refuses PostgreSQL major {old_major} -> {new_major[1]} against the same data volume. "
-            "Follow docs/POSTGRES-18-UPGRADE.md for a dump/restore major upgrade.")
-    # V95 refuses encrypted collection until participant exports can decrypt it.
-    def require_no_encrypted_collection():
-        encryption = source_sql("SELECT CASE WHEN EXISTS (SELECT 1 FROM studies WHERE settings #> "
-                                "'{Encryption,enabled}' = 'true'::JSONB) THEN 'blocked' ELSE 'clear' END")
-        require(encryption in ("clear", "blocked"), "study-encryption preflight returned an invalid result")
-        table = source_sql("SELECT CASE WHEN to_regclass('public.encrypted_payloads') IS NULL "
-                           "THEN 'absent' ELSE 'present' END")
-        require(table in ("absent", "present"), "encrypted-payload preflight returned an invalid table result")
-        payloads = "clear" if table == "absent" else source_sql(
-            "SELECT CASE WHEN EXISTS (SELECT 1 FROM encrypted_payloads) THEN 'blocked' ELSE 'clear' END")
-        require(payloads in ("clear", "blocked"), "encrypted-payload preflight returned an invalid row result")
-        require(encryption == "clear" and payloads == "clear",
-                "this release cannot safely export study-encrypted collection data. Keep the source "
-                "checkout running; do not delete ciphertext to force the adoption. Complete an approved "
-                "decrypt-and-export migration plan, then retry. See docs/UPGRADE-ROLLBACK.md.")
-
-    require_no_encrypted_collection()
-    # upgrade.sh executes at top level and cannot be sourced. Keep its quiesce list here.
-    writers = ["backend", "web", "db-init"] + (["db-backup"] if "db-backup" in services else [])
-    stopped = True
-    compose("stop", *writers)
-    running = compose("ps", "--status", "running", "--services", capture=True).stdout.splitlines()
-    require("postgres" in running and not set(writers).intersection(running),
-            "source writers did not stop or PostgreSQL stopped; backup was not started")
-    # Again with writers stopped: a study enabled, or ciphertext stored, after the first check.
-    require_no_encrypted_collection()
-    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_id = f"{timestamp}-{os.getpid()}"
-    backup = source / "backups" / f"pre-adopt-{run_id}.sql.gz"
-    # Never remove source files, including an incomplete dump if pg_dump fails.
-    with backup.open("xb") as output:
-        os.chmod(backup, 0o600)
-        with subprocess.Popen(["docker", "compose", "--env-file", str(old_env),
-                               "--project-name", project, *compose_files,
-                               "exec", "-T", "postgres", "/bin/bash", "-ceu",
-                               'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h 127.0.0.1 '
-                               '-U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" '
-                               '--no-owner --no-privileges --exclude-schema=chronicle_restore_continuity'],
-                              cwd=source, env=child_env,
-                              stdout=subprocess.PIPE) as dump:
-            with gzip.GzipFile(fileobj=output, mode="wb") as compressed:
-                shutil.copyfileobj(dump.stdout, compressed)
-            require(dump.wait() == 0, "pre-adopt pg_dump failed; incomplete dump retained in source backups")
-        output.flush()
-        os.fsync(output.fileno())
-    run(["gzip", "-t", str(backup)])
-    with gzip.open(backup, "rb") as handle:
-        require(handle.read(1), "pre-adopt pg_dump was empty")
-    digest = hashlib.sha256()
-    with backup.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    # cert-init leaves tls/*key.pem root-owned 0600 and db-backup writes root-owned dumps,
-    # so the operator account cannot read either tree. Copy them through a root container,
-    # reusing the image the source PostgreSQL service is already running.
-    copy_image = value(old, "POSTGRES_IMAGE") or value(defaults, "POSTGRES_IMAGE")
-    require(copy_image, "could not resolve the PostgreSQL image to copy source state with")
-    for name in (".env", "backups", "tls"):
-        copied.append(name)
-        if name == ".env":
-            run(["cp", "-a", str(old_env), str(new / name)])
-            os.chmod(new / name, 0o600)
-        else:
-            (new / name).mkdir(exist_ok=True)
-            run(["docker", "run", "--rm", "--user", "0:0", "--entrypoint", "/bin/cp",
-                 "-v", f"{source / name}:/from:ro", "-v", f"{new / name}:/to",
-                 copy_image, "-a", "/from/.", "/to/"])
-    # Equivalent to upgrade.sh's embedded merge: template defaults and image/version pins,
-    # old operator values (including unknown non-image settings), normalized Compose paths.
-    old.update(COMPOSE_PROJECT_NAME=project, COMPOSE_FILE=":".join(names), CHRONICLE_STATE_DIR=".")
-    managed = {"RELEASE_VERSION", "POSTGRES_IMAGE"}
-    rendered, seen = [], set()
-    for line in template.splitlines():
-        match = assignment.match(line)
-        if match:
-            key = match[1]
-            require(key not in seen, f"duplicate template setting: {key}")
-            seen.add(key)
-            if key in old and key not in managed and not key.endswith("_IMAGE"):
-                line = f"{key}={old[key]}"
-        rendered.append(line)
-    rendered.extend(f"{key}={old[key]}" for key in sorted(old.keys() - seen - managed)
-                    if not key.endswith("_IMAGE"))
-    require("__CHRONICLE_" not in "\n".join(rendered), "unresolved release placeholders")
-    (new / ".env").write_text("\n".join(rendered) + "\n")
-    # Guard and pull the new release while the source stack can still restart: a setting the
-    # new guard rejects, or an unreachable registry, must not leave neither stack running.
-    # A separate project name keeps this one-shot container out of the source project. It is
-    # unique to this run and must be unused, because the cleanup below runs `down` on it.
-    check_project = f"{project}-adopt-check-{os.getpid()}"
-    require(not run(["docker", "ps", "-aq", "--filter", f"label=com.docker.compose.project={check_project}"],
-                    text=True, stdout=subprocess.PIPE).stdout.strip(),
-            f"compose project {check_project} already has containers; adopt did not start")
-    check = ["docker", "compose", "--project-name", check_project]
-    try:
-        run([*check, "run", "--rm", "--no-deps", "config-guard"], cwd=new, env=child_env)
-        run([*check, "pull", "--quiet"], cwd=new, env=child_env)
-    finally:
-        subprocess.run([*check, "down"], cwd=new, env=child_env,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # Host checks too (disk floor, ports, bind addresses): `up` ran them only after the
-    # source was torn down, so a failure there left neither stack running.
-    run(["./chronicle", "adopt-precheck", str(source)], env=child_env)
-    receipt_dir = new / "upgrade-receipts"
-    require(not os.path.lexists(receipt_dir), "new upgrade-receipts/ already exists; extract a clean bundle")
-    copied.append("upgrade-receipts")
-    receipt_dir.mkdir(mode=0o700)
-    receipt = receipt_dir / f"{run_id}-adopt.json"
-    payload = {"schema_version": 1, "operation": "adopt", "timestamp_utc": timestamp,
-               "compose_project": project, "from": {"directory": str(source), "kind": "source-checkout"},
-               "to": {"directory": str(new), "version": manifest["release_version"]},
-               "pre_adopt_backup": {"path": str(backup), "sha256": digest.hexdigest()}}
-    write_receipt("starting")
-    # up's project-collision guard rejects containers labelled with the source directory.
-    # Remove the stopped source containers/network while preserving every named volume.
-    compose("down", "--remove-orphans")
-    started = True
-    run(["./chronicle", "up"], env=child_env)
-    write_receipt("verifying")
-    run(["./chronicle", "verify"], env=child_env)
-    write_receipt("succeeded")
-    print(f"Adoption complete. Receipt: {receipt}")
-except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
-    print(f"error: adopt failed: {error}", file=sys.stderr)
-    if started:
-        try:
-            write_receipt("failed")
-        except OSError:
-            print("Could not update the adoption receipt.", file=sys.stderr)
-        print(f"The new release may have migrated the database. Restore {backup} before starting "
-              "the source checkout again; see docs/UPGRADE-ROLLBACK.md.", file=sys.stderr)
-    else:
-        if stopped:
-            try:
-                compose("up", "-d", "--wait", "--wait-timeout", "300", "--remove-orphans")
-                print("Source stack restarted.", file=sys.stderr)
-            except (OSError, subprocess.SubprocessError):
-                print("Source restart failed; diagnose the source stack before retrying.", file=sys.stderr)
-        for name in reversed(copied):
-            target = new / name
-            try:
-                if name in ("backups", "tls") and target.is_dir() and not target.is_symlink():
-                    # The root copy container wrote these (dump copies included); the
-                    # operator account can neither read nor delete them.
-                    run(["docker", "run", "--rm", "--user", "0:0", "--entrypoint", "/bin/find",
-                         "-v", f"{target}:/to", copy_image, "/to", "-mindepth", "1", "-delete"])
-                if target.is_dir() and not target.is_symlink():
-                    shutil.rmtree(target)
-                else:
-                    target.unlink(missing_ok=True)
-                if name in original_dirs:
-                    target.mkdir(mode=original_dirs[name])
-            except (OSError, subprocess.SubprocessError) as cleanup_error:
-                print(f"Could not remove copied {target} ({cleanup_error}); delete it as root, "
-                      "or extract a clean bundle, before retrying.", file=sys.stderr)
-    sys.exit(1)
-finally:
-    if lock_held:
-        try:
-            os.rmdir(lock)
-        except OSError as error:
-            print(f"Could not release adopt lock {lock} ({error}); remove only that empty "
-                  "directory once no adopt is running.", file=sys.stderr)
-PY
+  ops_python adopt "$@"
 }
 
 cmd_upgrade() {
+  ops_require_python
   shift || true
-  [[ $# -eq 2 && "$1" == --from && -n "$2" ]] || {
-    printf '%s\n' 'usage: ./chronicle upgrade --from /path/to/previous/selfhost' >&2
-    exit 2
-  }
-  local new_bundle old_bundle
-  new_bundle="$(pwd -P)"
-  [[ -d "$2" ]] || die "previous selfhost directory does not exist: $2"
-  old_bundle="$(cd "$2" && pwd -P)" || die "could not resolve previous selfhost directory: $2"
-
-  # The old release owns the persistent state and the monitoring project while the new
-  # bundle is validated. Load its non-exported settings first so every child failure,
-  # including the update handoff, records against the deployment being upgraded.
-  cd "$old_bundle" || die "could not enter previous selfhost directory: $old_bundle"
-  need_env
-  begin_operation upgrade upgrade_failed
-  cd "$new_bundle" || die "could not return to the new release bundle: $new_bundle"
-  if ! ./upgrade.sh --from "$old_bundle"; then
-    cd "$old_bundle" || true
-    die "upgrade failed"
-  fi
-  # upgrade.sh has now installed its merged .env. Re-read it so the success receipt and
-  # monitoring event use the verified target release while retaining the old state root.
-  need_env
-  operation_succeeded
+  ops_python upgrade "$@"
 }
 
 cmd_rotate_secret() {
@@ -3243,7 +2317,7 @@ print_help() { awk 'NR == 1 { next } !/^#/ { exit } { sub(/^# ?/, ""); print }' 
 print_command_help() {
   case "$1" in
     setup) printf '%s\n' 'usage: ./chronicle setup' ;;
-    up) printf '%s\n' 'usage: ./chronicle up' ;;
+    up) printf '%s\n' 'usage: ./chronicle up [--no-reconcile]' ;;
     check) printf '%s\n' 'usage: ./chronicle check' ;;
     verify) printf '%s\n' 'usage: ./chronicle verify [--dashboard-password]' ;;
     status) printf '%s\n' 'usage: ./chronicle status' ;;
@@ -3251,6 +2325,9 @@ print_command_help() {
     monitoring) printf '%s\n' 'usage: ./chronicle monitoring status|add-viewer|remove-viewer|reset-viewer [name]' ;;
     logs) printf '%s\n' 'usage: ./chronicle logs [SERVICE ...]' ;;
     down) printf '%s\n' 'usage: ./chronicle down' ;;
+    reconcile) printf '%s\n' 'usage: ./chronicle reconcile stop|uninstall' ;;
+    rollback) printf '%s\n' 'usage: ./chronicle rollback --from OLD_DIR --trusted-sha256 SHA [--yes] DUMP' ;;
+    cleanup) printf '%s\n' 'usage: ./chronicle cleanup --releases-dir DIR [--apply]' ;;
     restore) printf '%s\n' 'usage: ./chronicle restore [--yes] [--no-start] --trusted-sha256=SHA256 [DUMP]' ;;
     deletion-status) printf '%s\n' 'usage: ./chronicle deletion-status STUDY_UUID [OPERATION_UUID]' ;;
     upgrade) printf '%s\n' 'usage: ./chronicle upgrade --from DIR' ;;
@@ -3272,8 +2349,11 @@ validate_command_arguments() {
   local command="$1" argument positional_count=0 direction="" kind=""
   shift
   case "$command" in
-    setup|up|check|status|down)
+    setup|check|status|down)
       (($# == 0)) || command_usage_error "$command" "${command} does not accept arguments" ;;
+    up)
+      (($# == 0)) || [[ $# == 1 && "$1" == --no-reconcile ]] ||
+        command_usage_error "$command" "invalid up option" ;;
     verify)
       (($# == 0)) || [[ $# == 1 && "$1" == --dashboard-password ]] ||
         command_usage_error "$command" "invalid verify option" ;;
@@ -3312,6 +2392,9 @@ validate_command_arguments() {
         command_usage_error "$command" "invalid study UUID or argument count"
       [[ $# == 1 || "$2" =~ $uuid_pattern ]] ||
         command_usage_error "$command" "invalid operation UUID" ;;
+    rollback|cleanup) ;;
+    reconcile)
+      [[ $# == 1 && ( "$1" == stop || "$1" == uninstall ) ]] || command_usage_error "$command" "expected stop or uninstall" ;;
     upgrade|adopt)
       [[ $# == 2 && "$1" == --from && -n "$2" && "$2" != -* ]] ||
         command_usage_error "$command" "expected --from DIR" ;;
@@ -3371,7 +2454,10 @@ case "$command" in
   monitoring) cmd_monitoring "$@" ;;
   logs)   cmd_logs "$@" ;;
   down)   cmd_down "$@" ;;
+  reconcile) cmd_reconcile "$@" ;;
   restore) cmd_restore "$@" ;;
+  rollback) shift; need_env; ops_python rollback "$@" ;;
+  cleanup) shift; need_env; ops_python cleanup "$@" ;;
   deletion-status) cmd_deletion_status "$@" ;;
   upgrade) cmd_upgrade "$@" ;;
   update) cmd_update "$@" ;;

@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
-WORK_DIR=/home/opt/chronicle_work/launch-audit-1003/sol/webselfhost-logs
+WORK_DIR="${SELFHOST_OPERATOR_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-operator-W63}"
+mkdir -p "$WORK_DIR"
 RUN_DIR=$(mktemp -d "${WORK_DIR}/W63.XXXXXX")
 trap 'rm -rf -- "$RUN_DIR"' EXIT
 SMOKE="$ROOT_DIR/tests/smoke/selfhost-release-smoke.sh"
@@ -35,7 +36,7 @@ chmod +x "$RUN_DIR/bin/curl"
 status=0
 env "PATH=$RUN_DIR/bin:$PATH" "CURL_ARGS_FILE=$RUN_DIR/curl-args" \
   "RUN_DIR=$EVIDENCE_DIR" "BUNDLE=" "OLD_BUNDLE=" "NEW_BUNDLE=" "PROJECT=" \
-  "SMOKE_PASSED=false" "UPDATE_SERVER_PID=" \
+  "SMOKE_PASSED=false" "TLS_PROXY_CONTAINER=" "UPDATE_SERVER_PID=" "REDIRECT_SERVER_PID=" "DOCKER_EVENT_PIDS=" \
   timeout 2 bash -c 'set -Eeuo pipefail; source "$1"; trap cleanup EXIT; bounded_curl -fsS http://fixture.invalid/hung' \
   _ "$FUNCTIONS_FILE" >"$RUN_DIR/timeout.out" 2>&1 || status=$?
 [[ $status -eq 28 ]] || fail "a stalled synthetic endpoint did not end with curl timeout 28 (got $status)"

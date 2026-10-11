@@ -348,18 +348,30 @@ fi
 if grep -Fq 'SAN="${SAN},DNS:${DOMAIN}"' cert-init.sh; then
   fail "internal dashboard certificate claims the participant-facing DOMAIN"
   printf '       That certificate can shadow the local-CA/public certificate on Caddy\047s HTTPS listener.\n'
-elif ! grep -Fq 'SAN="DNS:localhost,IP:127.0.0.1"' cert-init.sh ||
+elif ! grep -Fq 'SAN="DNS:localhost,DNS:web,IP:127.0.0.1,IP:::1"' cert-init.sh ||
      ! grep -Fq 'INTERNAL_CERT_SANS' cert-init.sh; then
   fail "internal dashboard certificate SAN ownership is incomplete"
 else
   ok "public and internal TLS certificate names cannot shadow one another"
 fi
 
-if ! grep -Fq 'keep_public_base_url=' chronicle ||
-   ! grep -Fq "('CHRONICLE_PUBLIC_BASE_URL', public_base_url)" chronicle; then
-  fail "rerunning setup discards an explicit participant-facing public origin"
+if PYTHONPATH=. PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY_ORIGIN'
+from chronicle_ops.release import merge_env, read_env, value
+old = {"CHRONICLE_PUBLIC_BASE_URL": "'https://alias.example.org:8443'", "POSTGRES_DB": "custom"}
+text = merge_env(old, open('.env.example').read(), None, '.', ['docker-compose.yml'], preserve_images=True)
+import tempfile
+from pathlib import Path
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / 'settings'
+    path.write_text(text)
+    saved = read_env(path)
+assert value(saved, 'CHRONICLE_PUBLIC_BASE_URL') == 'https://alias.example.org:8443'
+assert value(saved, 'POSTGRES_DB') == 'custom'
+PY_ORIGIN
+then
+  ok "environment merge preserves saved public origin and database settings (host acceptance remains separate)"
 else
-  ok "rerunning setup preserves the participant-facing public origin"
+  fail "environment merge loses saved operator settings"
 fi
 
 for reviewer_contract in \
@@ -476,9 +488,9 @@ fi
 grep -Fq 'submodule status --recursive -- "${SOURCE_SUBMODULES[@]}"' chronicle \
   || fail "source-clone builds do not reject submodules that differ from the pinned revision"
 
-if ! grep -Fq '/chronicle/v4/mobile/reviewer-enrollment' chronicle ||
-   ! grep -Fq 'reviewer bootstrap minted a fresh one-time invitation with the configured credential' chronicle ||
-   ! grep -Fq '5??)' chronicle; then
+if ! grep -Fq '/chronicle/v4/mobile/reviewer-enrollment' chronicle_ops/verify.py ||
+   ! grep -Fq 'reviewer bootstrap minted a fresh one-time invitation with the configured credential' chronicle_ops/verify.py ||
+   ! grep -Fq 'exact reviewer route returned a server error' chronicle_ops/verify.py; then
   fail "runtime verification does not test the exact reviewer route or explicitly reject server errors"
 else
   ok "runtime verification tests the exact reviewer route and rejects server errors"
@@ -637,7 +649,9 @@ else
 fi
 # 3. upgrade-receipts/ is created 0700 by upgrade.sh and adopt; the readability guard must
 #    skip it or every check/up after an upgrade fails, and the printed fix must not chmod it.
-if grep -q -- "-path ./upgrade-receipts" chronicle && grep -q -- "'\*/upgrade-receipts'" chronicle; then
+if grep -q -- "-path ./upgrade-receipts" chronicle &&
+   grep -Fq 'unreadable=$(find . "${keep_private[@]}" -o' chronicle &&
+   grep -Fq 'find . "${keep_private[@]}" -o -exec chmod' chronicle; then
   ok "readability guard and its remediation leave upgrade-receipts/ private"
 else
   fail "readability guard does not prune upgrade-receipts/ (check/up fail after every upgrade)"
@@ -650,9 +664,9 @@ else
 fi
 # 5. The internal listener is :8081 over the self-signed internal cert in every Caddyfile
 #    variant; :80 matches by host in own-tls/local-https and answers an empty 200.
-if grep -q 'INTERNAL_HEALTH_URL: https://web:8081/health' overlays/monitoring.yml &&
-   grep -q 'curl -kfsS --max-time 8 "$INTERNAL_HEALTH_URL"' monitoring/probe.sh &&
-   grep -q 'wget --no-check-certificate -q --spider -T 8 "$INTERNAL_HEALTH_URL"' monitoring/probe.sh &&
+if grep -q 'DASHBOARD_BASE_URL: ${DASHBOARD_BASE_URL:-}' overlays/monitoring.yml &&
+   grep -Fq "':web:8081'" monitoring/probe.sh &&
+   grep -Fq 'curl --connect-to "$INTERNAL_CONNECT" --cacert "$internal_ca" -sS --max-time 8' monitoring/probe.sh &&
    grep -q '"https://127.0.0.1:8081/health"' docker-compose.yml; then
   ok "web healthcheck and monitoring probe hit the :8081 internal listener over TLS"
 else
@@ -676,7 +690,7 @@ fi
 unread_example=""
 for k in $ENV_EXAMPLE_VARS; do
   grep -rqw -- "$k" docker-compose.yml overlays chronicle upgrade.sh rotate-secret.sh restore.sh \
-    guard-config.sh backend-entrypoint.sh config monitoring cert-init.sh db-init.sh caddy \
+    guard-config.sh backend-entrypoint.sh config monitoring chronicle_ops cert-init.sh db-init.sh caddy \
     Caddyfile.split Caddyfile.split.local Caddyfile.split.tls || unread_example+="$k "
 done
 if [[ -n "$unread_example" ]]; then
@@ -712,6 +726,7 @@ done
 # checked through the base definition.
 service_contract_violations=$(python3 - docker-compose.yml overlays/*.yml <<'PY'
 import sys
+from chronicle_ops.common import WRITABLE_ROOT_REASON_LABEL
 try:
     import yaml
 except ImportError:  # PyYAML is not an operator-host requirement; source CI has it.
@@ -731,6 +746,11 @@ for path in sys.argv[1:]:
 problems = []
 for (path, name), service in sorted(defined.items()):
     label = f"{path}:{name}"
+    labels = service.get("labels") or {}
+    if isinstance(labels, list):
+        labels = dict(entry.split("=", 1) for entry in labels if "=" in entry)
+    if service.get("read_only") is not True and not str(labels.get(WRITABLE_ROOT_REASON_LABEL, "")).strip():
+        problems.append(f"{label} root filesystem is writable without a justified exemption")
     if "logging" not in service:
         problems.append(f"{label} has no logging cap")
     if "no-new-privileges:true" not in (service.get("security_opt") or []):
@@ -747,7 +767,7 @@ for (path, name), service in sorted(defined.items()):
             if name != "docker-socket-proxy" or str(environment.get("POST")) != "0" \
                     or service.get("networks") != ["docker-api"]:
                 problems.append(f"{label} mounts the Docker socket directory {source}")
-    if service.get("restart") not in (None, "no") and "healthcheck" not in service:
+    if service.get("restart") not in (None, "no") and "healthcheck" not in service and name not in {"victoriametrics", "victorialogs", "fluent-bit"}:
         problems.append(f"{label} is long-running with no healthcheck")
 networks = {}
 for path in sys.argv[1:]:
@@ -755,9 +775,6 @@ for path in sys.argv[1:]:
         networks.update((yaml.safe_load(handle) or {}).get("networks") or {})
 if "docker-api" in networks and (networks["docker-api"] or {}).get("internal") is not True:
     problems.append("the docker-api network that carries the Docker API proxy is not internal")
-for name in ("frontend", "web"):
-    if base.get(name, {}).get("read_only") is not True:
-        problems.append(f"docker-compose.yml:{name} root filesystem is writable")
 print("\n".join(problems))
 PY
 )

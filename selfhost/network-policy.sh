@@ -46,7 +46,7 @@ specific_private_bind() {
   read -r family bits <<< "$normalized"
   if [[ "$family" == 4 ]]; then
     case "$bits" in
-      00001010*|01111111*|101011000001*|1100000010101000*|1010100111111110*) return 0 ;;
+      0110010001*|00001010*|01111111*|101011000001*|1100000010101000*|1010100111111110*) return 0 ;;
     esac
   else
     case "$bits" in 1111110*|1111111010*) return 0 ;; esac
@@ -82,3 +82,26 @@ validate_dashboard_networks() (
     END { if (seen["4:"] || seen["6:"]) exit 1 }
   '
 )
+
+grafana_base_url() {
+  local host="${GRAFANA_BIND:-127.0.0.1}"
+  [[ "$host" == 0.0.0.0 ]] && host=127.0.0.1
+  [[ "$host" == *:* && "$host" != \[*\] ]] && host="[$host]"
+  printf 'https://%s:%s' "$host" "${GRAFANA_PORT:-3000}"
+}
+
+loopback_networks() {
+  local cidr normalized family bits mask
+  [[ -n "$1" ]] || return 1
+  for cidr in $1; do
+    normalized="$(address_bits "${cidr%/*}")" || return 1
+    read -r family bits <<< "$normalized"
+    mask="${cidr#*/}"
+    [[ "$mask" =~ ^[0-9]{1,3}$ ]] || return 1
+    if [[ "$family" == 4 ]]; then
+      [[ "$bits" == 01111111* ]] && ((10#$mask >= 8 && 10#$mask <= 32)) || return 1
+    else
+      [[ "$bits" == "$(printf '%0127d' 0)1" && "$mask" == 128 ]] || return 1
+    fi
+  done
+}

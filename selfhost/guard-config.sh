@@ -49,14 +49,7 @@ parse_public_authority() {
 }
 
 is_valid_ipv4_literal() {
-  local host="$1" octet numeric
-  local -a octets
-  [[ "$host" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || return 1
-  IFS=. read -r -a octets <<< "$host"
-  for octet in "${octets[@]}"; do
-    numeric=$((10#$octet))
-    ((numeric <= 255)) || return 1
-  done
+  [[ "$1" != *:* && "$1" != *'['* && "$1" != *']'* ]] && address_bits "$1" >/dev/null
 }
 
 is_non_global_ipv4_literal() {
@@ -98,39 +91,7 @@ is_non_global_ipv6_literal() {
 }
 
 is_valid_ipv6_literal() {
-  local host left right piece
-  host="$(lowercase "$1")"
-  local -a pieces=()
-  local count=0
-  [[ "$host" == *:* && "$host" != *[^0-9a-f:]* && "$host" != *:::* ]] || return 1
-
-  if [[ "$host" == *::* ]]; then
-    left="${host%%::*}"
-    right="${host#*::}"
-    [[ "$right" != *::* ]] || return 1
-    if [[ -n "$left" ]]; then
-      IFS=: read -r -a pieces <<< "$left"
-      for piece in "${pieces[@]}"; do
-        [[ "$piece" =~ ^[0-9a-f]{1,4}$ ]] || return 1
-        count=$((count + 1))
-      done
-    fi
-    if [[ -n "$right" ]]; then
-      IFS=: read -r -a pieces <<< "$right"
-      for piece in "${pieces[@]}"; do
-        [[ "$piece" =~ ^[0-9a-f]{1,4}$ ]] || return 1
-        count=$((count + 1))
-      done
-    fi
-    ((count < 8)) || return 1
-  else
-    [[ "$host" != :* && "$host" != *: ]] || return 1
-    IFS=: read -r -a pieces <<< "$host"
-    ((${#pieces[@]} == 8)) || return 1
-    for piece in "${pieces[@]}"; do
-      [[ "$piece" =~ ^[0-9a-f]{1,4}$ ]] || return 1
-    done
-  fi
+  [[ "$1" == *:* && "$1" != *'['* && "$1" != *']'* ]] && address_bits "$1" >/dev/null
 }
 
 is_valid_public_dns_name() {
@@ -240,6 +201,9 @@ if [[ "${1:-}" == --validate-session-idle-minutes ]]; then
   exit 1
 fi
 
+# The Compose network is IPv4-only. Docker relays a listener bound to an IPv6 address into it through
+# its userland proxy, which presents the network gateway as the source of every connection.
+IPV4_STACK_NETWORK="The stack network is IPv4: Docker relays an IPv6 listener through a proxy that shows every client as the Docker gateway"
 RED=$'\033[31m'; GRN=$'\033[32m'; YEL=$'\033[33m'; BLD=$'\033[1m'; RST=$'\033[0m'
 FAILED=0
 ok()   { printf '  %sok%s   %s\n' "$GRN" "$RST" "$1"; }
@@ -601,29 +565,15 @@ if [[ "$BACKUPS_ENABLED" == true ]]; then
 fi
 
 # ------------------------------------------------------------------ dashboard login
-# testing-login mints an admin session; it is only defensible when the auth endpoints are
-# off the public listener.
-if [[ "$TESTING_LOGIN_ENABLED" == true && "$DASHBOARD_EXPOSURE" != internal ]]; then
-  bad "TESTING_LOGIN_ENABLED=true with DASHBOARD_EXPOSURE=${DASHBOARD_EXPOSURE}"
-  printf '       That publishes admin-session minting at /chronicle/v3/auth/testing-login.\n'
-  printf '       Use a supported mode-*-internal overlay.\n'
+if [[ "$TESTING_LOGIN_ENABLED" == true ]]; then
+  bad "TESTING_LOGIN_ENABLED must be false; internal dashboards use explicit dashboard password login"
+  printf '       Run ./chronicle up to migrate an existing internal installation.\n'
 elif [[ "$DASHBOARD_EXPOSURE" == public && "$AUTH_OVERLAY_ENABLED" != true ]]; then
   bad "a public dashboard requires a separately reviewed authentication overlay"
-  printf '       The supported release ships only internal-dashboard modes and no SSO provider.\n'
-  printf '       Use a supported mode-*-internal overlay. Source-only public/SSO scaffolds are\n'
-  printf '       experimental and are not included in release bundles.\n'
-elif [[ "$TESTING_LOGIN_ENABLED" != true && "$AUTH_OVERLAY_ENABLED" != true ]]; then
-  # A healthy stack that nobody can administer is not a valid deployment. Keep the shipped
-  # value off so an operator must make the decision, but fail before startup until they do.
-  bad "no dashboard login method is configured — the dashboard would load but nobody could sign in"
-  printf '       Mobile ingest and the participant forms work; only researcher sign-in is absent.\n'
-  printf '       Pick one:\n'
-  printf '         built-in login  set TESTING_LOGIN_ENABLED=true AND REQUIRE_MFA=false\n'
-  printf '                         (safe here: the dashboard is already behind the internal\n'
-  printf '                          listener, the source allowlist and the global password)\n'
-  printf '       Multi-user SSO is experimental and is not shipped in release bundles.\n'
+elif [[ "$DASHBOARD_EXPOSURE" == internal && -z "$DASHBOARD_PASSWORD_HASH" ]]; then
+  bad "no dashboard password is configured; run ./chronicle setup before starting"
 else
-  ok "dashboard login is configured and consistent with its exposure"
+  ok "dashboard password login is configured and consistent with its exposure"
 fi
 
 # MFA enforcement and the built-in login are one decision, not two, and getting the pair
@@ -656,6 +606,9 @@ else
 fi
 validate_dashboard_networks "$CADDY_TRUSTED_PROXIES" ||
   bad "CADDY_TRUSTED_PROXIES must be explicit valid CIDRs and must not trust the entire IPv4 or IPv6 space"
+if [[ "$TLS_MODE" == behind-proxy ]] && loopback_networks "$CADDY_TRUSTED_PROXIES"; then
+  warn "CADDY_TRUSTED_PROXIES covers only loopback; remote forwarded client headers are ignored, and SNAT without XFF uses the F5 socket address"
+fi
 
 # ------------------------------------------------------------------ dashboard gate
 if [[ "$DASHBOARD_EXPOSURE" == internal ]]; then
@@ -673,8 +626,14 @@ if [[ "$DASHBOARD_EXPOSURE" == internal ]]; then
   fi
   validate_dashboard_networks "$DASHBOARD_ALLOWED_IPS" ||
     bad "DASHBOARD_ALLOWED_IPS is malformed or admits the entire IPv4/IPv6 address space"
+  if loopback_networks "$DASHBOARD_ALLOWED_IPS"; then
+    warn "DASHBOARD_ALLOWED_IPS covers only loopback; Docker presents the Compose gateway for host access and SSH tunnels. Rerun ./chronicle setup to include it"
+  fi
   specific_private_bind "$INTERNAL_BIND" ||
     bad "INTERNAL_BIND must be one specific private, link-local, or loopback IP address"
+  if specific_private_bind "$INTERNAL_BIND" && [[ "$INTERNAL_BIND" == *:* ]]; then
+    bad "INTERNAL_BIND=${INTERNAL_BIND} is IPv6. $IPV4_STACK_NETWORK, so DASHBOARD_ALLOWED_IPS would never match. Use an IPv4 address"
+  fi
   # The dashboard gate is one control with three parts -- bcrypt password, source allowlist,
   # private bind. Each part still fails on its own line with its own remedy, but when all
   # three hold, saying so three times makes the reader weigh them separately when the only
@@ -715,6 +674,8 @@ elif [[ -n "$TLS_MODE" ]]; then
   :
   if [[ "$HTTP_BIND" == "0.0.0.0" || "$HTTP_BIND" == "::" || "$HTTP_BIND" == "[::]" ]]; then
     warn "HTTP_BIND=${HTTP_BIND} serves plain HTTP to your whole network. Use 127.0.0.1 (or the address only your proxy can reach) unless you intend that."
+  elif [[ "$HTTP_BIND" == *:* ]]; then
+    bad "HTTP_BIND=${HTTP_BIND} is IPv6. $IPV4_STACK_NETWORK, so POOL_ALLOWED_IPS and CADDY_TRUSTED_PROXIES would never match your proxy. Use an IPv4 address"
   elif [[ "$HTTP_BIND" =~ ^127\. ]]; then
     # Nothing here can prove where the proxy runs, so this cannot be a hard failure -- a
     # proxy on this same host is a legitimate setup. It is still worth saying loudly,
