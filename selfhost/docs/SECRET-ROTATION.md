@@ -21,6 +21,14 @@ V83; the rotation command deliberately performs no runtime schema changes. A dep
 that has not completed its release migrations therefore fails closed instead of granting
 the operator account permission to create or alter tables.
 
+Dashboard acceptance uses `DASHBOARD_BASE_URL` and the existing dashboard trust anchor,
+with certificate verification and proxies bypassed. If a private management listener
+deliberately excludes the operator host, a 403 retains the new credential and records
+`dashboard_auth=operator_check_required`; complete sign-in from an allowed researcher
+browser at the printed URL. A loopback listener returning 403 fails rotation, since that
+would exclude the operator's SSH tunnel too. Rollback to a previous release preserves all
+credentials rotated since the upgrade.
+
 ## What each command changes
 
 | Command | Effect | Expected interruption |

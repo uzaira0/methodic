@@ -202,6 +202,39 @@ PY
 
 dc() { CHRONICLE_ENV_FILE="$ENV_FILE" docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"; }
 
+postgres_stdin() {
+  local input="$1"
+  shift
+  docker exec -i chronicle-postgres sh -ceu '
+    IFS= read -r PGPASSWORD || [ -n "$PGPASSWORD" ]; export PGPASSWORD
+    pg_user=$1 pg_db=$2
+    shift 2
+    exec psql -v ON_ERROR_STOP=1 --set=role_name="$pg_user" -h 127.0.0.1 -U "$pg_user" -d "$pg_db" "$@"
+  ' sh "$(env_val POSTGRES_USER)" "$(env_val POSTGRES_DB)" "$@" < "$input"
+}
+
+write_postgres_password_payload() {
+  python3 - "$@" <<'PY'
+import pathlib
+import sys
+
+env_arg, new_arg, output_arg, candidate = sys.argv[1:]
+old = next((line.split(b"=", 1)[1] for line in pathlib.Path(env_arg).read_bytes().splitlines()
+            if line.startswith(b"POSTGRES_PASSWORD=")), None)
+new = pathlib.Path(new_arg).read_bytes().rstrip(b"\r\n") if candidate != "old" else old
+if old is None or (candidate == "rotate" and (
+        not old or not new or b"'" in new or b"\n" in new or b"\r" in new)):
+    raise SystemExit("invalid Postgres password rotation input")
+alter = b"ALTER ROLE :\"role_name\" WITH PASSWORD "
+if candidate == "rotate":
+    payload = old + b"\n\\set new_password '" + new + b"'\n" + alter + b":'new_password';\n"
+else:
+    quoted = old.replace(b"'", b"''")
+    payload = new + b"\n" + alter + b"'" + quoted + b"';\n"
+pathlib.Path(output_arg).write_bytes(payload)
+PY
+}
+
 # ── Pre-flight ──────────────────────────────────────────────────────
 if ! $DRY_RUN; then
   case "$ONLY" in
@@ -242,21 +275,8 @@ rollback_rotation() {
     # one. Both attempts set the role to the protected previous password.
     for candidate in new old; do
       new_private_file input
-      python3 - "$PG_NEW_FILE" "$ENV_BACKUP" "$input" "$candidate" <<'PYROLLBACK'
-import pathlib, sys
-def password(path):
-    return next(line.split(b"=", 1)[1] for line in pathlib.Path(path).read_bytes().splitlines()
-                if line.startswith(b"POSTGRES_PASSWORD="))
-old = password(sys.argv[2])
-current = pathlib.Path(sys.argv[1]).read_bytes().rstrip(b"\r\n") if sys.argv[4] == "new" else old
-quoted = old.replace(b"'", b"''")
-pathlib.Path(sys.argv[3]).write_bytes(current + b"\nALTER ROLE :\"role_name\" WITH PASSWORD '" + quoted + b"';\n")
-PYROLLBACK
-      [[ $? == 0 ]] || return 1
-      if docker exec -i chronicle-postgres sh -ceu '
-        IFS= read -r PGPASSWORD || [ -n "$PGPASSWORD" ]; export PGPASSWORD
-        exec psql -v ON_ERROR_STOP=1 --set=role_name="$1" -h 127.0.0.1 -U "$1" -d "$2"
-      ' sh "$(env_val POSTGRES_USER)" "$(env_val POSTGRES_DB)" < "$input"; then
+      write_postgres_password_payload "$ENV_BACKUP" "$PG_NEW_FILE" "$input" "$candidate" || return 1
+      if postgres_stdin "$input"; then
         rolled_back=true
         break
       fi
@@ -276,35 +296,13 @@ PYROLLBACK
 # ── Individual rotation functions ───────────────────────────────────
 
 rotate_postgres_password() {
-  local new_file pg_input pg_user pg_db
+  local new_file pg_input
   prepare_secret_file new_file base64 32
   log "Rotating POSTGRES_PASSWORD..."
 
   if ! $DRY_RUN; then
-    pg_user="$(env_val POSTGRES_USER)"
-    pg_db="$(env_val POSTGRES_DB)"
     new_private_file pg_input
-    python3 - "$ENV_FILE" "$new_file" "$pg_input" <<'PY'
-import pathlib
-import sys
-
-env_path, new_secret_path, output_path = map(pathlib.Path, sys.argv[1:])
-old = b""
-for line in env_path.read_bytes().splitlines():
-    if line.startswith(b"POSTGRES_PASSWORD="):
-        old = line.split(b"=", 1)[1]
-        break
-new = new_secret_path.read_bytes().rstrip(b"\r\n")
-if not old or not new or b"'" in new or b"\n" in new or b"\r" in new:
-    raise SystemExit("invalid Postgres password rotation input")
-payload = (
-    old
-    + b"\n\\set new_password '"
-    + new
-    + b"'\nALTER ROLE :\"role_name\" WITH PASSWORD :'new_password';\n"
-)
-output_path.write_bytes(payload)
-PY
+    write_postgres_password_payload "$ENV_FILE" "$new_file" "$pg_input" rotate
     chmod 600 "$pg_input"
     PG_NEW_FILE="$new_file"
     postgres_changed=true
@@ -312,11 +310,7 @@ PY
     RESTART_NEEDED[chronicle-postgres-exporter]=1
     RESTART_NEEDED[postgres]=1
     RESTART_NEEDED[postgres-replica]=1
-    if ! docker exec -i chronicle-postgres sh -ceu '
-           IFS= read -r PGPASSWORD
-           export PGPASSWORD
-           exec psql -v ON_ERROR_STOP=1 --set=role_name="$1" -h 127.0.0.1 -U "$1" -d "$2"
-         ' sh "$pg_user" "$pg_db" < "$pg_input" 2>/dev/null; then
+    if ! postgres_stdin "$pg_input" 2>/dev/null; then
       err "Postgres ALTER ROLE did not confirm success; restoring the previous credential"
     fi
     rm -f -- "$pg_input"
@@ -521,10 +515,7 @@ restart_services() {
   done
   if [[ "${postgres_changed:-false}" == true ]]; then
     # TCP authentication proves the new database credential, beyond container health.
-    docker exec -i chronicle-postgres sh -ceu '
-      IFS= read -r PGPASSWORD || [ -n "$PGPASSWORD" ]; export PGPASSWORD
-      exec psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$1" -d "$2" -c "SELECT 1"
-    ' sh "$(env_val POSTGRES_USER)" "$(env_val POSTGRES_DB)" < "$SECRET_DIR/postgres_password" || return 1
+    postgres_stdin "$SECRET_DIR/postgres_password" -c "SELECT 1" || return 1
   fi
 }
 

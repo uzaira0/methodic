@@ -8,14 +8,16 @@ SECRET_ENV_KEYS=(
   MOBILE_SIGNING_SECRET_PREVIOUS JWT_SECRET METRICS_PASSWORD
   CHRONICLE_INTERNAL_WEB_SECRET GRAFANA_ADMIN_PASSWORD SMTP_PASSWORD
   CHRONICLE_REVIEWER_ACCESS_SECRET
-  OIDC_CLIENT_SECRET
+  OIDC_CLIENT_SECRET CHRONICLE_ALERT_WEBHOOK_URL
 )
 for secret_key in "${SECRET_ENV_KEYS[@]}"; do
   export -n "${secret_key?}" 2>/dev/null || true
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+ROTATION_ARGS=("$@")
 cd "$SCRIPT_DIR"
+source "$SCRIPT_DIR/network-policy.sh"
 
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -93,6 +95,11 @@ fi
 for command in docker python3 openssl curl date; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is unavailable: $command"
 done
+operation_lock_path="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SCRIPT_DIR" python3 -c 'from chronicle_ops.common import OPERATION_LOCK; import os; print(os.path.join(os.environ.get("CHRONICLE_OPS_STATE", "."), OPERATION_LOCK))')"
+if ! [[ "${CHRONICLE_OPERATION_LOCK_FD:-}" =~ ^[0-9]+$ &&
+    "$operation_lock_path" -ef "/dev/fd/$CHRONICLE_OPERATION_LOCK_FD" ]]; then
+  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SCRIPT_DIR" exec python3 -m chronicle_ops operation-lock -- "$SCRIPT_DIR/rotate-secret.sh" "${ROTATION_ARGS[@]}"
+fi
 docker compose version >/dev/null 2>&1 || fail "the Docker Compose plugin is unavailable"
 [[ -f .env && ! -L .env ]] || fail ".env must be a regular file; run ./chronicle setup first"
 env_mode="$(stat -c '%a' .env 2>/dev/null || stat -f '%Lp' .env 2>/dev/null || true)"
@@ -116,6 +123,9 @@ else
 fi
 STATE_ROOT="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$STATE_ROOT")"
 [[ -d "$STATE_ROOT" ]] || fail "CHRONICLE_STATE_DIR does not exist: $STATE_ROOT"
+CHRONICLE_OPS_STATE="$STATE_ROOT" CHRONICLE_OPS_PROJECT="$PROJECT" \
+  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SCRIPT_DIR" python3 -m chronicle_ops owner-check ||
+  fail "secret rotation must run from the active selfhost directory"
 : "${SECRET_ROTATION_WAIT_TIMEOUT_SECONDS:=300}"
 [[ "$SECRET_ROTATION_WAIT_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] ||
   fail "SECRET_ROTATION_WAIT_TIMEOUT_SECONDS must be a positive integer"
@@ -142,6 +152,8 @@ SAVED_ROTATION_ACTION=""
 SAVED_ROTATION_PHASE=""
 TRANSACTION_PREPARED=false
 GRAFANA_URL=""
+DASHBOARD_URL=""
+DASHBOARD_CA=""
 
 dc() {
   docker compose -p "$PROJECT" "$@"
@@ -327,11 +339,11 @@ env_update() {
       printf '%s\0%s\0' "$1" "$2"
       shift 2
     done
-  } | python3 /dev/fd/3 .env 3<<'PY'
+  } | PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SCRIPT_DIR" python3 /dev/fd/3 .env 3<<'PY'
 from pathlib import Path
 import os
-import re
 import sys
+from chronicle_ops.release import assignment
 
 path = Path(sys.argv[1])
 raw = sys.stdin.buffer.read().split(b"\0")
@@ -364,13 +376,14 @@ for index in range(0, len(raw), 2):
         raise SystemExit(f"{key} contains a character that cannot be represented safely in .env")
     updates[key] = value
 
-text = path.read_text(encoding="utf-8")
+lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
 for key, value in updates.items():
-    pattern = re.compile(rf"^{re.escape(key)}=.*$", re.MULTILINE)
-    if len(pattern.findall(text)) != 1:
+    matches = [index for index, line in enumerate(lines)
+               if (match := assignment.fullmatch(line.strip())) and match[1] == key]
+    if len(matches) != 1:
         raise SystemExit(f"expected exactly one {key} assignment in .env")
-    replacement = f"{key}='{value}'"
-    text = pattern.sub(lambda _match, replacement=replacement: replacement, text, count=1)
+    lines[matches[0]] = f"{key}='{value}'\n"
+text = "".join(lines)
 
 temporary = path.with_name(f".{path.name}.rotation-{os.getpid()}")
 fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -498,18 +511,18 @@ escape_curl_config_value() {
 curl_basic_code() {
   local username="$1" password="$2" url="$3"
   escape_curl_config_value "${username}:${password}" || return 2
-  curl --config /dev/fd/3 -sk -o /dev/null -w '%{http_code}' --max-time 15 "$url" \
+  local -a tls_options=(--cacert "$DASHBOARD_CA")
+  [[ "$url" != "$GRAFANA_URL/"* ]] || tls_options=(--cacert "$STATE_ROOT/tls/monitoring.crt")
+  curl --config /dev/fd/3 -s "${tls_options[@]}" --noproxy '*' -o /dev/null -w '%{http_code}' --max-time 15 "$url" \
     3< <(printf 'user = "%s"\n' "$CURL_CONFIG_VALUE")
 }
 
-dashboard_login_code() { # username password url -> status; password goes as JSON on stdin
-  local username="$1" password="$2" url="$3"
-  escape_curl_config_value "${username}:${password}" || return 2
+dashboard_login_code() { # password url -> status; password goes as JSON on stdin
+  local password="$1" url="$2"
   printf '%s' "$password" |
     python3 -c 'import json,sys; sys.stdout.write(json.dumps({"password": sys.stdin.read()}))' |
-    curl --config /dev/fd/3 -sk -o /dev/null -w '%{http_code}' --max-time 15 \
-      -H 'Content-Type: application/json' --data-binary @- "$url" \
-      3< <(printf 'user = "%s"\n' "$CURL_CONFIG_VALUE")
+    curl -s --cacert "$DASHBOARD_CA" --noproxy '*' -o /dev/null -w '%{http_code}' --max-time 15 \
+      -H 'Content-Type: application/json' --data-binary @- "$url"
 }
 
 grafana_change_password() {
@@ -529,7 +542,7 @@ if len(values) != 2:
 old, new = (value.decode("utf-8") for value in values)
 sys.stdout.write(json.dumps({"oldPassword": old, "newPassword": new, "confirmNew": new}))
 PY
-  } | curl --config /dev/fd/3 -sS -o /dev/null -w '%{http_code}' --max-time 15 \
+  } | curl --config /dev/fd/3 -sS --cacert "$STATE_ROOT/tls/monitoring.crt" --noproxy '*' -o /dev/null -w '%{http_code}' --max-time 15 \
       -X PUT -H 'Content-Type: application/json' --data-binary @- "${url}/api/user/password" \
       3< <(printf 'user = "%s"\n' "$CURL_CONFIG_VALUE"))"
   [[ "$code" == 200 ]]
@@ -676,11 +689,13 @@ take_pre_rotation_backup() {
   final="${directory}/chronicle-pre-tde-${timestamp}-$$.sql.gz"
   partial="${final}.partial"
   BACKUP_PARTIAL="$partial"
+  exec 8>"$partial"
+  python3 -c 'import fcntl; fcntl.flock(8, fcntl.LOCK_EX)' || fail "could not lock the pre-rotation dump"
   if ! dc exec -T postgres /bin/bash -euc '
       PGPASSWORD="$POSTGRES_PASSWORD" exec pg_dump -h 127.0.0.1 \
         -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" \
-        --no-owner --no-privileges
-    ' | gzip -9 >"$partial"; then
+        --no-owner
+    ' | gzip -9 >&8; then
     /bin/rm -f -- "$partial"
     BACKUP_PARTIAL=""
     fail "the pre-rotation SQL dump failed"
@@ -691,6 +706,7 @@ take_pre_rotation_backup() {
     fail "the pre-rotation SQL dump failed gzip verification"
   fi
   /bin/mv "$partial" "$final"
+  exec 8>&-
   BACKUP_PARTIAL=""
   /bin/chmod 0600 "$final"
   checksum="$(python3 -c 'import hashlib,sys
@@ -815,32 +831,19 @@ trap rollback_on_error EXIT
 
 env_value_from_file() {
   local path="$1" key="$2"
-  python3 - "$path" "$key" <<'PY'
+  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SCRIPT_DIR" python3 - "$path" "$key" <<'PY'
+from chronicle_ops.release import read_env, require, value
 from pathlib import Path
-import re
-import shlex
 import sys
 
 path = Path(sys.argv[1])
 key = sys.argv[2]
-matches = []
-for line in path.read_text(encoding="utf-8").splitlines():
-    match = re.fullmatch(rf"{re.escape(key)}=(.*)", line)
-    if match:
-        matches.append(match.group(1))
-if len(matches) != 1:
-    raise SystemExit(f"expected exactly one {key} assignment in {path}")
-raw = matches[0]
-if raw == "":
-    value = ""
-else:
-    values = shlex.split(raw, comments=False, posix=True)
-    if len(values) != 1:
-        raise SystemExit(f"cannot safely parse {key} in {path}")
-    value = values[0]
-if "\x00" in value or "\n" in value or "\r" in value:
+settings = read_env(path)
+require(key in settings, f"expected exactly one {key} assignment in {path}")
+decoded = value(settings, key)
+if "\x00" in decoded or "\n" in decoded or "\r" in decoded:
     raise SystemExit(f"invalid control character in {key}")
-sys.stdout.write(value)
+sys.stdout.write(decoded)
 PY
 }
 
@@ -861,21 +864,12 @@ env_differs_from_saved() {
 }
 
 load_transaction() {
-  local owner_pid=""
   [[ -d "$ROTATION_DIR" && ! -L "$ROTATION_DIR" ]] ||
     fail "no recoverable secret-rotation directory exists at $ROTATION_DIR"
   [[ ! -e "$UPGRADE_LOCK_DIR" && ! -L "$UPGRADE_LOCK_DIR" ]] ||
     fail "an upgrade is active or incomplete ($UPGRADE_LOCK_DIR); do not recover secrets concurrently"
   [[ ! -e "$RESTORE_LOCK_DIR" && ! -L "$RESTORE_LOCK_DIR" ]] ||
     fail "a restore is active or incomplete ($RESTORE_LOCK_DIR); do not recover secrets concurrently"
-
-  if [[ -f "${ROTATION_DIR}/owner-pid" && ! -L "${ROTATION_DIR}/owner-pid" ]]; then
-    owner_pid="$(<"${ROTATION_DIR}/owner-pid")"
-    [[ "$owner_pid" =~ ^[1-9][0-9]*$ ]] || fail "rotation owner PID metadata is malformed"
-    if kill -0 "$owner_pid" 2>/dev/null; then
-      fail "rotation owner process $owner_pid still exists; do not run recovery concurrently"
-    fi
-  fi
 
   TRANSACTION_ACTIVE=true
   ROLLBACK_REQUIRED=false
@@ -933,10 +927,10 @@ PY
   TRANSACTION_PREPARED=true
 }
 
-configure_recovery_apply() {
+configure_apply() {
   APPLY_MODE=services
   APPLY_SERVICES=()
-  case "$SAVED_ROTATION_KIND" in
+  case "$1" in
     dashboard) APPLY_SERVICES=(backend web) ;;
     jwt|reviewer|mobile) APPLY_SERVICES=(backend) ;;
     metrics)
@@ -949,7 +943,7 @@ configure_recovery_apply() {
     postgres) APPLY_MODE=full ;;
     grafana) APPLY_SERVICES=(grafana) ;;
     tde) ;;
-    *) fail "internal error: unsupported recovery kind" ;;
+    *) fail "internal error: unsupported rotation kind" ;;
   esac
 }
 
@@ -981,7 +975,7 @@ complete_recovery() {
 
 recover_environment_rotation() {
   local -a keys=()
-  configure_recovery_apply
+  configure_apply "$SAVED_ROTATION_KIND"
   case "$SAVED_ROTATION_KIND" in
     dashboard) keys=(DASHBOARD_PASSWORD_HASH) ;;
     jwt) keys=(JWT_SECRET) ;;
@@ -1020,7 +1014,7 @@ recover_environment_rotation() {
 
 recover_postgres_rotation() {
   local current_secret old_secret
-  configure_recovery_apply
+  configure_apply "$SAVED_ROTATION_KIND"
   current_secret="$(env_value_from_file .env POSTGRES_PASSWORD)" ||
     fail "could not read POSTGRES_PASSWORD from the current .env"
   old_secret="$(env_value_from_file "${ROTATION_DIR}/old.env" POSTGRES_PASSWORD)" ||
@@ -1064,16 +1058,14 @@ grafana_can_auth() {
 }
 
 recover_grafana_rotation() {
-  local current_secret old_secret host
-  configure_recovery_apply
+  local current_secret old_secret
+  configure_apply "$SAVED_ROTATION_KIND"
   current_secret="$(env_value_from_file .env GRAFANA_ADMIN_PASSWORD)" ||
     fail "could not read GRAFANA_ADMIN_PASSWORD from the current .env"
   old_secret="$(env_value_from_file "${ROTATION_DIR}/old.env" GRAFANA_ADMIN_PASSWORD)" ||
     fail "could not read the saved pre-rotation GRAFANA_ADMIN_PASSWORD"
   [[ -n "$current_secret" && -n "$old_secret" ]] || fail "Grafana recovery found an empty password"
-  host="${GRAFANA_BIND:-127.0.0.1}"
-  case "$host" in 0.0.0.0|::|'[::]') host=127.0.0.1 ;; esac
-  GRAFANA_URL="http://${host}:${GRAFANA_PORT:-3000}"
+  GRAFANA_URL="$(grafana_base_url)"
   ensure_recovery_service_running grafana
 
   if [[ "$RECOVERY_DIRECTION" == forward ]]; then
@@ -1126,7 +1118,7 @@ COMMIT;
 
 recover_tde_rotation() {
   local state provider
-  configure_recovery_apply
+  configure_apply "$SAVED_ROTATION_KIND"
   OLD_TDE_KEY="$(<"${ROTATION_DIR}/old-tde-key")"
   NEW_TDE_KEY="$(<"${ROTATION_DIR}/new-tde-key")"
   [[ "$OLD_TDE_KEY" =~ ^[A-Za-z0-9_.-]{1,128}$ ]] || fail "saved old TDE key name is malformed"
@@ -1205,11 +1197,16 @@ recover_transaction() {
 rotate_dashboard() {
   [[ "$ROTATION_ACTION" == rotate ]] || fail "dashboard accepts no action argument"
   case "${COMPOSE_FILE:-}" in
-    *mode-*-internal.yml*) ;;
+    *mode-*-internal.yml*|*mode-local-https.yml*) ;;
     *) fail "the dashboard password exists only in an internal-dashboard mode" ;;
   esac
   service_running backend
   service_running web
+  DASHBOARD_URL="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SCRIPT_DIR" python3 -c \
+    'from chronicle_ops.common import dashboard_origin; from chronicle_ops.release import read_env; print(dashboard_origin(read_env(".env")))')"
+  [[ "$DASHBOARD_URL" == https://* ]] || fail "dashboard rotation requires an HTTPS management origin"
+  DASHBOARD_CA="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SCRIPT_DIR" python3 -c \
+    'import sys; from chronicle_ops.common import dashboard_ca; print(dashboard_ca(sys.argv[1]))' "$STATE_ROOT/tls")"
   local password confirmation hash image
   printf 'Choose a new dashboard password (at least 16 characters). It is read silently,\n'
   printf 'sent to the digest-pinned Caddy image over stdin, and never printed.\n'
@@ -1227,7 +1224,7 @@ rotate_dashboard() {
     --entrypoint caddy "$image" hash-password | tr -d '\r\n')"
   [[ "$hash" == \$2* ]] || fail "Caddy did not return a bcrypt password hash"
 
-  APPLY_SERVICES=(backend web)
+  configure_apply dashboard
   OLD_SECRET="${DASHBOARD_PASSWORD_HASH:-}"
   NEW_SECRET="$hash"
   begin_transaction dashboard rotate
@@ -1235,33 +1232,34 @@ rotate_dashboard() {
   write_phase env-published
   apply_configuration
 
-  # Check only what this rotation changed: the Caddy gate and the backend login, both on the
-  # internal listener. A full `verify` would also fail on unrelated public-listener problems.
-  local host code deadline
-  host="${INTERNAL_BIND:-127.0.0.1}"
-  [[ "$host" == 0.0.0.0 ]] && host=127.0.0.1
-  code="$(curl_basic_code "${DASHBOARD_USER:-researcher}" "$password" \
-    "https://${host}:${INTERNAL_PORT:-8081}/chronicle/")"
-  [[ "$code" == 200 ]] || fail "new dashboard credential did not pass the internal HTTPS gate (HTTP $code)"
-  deadline=$((SECONDS + 75))
-  while :; do
-    code="$(dashboard_login_code "${DASHBOARD_USER:-researcher}" "$password" \
-      "https://${host}:${INTERNAL_PORT:-8081}/chronicle/v3/auth/dashboard-login")" || code=000
-    [[ "$code" == 429 && $SECONDS -lt $deadline ]] || break
-    sleep 15
-  done
-  [[ "$code" == 200 ]] || fail "new dashboard credential did not establish a backend session (HTTP $code)"
-  RECEIPT_DETAIL="dashboard_application_session=verified"
+  # Check the source ACL before submitting the new password to the app login.
+  local code deadline
+  code="$(curl -s --cacert "$DASHBOARD_CA" --noproxy '*' -o /dev/null -w '%{http_code}' --max-time 15 \
+    "${DASHBOARD_URL}/chronicle/api/web/study")"
+  if [[ "$code" == 403 && "${INTERNAL_BIND:-127.0.0.1}" != 127.* && "${INTERNAL_BIND:-}" != ::1 && "${INTERNAL_BIND:-}" != '[::1]' ]]; then
+    RECEIPT_DETAIL="dashboard_source=denied;dashboard_auth=operator_check_required"
+    warn "host is outside the researcher ACL; verify the new password from an allowed researcher browser at $DASHBOARD_URL/chronicle/"
+  else
+    [[ "$code" == 401 ]] || fail "dashboard API must require an app session (HTTP $code)"
+    deadline=$((SECONDS + 75))
+    while :; do
+      code="$(dashboard_login_code "$password" "${DASHBOARD_URL}/chronicle/v3/auth/dashboard-login")"
+      [[ "$code" == 429 && $SECONDS -lt $deadline ]] || break
+      sleep 15
+    done
+    [[ "$code" == 200 ]] || fail "new dashboard credential did not establish a backend session (HTTP $code)"
+    RECEIPT_DETAIL="dashboard_application_session=verified"
+  fi
   complete_transaction dashboard rotate
   password=""; confirmation=""; hash=""; NEW_SECRET=""; OLD_SECRET=""
-  log "Dashboard password rotated and verified."
+  log "Dashboard password rotated. Acceptance: $RECEIPT_DETAIL"
 }
 
 rotate_jwt() {
   [[ "$ROTATION_ACTION" == rotate ]] || fail "jwt accepts no action argument"
   service_running backend
   confirm "Rotate JWT signing and invalidate every active dashboard session?"
-  APPLY_SERVICES=(backend)
+  configure_apply jwt
   OLD_SECRET="${JWT_SECRET:?JWT_SECRET is not set}"
   NEW_SECRET="$(openssl rand -hex 32)"
   begin_transaction jwt rotate
@@ -1283,7 +1281,7 @@ rotate_internal_web() {
   service_running backend
   service_running web
   confirm "Rotate the proxy-to-backend internal web secret and recreate both services?"
-  APPLY_SERVICES=(backend web)
+  configure_apply internal-web
   OLD_SECRET="${CHRONICLE_INTERNAL_WEB_SECRET:?CHRONICLE_INTERNAL_WEB_SECRET is not set}"
   NEW_SECRET="$(openssl rand -hex 32)"
   begin_transaction internal-web rotate
@@ -1309,7 +1307,7 @@ rotate_reviewer() {
   [[ "$scope_state" == ok ]] ||
     fail "configured Play reviewer scope is unavailable (${scope_state:-query-failed}); create or reactivate it in the dashboard first"
   confirm "Generate a new Play reviewer credential, invalidate the current one, and recreate the backend?"
-  APPLY_SERVICES=(backend)
+  configure_apply reviewer
   OLD_SECRET="${CHRONICLE_REVIEWER_ACCESS_SECRET:-}"
   NEW_SECRET="$(openssl rand -hex 32)"
   begin_transaction reviewer rotate
@@ -1326,7 +1324,8 @@ rotate_metrics() {
   [[ "$ROTATION_ACTION" == rotate ]] || fail "metrics accepts no action argument"
   service_running backend
   local monitoring_enabled=false
-  if [[ "${COMPOSE_FILE:-}" == *overlays/monitoring.yml* ]]; then
+  configure_apply metrics
+  if ((${#APPLY_SERVICES[@]} > 1)); then
     monitoring_enabled=true
     service_running victoriametrics
     service_running grafana
@@ -1335,10 +1334,6 @@ rotate_metrics() {
     confirm "Rotate the backend metrics credential and refresh the monitoring scraper?"
   else
     confirm "Rotate the backend metrics credential and recreate the backend?"
-  fi
-  APPLY_SERVICES=(backend)
-  if [[ "$monitoring_enabled" == true ]]; then
-    APPLY_SERVICES+=(victoriametrics monitoring-config)
   fi
   OLD_SECRET="${METRICS_PASSWORD:?METRICS_PASSWORD is not set}"
   NEW_SECRET="$(openssl rand -hex 32)"
@@ -1362,7 +1357,7 @@ rotate_postgres() {
   service_running postgres
   service_running backend
   confirm "Rotate the database role password and restart the complete Compose stack?"
-  APPLY_MODE=full
+  configure_apply postgres
   OLD_SECRET="${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set}"
   postgres_can_auth "$OLD_SECRET" || fail "the current .env password cannot authenticate to PostgreSQL"
   NEW_SECRET="$(openssl rand -hex 32)"
@@ -1389,12 +1384,11 @@ rotate_grafana() {
     fail "Grafana is not enabled in COMPOSE_FILE"
   service_running grafana
   confirm "Rotate the Grafana administrator password?"
-  APPLY_SERVICES=(grafana)
+  configure_apply grafana
   OLD_SECRET="${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is not set}"
   NEW_SECRET="$(openssl rand -hex 32)"
-  local host="${GRAFANA_BIND:-127.0.0.1}" code
-  case "$host" in 0.0.0.0|::|'[::]') host=127.0.0.1 ;; esac
-  GRAFANA_URL="http://${host}:${GRAFANA_PORT:-3000}"
+  local code
+  GRAFANA_URL="$(grafana_base_url)"
   code="$(curl_basic_code admin "$OLD_SECRET" "${GRAFANA_URL}/api/user")"
   [[ "$code" == 200 ]] || fail "the current .env password cannot authenticate to Grafana (HTTP $code)"
 
@@ -1426,7 +1420,7 @@ rotate_mobile() {
       [[ -z "${MOBILE_SIGNING_SECRET_PREVIOUS:-}" ]] ||
         fail "a mobile signing-key overlap is already active; finalize or abort it first"
       confirm "Begin mobile-key rotation (old and new keys will both remain valid during rollout)?"
-      APPLY_SERVICES=(backend)
+      configure_apply mobile
       OLD_SECRET="${MOBILE_SIGNING_SECRET:?MOBILE_SIGNING_SECRET is not set}"
       NEW_SECRET="$(openssl rand -hex 32)"
       begin_transaction mobile begin
@@ -1445,7 +1439,7 @@ rotate_mobile() {
       [[ "$MOBILE_SIGNING_SECRET_PREVIOUS" != "$MOBILE_SIGNING_SECRET" ]] ||
         fail "current and previous mobile signing keys are identical"
       confirm "Finalize mobile-key rotation and reject every client still using the previous key?"
-      APPLY_SERVICES=(backend)
+      configure_apply mobile
       begin_transaction mobile finalize
       env_update MOBILE_SIGNING_SECRET_PREVIOUS ""
       write_phase overlap-removed
@@ -1462,7 +1456,7 @@ rotate_mobile() {
       [[ -n "${MOBILE_SIGNING_SECRET_PREVIOUS:-}" ]] ||
         fail "no mobile signing-key overlap is active"
       confirm "Abort mobile-key rotation and make the previous key current again?"
-      APPLY_SERVICES=(backend)
+      configure_apply mobile
       begin_transaction mobile abort
       env_update MOBILE_SIGNING_SECRET "$MOBILE_SIGNING_SECRET_PREVIOUS" \
         MOBILE_SIGNING_SECRET_PREVIOUS ""

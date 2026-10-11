@@ -101,20 +101,6 @@ for f in "${SHARE_FILES[@]}"; do
     fi
 done
 
-declare -A SHARE_INDICES=()
-SHARE_LENGTH=0
-for f in "${SHARE_FILES[@]}"; do
-    share="$(cat "$f")"
-    [[ "$share" =~ ^([0-9]{1,3})-([[:xdigit:]]+)$ ]] || { log_err "Malformed share"; exit 1; }
-    index=$((10#${BASH_REMATCH[1]}))
-    hex_data="${BASH_REMATCH[2]}"
-    ((index >= 1 && index <= 255 && ${#hex_data} % 2 == 0)) || { log_err "Invalid share"; exit 1; }
-    [[ -z "${SHARE_INDICES[$index]:-}" ]] || { log_err "Duplicate share index"; exit 1; }
-    SHARE_INDICES[$index]=1
-    if ((SHARE_LENGTH == 0)); then SHARE_LENGTH=${#hex_data}; fi
-    ((${#hex_data} == SHARE_LENGTH)) || { log_err "Unequal share lengths"; exit 1; }
-done
-
 # ── Detect Shamir tool ────────────────────────────────────────────────────────
 SHAMIR_TOOL=""
 if command -v ssss-combine >/dev/null 2>&1; then
@@ -130,74 +116,7 @@ fi
 
 # ── Python-based Shamir combine (GF(256)) ────────────────────────────────────
 python_combine() {
-    local threshold="$1"
-    shift
-    local share_files=("$@")
-
-    python3 - "$threshold" "${share_files[@]}" <<'PYEOF'
-import sys, pathlib, re
-
-threshold = int(sys.argv[1])
-parsed = []
-for path in sys.argv[2:]:
-    share = pathlib.Path(path).read_text().strip()
-    if not re.fullmatch(r"[0-9]{1,3}-(?:[0-9a-fA-F]{2})+", share):
-        raise SystemExit("Malformed share")
-    index, data = share.split('-', 1)
-    parsed.append((int(index), bytes.fromhex(data)))
-if (len(parsed) < threshold or any(not 1 <= x <= 255 for x, _ in parsed)
-        or len({x for x, _ in parsed}) != len(parsed)
-        or len({len(data) for _, data in parsed}) != 1):
-    raise SystemExit("Invalid indices, duplicate indices, or unequal share lengths")
-
-def gf256_add(a, b):
-    return a ^ b
-
-def gf256_mul(a, b):
-    p = 0
-    for _ in range(8):
-        if b & 1:
-            p ^= a
-        hi = a & 0x80
-        a = (a << 1) & 0xFF
-        if hi:
-            a ^= 0x1B
-        b >>= 1
-    return p
-
-def gf256_inv(a):
-    if a == 0:
-        raise ValueError("Cannot invert 0")
-    result = a
-    for _ in range(6):
-        result = gf256_mul(result, result)
-        result = gf256_mul(result, a)
-    # The loop yields a^127; square once more to obtain a^254.
-    return gf256_mul(result, result)
-
-def lagrange_interpolate(shares_for_byte, t):
-    secret = 0
-    xs = [s[0] for s in shares_for_byte]
-    ys = [s[1] for s in shares_for_byte]
-    for i in range(t):
-        num = ys[i]
-        for j in range(t):
-            if i == j:
-                continue
-            num = gf256_mul(num, xs[j])
-            denom = gf256_add(xs[i], xs[j])
-            num = gf256_mul(num, gf256_inv(denom))
-        secret = gf256_add(secret, num)
-    return secret
-
-byte_len = len(parsed[0][1])
-result = bytearray()
-for pos in range(byte_len):
-    shares_for_byte = [(x, data[pos]) for x, data in parsed[:threshold]]
-    result.append(lagrange_interpolate(shares_for_byte, threshold))
-
-print(result.hex())
-PYEOF
+    python3 "$(dirname "${BASH_SOURCE[0]}")/shamir.py" combine --files "$@"
 }
 
 # ── Reconstruct key ──────────────────────────────────────────────────────────
@@ -207,6 +126,20 @@ echo -e "${BOLD}=== Reconstructing ${KEY_TYPE^^} Key from ${#SHARE_FILES[@]} sha
 RECOVERED_KEY=""
 
 if [ "$SHAMIR_TOOL" = "ssss" ]; then
+    declare -A SHARE_INDICES=()
+    SHARE_LENGTH=0
+    for f in "${SHARE_FILES[@]}"; do
+        share="$(cat "$f")"
+        [[ "$share" =~ ^([0-9]{1,3})-([[:xdigit:]]+)$ ]] || { log_err "Malformed share"; exit 1; }
+        index=$((10#${BASH_REMATCH[1]}))
+        hex_data="${BASH_REMATCH[2]}"
+        ((index >= 1 && index <= 255 && ${#hex_data} % 2 == 0)) || { log_err "Invalid share"; exit 1; }
+        [[ -z "${SHARE_INDICES[$index]:-}" ]] || { log_err "Duplicate share index"; exit 1; }
+        SHARE_INDICES[$index]=1
+        if ((SHARE_LENGTH == 0)); then SHARE_LENGTH=${#hex_data}; fi
+        ((${#hex_data} == SHARE_LENGTH)) || { log_err "Unequal share lengths"; exit 1; }
+    done
+
     # ssss-combine reads shares from stdin
     SHARES_INPUT=""
     for f in "${SHARE_FILES[@]}"; do
@@ -215,8 +148,7 @@ if [ "$SHAMIR_TOOL" = "ssss" ]; then
     RECOVERED_KEY=$(echo "$SHARES_INPUT" | head -n "$SHARES_THRESHOLD" | ssss-combine -t "$SHARES_THRESHOLD" -x -Q 2>/dev/null)
 else
     # Use only threshold number of shares
-    SELECTED_FILES=("${SHARE_FILES[@]}")
-    RECOVERED_KEY=$(python_combine "$SHARES_THRESHOLD" "${SELECTED_FILES[@]}")
+    RECOVERED_KEY=$(python_combine "$SHARES_THRESHOLD" "${SHARE_FILES[@]}")
 fi
 
 if [ -z "$RECOVERED_KEY" ]; then
