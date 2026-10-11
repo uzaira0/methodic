@@ -1,0 +1,29 @@
+rules:
+  - id: shell-export-command-substitution
+    languages: [generic]
+    message: Source the protected assignment file instead of splitting exported command output.
+    severity: ERROR
+    pattern-regex: 'export\s+\$\('
+    paths:
+      include: ['*.sh']
+  - id: nginx-obsolete-tls
+    languages: [generic]
+    message: Serve TLS 1.2 or later.
+    severity: ERROR
+    pattern-regex: 'ssl_protocols[^;\n]*\b(?:SSLv[23]|TLSv1(?:\.1)?)[\s;]'
+    paths:
+      include: ['*.conf']
+  - id: dockerfile-remote-add
+    languages: [generic]
+    message: Fetch remote build inputs with a verified checksum.
+    severity: ERROR
+    pattern-regex: '(?m)^ADD\s+https?://'
+    paths:
+      include: ['Dockerfile*']
+  - id: compose-privileged
+    languages: [generic]
+    message: Grant only required capabilities.
+    severity: ERROR
+    pattern-regex: '(?m)^\s*privileged:\s*true\s*$'
+    paths:
+      include: ['*.yml', '*.yaml']

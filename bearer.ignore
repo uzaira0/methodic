@@ -1,8 +1,170 @@
 {
-  "27088d4330483d006ca8a79dbca1fe81_0": {
+  "e7eaa4690a312bd574a08f04b68266ca_0": {
     "author": "chronicle",
-    "comment": "False positive: AWS CLI call uses shell=false argv list, absolute aws path from PATH lookup, strict region regex, and strict token allowlist before subprocess execution.",
+    "comment": "selfhost/chronicle_ops/__main__.py:79 False positive: os.execvp re-executes the tool's own parsed subcommand argv under the held operation lock; no eval or exec of strings.",
     "false_positive": true,
-    "ignored_at": "2026-07-04T20:00:28Z"
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "10e5b3a8e687bbe3167289e49a265c3a_0": {
+    "author": "chronicle",
+    "comment": "scripts/build-selfhost-release.py:91 False positive: subprocess receives an argv list (no shell); program and arguments are fixed or validated operator/build inputs.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "10e5b3a8e687bbe3167289e49a265c3a_1": {
+    "author": "chronicle",
+    "comment": "scripts/build-selfhost-release.py:181 False positive: subprocess receives an argv list (no shell); program and arguments are fixed or validated operator/build inputs.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "10e5b3a8e687bbe3167289e49a265c3a_2": {
+    "author": "chronicle",
+    "comment": "scripts/build-selfhost-release.py:231 False positive: subprocess receives an argv list (no shell); program and arguments are fixed or validated operator/build inputs.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "10e5b3a8e687bbe3167289e49a265c3a_3": {
+    "author": "chronicle",
+    "comment": "scripts/build-selfhost-release.py:236 False positive: subprocess receives an argv list (no shell); program and arguments are fixed or validated operator/build inputs.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "10e5b3a8e687bbe3167289e49a265c3a_4": {
+    "author": "chronicle",
+    "comment": "scripts/build-selfhost-release.py:244 False positive: subprocess receives an argv list (no shell); program and arguments are fixed or validated operator/build inputs.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "1429fc6c47c3fa1bdb2fcb009dea9931_0": {
+    "author": "chronicle",
+    "comment": "scripts/diff-coverage.py:23 False positive: subprocess receives an argv list (no shell); program and arguments are fixed or validated operator/build inputs.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "1429fc6c47c3fa1bdb2fcb009dea9931_1": {
+    "author": "chronicle",
+    "comment": "scripts/diff-coverage.py:168 False positive: subprocess receives an argv list (no shell); program and arguments are fixed or validated operator/build inputs.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "903ec33cdafc197eb84763fd35c7666b_0": {
+    "author": "chronicle",
+    "comment": "selfhost/backup-image/selfcheck.py:36 False positive: subprocess receives an argv list (no shell); program and arguments are fixed or validated operator/build inputs.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "903ec33cdafc197eb84763fd35c7666b_1": {
+    "author": "chronicle",
+    "comment": "selfhost/backup-image/selfcheck.py:52 False positive: subprocess receives an argv list (no shell); program and arguments are fixed or validated operator/build inputs.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "903ec33cdafc197eb84763fd35c7666b_2": {
+    "author": "chronicle",
+    "comment": "selfhost/backup-image/selfcheck.py:67 False positive: subprocess receives an argv list (no shell); program and arguments are fixed or validated operator/build inputs.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "9dd737690ffe5cd3143934e21eeb8dbf_0": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/common.py:182 False positive: subprocess receives an argv list (no shell); program and arguments are fixed or validated operator/build inputs.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "9dd737690ffe5cd3143934e21eeb8dbf_1": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/common.py:186 False positive: subprocess receives an argv list (no shell); program and arguments are fixed or validated operator/build inputs.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "ab867a30f81bcbfb7b805428687368a4_0": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/release.py:507 False positive: subprocess receives an argv list (no shell); program and arguments are fixed or validated operator/build inputs.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "a4d1643b219a5857c6b40c129c607904_0": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/common.py:111 False positive: tightens the operator lock or dump file to a fixed private mode (0600/lock mode).",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "a4d1643b219a5857c6b40c129c607904_1": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/common.py:118 False positive: tightens the operator lock or dump file to a fixed private mode (0600/lock mode).",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "8ec0723e200784c7ec8406351e60872e_0": {
+    "author": "chronicle",
+    "comment": "selfhost/backup-image/selfcheck.py:66 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "fa67f15cfee808e6c42e633bf2ac0c47_0": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/dump.py:31 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "fa67f15cfee808e6c42e633bf2ac0c47_1": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/dump.py:43 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "fa67f15cfee808e6c42e633bf2ac0c47_2": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/dump.py:65 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "86d6c592a51f203478dec16a5ceb32ba_0": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/receipts.py:45 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "86d6c592a51f203478dec16a5ceb32ba_1": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/receipts.py:77 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "457613a070534ad4c4044427182b656c_0": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/reconcile.py:47 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "457613a070534ad4c4044427182b656c_1": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/reconcile.py:71 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "2c0b904f2379ffbbf82dab572241569b_0": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/release.py:31 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "2c0b904f2379ffbbf82dab572241569b_1": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/release.py:266 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "2c0b904f2379ffbbf82dab572241569b_2": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/release.py:307 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
+  },
+  "2c0b904f2379ffbbf82dab572241569b_3": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/release.py:404 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "false_positive": true,
+    "ignored_at": "2026-10-09T00:00:00Z"
   }
 }

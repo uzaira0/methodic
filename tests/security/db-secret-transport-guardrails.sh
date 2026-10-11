@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+source "$ROOT_DIR/tests/security/lib/schema-query-fixture.sh"
 RUN_PARENT="${DB_SECRET_TRANSPORT_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/db-secret-transport}"
 
 [[ "$RUN_PARENT" == /* ]] || { printf 'test run parent must be absolute\n' >&2; exit 2; }
@@ -228,23 +229,7 @@ case "${1:-}" in
         esac
         ;;
       schema)
-        case "$query" in
-          'SELECT 1') printf '1\n' ;;
-          *"to_regclass('public.flyway_schema_history')"*) printf 't\n' ;;
-          *'FROM flyway_schema_history WHERE NOT success'*) printf '0\n' ;;
-          *'MAX(version::int)'*"type = 'BASELINE'"*) printf '0\n' ;;
-          *'MAX(version::int)'*) printf '%s\n' "${SCHEMA_EXPECTED_MAX:?}" ;;
-          *"type = 'SQL'"*) printf '%s\n' "${SCHEMA_EXPECTED_ROWS:?}" ;;
-          *'relrowsecurity'*) printf 'true/true\n' ;;
-          *"has_table_privilege('chronicle_app', 'public.mobile_withdrawal_requests', 'INSERT')"*) printf 't\n' ;;
-          *"has_table_privilege('chronicle_admin', 'public.restore_continuity_reconciliations', 'SELECT')"*) printf 't\n' ;;
-          *'has_table_privilege'*) printf 'f\n' ;;
-          *'has_schema_privilege'*|*'has_function_privilege'*) printf 'f\n' ;;
-          *'FROM pg_policies'*) printf '32\n' ;;
-          *'FROM pg_trigger'*) printf '1\n' ;;
-          *"to_regclass('public."*) printf 't\n' ;;
-          *) printf 'unexpected schema query\n' >&2; exit 105 ;;
-        esac
+        schema_query_fixture "$query"
         ;;
       *) printf 'unexpected Docker fixture mode\n' >&2; exit 100 ;;
     esac
@@ -286,7 +271,8 @@ case "${1:-}" in
       trap 'record_signal TERM 143' TERM
       printf '%s\n' "$$" >"${FAKE_DOCKER_CHILD_PID_FILE:?}"
       : >"${FAKE_DOCKER_READY_FILE:?}"
-      while :; do
+      # Bounded so a fixture orphaned by a failed case cannot outlive the suite.
+      for _ in {1..12}; do
         /bin/sleep 10 &
         block_child_pid=$!
         wait "$block_child_pid" || true
@@ -479,7 +465,8 @@ run_flyway_signal_case() {
     export CHRONICLE_PG_NETWORK=fixture-network
     export CHRONICLE_FLYWAY_SECRET_PARENT="$signal_case/secret-parent"
     unset POSTGRES_PASSWORD PGPASSWORD FLYWAY_PASSWORD
-    exec "$ROOT_DIR/scripts/flyway-migrate.sh" validate
+    # A suite launched under nohup inherits SIGHUP as ignored, which bash cannot trap.
+    exec /usr/bin/env --default-signal=HUP,INT,TERM "$ROOT_DIR/scripts/flyway-migrate.sh" validate
   ) >"$signal_case/output" 2>&1 &
   runner_pid=$!
 
@@ -517,6 +504,9 @@ run_flyway_signal_case() {
     kill -KILL "$runner_pid" 2>/dev/null || true
   fi
   if wait "$runner_pid"; then status=0; else status=$?; fi
+  if [[ -s "$signal_case/docker-child.pid" ]]; then
+    kill -KILL "$(<"$signal_case/docker-child.pid")" 2>/dev/null || true
+  fi
   [[ "$status" == "$expected_status" ]] ||
     fail "flyway-migrate ${signal_name} exited ${status}, expected ${expected_status}"
   [[ -s "$signal_case/docker.signal" ]] &&

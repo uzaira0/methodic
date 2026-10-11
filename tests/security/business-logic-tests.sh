@@ -18,72 +18,9 @@ set -euo pipefail
 #   ADMIN_STUDY_ID    - study UUID for admin-endpoint tests (defaults to STUDY_A)
 # ---------------------------------------------------------------------------
 
-# Auto-detect BASE_URL: try localhost first, fall back to DOMAIN via Traefik
-if [ -z "${BASE_URL:-}" ]; then
-    if curl -sf -o /dev/null -m 3 http://localhost:40320/chronicle/v3/ 2>/dev/null || \
-       [ "$(curl -s -o /dev/null -w '%{http_code}' -m 3 http://localhost:40320/chronicle/v3/ 2>/dev/null)" != "000" ]; then
-        BASE_URL="http://localhost:40320"
-    else
-        _domain="${DOMAIN:-}"
-        if [ -z "$_domain" ]; then
-            _script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-            _project_root="$(cd "$_script_dir/../.." && pwd)"
-            if [ -f "$_project_root/docker/.env" ]; then
-                _domain=$(grep '^DOMAIN=' "$_project_root/docker/.env" 2>/dev/null | cut -d= -f2 || true)
-            fi
-        fi
-        if [ -n "$_domain" ]; then
-            BASE_URL="http://${_domain}"
-        else
-            BASE_URL="http://localhost:40320"
-        fi
-    fi
-fi
-
-# ---------------------------------------------------------------------------
-# Auto-detect AUTH_TOKEN from .env JWT_SECRET if not provided
-# ---------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-
-# Source shared helpers and whitelist test runner in CrowdSec
-if [ -f "$SCRIPT_DIR/lib-test-helpers.sh" ]; then
-    source "$SCRIPT_DIR/lib-test-helpers.sh"
-    setup_crowdsec_whitelist
-fi
-
-if [ -z "${AUTH_TOKEN:-}" ]; then
-    _jwt_secret=""
-    if [ -f "$PROJECT_ROOT/docker/.env" ]; then
-        _jwt_secret=$(grep '^JWT_SECRET=' "$PROJECT_ROOT/docker/.env" 2>/dev/null | cut -d= -f2- || true)
-    fi
-    if [ -n "$_jwt_secret" ]; then
-        AUTH_TOKEN=$(JWT_SECRET="$_jwt_secret" "$PROJECT_ROOT/docker/generate-jwt.sh" 2>/dev/null || true)
-    fi
-fi
+# Use explicit disposable fixtures; an administrator token cannot prove study isolation.
+BASE_URL="${BASE_URL:-http://localhost:40320}"
 AUTH_TOKEN="${AUTH_TOKEN:-}"
-
-# ---------------------------------------------------------------------------
-# Auto-detect study IDs and participant from database if not provided
-# ---------------------------------------------------------------------------
-_run_sql() {
-    local _pw=""
-    if [ -f "$PROJECT_ROOT/docker/.env" ]; then
-        _pw=$(grep '^POSTGRES_PASSWORD=' "$PROJECT_ROOT/docker/.env" 2>/dev/null | sed 's/^POSTGRES_PASSWORD=//') || true
-    fi
-    docker exec -e PGPASSWORD="$_pw" chronicle-postgres psql -h 127.0.0.1 -U chronicle -d chronicle -t -A -c "$1" 2>/dev/null
-}
-
-if [ -z "${STUDY_A:-}" ] || [ -z "${STUDY_B:-}" ]; then
-    mapfile -t _studies < <(_run_sql "SELECT study_id FROM studies ORDER BY study_id LIMIT 2;" 2>/dev/null)
-    STUDY_A="${STUDY_A:-${_studies[0]:-}}"
-    STUDY_B="${STUDY_B:-${_studies[1]:-}}"
-fi
-
-if [ -z "${PARTICIPANT_ID:-}" ]; then
-    PARTICIPANT_ID=$(_run_sql "SELECT participant_id FROM study_participants LIMIT 1;" 2>/dev/null || true)
-fi
-
 STUDY_A="${STUDY_A:-}"
 STUDY_B="${STUDY_B:-}"
 PARTICIPANT_ID="${PARTICIPANT_ID:-}"
@@ -156,15 +93,14 @@ log "Backend responded with HTTP ${health_status}."
 # Test 1: Study Cross-Contamination
 # ---------------------------------------------------------------------------
 log "--- Test 1: Study Cross-Contamination ---"
-if [[ -z "$STUDY_B" ]]; then
-    skip "Test 1: missing STUDY_B"
+if [[ -z "$AUTH_TOKEN" || -z "$STUDY_A" || -z "$STUDY_B" || "$STUDY_A" == "$STUDY_B" ]]; then
+    fail "Test 1: provide an A-only researcher token and two distinct study fixtures"
 else
-    # Verify that an unauthenticated request to study B's participants is rejected (401),
-    # proving auth is enforced. (Our only token is local-admin which has access to all studies.)
-    status=$(http_status GET "${BASE_URL}/chronicle/v3/study/${STUDY_B}/participants")
-    assert_status "Test 1: Unauthenticated read of Study B participants requires auth" "$status" "401" "403" "429"
+    status=$(auth_http_status GET "${BASE_URL}/chronicle/v3/study/${STUDY_A}/participants")
+    assert_status "Test 1a: Same token can read Study A" "$status" "200"
+    status=$(auth_http_status GET "${BASE_URL}/chronicle/v3/study/${STUDY_B}/participants")
+    assert_status "Test 1b: Same token cannot read Study B" "$status" "403"
 fi
-
 
 # ---------------------------------------------------------------------------
 # Test 2: Privilege Escalation
@@ -179,18 +115,6 @@ else
 
     status=$(auth_http_status GET "${BASE_URL}/chronicle/v3/admin/reload/cache")
     assert_status "Test 2b: GET admin/reload/cache with researcher token" "$status" "403" "404" "429"
-fi
-
-
-# ---------------------------------------------------------------------------
-# Test 3: Enrollment Isolation
-# ---------------------------------------------------------------------------
-log "--- Test 3: Enrollment Isolation ---"
-if [[ -z "$AUTH_TOKEN" || -z "$STUDY_B" || -z "$PARTICIPANT_ID" ]]; then
-    skip "Test 3: missing AUTH_TOKEN, STUDY_B, or PARTICIPANT_ID"
-else
-    status=$(auth_http_status GET "${BASE_URL}/chronicle/v3/study/${STUDY_B}/participants/${PARTICIPANT_ID}")
-    assert_status "Test 3: Access Study A participant via Study B" "$status" "403" "404" "429"
 fi
 
 

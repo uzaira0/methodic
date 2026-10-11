@@ -103,38 +103,31 @@ log "Backend responded with HTTP ${health_status}."
 # ---------------------------------------------------------------------------
 header "Test 1: Expired JWT Rejection"
 
-if [[ -n "$JWT_SECRET" ]]; then
-    log "JWT_SECRET available -- crafting a properly signed but expired token."
-    expired_payload=$(python3 -c "
-import json, time
-print(json.dumps({
-    'sub': 'expired-test-user',
-    'iss': 'https://localhost/',
-    'aud': 'dummy-client-id',
-    'iat': int(time.time()) - 7200,
-    'exp': int(time.time()) - 3600
-}))
-")
-    expired_token=$(make_jwt "$expired_payload" "$JWT_SECRET")
+if [[ -z "$JWT_SECRET" || -z "$AUTH_TOKEN" ]]; then
+    fail "Test 1: JWT_SECRET and a valid AUTH_TOKEN are required to isolate expiry"
 else
-    log "JWT_SECRET not set -- using a pre-crafted expired token (signature will not match)."
-    log "Note: if the backend rejects due to bad signature rather than expiry, the test"
-    log "still validates that expired/invalid tokens are not accepted."
-    # This is a structurally valid JWT with exp in the past (2020-01-01), not validly signed.
-    expired_token="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJleHBpcmVkLXRlc3QiLCJleHAiOjE1Nzc4MzY4MDAsImlhdCI6MTU3NzgzMzIwMH0.invalid_signature_placeholder" # gitleaks:allow
-fi
-
-status=$(http_status GET "${BASE_URL}/chronicle/v3/studies" \
-    -H "Authorization: Bearer ${expired_token}")
-
-if [[ "$status" == "401" ]]; then
-    pass "Test 1: Expired JWT rejected with HTTP 401"
-elif [[ "$status" == "403" ]]; then
-    pass "Test 1: Expired JWT rejected with HTTP 403"
-elif [[ "$status" == "429" ]]; then
-    pass "Test 1: Request rate-limited by CrowdSec (HTTP 429) -- expired JWT not accepted (security goal met)"
-else
-    fail "Test 1: Expired JWT was not rejected -- got HTTP ${status} (expected 401, 403, or 429)"
+    payloads=$(AUTH_TOKEN="$AUTH_TOKEN" python3 - <<'PY_JWT'
+import base64, json, os, time
+segment = os.environ['AUTH_TOKEN'].split('.')[1]
+payload = json.loads(base64.urlsafe_b64decode(segment + '=' * (-len(segment) % 4)))
+now = int(time.time())
+payload['iat'] = now - 180
+for expiration in (now + 3600, now - 120):
+    print(json.dumps(dict(payload, exp=expiration), separators=(',', ':')))
+PY_JWT
+)
+    valid_token=$(make_jwt "${payloads%%$'\n'*}" "$JWT_SECRET")
+    expired_token=$(make_jwt "${payloads#*$'\n'}" "$JWT_SECRET")
+    protected_url="${BASE_URL}/chronicle/v3/study"
+    valid_status=$(http_status GET "$protected_url" -H "Authorization: Bearer ${valid_token}")
+    expired_status=$(http_status GET "$protected_url" -H "Authorization: Bearer ${expired_token}")
+    if [[ "$valid_status" == 429 || "$expired_status" == 429 ]]; then
+        fail "Test 1: throttling makes expiry evidence inconclusive; rerun on a quiet fixture"
+    elif [[ "$valid_status" == 200 && "$expired_status" == 401 ]]; then
+        pass "Test 1: otherwise identical signed tokens isolate expiration"
+    else
+        fail "Test 1: expected valid=200 and expired=401; got $valid_status/$expired_status"
+    fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -195,7 +188,7 @@ else
     session_work=$(mktemp -d "$session_parent/session.XXXXXX")
     trap 'rm -rf -- "$session_work"' EXIT
     cookie_status=$(AUTH_TOKEN="$AUTH_TOKEN" python3 -c 'import json,os; print(json.dumps({"token":os.environ["AUTH_TOKEN"]}))' |
-        curl --silent --show-error --connect-timeout 3 --max-time 10           -X POST -H 'Content-Type: application/json' --data-binary @-           -D "$session_work/headers" -o "$session_work/body" -w '%{http_code}'           "${BASE_URL}/chronicle/v3/auth/set-cookie" 2>/dev/null) || cookie_status=000
+        curl --silent --show-error --connect-timeout 3 --max-time 10           -X POST -H 'Content-Type: application/json' --data-binary @-           -D "$session_work/headers" --cookie-jar "$session_work/cookies" -o "$session_work/body" -w '%{http_code}'           "${BASE_URL}/chronicle/v3/auth/set-cookie" 2>/dev/null) || cookie_status=000
     if [[ "$cookie_status" != 200 ]]; then
         fail "Test 3: authenticated cookie exchange failed (HTTP ${cookie_status})"
     elif python3 - "$session_work/headers" "$session_work/body" <<'PYCOOKIE'
@@ -228,32 +221,22 @@ fi
 # ---------------------------------------------------------------------------
 header "Test 4: CSRF on State-Changing Endpoints"
 
-if [[ -n "$AUTH_TOKEN" ]]; then
-    log "Sending POST without Origin or Referer headers to a state-changing endpoint."
-
-    # POST to studies endpoint (create study) -- without Origin/Referer
-    csrf_status=$(curl -s -o /dev/null -w "%{http_code}" \
-        -X POST "${BASE_URL}/chronicle/v3/studies" \
-        -H "Authorization: Bearer ${AUTH_TOKEN}" \
-        -H "Content-Type: application/json" \
-        -d '{"title":"csrf-test"}' \
-        2>/dev/null || echo "000")
-
-    if [[ "$csrf_status" == "403" ]]; then
-        pass "Test 4: POST without Origin/Referer rejected (HTTP 403) -- CSRF protection active"
-    elif [[ "$csrf_status" == "400" || "$csrf_status" == "401" ]]; then
-        log "Received HTTP ${csrf_status} -- request rejected (may be auth or validation, not necessarily CSRF)."
-        skip "Test 4: Cannot distinguish CSRF rejection from auth/validation (HTTP ${csrf_status})"
-    else
-        log "Received HTTP ${csrf_status} -- POST without Origin/Referer was accepted."
-        log "CSRF protection status: The backend does not enforce Origin/Referer header checks."
-        log "This is common for JWT-based APIs (JWT in header is itself a CSRF mitigation)."
-        log "If the auth cookie is used for authentication, explicit CSRF protection is recommended."
-        pass "Test 4: CSRF posture documented (HTTP ${csrf_status}) -- JWT-in-header mitigates CSRF"
-    fi
+if [[ "${cookie_status:-000}" != 200 ]]; then
+    fail "Test 4: a real cookie session is required"
 else
-    skip "Test 4: AUTH_TOKEN not set -- cannot test CSRF on authenticated endpoints"
-    log "Provide AUTH_TOKEN to test CSRF protection on state-changing endpoints."
+    csrf_token=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("csrfToken", ""))' "$session_work/body")
+    protected_url="${BASE_URL}/chronicle/v3/study"
+    positive=$(http_status GET "$protected_url" --cookie "$session_work/cookies" -H "X-CSRF-Token: $csrf_token")
+    # Invalid study JSON deliberately exercises deserialization without creating data.
+    valid=$(http_status POST "$protected_url" --cookie "$session_work/cookies" -H "X-CSRF-Token: $csrf_token" -H 'Content-Type: application/json' --data '{}')
+    missing=$(http_status POST "$protected_url" --cookie "$session_work/cookies" -H 'Content-Type: application/json' --data '{}')
+    mismatch=$(http_status POST "$protected_url" --cookie "$session_work/cookies" -H 'X-CSRF-Token: mismatched-fixture' -H 'Content-Type: application/json' --data '{}')
+    # The resolver rejects a missing/mismatched CSRF header by withholding the cookie JWT.
+    if [[ -n "$csrf_token" && "$positive" == 200 && "$valid" == 400 && "$missing" == 401 && "$mismatch" == 401 ]]; then
+        pass "Test 4: cookie session reaches validation with matching CSRF; missing and mismatched headers reject authentication"
+    else
+        fail "Test 4: expected GET=200, valid=400, missing=401, mismatch=401; got $positive/$valid/$missing/$mismatch"
+    fi
 fi
 
 # ---------------------------------------------------------------------------

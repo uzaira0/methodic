@@ -199,10 +199,15 @@ check_scanner_dependency_inputs() {
 
   find "$ROOT_DIR" -maxdepth 2 -type f -name 'osv-scanner.toml' -print \
     > "$osv_waivers_file"
-  if [ -s "$osv_waivers_file" ]; then
-    fail "OSV waiver configs must remain absent while all resolved dependencies are patched; see $osv_waivers_file"
+  if ! grep -Fq -- '--config "$ROOT_DIR/osv-scanner.toml"' "$ROOT_DIR/scripts/local-ci.sh" ||
+     ! grep -Fq -- '--config "$ROOT_DIR/osv-scanner.toml"' "$ROOT_DIR/scripts/compliance-scan.sh"; then
+    fail "OSV runners must load the checked-in osv-scanner.toml so its reviewed waivers apply to nested lockfiles"
+  elif ! python3 "$ROOT_DIR/tests/security/check-osv-waivers.py" --self-test; then
+    fail "OSV waiver checker self-test failed"
+  elif xargs -r python3 "$ROOT_DIR/tests/security/check-osv-waivers.py" < "$osv_waivers_file" > "$osv_waivers_file.problems"; then
+    pass "OSV waivers each carry a reason and expire within 62 days"
   else
-    pass "OSV scans require no vulnerability waivers"
+    fail "OSV waivers need a reason and an expiry within 62 days; see $osv_waivers_file.problems"
   fi
 
   if grep -n '2\.22\.0' "$ROOT_DIR/.grype.yaml" > "$stale_waivers_file"; then
@@ -293,11 +298,11 @@ check_local_evidence_outputs() {
   fi
 
   if grep -Eq 'prepare_checkov_runtime' "$ROOT_DIR/scripts/local-ci.sh" &&
-     grep -Eq 'checkov-dockerfile\.sarif' "$ROOT_DIR/scripts/local-ci.sh" &&
-     grep -Eq 'checkov-compose\.sarif' "$ROOT_DIR/scripts/local-ci.sh"; then
-    pass "local CI IaC scan uses local Checkov and writes stable SARIF evidence names"
+     grep -Fq -- '--framework dockerfile --quiet --skip-download || return' "$ROOT_DIR/scripts/local-ci.sh" &&
+     grep -Fq -- '--framework kubernetes --quiet --skip-download ||' "$ROOT_DIR/scripts/local-ci.sh"; then
+    pass "local CI IaC scan runs local Checkov on Dockerfiles and rendered overlays and fails closed"
   else
-    fail "scripts/local-ci.sh iac-scan must use local Checkov and write stable SARIF evidence names"
+    fail "scripts/local-ci.sh iac-scan must run local Checkov on Dockerfiles and rendered overlays and fail closed"
   fi
 
   if grep -Eq 'bridgecrew/checkov|docker[[:space:]]+run.*checkov|--soft-fail[[:space:]]+false' "$ROOT_DIR/scripts/local-ci.sh"; then

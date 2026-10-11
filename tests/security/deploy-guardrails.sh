@@ -833,6 +833,7 @@ pass "OIDC token exchange and JWKS fetches are time-bounded"
 # counts only %i within one date, so without a Delete action daily archives never go away.
 python3 - "$ROOT_DIR/chronicle-server/src/main/resources/log4j2.xml" <<'PY' || fail "application RollingFile appenders do not delete old archives, or would delete audit logs"
 import fnmatch
+import re
 import sys
 import xml.etree.ElementTree as ET
 
@@ -842,17 +843,22 @@ for appender in root.iter("RollingFile"):
     if appender.get("name") == "AuditFile":
         continue
     delete = appender.find("./DefaultRolloverStrategy/Delete")
-    age = delete.find("IfLastModified") if delete is not None else None
+    age = delete.find(".//IfLastModified") if delete is not None else None
     glob = delete.find("IfFileName") if delete is not None else None
-    if delete is None or age is None or glob is None:
+    if delete is None or age is None or not age.get("age") or glob is None:
         problems.append(f"{appender.get('name')} has no age-based Delete action")
         continue
-    pattern = glob.get("glob", "").replace("${serviceName}", "chronicle")
-    if fnmatch.fnmatch("audit.2026-01-01.log.gz", pattern) or fnmatch.fnmatch("audit.log", pattern):
-        problems.append(f"{appender.get('name')} Delete glob {pattern} matches the HIPAA audit log")
-    if not fnmatch.fnmatch("chronicle-json-01-01-26-00-00-00-1.log.gz", pattern) and \
-            not fnmatch.fnmatch("chronicle-01-01-26-00-00-00-1.log.gz", pattern):
-        problems.append(f"{appender.get('name')} Delete glob {pattern} matches none of its archives")
+    pattern = glob.get("regex", glob.get("glob", "")).replace("${serviceName}", "chronicle")
+    matches = (lambda name: re.fullmatch(pattern, name) is not None) if glob.get("regex") else \
+        (lambda name: fnmatch.fnmatch(name, pattern))
+    for name in ("audit.2026-01-01.log.gz", "audit.2026-01-01.log", "audit.log",
+                 "chronicle.log", "chronicle-json.log"):
+        if matches(name):
+            problems.append(f"{appender.get('name')} Delete pattern {pattern} matches protected log {name}")
+    archive = appender.get("filePattern").rsplit("/", 1)[-1].replace("${serviceName}", "chronicle")
+    archive = re.sub(r"%d\{[^}]+\}", "01-01-26-00-00-00", archive).replace("%i", "1")
+    if not matches(archive):
+        problems.append(f"{appender.get('name')} Delete pattern {pattern} matches none of its archives")
 if problems:
     print("\n".join(problems), file=sys.stderr)
     sys.exit(1)
@@ -873,6 +879,7 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     bash32_host="${bash32_case%:*}"; bash32_want="${bash32_case##*:}"
     bash32_rc=0
     docker run --rm --network none -v "$ROOT_DIR/selfhost/guard-config.sh:/guard-config.sh:ro" \
+      -v "$ROOT_DIR/selfhost/network-policy.sh:/network-policy.sh:ro" \
       "$BASH32_IMAGE" bash /guard-config.sh --validate-public-host "$bash32_host" \
       >"$REPORT_DIR/bash32-guard.log" 2>&1 || bash32_rc=$?
     [[ "$bash32_rc" == "$bash32_want" ]] ||

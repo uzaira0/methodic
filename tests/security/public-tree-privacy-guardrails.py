@@ -73,12 +73,19 @@ RULES = (
 
 def repository_files() -> list[str]:
     result = subprocess.run(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        ["git", "ls-files", "--cached", "-z"],
         cwd=ROOT,
         check=True,
         stdout=subprocess.PIPE,
     )
-    return [item.decode("utf-8") for item in result.stdout.split(b"\0") if item]
+    excluded = subprocess.run(
+        ["git", "ls-files", "--cached", "--ignored", "--exclude-from=.publishignore", "-z"],
+        cwd=ROOT,
+        check=True,
+        stdout=subprocess.PIPE,
+    )
+    private_paths = set(excluded.stdout.split(b"\0"))
+    return [item.decode("utf-8") for item in result.stdout.split(b"\0") if item and item not in private_paths]
 
 
 def main() -> int:

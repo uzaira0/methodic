@@ -7,19 +7,20 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# Extract canonical pins from settings.gradle.kts: id("X") version "Y"
+# Normalize Kotlin shorthand before comparing both build-file forms.
 declare -A canonical
 while IFS=':' read -r plugin version; do
     plugin=$(echo "$plugin" | tr -d ' ')
     version=$(echo "$version" | tr -d ' ')
     [ -n "$plugin" ] && canonical["$plugin"]="$version"
-done < <(grep -oE 'id\("[^"]+"\)\s+version\s+"[^"]+"' settings.gradle.kts \
+done < <(sed -E 's/kotlin\("([^"]+)"\)/id("org.jetbrains.kotlin.\1")/g' settings.gradle.kts \
+    | grep -oE 'id\("[^"]+"\)\s+version\s+"[^"]+"' \
     | sed -E 's/id\("([^"]+)"\)\s+version\s+"([^"]+)"/\1:\2/')
 
 # Walk every build.gradle in submodules
 drift_lines=""
 while IFS= read -r build_file; do
-    while IFS= read -r line; do
+    while IFS= read -r line || [[ -n "$line" ]]; do
         # Match Groovy: id 'X' version 'Y' / id "X" version "Y"
         # Match Kotlin: id("X") version "Y"
         if [[ "$line" =~ id[[:space:]]*\([\"\']([^\"\']+)[\"\']\)[[:space:]]+version[[:space:]]+[\"\']([^\"\']+)[\"\'] ]] ||
@@ -31,7 +32,7 @@ while IFS= read -r build_file; do
                 drift_lines+="$build_file: $plugin is at $actual; canonical is $expected"$'\n'
             fi
         fi
-    done < "$build_file"
+    done < <(sed -E 's/kotlin\("([^"]+)"\)/id("org.jetbrains.kotlin.\1")/g' "$build_file")
 done < <(find . \( -name build.gradle -o -name build.gradle.kts \) \
         -not -path "./.gradle/*" -not -path "./build/*" \
         -not -path "./node_modules/*" -not -path "./chronicle-web/*" -not -path "./chronicle/*")

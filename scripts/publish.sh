@@ -3,6 +3,7 @@
 #
 #   scripts/publish.sh stage  <repo|all> [--base <commit>]   lay the filtered snapshot over the public tip
 #   scripts/publish.sh status                                 what is staged, what is still uncommitted
+#   scripts/publish.sh verify-source                         prove public source matches private HEAD
 #   scripts/publish.sh push   <repo|all> [--dry-run] [--replace]  gate and fast-forward the curated commits
 #   scripts/publish.sh abandon <repo|all>                     drop the worktree and curate branch
 #
@@ -182,6 +183,18 @@ cmd_status() {
   done
 }
 
+cmd_verify_source() {
+  local label tip tree
+  for label in $(all_labels); do
+    tip="$(public_tip "$label")"
+    [[ -n "$tip" ]] || fail "$label: public source is missing; publish source first"
+    tree="$(build_tree "$label")"
+    [[ "$(git -C "$(repo_dir "$label")" rev-parse "$tip^{tree}")" == "$tree" ]] \
+      || fail "$label: public source differs from filtered HEAD; publish source first"
+  done
+  printf '%s\n' "$tip"
+}
+
 cmd_push() {
   local label="$1" dry="$2" replace="$3" dir wt slug branch tip tree curated
   dir="$(repo_dir "$label")"; wt="$(worktree_of "$label")"
@@ -242,6 +255,7 @@ case "$cmd" in
     [[ -n "$base" && "$target" == all ]] && fail "--base applies to one repo"
     for l in $(labels_for "$target"); do cmd_stage "$l" "$base"; done ;;
   status) cmd_status ;;
+  verify-source) cmd_verify_source ;;
   push)
     target="${1:?usage: publish.sh push <repo|all> [--dry-run] [--replace]}"; shift
     dry=0; replace=0

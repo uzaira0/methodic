@@ -126,6 +126,19 @@ android_source_roots() {
   find "$ROOT_DIR/chronicle" -mindepth 3 -maxdepth 3 -type d -path '*/src/main' -print | sort
 }
 
+run_deployment_semgrep() {
+  local report="$REPORT_DIR/deployment-semgrep.sarif" status=0
+  command -v semgrep >/dev/null 2>&1 || return 127
+  SEMGREP_SETTINGS_FILE="$REPORT_DIR/semgrep-settings.yml" SEMGREP_LOG_FILE="$REPORT_DIR/semgrep-runtime.log" \
+  semgrep scan --jobs 2 --error --disable-version-check --metrics off --no-git-ignore \
+    --include '*.sh' --include '*.conf' --include '*.yml' --include '*.yaml' --include 'Dockerfile*' \
+    --config "$ROOT_DIR/tests/security/deployment-rules" \
+    --exclude 'docker/hetzner' --exclude '.env*' --exclude '*.pem' \
+    --sarif -o "$report" "$ROOT_DIR/selfhost" "$ROOT_DIR/docker" "$ROOT_DIR/scripts" || status=$?
+  validate_sarif "$report" || return 2
+  return "$status"
+}
+
 run_sast_semgrep() {
   local report="$REPORT_DIR/semgrep.sarif"
   local count_report="$REPORT_DIR/semgrep-actionable-count.txt"
@@ -297,6 +310,8 @@ run_collection_ast_grep() {
     "$ROOT_DIR/chronicle" "$ROOT_DIR/chronicle-models" "$ROOT_DIR/chronicle-server" \
     --format sarif >"$report" 2>"$stderr_report" || status=$?
   cat "$stderr_report"
+  # ast-grep 0.45 writes its own version into the SARIF version field.
+  jq '.version = "2.1.0"' "$report" >"$report.tmp" && mv "$report.tmp" "$report" || return 2
   validate_sarif "$report" || return 2
   [ "$status" -le 1 ] || return 2
   count="$(sarif_actionable_count "$report")" || return 2
@@ -315,11 +330,23 @@ security_runner_main() {
   trap 'security_runner_exit_trap $?' EXIT
 
 case "$LAYER" in
+  selfhost-topology)
+    run_security_step "deploy.selfhost-topology" "Deploy: real remote TLS, enrollment and uploads" "guardrail" \
+      "selfhost-topology.txt" "" -- bash "$ROOT_DIR/tests/deployment/selfhost-topology.sh" "${SELFHOST_TOPOLOGY_SOURCE:-$ROOT_DIR/selfhost}"
+    ;;
   sast)
     run_security_step "sast.semgrep" "SAST: Semgrep repository rules" "scanner" \
       "semgrep.log" "semgrep.sarif" -- run_sast_semgrep
     run_security_step "sast.rls" "SAST: focused RLS guardrails" "guardrail" \
       "rls-guardrails.txt" "" -- "$ROOT_DIR/tests/security/run-rls-guardrails.sh" "$REPORT_DIR"
+    for rule in room-migrations-single-owner entity-tags-single-owner notification-post-single-owner foreground-service-single-owner exact-alarm-single-owner usage-access-single-owner sensor-registration-single-owner health-connect-client-single-owner health-connect-read-single-owner notification-listener-access-single-owner media-session-single-owner accessibility-access-single-owner receiver-registration-single-owner activity-recognition-single-owner battery-exemption-single-owner work-stop-reason-single-owner package-label-single-owner network-usage-single-owner pending-intent-mutability-single-owner; do
+      run_security_step "sast.ast-grep.${rule}" \
+        "SAST: ast-grep $rule" "scanner" \
+        "collection-${rule}.log" "collection-${rule}.sarif" -- \
+        run_collection_ast_grep "$rule"
+    done
+    run_security_step "sast.single-owner-fixtures" "SAST: single-owner negative fixtures" "guardrail" \
+      "single-owner-fixtures.log" "" -- bash "$ROOT_DIR/tests/security/single-owner-fixtures.sh"
     echo "SAST scan complete"
     ;;
 
@@ -375,6 +402,24 @@ case "$LAYER" in
     ;;
 
   deploy)
+    run_security_step "deploy.gate-regressions" "Deploy: gate coverage and failure propagation regressions" "build" \
+      "gate-regressions.txt" "" -- python3 "$ROOT_DIR/chronicle/scripts/test-gate-regressions.py"
+    run_security_step "deploy.selfhost-python" "Deploy: complete self-host Python regression suite" "build" \
+      "selfhost-python.txt" "" -- env PATH="/usr/bin:/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 \
+      PYTHONPATH="$ROOT_DIR/selfhost:$ROOT_DIR/tests/selfhost-py" \
+      python3 -m unittest discover -s "$ROOT_DIR/tests/selfhost-py"
+    for suite in selfhost-cert-init selfhost-backup-selfcheck selfhost-deployment-audit selfhost-release-source \
+                 selfhost-audit-regressions selfhost-web-lint-W62 gitleaks-history-regression; do
+      run_security_step "deploy.$suite" "Deploy: $suite regressions" "guardrail" \
+        "$suite.txt" "" -- bash "$ROOT_DIR/tests/security/$suite.sh"
+    done
+    for suite in "$ROOT_DIR"/tests/security/selfhost-operator-W*.sh; do
+      name="$(basename "$suite" .sh)"
+      run_security_step "deploy.$name" "Deploy: $name regressions" "guardrail" \
+        "$name.txt" "" -- bash "$suite"
+    done
+    run_security_step "deploy.semgrep" "Deploy: Bash/nginx/Docker/Compose Semgrep" "scanner" \
+      "deployment-semgrep.log" "deployment-semgrep.sarif" -- run_deployment_semgrep
     run_security_step "deploy.public-tree-privacy" "Deploy: public-tree privacy guardrails" "guardrail" \
       "public-tree-privacy-guardrails.txt" "" -- python3 "$ROOT_DIR/tests/security/public-tree-privacy-guardrails.py"
     run_security_step "deploy.runner-self-test" "Deploy: security runner capture-all self-test" "build" \
@@ -639,11 +684,7 @@ PY
       echo "ApiMetricsFilter must use shared request-path shaping instead of ad hoc identifier regexes"
       auth_failures=$((auth_failures + 1))
     fi
-    if ! grep -Eq 'sanitizeRequestPath\(path\)' \
-      "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/observability/ApiMetricsFilter.kt"; then
-      echo "ApiMetricsFilter must emit route-shaped metric endpoint labels"
-      auth_failures=$((auth_failures + 1))
-    fi
+    # ApiMetricsFilterTest checks matched templates and bounded unmatched labels in jvm-smoke.
     if grep -Eq 'sanitizeUri\(request\.requestURI\)' \
       "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/filters/ApiKeyAuthenticationFilter.kt"; then
       echo "ApiKeyAuthenticationFilter path-mismatch logs must route-shape request paths"
@@ -712,6 +753,16 @@ PY
     echo "Injection scan complete"
     ;;
 
+  upload)
+    run_security_step "upload.input-validation" "Upload: enrolled-device input validation probes" "guardrail" \
+      "file-upload-tests.txt" "" -- bash "$ROOT_DIR/tests/security/file-upload-tests.sh"
+    run_security_step "upload.load-smoke" "Upload: load smoke test" "guardrail" \
+      "load-smoke.txt" "" -- bash "$ROOT_DIR/tests/load/smoke-test.sh"
+    run_security_step "upload.races" "Upload: enrollment, nonce, deletion and settings races" "guardrail" \
+      "race-conditions.txt" "race-summary.json" -- env STUDY_ID="${TEST_STUDY_ID:-}" \
+      k6 run --summary-export "$REPORT_DIR/race-summary.json" "$ROOT_DIR/tests/security/k6-race-conditions.js"
+    ;;
+
   crypto)
     run_security_step "crypto.semgrep" "Crypto: weak crypto patterns" "scanner" \
       "crypto-semgrep.log" "crypto.sarif" -- run_crypto_semgrep
@@ -767,7 +818,7 @@ PY
 
   *)
     echo "ERROR: Unknown layer: $LAYER"
-    echo "Valid layers: sast, sca, secrets, iac, sso, deploy, mobile, auth, injection, crypto, license, compliance, collection"
+    echo "Valid layers: sast, sca, secrets, iac, sso, deploy, selfhost-topology, mobile, auth, injection, upload, crypto, license, compliance, collection"
     exit 1
     ;;
 esac

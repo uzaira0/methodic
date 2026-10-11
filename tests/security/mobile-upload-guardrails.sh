@@ -441,8 +441,14 @@ if grep -Eq "implementation[[:space:]]+fileTree\\([^)]*libs" "$APP_DIR/build.gra
 fi
 pass "Android build does not depend on app/libs fileTree"
 
-require_file_contains "$APP_DIR/build.gradle" "readDockerEnvValue\\('MOBILE_SIGNING_SECRET'\\)" \
-  "Debug builds can read MOBILE_SIGNING_SECRET from Docker env files"
+require_file_contains "$APP_DIR/build.gradle" "providers\\.environmentVariable\\('MOBILE_SIGNING_SECRET'\\)" \
+  "Research builds accept an explicit daemon-safe mobile signing environment value"
+require_file_contains "$APP_DIR/build.gradle" "project\\.findProperty\\('mobileSigningSecret'\\)" \
+  "Research builds accept an explicit mobile signing Gradle property"
+if grep -Eq 'readDockerEnvValue|readGeneratedIosConfigValue|readEnvFileValue' "$APP_DIR/build.gradle"; then
+  fail "Android builds must not read deployment or generated iOS secrets implicitly"
+fi
+pass "Android mobile signing secrets must be supplied explicitly"
 require_file_contains "$APP_DIR/build.gradle" "com\\.openlattice:chronicle-models:0\\.1\\.0-SNAPSHOT" \
   "Android app uses local chronicle-models snapshot"
 
@@ -548,8 +554,9 @@ require_file_contains "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattic
 require_file_contains "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/MobileReminderController.kt" \
   '"/chronicle/v4/study/\{studyId\}/participant/\{participantId\}/reminders"' \
   "Server reminder reconciliation uses POST while rotating access codes"
-if grep -Eq '@GET\(.*PARTICIPANT_ID_PATH.*"/reminders"' \
-  "$APP_DIR/src/main/java/com/openlattice/chronicle/api/ChronicleStudyApi.kt"; then
+# The code-free schedule read (getMobileReminderSchedule) is a GET; reconciliation must not be.
+if grep -A1 -E '@GET\(.*PARTICIPANT_ID_PATH.*"/reminders"' \
+  "$APP_DIR/src/main/java/com/openlattice/chronicle/api/ChronicleStudyApi.kt" | grep -q 'fun getMobileReminderConfiguration'; then
   fail "Android reminder reconciliation must not use cacheable GET semantics"
 fi
 pass "Android reminder reconciliation has no GET mapping"

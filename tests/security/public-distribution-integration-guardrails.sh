@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+source "$ROOT_DIR/tests/security/lib/schema-query-fixture.sh"
 RUN_PARENT="${PUBLIC_DISTRIBUTION_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/public-distribution-integration}"
 failures=0
 
@@ -118,23 +119,7 @@ IFS= read -r query
   exit 93
 }
 [[ -n "$query" ]] || exit 94
-case "$query" in
-  'SELECT 1') printf '1\n' ;;
-  *"to_regclass('public.flyway_schema_history')"*) printf 't\n' ;;
-  *'FROM flyway_schema_history WHERE NOT success'*) printf '0\n' ;;
-  *'MAX(version::int)'*"type = 'BASELINE'"*) printf '0\n' ;;
-  *'MAX(version::int)'*) printf '%s\n' "${SCHEMA_EXPECTED_MAX:?}" ;;
-  *"type = 'SQL'"*) printf '%s\n' "${SCHEMA_EXPECTED_ROWS:?}" ;;
-  *'relrowsecurity'*) printf 'true/true\n' ;;
-  *"has_table_privilege('chronicle_app', 'public.mobile_withdrawal_requests', 'INSERT')"*) printf 't\n' ;;
-  *"has_table_privilege('chronicle_admin', 'public.restore_continuity_reconciliations', 'SELECT')"*) printf 't\n' ;;
-  *'has_table_privilege'*) printf 'f\n' ;;
-  *'has_schema_privilege'*|*'has_function_privilege'*) printf 'f\n' ;;
-  *'FROM pg_policies'*) printf '32\n' ;;
-  *'FROM pg_trigger'*) printf '1\n' ;;
-  *"to_regclass('public."*) printf 't\n' ;;
-  *) printf 'unexpected schema query: %s\n' "$query" >&2; exit 95 ;;
-esac
+schema_query_fixture "$query"
 DOCKER_FIXTURE
 /bin/chmod 0700 "$COMMAND_DIR/docker"
 SCHEMA_EXPECTED_MAX="$(find "$ROOT_DIR/chronicle-server/src/main/resources/db/migration" -maxdepth 1 -name 'V*.sql' -print |
@@ -147,7 +132,7 @@ if ! PATH="$COMMAND_DIR:$PATH" \
   SCHEMA_EXPECTED_ROWS="$SCHEMA_EXPECTED_ROWS" \
   CHRONICLE_ENV_FILE="$SCHEMA_ENV" \
   CHRONICLE_PG_CONTAINER=fixture-postgres \
-  CHRONICLE_SKIP_TDE_CHECK=1 \
+  CHRONICLE_SKIP_TDE_CHECK=1 CHRONICLE_SCHEMA_EVIDENCE_DIR="$RUN_DIR/schema-evidence" \
   "$ROOT_DIR/scripts/verify-schema-postconditions.sh" >"$SCHEMA_OUTPUT" 2>&1; then
   sed "s/${SCHEMA_SENTINEL}/[redacted-sentinel]/g" "$SCHEMA_OUTPUT" >&2
   fail 'schema verifier failed against its stdin-only password fixture'

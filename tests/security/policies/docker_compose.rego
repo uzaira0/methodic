@@ -26,6 +26,19 @@ non_secret_selector_keys := {"pg_tde_key_provider"}
 # Explicit disabled sentinels accepted only for the named optional integration.
 disabled_secret_sentinel_keys := {"oidc_client_secret"}
 
+one_shot_services contains name if {
+	input.services[name].restart == "no"
+}
+
+one_shot_services contains name if {
+	input.services[_].depends_on[name].condition == "service_completed_successfully"
+}
+
+runtime_pinned_images contains image if {
+	image := input.services[_].image
+	regex.match(`^\$\{[A-Za-z_][A-Za-z0-9_]*:\?[^}]*\}$|@\$\{[A-Za-z_][A-Za-z0-9_]*_DIGEST[A-Za-z0-9_]*[^}]*\}$`, image)
+}
+
 # ---------------------------------------------------------------------------
 # 1. No `latest` image tags — pin versions (build images are exempt)
 # ---------------------------------------------------------------------------
@@ -42,6 +55,7 @@ deny contains msg if {
 	image := service.image
 	not _is_build_image(image)
 	not contains(image, ":")
+	not image in runtime_pinned_images
 	msg := sprintf("Service '%s' has no tag on image '%s'. Pin to a specific version.", [name, image])
 }
 
@@ -52,6 +66,8 @@ deny contains msg if {
 	not _is_build_image(image)
 	not endswith(image, "-local")
 	not contains(image, "@sha256:")
+	# Required whole-image references are digest-checked by the selfhost runtime guard.
+	not image in runtime_pinned_images
 	msg := sprintf("Service '%s' image '%s' is not pinned by digest. Add @sha256:<digest>.", [name, image])
 }
 
@@ -65,6 +81,8 @@ _is_build_image(image) if {
 # ---------------------------------------------------------------------------
 deny contains msg if {
 	service := input.services[name]
+	# Fragments inherit omitted fields; explicit overrides must still be checked.
+	count({"image", "build", "mem_limit"} & object.keys(service)) > 0
 	not _has_memory_limit(service)
 	msg := sprintf("Service '%s' is missing a memory limit (mem_limit or deploy.resources.limits.memory).", [name])
 }
@@ -78,16 +96,31 @@ _has_memory_limit(service) if {
 }
 
 # ---------------------------------------------------------------------------
-# 3. Health checks required on all services
+# 3. Health checks required on long-running services
 # ---------------------------------------------------------------------------
 deny contains msg if {
 	service := input.services[name]
+	count({"image", "build", "healthcheck", "x-no-healthcheck"} & object.keys(service)) > 0
+	not name in one_shot_services
 	not _has_healthcheck(service)
 	msg := sprintf("Service '%s' is missing a healthcheck.", [name])
 }
 
+deny contains msg if {
+	service := input.services[name]
+	service.healthcheck.disable == true
+	msg := sprintf("Service '%s' disables its healthcheck; docker compose up --wait rejects it. Use x-no-healthcheck with a reason instead.", [name])
+}
+
 _has_healthcheck(service) if {
 	service.healthcheck
+}
+
+_has_healthcheck(service) if {
+	not "healthcheck" in object.keys(service)
+	reason := service["x-no-healthcheck"]
+	is_string(reason)
+	trim_space(reason) != ""
 }
 
 # ---------------------------------------------------------------------------
@@ -148,6 +181,12 @@ _is_accepted_secret_env_value(key, val) if {
 	startswith(trim_space(val), "/run/secrets/")
 }
 
+# Grafana names its TLS private-key file setting without a _FILE suffix.
+_is_accepted_secret_env_value(key, val) if {
+	key == "gf_server_cert_key"
+	startswith(val, "/etc/grafana/tls/")
+}
+
 _is_accepted_secret_env_value(key, val) if {
 	endswith(key, "_files")
 	paths := split(val, ",")
@@ -196,6 +235,7 @@ _is_read_only(vol) if {
 # ---------------------------------------------------------------------------
 deny contains msg if {
 	service := input.services[name]
+	count({"image", "build", "security_opt"} & object.keys(service)) > 0
 	not _has_no_new_privileges(service)
 	msg := sprintf("Service '%s' is missing 'no-new-privileges:true' in security_opt. This is recommended to prevent privilege escalation.", [name])
 }

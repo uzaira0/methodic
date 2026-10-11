@@ -313,7 +313,9 @@ rules:
       confidence: MEDIUM
 
   - id: chronicle-hardcoded-password-kotlin
-    pattern-regex: "(?i)(?:val|var)\\s+(?!\\w*header\\w*)\\w*(?:password|passwd|secret|api_key|apikey|api_secret|private_key|access_key)\\w*\\s*=\\s*\"[^\"]+\""
+    # SQL owners compose statements from SQL literals/constants; a credential
+    # named apiKeySql still fails unless its value is a query expression.
+    pattern-regex: "(?i)(?:val|var)\\s+(?!\\w*header\\w*|\\w*_sql\\b\\s*=\\s*\"(?:SELECT\\b|INSERT\\b|UPDATE\\b|DELETE\\b|WITH\\b|\\$[A-Z_]*SQL\\b))\\w*(?:password|passwd|secret|api_key|apikey|api_secret|private_key|access_key)\\w*\\s*=\\s*\"[^\"]+\""
     message: >
       Possible hard-coded credential in Kotlin. Passwords, API keys, and
       secrets should be loaded from environment variables, Vault, or
@@ -895,8 +897,9 @@ rules:
             ...
           }
     paths:
+      # Server request entrypoints only (semgrep paths are relative to each submodule root, so the server is /src/main); Android upload services are clients reading bounded queues.
       include:
-        - "*/services/upload/*"
+        - "/src/main/**/services/upload/*"
     message: >
       Upload service entrypoint writes a batch without a size guard. Add
       require(<collection>.size <= 10_000) before touching storage so a single

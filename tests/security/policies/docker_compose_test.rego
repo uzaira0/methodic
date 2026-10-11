@@ -23,6 +23,119 @@ test_local_build_image_is_accepted if {
 	count(findings) == 0
 }
 
+test_required_image_interpolation_is_accepted if {
+	service := object.union(base_service, {"image": "${BACKEND_IMAGE:?set a digest-pinned image}"})
+	findings := deny with input as {"services": {"app": service}}
+	count(findings) == 0
+}
+
+test_digest_interpolation_is_accepted if {
+	every image in ["example.invalid/service:v1@${SERVICE_DIGEST}", "example.invalid/service@${SERVICE_IMAGE_DIGEST:?set digest}"] {
+		service := object.union(base_service, {"image": image})
+		findings := deny with input as {"services": {"app": service}}
+		count(findings) == 0
+	}
+}
+
+test_optional_or_embedded_image_interpolation_is_denied if {
+	every image in ["${BACKEND_IMAGE:-example.invalid/service:v1}", "example.invalid/${IMAGE:?set image}:v1", "example.invalid/service:v1@${SERVICE_TAG}", "example.invalid/service:v1@${SERVICE_DIGEST}:v1"] {
+		service := object.union(base_service, {"image": image})
+		findings := deny with input as {"services": {"app": service}}
+		count(findings) > 0
+	}
+}
+
+test_restart_no_needs_no_healthcheck if {
+	service := object.union(object.remove(base_service, {"healthcheck"}), {"restart": "no"})
+	findings := deny with input as {"services": {"init": service}}
+	count(findings) == 0
+}
+
+test_completed_dependency_needs_no_healthcheck if {
+	init := object.remove(base_service, {"healthcheck"})
+	app := object.union(base_service, {"depends_on": {"init": {"condition": "service_completed_successfully"}}})
+	findings := deny with input as {"services": {"init": init, "app": app}}
+	count(findings) == 0
+}
+
+test_long_running_service_needs_healthcheck if {
+	service := object.union(object.remove(base_service, {"healthcheck"}), {"restart": "unless-stopped"})
+	findings := deny with input as {"services": {"app": service}}
+	count(findings) == 1
+	"Service 'app' is missing a healthcheck." in findings
+}
+
+test_no_healthcheck_reason_is_accepted if {
+	service := object.union(object.remove(base_service, {"healthcheck"}), {"x-no-healthcheck": "Distroless image has no probe tool."})
+	findings := deny with input as {"services": {"app": service}}
+	count(findings) == 0
+}
+
+test_no_healthcheck_invalid_reason_is_denied if {
+	every reason in ["", " \t\n", true, null, 1] {
+		service := object.union(object.remove(base_service, {"healthcheck"}), {"x-no-healthcheck": reason})
+		findings := deny with input as {"services": {"app": service}}
+		count(findings) == 1
+		"Service 'app' is missing a healthcheck." in findings
+	}
+}
+
+test_disabled_healthcheck_is_denied if {
+	service := object.union(base_service, {"healthcheck": {"disable": true}})
+	findings := deny with input as {"services": {"app": service}}
+	count(findings) == 1
+	some msg in findings
+	contains(msg, "docker compose up --wait")
+	contains(msg, "x-no-healthcheck")
+}
+
+test_started_dependency_still_needs_healthcheck if {
+	dependency := object.remove(base_service, {"healthcheck"})
+	app := object.union(base_service, {"depends_on": {"dependency": {"condition": "service_started"}}})
+	findings := deny with input as {"services": {"dependency": dependency, "app": app}}
+	count(findings) == 1
+	"Service 'dependency' is missing a healthcheck." in findings
+}
+
+test_one_shot_still_needs_memory_and_security if {
+	service := object.union(object.remove(base_service, {"healthcheck", "mem_limit", "security_opt"}), {"restart": "no"})
+	findings := deny with input as {"services": {"init": service}}
+	count(findings) == 2
+}
+
+test_overlay_fragment_inherits_required_fields if {
+	findings := deny with input as {"services": {"app": {"environment": {"MODE": "local"}}}}
+	count(findings) == 0
+}
+
+test_built_service_still_needs_required_fields if {
+	service := {"build": {"context": "."}}
+	findings := deny with input as {"services": {"app": service}}
+	count(findings) == 3
+}
+
+test_overlay_fragment_secrets_still_checked if {
+	findings := deny with input as {"services": {"app": {"environment": {"POSTGRES_PASSWORD": "plaintext"}}}}
+	count(findings) == 1
+}
+
+test_overlay_cannot_remove_security_options if {
+	findings := deny with input as {"services": {"app": {"security_opt": []}}}
+	count(findings) == 1
+}
+
+test_grafana_tls_key_path_is_accepted if {
+	service := object.union(base_service, {"environment": {"GF_SERVER_CERT_KEY": "/etc/grafana/tls/monitoring.key"}})
+	findings := deny with input as {"services": {"app": service}}
+	count(findings) == 0
+}
+
+test_grafana_literal_tls_key_is_denied if {
+	service := object.union(base_service, {"environment": {"GF_SERVER_CERT_KEY": "plaintext-key"}})
+	findings := deny with input as {"services": {"app": service}}
+	count(findings) == 1
+}
+
 test_native_compose_memory_limit_is_accepted if {
 	findings := deny with input as {"services": {"app": base_service}}
 	count(findings) == 0

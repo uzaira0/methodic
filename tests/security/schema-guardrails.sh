@@ -182,8 +182,10 @@ from pathlib import Path
 
 root = Path(sys.argv[1])
 runtime_root = root / "chronicle-server/src/main/kotlin"
+# chronicle_restore_continuity is restore-time checkpoint state owned by restore.sh and the
+# reconciler's contract upgrades, not Flyway-managed application schema.
 permanent_table_sql = re.compile(
-    r"\bCREATE\s+(?!(?:TEMP|TEMPORARY)\s+)TABLE\b",
+    r"\bCREATE\s+(?!(?:TEMP|TEMPORARY)\s+)TABLE\b(?!\s+(?:IF\s+NOT\s+EXISTS\s+)?chronicle_restore_continuity\.)",
     flags=re.IGNORECASE,
 )
 table_definition_execution = re.compile(r"\.createTableQuery\s*\(")
