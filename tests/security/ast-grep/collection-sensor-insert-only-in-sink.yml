@@ -19,7 +19,7 @@ message: >
   (design §1C.2, guardrail #8). Route sensor-sample writes through SensorSampleSink.
 ignores:
   - "**/collection/sink/SensorSampleSink.kt"
-  - "**/test/**"
-  - "**/androidTest/**"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
 rule:
   pattern: $D.sensorSampleDao().insertAll($$$ARGS)

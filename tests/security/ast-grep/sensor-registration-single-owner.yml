@@ -1,0 +1,14 @@
+id: sensor-registration-single-owner
+language: Kotlin
+severity: error
+message: Register hardware sensors through SensorGateway and its permission guards.
+files:
+  - "**/chronicle/**/*.kt"
+ignores:
+  - "**/collection/sensors/SensorGateway.kt"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
+rule:
+  any:
+    - pattern: $X.registerListener($$$ARGS)
+    - pattern: $X.requestTriggerSensor($$$ARGS)

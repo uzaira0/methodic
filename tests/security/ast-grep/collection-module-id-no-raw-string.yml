@@ -26,8 +26,8 @@ ignores:
   # CollectionModuleId.kt is the single sanctioned declaration of the literals.
   - "**/CollectionModuleId.kt"
   # Test code asserts on the raw wire literals and is not production collection code.
-  - "**/test/**"
-  - "**/androidTest*/**"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
   # Health Connect record-type names ("sleep") are not module ids.
   - "**/HealthConnectRecordType.kt"
 rule:
@@ -36,6 +36,7 @@ rule:
   not:
     any:
       - inside: { kind: value_argument, regex: '^label\s*=', stopBy: end }
+      - inside: { kind: property_declaration, regex: '\bval\s+label\s*=', stopBy: end }
       - inside: { kind: property_declaration, regex: 'WORK_NAME', stopBy: end }
   any:
     - pattern: '"usage_events"'

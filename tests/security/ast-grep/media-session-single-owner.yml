@@ -1,0 +1,14 @@
+id: media-session-single-owner
+language: Kotlin
+severity: error
+message: Read or subscribe to media sessions only in the guarded AudioCaptureController.
+files:
+  - "**/chronicle/**/*.kt"
+ignores:
+  - "**/collection/audio/AudioCaptureController.kt"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
+rule:
+  any:
+    - pattern: $X.getActiveSessions($$$ARGS)
+    - pattern: $X.addOnActiveSessionsChangedListener($$$ARGS)

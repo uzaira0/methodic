@@ -1,0 +1,13 @@
+id: accessibility-access-single-owner
+language: Kotlin
+severity: error
+message: Check Chronicle accessibility access through InteractionAccessibilityOnboarding.
+files:
+  - "**/chronicle/**/*.kt"
+ignores:
+  - "**/collection/interaction/InteractionAccessibilityOnboarding.kt"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
+rule:
+  any:
+    - pattern: $X.getEnabledAccessibilityServiceList($$$ARGS)

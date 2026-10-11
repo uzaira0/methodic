@@ -1,0 +1,14 @@
+id: health-connect-client-single-owner
+language: Kotlin
+severity: error
+message: Create Health Connect clients through the availability guard in HealthConnectPermissions.
+files:
+  - "**/chronicle/**/*.kt"
+ignores:
+  - "**/collection/device/HealthConnectPermissions.kt"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
+rule:
+  any:
+    - pattern: HealthConnectClient.getSdkStatus($$$ARGS)
+    - pattern: HealthConnectClient.getOrCreate($$$ARGS)

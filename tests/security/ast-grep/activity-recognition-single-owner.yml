@@ -1,0 +1,16 @@
+id: activity-recognition-single-owner
+language: Kotlin
+severity: error
+message: Activity recognition calls belong to SleepActivityCaptureController and its permission checks.
+files:
+  - "**/chronicle/**/*.kt"
+ignores:
+  - "**/collection/activity/SleepActivityCaptureController.kt"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
+rule:
+  any:
+    - pattern: $X.requestActivityTransitionUpdates($$$ARGS)
+    - pattern: $X.requestSleepSegmentUpdates($$$ARGS)
+    - pattern: $X.removeActivityTransitionUpdates($$$ARGS)
+    - pattern: $X.removeSleepSegmentUpdates($$$ARGS)

@@ -23,11 +23,23 @@ class BadModuleMissingInvariant(
     private val dep: String,
 ) : DataCollectionModule {
     override val id: CollectionModuleId = CollectionModuleId.USAGE_EVENTS
-    override val privacyClass: CollectionPrivacyClass = id.privacyClass
+    override val privacyClass: CollectionPrivacyClass = CollectionPrivacyClass.PHYSICAL_TELEMETRY
 
     override fun status(): CollectionModuleStatus = CollectionModuleStatus.IDLE
     override fun start(context: Context): ModuleResult = ModuleResult.Skipped("x")
     override fun stop(context: Context): ModuleResult = ModuleResult.Skipped("x")
+}
+
+// Identity-derived properties need no init guard, whether stored or computed.
+// ok: chronicle-collection-module-must-assert-privacy-invariant
+class SafeModuleDerivedPrivacy : DataCollectionModule {
+    override val id = CollectionModuleId.USAGE_EVENTS
+    override val privacyClass: CollectionPrivacyClass = id.privacyClass
+}
+
+// ok: chronicle-collection-module-must-assert-privacy-invariant
+abstract class SafePullModule(final override val id: CollectionModuleId) : DataCollectionModule {
+    final override val privacyClass get() = id.privacyClass
 }
 
 // ---------------------------------------------------------------------------

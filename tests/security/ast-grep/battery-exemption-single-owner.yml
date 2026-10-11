@@ -1,0 +1,13 @@
+id: battery-exemption-single-owner
+language: Kotlin
+severity: error
+message: Direct battery exemption requests belong to the distribution and permission guarded dialog.
+files:
+  - "**/chronicle/**/*.kt"
+ignores:
+  - "**/BatteryOptimizationExemptionDialog.kt"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
+rule:
+  any:
+    - pattern: Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS

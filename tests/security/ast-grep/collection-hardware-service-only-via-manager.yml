@@ -34,6 +34,8 @@ message: >
 ignores:
   - "**/collection/sensors/HardwareSensorsCollectionModule.kt"
   - "**/services/sensors/HardwareSensorServiceControllerImpl.kt"
+  # Distribution split: restricted service calls now cross this app-side adapter.
+  - "**/src/googleServices/java/com/openlattice/chronicle/collection/DistributionRestrictedRuntime.kt"
   # Per-sensor redesign sensor service-lifecycle owner (replaces the retired grouped module).
   - "**/collection/state/CollectionLoopCoordinator.kt"
   - "**/receivers/lifecycle/PowerSaveModeReceiver.kt"
@@ -41,8 +43,8 @@ ignores:
   - "**/services/sensors/SensorSettingsRefreshWorker.kt"
   - "**/Enrollment.kt"
   - "**/MainActivity.kt"
-  - "**/test/**"
-  - "**/androidTest/**"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
 rule:
   any:
     - pattern: HardwareSensorService.startService($$$ARGS)

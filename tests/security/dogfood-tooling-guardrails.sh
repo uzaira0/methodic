@@ -144,9 +144,8 @@ if grep -rq "BATTERY_DEGRADED_THRESHOLD" "$SENSOR_RUNTIME_DIR" "$HARDWARE_SENSOR
 fi
 pass "hardware sensor collection stays close to original Methodic degraded-mode behavior"
 
-grep -q "AndroidSensorType\\.values()" "$ROOT_DIR/chronicle/app/src/main/java/com/openlattice/chronicle/services/sensors/SensorAvailabilityReporter.kt" \
-  || fail "sensor availability reporter must report full Chronicle-modeled sensor inventory"
-pass "sensor availability reporter records full modeled inventory"
+# ResearchErasureRegressionTest checks that availability reports respect requested sensor consent.
+# The dogfood report inventory above still lists every modeled type, including unrequested types.
 
 grep -q "Allowed sensors" "$ROOT_DIR/scripts/chronicle-set-android-sensors.sh" \
   || fail "sensor settings script must document allowed sensors"

@@ -1,0 +1,14 @@
+id: package-label-single-owner
+language: Kotlin
+severity: error
+message: Use PackageLabels for package metadata; visibility filtering must fall back to the package name.
+files:
+  - "**/chronicle/**/*.kt"
+ignores:
+  - "**/utils/PackageLabels.kt"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
+rule:
+  any:
+    - pattern: $X.getApplicationInfo($$$ARGS)
+    - pattern: $X.getApplicationLabel($$$ARGS)

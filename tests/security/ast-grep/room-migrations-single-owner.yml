@@ -1,0 +1,85 @@
+id: room-migrations-single-owner
+language: Kotlin
+severity: error
+message: >
+  Reference Room migrations through ChronicleDb.ALL_MIGRATIONS. MIGRATION_n_m
+  identifiers belong in their definitions, that canonical list, or the two research schema setups.
+files:
+  - "**/chronicle/**/*.kt"
+  - "**/chronicle/**/*.kts"
+# Identifier matching excludes the string assertion in SensitiveStorageInvariantTest.kt:87.
+# The two research setUp methods rerun idempotent 17-to-18 table creation without copying migration lists.
+utils:
+  research-schema-setup-class:
+    all:
+      # ast-grep's Kotlin parser represents ResearchErasureRegressionTest as an infix expression.
+      - any:
+          - kind: class_declaration
+          - kind: infix_expression
+      - regex: '(?m)^class (StorageRefusalPersistenceTest|ResearchErasureRegressionTest)\s*\{'
+  research-schema-setup-file:
+    inside:
+      all:
+        - kind: source_file
+        - has:
+            kind: package_header
+            regex: '^package com\.openlattice\.chronicle\.collection\.state$'
+        - has: { matches: research-schema-setup-class, stopBy: end }
+      stopBy: end
+rule:
+  all:
+    - kind: simple_identifier
+    - regex: '^MIGRATION_[0-9]+_[0-9]+$'
+    - not:
+        any:
+          - all:
+              - regex: '^MIGRATION_17_18$'
+              - matches: research-schema-setup-file
+              - any:
+                  - inside: { kind: import_header, stopBy: end }
+                  - all:
+                      - inside: { kind: navigation_expression, regex: '^MIGRATION_17_18\.migrate$' }
+                      - inside: { pattern: 'MIGRATION_17_18.migrate($DB)', stopBy: end }
+                      - inside:
+                          kind: function_declaration
+                          has: { kind: simple_identifier, regex: '^setUp$' }
+                          stopBy: end
+                      - inside:
+                          matches: research-schema-setup-class
+                          stopBy: end
+          - inside:
+              kind: variable_declaration
+              regex: '^MIGRATION_[0-9]+_[0-9]+(?:\s*:.*)?$'
+          - inside:
+              all:
+                - kind: property_declaration
+                - regex: '^\s*val ALL_MIGRATIONS\b'
+                - inside:
+                    kind: source_file
+                    has:
+                      kind: package_header
+                      regex: '^package com\.openlattice\.chronicle\.storage$'
+                    stopBy: end
+                - inside:
+                    all:
+                      - kind: class_declaration
+                      - has: { kind: type_identifier, regex: '^ChronicleDb$' }
+                    stopBy: end
+              stopBy: end
+---
+id: room-migrations-single-owner-java
+language: Java
+severity: error
+message: >
+  Reference Room migrations through ChronicleDb.ALL_MIGRATIONS. MIGRATION_n_m
+  identifiers belong only in their definitions and that canonical Kotlin list.
+files:
+  - "**/chronicle/**/*.java"
+rule:
+  all:
+    - kind: identifier
+    - regex: '^MIGRATION_[0-9]+_[0-9]+$'
+    - not:
+        all:
+          - inside: { kind: variable_declarator }
+          - nthChild: 1

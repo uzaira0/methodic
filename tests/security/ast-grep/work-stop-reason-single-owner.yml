@@ -1,0 +1,14 @@
+id: work-stop-reason-single-owner
+language: Kotlin
+severity: error
+message: Read WorkManager stop reasons through LeaseBoundWorker with the API 31 guard.
+files:
+  - "**/chronicle/**/*.kt"
+ignores:
+  - "**/security/LeaseBoundWorker.kt"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
+rule:
+  any:
+    - pattern: $X.getStopReason()
+    - pattern: stopReason

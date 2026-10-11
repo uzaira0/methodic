@@ -1,0 +1,20 @@
+id: usage-access-single-owner
+language: Kotlin
+severity: error
+message: Use UsageAccess so a denied or locked poll cannot advance a usage cursor.
+files:
+  - "**/chronicle/**/*.kt"
+ignores:
+  - "**/utils/UsageAccess.kt"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
+rule:
+  all:
+    - any:
+        - pattern: $X.checkOpNoThrow($$$ARGS)
+        - pattern: $X.queryEvents($$$ARGS)
+        - pattern: $X.queryUsageStats($$$ARGS)
+    - not:
+        any:
+          - pattern: UsageAccess.queryEvents($$$ARGS)
+          - pattern: UsageAccess.queryUsageStats($$$ARGS)

@@ -27,7 +27,7 @@ ignores:
   - "**/receivers/lifecycle/DeviceLifecycleReceiver.kt"
   - "**/services/notifications/DeviceUnlockMonitoringService.kt"
   - "**/services/sensors/HardwareSensorService.kt"
-  - "**/test/**"
-  - "**/androidTest/**"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
 rule:
   pattern: DeviceLifecycleEventRecorder.recordAsync($$$ARGS)

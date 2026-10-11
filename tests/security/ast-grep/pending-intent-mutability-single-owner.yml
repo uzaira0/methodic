@@ -1,0 +1,12 @@
+id: pending-intent-mutability-single-owner
+language: Kotlin
+severity: error
+message: Mutable PendingIntents belong to SleepActivityCaptureController and its explicit callback receiver.
+files:
+  - "**/chronicle/**/*.kt"
+ignores:
+  - "**/collection/activity/SleepActivityCaptureController.kt"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
+rule:
+  pattern: FLAG_MUTABLE

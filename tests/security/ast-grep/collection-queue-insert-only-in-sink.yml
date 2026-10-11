@@ -29,8 +29,8 @@ ignores:
   - "**/collection/sink/UsageEventSink.kt"
   - "**/services/usage/UsageMonitoringWorker.kt"
   - "**/services/lifecycle/DeviceLifecycleEvents.kt"
-  - "**/test/**"
-  - "**/androidTest/**"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
 rule:
   any:
     - pattern: $Q.queueEntryData().insertEntry($$$ARGS)

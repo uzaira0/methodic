@@ -1,0 +1,14 @@
+id: entity-tags-single-owner
+language: Kotlin
+severity: error
+message: >
+  Compression suffixes on ETag/If-Match belong only in
+  util/EntityTags.kt's normalizeEntityTag. Call that normalizer.
+files:
+  - "**/chronicle-server/src/main/kotlin/**/*.kt"
+ignores:
+  - "**/chronicle-server/src/main/kotlin/com/openlattice/chronicle/util/EntityTags.kt"
+rule:
+  all:
+    - kind: string_literal
+    - regex: '(?i)-(?:-)?(?:\(\?:|\()?\s*(?:gzip|br|zstd|deflate)\b'

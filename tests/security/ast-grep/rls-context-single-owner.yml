@@ -1,0 +1,77 @@
+id: rls-context-single-owner
+language: Kotlin
+severity: error
+message: >
+  app.* RLS settings belong to RLSContextManager.setContext/clearContext,
+  RLSConnectionSql.applyContext/clear (RLSRequestContext.kt),
+  RLSConnectionCustomizer's context SQL helpers/setDeletionWorkerContext, or
+  ChronicleOrganizationService.AUTHORIZE_NEW_ORGANIZATION_SQL. Call the existing helper.
+files:
+  - "**/chronicle-server/src/main/kotlin/**/*.kt"
+utils:
+  rls-owner-package:
+    inside:
+      kind: source_file
+      has:
+        kind: package_header
+        regex: '^package com\.openlattice\.chronicle\.storage\.rls$'
+      stopBy: end
+rule:
+  all:
+    - kind: string_literal
+    - regex: "(?i)set_config\\s*\\(\\s*'app\\."
+    - not:
+        any:
+          - inside:
+              all:
+                - kind: property_declaration
+                - matches: rls-owner-package
+                - regex: '^\s*(?:private |public |internal |const )*val (?:SET_RLS_CONTEXT_SQL|CLEAR_RLS_CONTEXT_SQL)\b'
+                - inside:
+                    any:
+                      - all:
+                          - kind: class_declaration
+                          - has: { kind: type_identifier, regex: '^RLSContextManager$' }
+                      - all:
+                          - kind: object_declaration
+                          - has: { kind: type_identifier, regex: '^RLSConnectionSql$' }
+                    stopBy: end
+              stopBy: end
+          - inside:
+              all:
+                - kind: property_declaration
+                - matches: rls-owner-package
+                - regex: '^\s*public const val (?:CONNECTION_INIT_SQL|ADMIN_CONTEXT_SQL|ADMIN_TRANSACTION_CONTEXT_SQL)\b'
+                - inside:
+                    all:
+                      - kind: object_declaration
+                      - has: { kind: type_identifier, regex: '^RLSConnectionCustomizer$' }
+                    stopBy: end
+              stopBy: end
+          - inside:
+              all:
+                - kind: function_declaration
+                - matches: rls-owner-package
+                - has: { kind: simple_identifier, regex: '^setDeletionWorkerContext$' }
+                - inside:
+                    all:
+                      - kind: object_declaration
+                      - has: { kind: type_identifier, regex: '^RLSConnectionCustomizer$' }
+                    stopBy: end
+              stopBy: end
+          - inside:
+              all:
+                - kind: property_declaration
+                - regex: '^\s*private val AUTHORIZE_NEW_ORGANIZATION_SQL\b'
+                - inside:
+                    kind: source_file
+                    has:
+                      kind: package_header
+                      regex: '^package com\.openlattice\.chronicle\.organizations$'
+                    stopBy: end
+                - inside:
+                    all:
+                      - kind: class_declaration
+                      - has: { kind: type_identifier, regex: '^ChronicleOrganizationService$' }
+                    stopBy: end
+              stopBy: end

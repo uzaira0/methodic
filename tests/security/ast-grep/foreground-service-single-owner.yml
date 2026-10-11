@@ -1,0 +1,16 @@
+id: foreground-service-single-owner
+language: Kotlin
+severity: error
+message: Start and promote Chronicle foreground services through ForegroundServices.
+files:
+  - "**/chronicle/**/*.kt"
+ignores:
+  - "**/services/ForegroundServices.kt"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
+rule:
+  any:
+    - pattern: $X.startForegroundService($$$ARGS)
+    - pattern: startForeground($A, $B)
+    - pattern: startForeground($A, $B, $C)
+    - pattern: $X.startForeground($$$ARGS)

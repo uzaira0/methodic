@@ -1,0 +1,12 @@
+id: network-usage-single-owner
+language: Kotlin
+severity: error
+message: NetworkStats reads belong to AppNetworkUsageSource and its current Usage Access check.
+files:
+  - "**/chronicle/**/*.kt"
+ignores:
+  - "**/collection/device/AppNetworkUsageSource.kt"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
+rule:
+  pattern: $X.querySummary($$$ARGS)

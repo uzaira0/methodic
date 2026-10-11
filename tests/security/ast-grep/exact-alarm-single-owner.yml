@@ -1,0 +1,16 @@
+id: exact-alarm-single-owner
+language: Kotlin
+severity: error
+message: Use ExactAlarms to check current exact alarm access and fall back to an inexact alarm.
+files:
+  - "**/chronicle/**/*.kt"
+ignores:
+  - "**/services/notifications/ExactAlarms.kt"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
+rule:
+  any:
+    - pattern: $X.setExact($$$ARGS)
+    - pattern: $X.setExactAndAllowWhileIdle($$$ARGS)
+    - pattern: $X.setAlarmClock($$$ARGS)
+    - pattern: $X.canScheduleExactAlarms()

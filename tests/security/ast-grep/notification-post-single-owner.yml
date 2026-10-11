@@ -1,0 +1,17 @@
+id: notification-post-single-owner
+language: Kotlin
+severity: error
+message: >
+  Post notifications through postNotificationIfPermitted. Without permission Android drops a posted
+  notification silently, so a direct notify() reports success for a notice nobody sees.
+files:
+  - "**/chronicle/**/*.kt"
+ignores:
+  - "**/services/notifications/PostNotification.kt"
+  # Tests post directly to stage notification state.
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
+rule:
+  any:
+    - pattern: $X.notify($A, $B)
+    - pattern: $X.notify($A, $B, $C)

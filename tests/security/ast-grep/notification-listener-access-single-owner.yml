@@ -1,0 +1,14 @@
+id: notification-listener-access-single-owner
+language: Kotlin
+severity: error
+message: Use hasNotificationListenerAccess to check the actual listener component grant.
+files:
+  - "**/chronicle/**/*.kt"
+ignores:
+  - "**/src/googleServices/**/collection/DistributionRestrictedRuntime.kt"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
+rule:
+  any:
+    - pattern: $X.isNotificationListenerAccessGranted($$$ARGS)
+    - pattern: NotificationManagerCompat.getEnabledListenerPackages($$$ARGS)

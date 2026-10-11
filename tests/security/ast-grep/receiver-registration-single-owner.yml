@@ -1,0 +1,14 @@
+id: receiver-registration-single-owner
+language: Kotlin
+severity: error
+message: Use registerSystemBroadcastReceiver for system broadcasts or registerPrivateReceiver for app actions.
+files:
+  - "**/chronicle/**/*.kt"
+ignores:
+  - "**/utils/BroadcastReceivers.kt"
+  - "**/src/test*/**"
+  - "**/src/androidTest*/**"
+rule:
+  any:
+    - pattern: $X.registerReceiver($$$ARGS)
+    - pattern: registerReceiver($$$ARGS)
