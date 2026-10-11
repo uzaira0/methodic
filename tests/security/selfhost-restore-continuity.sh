@@ -3,7 +3,6 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 RESTORE_SCRIPT="${ROOT_DIR}/selfhost/restore.sh"
-OPERATOR_CLI="${ROOT_DIR}/selfhost/chronicle"
 SERVER_RECONCILER="${ROOT_DIR}/chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/delete/RestoreContinuityReconciler.kt"
 SERVER_MIGRATION="${ROOT_DIR}/chronicle-server/src/main/resources/db/migration/V98__record_restore_continuity_reconciliation.sql"
 SERVER_AUTHORITY_MIGRATION="${ROOT_DIR}/chronicle-server/src/main/resources/db/migration/V100__extend_restore_continuity_authority.sql"
@@ -30,13 +29,12 @@ for required in \
   'chronicle_restore_continuity.erased_device_key_tombstones' \
   'participant_block_token' \
   'checkpoint_sha256' \
-  'sha256(' \
   'FROM PUBLIC, chronicle_app, chronicle_admin' \
   '--schema=chronicle_restore_continuity' \
   '--exclude-schema=chronicle_restore_continuity' \
   'CONTINUITY_DUMP' \
   '/bin/chmod 0600 "$CONTINUITY_DUMP"' \
-  'gzip -t "$CONTINUITY_DUMP"' \
+  'verify_restore_dump "$CONTINUITY_DUMP"' \
   '/bin/rm -f -- "$CONTINUITY_DUMP"' \
   'UPDATE public.api_keys' \
   'UPDATE public.study_participants'; do
@@ -44,6 +42,9 @@ for required in \
 done
 
 capture_line="$(grep -n 'CREATE SCHEMA chronicle_restore_continuity' "$RESTORE_SCRIPT" | head -1 | cut -d: -f1)"
+capture_invocation="$(grep -B1 '^CREATE SCHEMA chronicle_restore_continuity;' "$RESTORE_SCRIPT" | head -1)"
+[[ "$capture_invocation" == "  psql_q -1 <<SQL >/dev/null" ]] ||
+  fail "checkpoint capture must run as one transaction"
 drop_line="$(grep -n 'dropping the existing schema' "$RESTORE_SCRIPT" | tail -1 | cut -d: -f1)"
 restore_line="$(grep -n 'restoring \${RESTORE_FILE}' "$RESTORE_SCRIPT" | tail -1 | cut -d: -f1)"
 containment_line="$(grep -n 'UPDATE public.study_participants' "$RESTORE_SCRIPT" | tail -1 | cut -d: -f1)"
@@ -57,20 +58,20 @@ contract_line="$(grep -n 'SELECT contract_version FROM chronicle_restore_continu
 [[ -n "$contract_line" ]] && ((contract_line < drop_line)) ||
   fail "restore does not check a reused checkpoint's contract before dropping the schema"
 
-if sed -n '/CREATE SCHEMA chronicle_restore_continuity/,/^SQL$/p' "$RESTORE_SCRIPT" |
+if sed -n '/^CHECKPOINT_DIGEST_SQL=/,/^SQL$/p; /CREATE SCHEMA chronicle_restore_continuity/,/^SQL$/p' "$RESTORE_SCRIPT" |
     grep -Eq '(^|[^[:alnum:]_])(api_key|token|secret|password)([^[:alnum:]_]|$)'; then
   fail "continuity checkpoint persists credential material instead of non-secret identifiers"
 fi
 
-python3 "${ROOT_DIR}/tests/security/webselfhost-audit-regressions.py" AuditRegressions.test_W01_rollback_consumes_only_complete_checkpoint
-
-grep -Fq 'CHRONICLE_RESTORE_LEAVE_STOPPED=true' "$OPERATOR_CLI" ||
-  fail "operator rollback does not request exact protected-evidence verification"
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="${ROOT_DIR}/tests/selfhost-py:${ROOT_DIR}/selfhost" \
+  python3 -m unittest test_restore.RestoreTests.test_no_start \
+  test_restore.RestoreTests.test_rollback_transaction_refusal_resumes_current_services_and_releases_lock \
+  test_restore.RestoreTransactionTests.test_continuity_proof_and_dump_share_transaction_and_producer_failure_cannot_commit
 for required in \
   'rollback backup already contains protected continuity evidence' \
   "('deletion_operations', 'data_deletion_operations')" \
   "('retention_holds', 'retention_holds')" \
-  "('deletion_tombstones', 'deletion_tombstones')" \
+  "('deletion_tombstones', 'data_deletion_tombstones')" \
   'selected rollback backup predates'; do
   grep -Fq "$required" "$RESTORE_SCRIPT" ||
     fail "rollback continuity comparison omits: $required"
@@ -94,36 +95,9 @@ for required in \
     fail "continuity authority receipt migration omits: $required"
 done
 
-python3 - "$RESTORE_SCRIPT" "$SERVER_RECONCILER" <<'PY'
-import re
-import sys
-from pathlib import Path
-
-restore = Path(sys.argv[1]).read_text(encoding="utf-8")
-server = Path(sys.argv[2]).read_text(encoding="utf-8")
-
-def normalize(value: str) -> str:
-    return re.sub(r"\s+", " ", value.strip())
-
-try:
-    restore_tail = restore.split("WITH canonical(line) AS (", 1)[1]
-    restore_canonical, restore_digest_tail = restore_tail.split("), digest AS (", 1)
-    server_tail = server.split("WITH canonical(line) AS (", 1)[1]
-    server_canonical, server_digest_tail = server_tail.split(
-        ")\n            SELECT encode(", 1
-    )
-except (IndexError, ValueError) as error:
-    raise SystemExit(f"unable to locate both checkpoint digest contracts: {error}") from error
-
-if normalize(restore_canonical) != normalize(server_canonical):
-    raise SystemExit("restore and server canonical checkpoint rows have drifted")
-
-restore_digest = restore_digest_tail.split("FROM canonical", 1)[0]
-server_digest = "SELECT encode(" + server_digest_tail.split("FROM canonical", 1)[0]
-restore_digest = re.sub(r"\s+AS\s+value\s*$", "", normalize(restore_digest), flags=re.I)
-if restore_digest != normalize(server_digest):
-    raise SystemExit("restore and server checkpoint hash aggregation have drifted")
-PY
+# Both runtimes consume the same SQL resource copied by processResources.
+[[ -s "${ROOT_DIR}/selfhost/restore-continuity-digest.sql" ]] ||
+  fail "shared checkpoint digest resource is missing"
 
 for bootstrap in \
   "${ROOT_DIR}/docker/init-db-roles.sql" \

@@ -16,20 +16,34 @@ Two links are not encrypted, as an **accepted residual risk** for a single-host 
 - **Dumps at rest.** Plain SQL on the host disk, in a `0700` directory; each dump is set to
   `0600` after every backup run. The control for the disk itself is **host full-disk
   encryption** (LUKS or your provider's encrypted volumes): use it whenever the disk may
-  leave your control. The stack does not encrypt dumps itself, because a lost dump key
+  leave your control. `./chronicle check`, `doctor` and `verify` warn when backing-device
+  encryption cannot be confirmed (Linux LUKS or macOS FileVault). For provider-managed encryption or another
+  unavailable probe, obtain a reviewed waiver in the controlled operations register, with
+  approver, scope, encryption evidence or compensating controls, expiry and review date.
+  Set `BACKUP_STORAGE_ENCRYPTION_WAIVER` to that register reference in the protected
+  `.env`; remove it when the waiver expires. An absent probe warns without blocking startup,
+  updates or reconciliation.
+  The stack does not encrypt dumps itself, because a lost dump key
   would make the backups unrestorable. Encrypt dumps before they leave the host (below).
-- **Traffic between containers on the stack's private Docker network.** Backend to
-  PostgreSQL uses `sslmode=prefer` against a server with no certificate; Caddy reaches the
-  backend over HTTP; with the monitoring overlay, VictoriaMetrics scrapes the backend over
-  HTTP and Grafana listens on plain HTTP (bound to `127.0.0.1` unless setup was given a host
-  address). The container links are not published outside the host, and anyone who can read
-  them already has the Docker access that reads the database directly. Keep Grafana on
-  `127.0.0.1` and reach it through an SSH tunnel.
+- **Service traffic.** JDBC requires verified PostgreSQL TLS, and PostgreSQL rejects
+  plaintext TCP connections. Grafana and the authenticated backend metrics scrape use
+  HTTPS with the bundled service certificate as their trust anchor. Caddy's application
+  bridge remains HTTP on the host's private Docker network. Keep Grafana on a private
+  management address and trust `tls/monitoring.crt` when opening it through an SSH tunnel.
 
 A copy of the encryption keyring is kept at `backups/keyring/chronicle-keyring.per` under
 that state directory so the backup set can also remount the data volume itself. **Back up
 the whole state-directory `backups/` tree as one unit**,
 and keep it somewhere other than the disk holding the data volume.
+
+A dump becomes `last/<active-db>-latest.sql.gz` only after its scratch restore and
+cleanup succeed. The adjacent verified marker binds the active database, timestamp,
+and SHA-256; `verify` and `doctor` require it even when TDE is disabled. Verification
+requires twice the larger live-database or uncompressed-dump size additionally free
+on PostgreSQL storage. Doctor projects the retained gzip footprint separately against
+backup storage. Startup/dependency/verification deadlines default to 3600 seconds.
+A successful `restore --no-start` writes a durable stop marker, so cron and reboot
+reconciliation leave writers stopped until an explicit `up`.
 
 ## Automated backups (recommended)
 
@@ -48,7 +62,8 @@ COMPOSE_FILE=docker-compose.yml:overlays/mode-behind-proxy-internal.yml:overlays
 Dumps land in `${CHRONICLE_STATE_DIR:-.}/backups/` on the host, rotated
 daily/weekly/monthly (tune `BACKUP_KEEP_*` in `.env`). After an upgrade this can point into
 the first release directory, so check the setting before retiring old release files.
-**Copy encrypted backups off the box** — a backup on the same disk as the database is not a backup.
+Copy encrypted backups to a separate host or storage account so a failed database disk
+does not destroy the recovery copy.
 Encrypt the complete backup directory, including the keyring, into a staging directory and
 sync only that directory:
 
@@ -69,7 +84,7 @@ rclone sync /absolute/chronicle-state/backups-encrypted remote:chronicle-backups
 The sidecar takes one dump immediately after PostgreSQL is accepting connections and the
 backend has completed Flyway migrations. It performs those checks inside its own startup
 wrapper because Docker restart policies do not re-run Compose `depends_on` conditions
-after a host or daemon restart. The default five-minute bound is controlled by
+after a host or daemon restart. The default 3600-second (60-minute) bound is controlled by
 `BACKUP_STARTUP_TIMEOUT_SECONDS`; a timeout leaves the scheduler stopped and the restart
 policy tries the readiness sequence again instead of recording a failed initial backup.
 
@@ -182,21 +197,30 @@ ORDER BY reconciled_at DESC
 LIMIT 1;
 ```
 
-For a tested previous-release rollback, use `--no-start` so the newly restored database is
-not paired with the newer backend before that release is shut down:
+For a tested previous-release rollback, run the guarded handoff from the current release:
 
 ```bash
-./chronicle restore --no-start "--trusted-sha256=${TRUSTED_SHA256}" \
+./chronicle rollback --from /absolute/path/to/previous/selfhost "--trusted-sha256=${TRUSTED_SHA256}" \
   /backups/pre-upgrade-<version>-to-<version>-<run>.sql.gz
 ```
 
-`--no-start` is an incident-recovery option, not the normal restore path. The application
-services stay stopped until you follow the rollback runbook. Because a previous binary cannot
+Rollback restores with application services stopped, carries current credentials forward,
+and transfers Compose ownership and reconciliation before starting the previous release.
+Follow [UPGRADE-ROLLBACK.md](UPGRADE-ROLLBACK.md) for digest review and adoption recovery.
+Because a previous binary cannot
 consume a checkpoint introduced by a newer release, this mode additionally proves that every
-protected withdrawal receipt, deletion operation, hold, and tombstone already exists
-identically in the selected rollback dump. If even one protected fact is newer than that dump,
-the command fails and preserves the restore lock; do not start the previous binary. Start the
-current release to reconcile the checkpoint, or recover forward from a newer reviewed backup.
+protected withdrawal receipt, revoked key, withdrawn participant, deletion operation, hold,
+tombstone, collection-settings revision, published collection setting, enrollment invitation,
+and erased-device-key tombstone already exists identically in the selected rollback dump.
+Schema replacement and this proof commit together in one PostgreSQL transaction. A proof
+refusal rolls back the replacement, preserves all live post-backup writes, releases the
+restore lock, and resumes the current release. Choose a newer reviewed backup or continue
+from the current release; do not start the previous binary against the current schema.
+
+Operator dumps preserve ACLs. Restore clears broad creation defaults before replaying the
+dump's ACLs and saved defaults, then verifies audit/restore role restrictions before
+committing. An older dump that omitted privileges is refused with the live data preserved.
+`verify` and `doctor` also check these restrictions.
 
 If restore or post-restore startup fails, the application remains stopped and the restore
 lock is preserved. Do not start an upgrade, rotation, or backend against a possibly partial
@@ -222,7 +246,14 @@ rmdir "$LOCK"
 ./chronicle restore "--trusted-sha256=${TRUSTED_SHA256}" /backups/the-reviewed-recovery-dump.sql.gz
 ```
 
-The pre-restore safety dump remains available under `/backups` for recovery.
+The pre-restore safety dump remains available under `/backups` for recovery. If a previous
+release failed after replacing data, follow the lock-release checks above, independently
+review that safety dump and its digest, then recover from the current release:
+
+```bash
+./chronicle restore "--trusted-sha256=${TRUSTED_SHA256}" /backups/pre-restore-<timestamp>.<run>.sql.gz
+./chronicle verify
+```
 
 ### Do not pipe a dump into psql yourself
 
@@ -243,7 +274,7 @@ drops the schema first (leaving `pg_tde` in place) precisely so this cannot happ
 
 ### Restoring into a Postgres without pg_tde
 
-Works, and is the property the encryption design rests on. The dump names `pg_tde` in two
+The SQL dump restores without the database keyring. It names `pg_tde` in two
 places — `CREATE EXTENSION IF NOT EXISTS pg_tde` and `SET default_table_access_method =
 tde_heap` — and on a stock Postgres both fail harmlessly and the tables are created as
 plain `heap`. Verified against `postgres:18-alpine` with no `pg_tde` available: 4 errors,
@@ -259,7 +290,7 @@ all 86 tables and every row present and identical.
 
 ## Verify off-host copies
 
-A copy you have never compared is a guess. After each sync, and at least monthly:
+After each sync, and at least monthly, compare the remote copy and test decryption:
 
 ```bash
 # 1. The encrypted staging directory matches the remote copy, file by file (size and checksum).
@@ -274,7 +305,7 @@ gpg --decrypt ./check/chronicle-backups.tar.gz.gpg | tar -tzf - >/dev/null && ec
 
 ## Test your restore
 
-A backup you have never restored is a guess. Periodically restore the latest dump into a
+Periodically restore the latest dump into a
 throwaway Postgres that has no network and no connection to the running stack:
 
 ```bash

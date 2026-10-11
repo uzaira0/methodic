@@ -35,6 +35,17 @@ migration, `AuditRequestContext`, `AuditLogRepository`, and `ChronicleDataAssetR
 Institutional disclosure, legal retention decisions and privacy policy wording remain
 owner decisions.
 
+Consent evidence in `participant_collection_acknowledgment` retains participant and device IDs,
+app, settings and disclosure versions, module decisions and timestamps after participant
+or study erasure. This immutable evidence has no automatic purge.
+
+Participant erasure also retains withdrawal receipts containing participant and device IDs
+and withdrawal dates until full study erasure. Participant block tokens in deletion
+operations, diagnostic-erasure fences, and restore continuity checkpoints are unkeyed hashes
+of the study UUID and participant ID. Guessable IDs can be recovered by hashing guesses;
+these tokens are reversible pseudonymous personal data, not anonymous deletion evidence.
+Apply the institution's access and retention controls to these records and their backups.
+
 ## Before deleting anything
 
 1. Confirm the request and the study/participant identifiers through your approved process.
@@ -67,7 +78,25 @@ seven-day quarantine and only when no retention hold applies.
 The supported dashboard does not provide participant-deletion cancellation. Treat the
 confirmation as final even though physical erasure is delayed.
 
+## Participant self-withdrawal
+
+In-app **Withdraw from study** stops collection and follows the study's **Withdrawal**
+setting. `ERASE`, the default, schedules erasure after the seven-day quarantine, using
+the same process as researcher deletion. `KEEP_PRIOR_DATA` retains uploaded data until
+a researcher deletes the participant. Older app builds may tell participants that data
+will be deleted regardless of this setting; check the study's policy before promising
+erasure. Participants shows **Withdrawn** and the withdrawal date, and the action records
+an audit entry.
+
 ## Delete a study
+
+Retention expiry shows a dashboard banner and raises an operator monitoring alert;
+it does not revoke access or automatically erase a study. Record the
+protocol retention deadline, responsible operator and scheduled Delete Study date in the
+controlled deletion register. Schedule the request seven days before the required physical
+erasure deadline to allow quarantine, then check holds and completion on that deadline.
+Record the operation UUID, completion time and verified proof state. Escalate a hold or
+failed worker before the deadline; access revocation alone is not completion evidence.
 
 Archive the study first if the immediate goal is only to stop collection. Archiving is
 reversible and is not deletion.
@@ -105,6 +134,7 @@ Interpret the result as follows:
 |---|---|
 | `status=QUARANTINED` | Live data is inaccessible; the seven-day delay has not elapsed. |
 | `status=HELD` or `active_hold=t` | A retention hold is blocking erasure. Resolve it through the authorized retention-hold API/process; do not bypass it in SQL. |
+| `review_at` / `review_overdue=t` | Earliest active hold review deadline / overdue review, including overlapping holds. Contact the hold owner and authorized reviewer. |
 | `status=ERASING` or `VERIFYING` | Physical deletion or residual-row verification is running. |
 | `status=FAILED` | Erasure did not complete. Preserve the operation UUID and inspect backend logs before retrying or escalating. |
 | `status=COMPLETED` and `proof_state=verified` | Every registered asset reported zero residual rows and the durable tombstone matches the operation proof. |
@@ -128,6 +158,33 @@ To revoke an operator's access:
 3. Rotate the JWT signing secret to invalidate existing Chronicle sessions:
    `./chronicle rotate-secret jwt`.
 4. Rotate any separately shared export, host, or backup credentials.
+
+## Authorized audit-log retention purge
+
+Database `audit_logs` are retained indefinitely: Chronicle schedules no automatic purge.
+Audit evidence has a separate retention decision from participant or study erasure. An
+authorized database superuser may purge records older than six years only after the
+institution approves the cutoff and confirms that no legal, sponsor or investigation hold
+requires longer retention. Runtime application roles cannot delete these records.
+
+Record the approval, cutoff, affected database, executing operator and planned date in the
+controlled deletion register. Connect with the protected superuser credential, count rows
+matching the approved cutoff, then execute the following in a transaction. Review the count
+before `COMMIT`; use `ROLLBACK` if it differs from the approved scope:
+
+```sql
+BEGIN;
+SELECT count(*) FROM public.audit_logs
+WHERE timestamp < CURRENT_TIMESTAMP - INTERVAL '6 years';
+DELETE FROM public.audit_logs
+WHERE timestamp < CURRENT_TIMESTAMP - INTERVAL '6 years';
+-- COMMIT only after reviewing the affected-row count against the approved scope.
+```
+
+Record the affected-row count, completion timestamp and verification query result in the
+register. Apply the separate approved policy to structured audit files, forwarded logs and
+backup copies; the SQL operation does not erase those copies. Do not disable immutability
+triggers or broaden runtime grants to perform this purge.
 
 ## Backups can retain deleted records
 
@@ -169,17 +226,30 @@ From the active `selfhost/` directory:
 
 ```bash
 ./chronicle down
-# equivalent: docker compose down
 ```
 
 This removes running containers and the Compose network. It intentionally retains named
 volumes, `${CHRONICLE_STATE_DIR:-.}/backups`, TLS material, `.env`, and operator receipts.
-Running `docker compose up -d` later reuses them.
+Running `./chronicle up` later reuses them and resumes automatic reconciliation.
+Bare Compose commands do not update the stop marker.
 
 ## Remove the application and all installation storage
 
 This is irreversible. Do it only after export verification, retention/hold review, and an
 explicit decision about whether deletion tombstones and audit evidence must be preserved.
+
+### 0. Pause and remove automatic reconciliation
+
+From the active release, before removing any containers, volumes or state:
+
+```bash
+./chronicle down
+./chronicle reconcile uninstall
+```
+
+The first command persists the stop marker while holding the shared operation lock.
+The second removes only this project's `# chronicle-reconcile:<project>` crontab entries
+and its launcher, leaving other cron jobs intact. Do not continue if either command fails.
 
 ### 1. Record the exact ownership boundary
 
@@ -289,3 +359,12 @@ Also verify that the reviewed state/release paths and approved off-host copies n
 exist. Record the commands, approver, date, and retained proof in the controlled deletion
 register. A clean Docker inventory alone does not prove that backups or exported files were
 destroyed.
+
+## Copies delivered to study webhooks
+
+Enabled study webhooks send participant IDs and enrollment/data-submission event metadata to
+external HTTPS recipients. Local erasure removes Chronicle's delivery records and prevents
+further delivery, but cannot recall copies already delivered. Use the controlled recipient
+inventory from [CONFIGURATION.md](CONFIGURATION.md#study-webhook-recipients) to request and
+verify deletion at each recipient and its downstream processors and backups. Record the
+recipient, deletion request, completion evidence and any lawful retention exception.

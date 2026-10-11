@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+source "${ROOT_DIR}/tests/security/lib/selfhost-fixtures.sh"
 RESTORE_SCRIPT="${ROOT_DIR}/selfhost/restore.sh"
 FIXTURE_BIN="${ROOT_DIR}/tests/security/fixtures/selfhost-restore/commands"
 RUN_PARENT="${SELFHOST_RESTORE_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-restore}"
@@ -24,6 +25,8 @@ bash -n "$RESTORE_SCRIPT"
 # shellcheck disable=SC2016
 grep -Fq 'BACKUPS_DIR="${BACKUPS_DIR:-/backups}"' "$RESTORE_SCRIPT" ||
   fail "restore script must support a caller-owned backup directory for isolated contract tests"
+REAL_PYTHON="$(command -v python3)"
+export REAL_PYTHON ROOT_DIR
 for fixture_command in date gzip pg_dump psql; do
   [[ -x "${FIXTURE_BIN}/${fixture_command}" ]] ||
     fail "required fixture command is missing or not executable: ${FIXTURE_BIN}/${fixture_command}"
@@ -40,6 +43,17 @@ RUN_DIR="$(/usr/bin/mktemp -d "${RUN_PARENT}/run.XXXXXX")"
 /bin/chmod 0700 "$RUN_DIR"
 export TMPDIR="$RUN_DIR" TMP="$RUN_DIR" TEMP="$RUN_DIR"
 
+# The moved validator needs real gzip streams and the fixture's /selfhost mount.
+original_fixture_bin="$FIXTURE_BIN"
+FIXTURE_BIN="${RUN_DIR}/commands"
+mkdir "$FIXTURE_BIN"
+cp "${original_fixture_bin}/"* "$FIXTURE_BIN/"
+cat >"${FIXTURE_BIN}/python3" <<'SH'
+#!/usr/bin/env bash
+exec env PYTHONPATH="${ROOT_DIR}/selfhost" PYTHONDONTWRITEBYTECODE=1 "$REAL_PYTHON" "$@"
+SH
+chmod 0755 "${FIXTURE_BIN}/"*
+
 cleanup() {
   /bin/rm -rf -- "$RUN_DIR"
 }
@@ -54,17 +68,17 @@ run_direct_invocation_case() {
   local restore_file="${case_dir}/restore.sql.gz"
   local pg_dump_marker="${case_dir}/pg-dump.invoked"
   local psql_marker="${case_dir}/psql.invoked"
-  local output_file="${case_dir}/output.log"
+  local output_file="${case_dir}/output.log" trusted_sha256
 
   /bin/mkdir -p "$backups_dir"
   /bin/chmod 0700 "$case_dir" "$backups_dir"
-  printf '%s\n' '-- PostgreSQL database dump' '\restrict SyntheticRestriction' 'SELECT 1;' '\unrestrict SyntheticRestriction' | /usr/bin/gzip -c >"$restore_file"
+  trusted_sha256="$(write_trusted_restore_fixture "$restore_file")"
 
   set +e
   PATH="${FIXTURE_BIN}:/usr/bin:/bin" \
     BACKUPS_DIR="$backups_dir" \
     RESTORE_FILE="$restore_file" \
-    CHRONICLE_RESTORE_TRUSTED_SHA256="$(sha256sum "$restore_file" | cut -d ' ' -f1)" \
+    CHRONICLE_RESTORE_TRUSTED_SHA256="$trusted_sha256" \
     POSTGRES_PASSWORD="fixture-password" \
     POSTGRES_USER="chronicle" \
     POSTGRES_DB="chronicle" \
@@ -90,18 +104,18 @@ run_failure_case() {
   local restore_file="${case_dir}/restore.sql.gz"
   local pg_dump_marker="${case_dir}/pg-dump.invoked"
   local psql_marker="${case_dir}/psql.invoked"
-  local output_file="${case_dir}/output.log"
+  local output_file="${case_dir}/output.log" trusted_sha256
 
   /bin/mkdir -p "$backups_dir"
   /bin/chmod 0700 "$case_dir" "$backups_dir"
-  printf '%s\n' '-- PostgreSQL database dump' '\restrict SyntheticRestriction' 'SELECT 1;' '\unrestrict SyntheticRestriction' | /usr/bin/gzip -c >"$restore_file"
+  trusted_sha256="$(write_trusted_restore_fixture "$restore_file")"
 
   set +e
   PATH="${FIXTURE_BIN}:/usr/bin:/bin" \
     CHRONICLE_RESTORE_ORCHESTRATED=true \
     BACKUPS_DIR="$backups_dir" \
     RESTORE_FILE="$restore_file" \
-    CHRONICLE_RESTORE_TRUSTED_SHA256="$(sha256sum "$restore_file" | cut -d ' ' -f1)" \
+    CHRONICLE_RESTORE_TRUSTED_SHA256="$trusted_sha256" \
     POSTGRES_PASSWORD="fixture-password" \
     POSTGRES_USER="chronicle" \
     POSTGRES_DB="chronicle" \
@@ -132,13 +146,13 @@ run_unique_safety_dump_case() {
   local restore_file="${case_dir}/restore.sql.gz"
   local pg_dump_marker="${case_dir}/pg-dump.invoked"
   local psql_marker="${case_dir}/psql.invoked"
-  local output_file="${case_dir}/output.log"
+  local output_file="${case_dir}/output.log" trusted_sha256
   local victim="${case_dir}/must-not-be-overwritten"
   local legacy_name="${backups_dir}/pre-restore-20260811T120000Z.sql.gz"
 
   /bin/mkdir -p "$backups_dir"
   /bin/chmod 0700 "$case_dir" "$backups_dir"
-  printf '%s\n' '-- PostgreSQL database dump' '\restrict SyntheticRestriction' 'SELECT 1;' '\unrestrict SyntheticRestriction' | /usr/bin/gzip -c >"$restore_file"
+  trusted_sha256="$(write_trusted_restore_fixture "$restore_file")"
   printf 'preserve-me\n' >"$victim"
   /bin/ln -s "$victim" "$legacy_name"
 
@@ -147,7 +161,7 @@ run_unique_safety_dump_case() {
     CHRONICLE_RESTORE_ORCHESTRATED=true \
     BACKUPS_DIR="$backups_dir" \
     RESTORE_FILE="$restore_file" \
-    CHRONICLE_RESTORE_TRUSTED_SHA256="$(sha256sum "$restore_file" | cut -d ' ' -f1)" \
+    CHRONICLE_RESTORE_TRUSTED_SHA256="$trusted_sha256" \
     POSTGRES_PASSWORD="fixture-password" \
     POSTGRES_USER="chronicle" \
     POSTGRES_DB="chronicle" \

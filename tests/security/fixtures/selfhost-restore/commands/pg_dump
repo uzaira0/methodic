@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source "${ROOT_DIR:?}/tests/security/lib/selfhost-fixtures.sh"
 
 printf 'invoked\n' > "${SELFHOST_RESTORE_TEST_PG_DUMP_MARKER:?}"
 result_code="${SELFHOST_RESTORE_TEST_PG_DUMP_EXIT:-0}"
 if [[ "$result_code" == "0" ]]; then
-  printf 'SELECT 1;\n'
+  write_restore_sql_fixture
 fi
 exit "$result_code"
