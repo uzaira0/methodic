@@ -19,10 +19,8 @@
 # trusted; it is not a resolved dependency manifest, so scanning it reports
 # historical versions that are absent from every runtime graph.
 #
-# No CVE/vulnerability is ignored in this config: only non-source build/cache paths
-# are excluded. The resolved-dependency findings (netty 4.2.13->4.2.15,
-# grpc-protobuf 1.54.1->1.54.2, log4j-core 2.25.2->2.25.4, etc.) stay reported and
-# keep the build failing until the dependencies are bumped.
+# Resolved runtime vulnerabilities remain blocking except for the explicit,
+# package-and-version-scoped acceptances documented below.
 exclude:
   - './.gradle/**'
   - '**/.gradle/**'

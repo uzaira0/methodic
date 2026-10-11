@@ -66,13 +66,12 @@ flyway:
 
 # Deliberately NOT upgraded (a Rust service layer replaces these; see
 # docs/architecture/SENSING-PLAN-LANGUAGE-ROADMAP.md):
-#   spring-framework: 6.2.19   hazelcast: 5.5.0   android-agp: 9.0.1
+#   hazelcast: 5.5.0   android-agp: 9.0.1
 #
 # scripts/deps-freshness.sh compares every pin above with upstream and FAILS on a
 # major-version lag unless the component is listed here. Minor/patch lag is reported.
 freshness:
   accepted_behind:
-    - spring-framework   # 7.x: Spring 7 / Jakarta changes, replaced by Rust layer
     - hazelcast          # kept on 5.5 with spring 6
     - android-agp        # 9.0.x pinned to Gradle 9.3 pairing
     - flyway             # 12/13 changed licensing terms; review before moving
