@@ -1,26 +1,19 @@
-# Rendered by ../backend-entrypoint.sh at container start.
-#
-# Differs from the hardened reference template in one way that matters: the JDBC URL uses
-# sslmode=prefer instead of verify-full + a CA certificate. The self-host Postgres
-# runs on an internal Docker network with no externally-issued certificate, so
-# verify-full would fail closed at boot. Traffic to it never leaves the host.
-enable-persistence: false
-session-clustering-enabled: false
+# Rendered by ../backend-entrypoint.sh; the bundled PostgreSQL certificate is the trust anchor.
+enable-persistence: true
 
 hazelcast:
   server: true
   group: "chronicle-selfhost"
-  password: "${HAZELCAST_SERVER_PASSWORD}"
   cp-member-count: 0
   seed-nodes:
     - "localhost"
   port: 5710
+  interfaces: ["127.0.0.1"]
 
 hazelcast-clients:
   IDS:
     server: false
     group: "chronicle-selfhost"
-    password: "${HAZELCAST_CLIENT_PASSWORD}"
     cp-member-count: 0
     seed-nodes:
       - "127.0.0.1:5710"
@@ -28,7 +21,7 @@ hazelcast-clients:
 postgres:
   citus: false
   hikari:
-    jdbcUrl: "jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=prefer"
+    jdbcUrl: "jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=verify-full&sslrootcert=/etc/postgres-tls/postgres.crt"
     username: "${POSTGRES_USER}"
     password: "${POSTGRES_PASSWORD}"
     maximumPoolSize: 20
@@ -43,7 +36,7 @@ datasources:
     citus: false
     initialize-tables: true
     hikari:
-      jdbcUrl: "jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=prefer"
+      jdbcUrl: "jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=verify-full&sslrootcert=/etc/postgres-tls/postgres.crt"
       username: "${POSTGRES_USER}"
       password: "${POSTGRES_PASSWORD}"
       maximumPoolSize: 20

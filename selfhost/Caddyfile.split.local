@@ -15,7 +15,10 @@
 # machine's LAN address, e.g. 192.168.1.50 -- and signs it with a root that lives in the
 # caddy_data volume. Devices reject it until that root is installed on them, which is what
 # the /local-ca.crt route below is for.
+import snippets.caddy
+
 {
+	import chronicle_default_log
 	# NOT `auto_https off`, unlike every other variant. That switch turns off certificate
 	# management as well as the redirects, and this mode has nothing else to get a
 	# certificate from -- the listener would come up with no TLS at all. `disable_redirects`
@@ -41,13 +44,12 @@
 	order rate_limit before basic_auth
 
 	servers {
+		import chronicle_listener_timeouts
 		trusted_proxies static {$CADDY_TRUSTED_PROXIES:127.0.0.1/32}
 		trusted_proxies_strict
 		client_ip_headers X-Forwarded-For
 	}
 }
-
-import snippets.caddy
 
 # ---------------------------------------------------------------------------
 # PUBLIC — reachable from the local network, TLS from the internal CA.
@@ -112,7 +114,7 @@ http://{$DOMAIN} {
 	route {
 		import chronicle_health
 		import chronicle_public_entrypoints
-		# Allowlist + password first: everything below is researcher surface.
+		# Allowlist first: everything below is researcher surface.
 		import chronicle_dashboard_guard
 		import chronicle_deny_direct
 		import chronicle_mobile
@@ -120,3 +122,5 @@ http://{$DOMAIN} {
 		import chronicle_spa
 	}
 }
+
+import /etc/caddy/monitoring/*.caddy

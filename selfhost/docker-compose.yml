@@ -67,7 +67,7 @@ services:
     entrypoint: ["/bin/bash", "/selfhost/guard-config.sh"]
     # No network: `upgrade` runs this guard while the previous release still owns the
     # project network, and joining it would make Compose recreate a network whose config
-    # changed (2026.10.5 pins its subnet), disconnecting the running stack.
+    # changed (2026.10.9 pins its subnet), disconnecting the running stack.
     network_mode: none
     environment:
       TLS_MODE: ""
@@ -85,6 +85,7 @@ services:
       CHRONICLE_SUBNET: ${CHRONICLE_SUBNET:-172.28.0.0/16}
       CHRONICLE_TRUSTED_PROXY_CIDRS: ${CHRONICLE_SUBNET:-172.28.0.0/16}
       CADDY_TRUSTED_PROXIES: ${CADDY_TRUSTED_PROXIES:-127.0.0.1/32}
+      POOL_ALLOWED_IPS: ${POOL_ALLOWED_IPS:-0.0.0.0/0 ::/0}
       # Checked for digest pinning outside source checkouts (guard-config.sh).
       BACKEND_IMAGE: ${BACKEND_IMAGE:-}
       SELFHOST_FRONTEND_IMAGE: ${SELFHOST_FRONTEND_IMAGE:-}
@@ -171,9 +172,14 @@ services:
       # Extra names for the self-signed dashboard certificate, in openssl SAN syntax, e.g.
       # "DNS:chronicle.internal,IP:10.0.0.9".
       INTERNAL_CERT_SANS: ${INTERNAL_CERT_SANS:-}
+      DASHBOARD_BASE_URL: ${DASHBOARD_BASE_URL:-}
+      POSTGRES_TLS_DIR: /postgres-tls
+      BACKEND_TLS_DIR: /backend-tls
     volumes:
       - .:/selfhost:ro
       - "${CHRONICLE_STATE_DIR:-.}/tls:/tls"
+      - postgres_tls:/postgres-tls
+      - backend_tls:/backend-tls
     security_opt:
       - no-new-privileges:true
     # Root only for chown/chmod of mounted paths; none of Docker's other default capabilities.
@@ -227,6 +233,8 @@ services:
     entrypoint: ["/bin/bash", "/selfhost/db-init.sh"]
     environment:
       ENABLE_ENCRYPTION: ${ENABLE_ENCRYPTION:-true}
+      PGSSLMODE: verify-full
+      PGSSLROOTCERT: /etc/postgres-tls/postgres.crt
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-chronicle}
@@ -235,6 +243,7 @@ services:
       # init-tde.sh rewrites whole tables; never cut it off with the server's timeouts.
       PGOPTIONS: "-c statement_timeout=0 -c lock_timeout=0 -c idle_in_transaction_session_timeout=0"
     volumes:
+      - postgres_tls:/etc/postgres-tls:ro
       # Read-only, and also the reference for who owns ./backups: nothing in a container
       # knows the operator's uid, but this directory is theirs.
       - .:/selfhost:ro
@@ -278,6 +287,8 @@ services:
       # overlay wrote, /backups/last/chronicle-latest.sql.gz.
       RESTORE_FILE: ${RESTORE_FILE:-}
       ENABLE_ENCRYPTION: ${ENABLE_ENCRYPTION:-true}
+      PGSSLMODE: verify-full
+      PGSSLROOTCERT: /etc/postgres-tls/postgres.crt
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-chronicle}
@@ -287,6 +298,7 @@ services:
       # was dropped would leave only the safety dump.
       PGOPTIONS: "-c statement_timeout=0 -c lock_timeout=0 -c idle_in_transaction_session_timeout=0"
     volumes:
+      - postgres_tls:/etc/postgres-tls:ro
       - .:/selfhost:ro
       # Read-write: the script writes a pre-restore snapshot here before it drops anything.
       - "${CHRONICLE_STATE_DIR:-.}/backups:/backups"
@@ -304,6 +316,7 @@ services:
         condition: service_healthy
 
   postgres:
+    networks: [default, database-probe]
     image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE to the digest-pinned release image from .env.example}
     restart: unless-stopped
     logging: *default-logging
@@ -344,6 +357,8 @@ services:
       - -c
       - max_wal_size=${POSTGRES_MAX_WAL_SIZE:-2GB}
       - -c
+      - max_slot_wal_keep_size=${POSTGRES_MAX_SLOT_WAL_KEEP_SIZE:-4GB}
+      - -c
       - min_wal_size=${POSTGRES_MIN_WAL_SIZE:-512MB}
       - -c
       - random_page_cost=${POSTGRES_RANDOM_PAGE_COST:-1.1}
@@ -353,7 +368,17 @@ services:
       # init-tde.sh creates the extension -- because loading it costs nothing and making
       # the argument conditional would mean templating the whole command block.
       - -c
-      - shared_preload_libraries=pg_tde
+      - shared_preload_libraries=pg_tde,pg_stat_statements
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/etc/postgres-tls/postgres.crt
+      - -c
+      - ssl_key_file=/etc/postgres-tls/postgres.key
+      - -c
+      - ssl_min_protocol_version=TLSv1.2
+      - -c
+      - hba_file=/etc/postgres-hba.conf
       # A parallel scan or aggregate over a pg_tde table segfaults the backend and takes
       # the whole cluster down with it; we hit exactly this on the production stack, where
       # it is worked around per-session with SET max_parallel_workers_per_gather = 0.
@@ -387,6 +412,8 @@ services:
       # mounts /data/db for this reason -- docker/docker-compose.traefik.yml.
       - postgres_data:/data/db
       - postgres_tde_keyring:/var/lib/postgresql/tde-keyring
+      - postgres_tls:/etc/postgres-tls:ro
+      - ./config/postgres-hba.conf:/etc/postgres-hba.conf:ro
       # The backend runs SET ROLE chronicle_app on the request path, so every table it
       # touches must be granted to that role. Without this, only the 44 tables whose own
       # Flyway migration happened to include an explicit GRANT were reachable: reading
@@ -401,6 +428,8 @@ services:
     expose:
       - "5432"
     depends_on:
+      cert-init:
+        condition: service_completed_successfully
       config-guard:
         condition: service_completed_successfully
     security_opt:
@@ -552,6 +581,8 @@ services:
       # audit_logs at this same path for exactly this reason.
       - audit_logs:/var/log/chronicle
       - export_data:/exports
+      - postgres_tls:/etc/postgres-tls:ro
+      - backend_tls:/server/tls:ro
     entrypoint: ["/bin/sh", "/server/backend-entrypoint.sh"]
     command: []
     security_opt:
@@ -581,6 +612,7 @@ services:
         condition: service_completed_successfully
     expose:
       - "40320"
+      - "8443"
     healthcheck:
       # Readiness is intentionally dependency-aware: a live JVM with unavailable PostgreSQL
       # or Hazelcast must not admit traffic or release dependent services. A fresh encrypted
@@ -639,6 +671,7 @@ services:
       # service definition serves every mode.
       DOMAIN: ${DOMAIN:?set DOMAIN in .env}
       CADDY_TRUSTED_PROXIES: ${CADDY_TRUSTED_PROXIES:-127.0.0.1/32}
+      POOL_ALLOWED_IPS: ${POOL_ALLOWED_IPS:-0.0.0.0/0 ::/0}
       # Compose resolves the default before Caddy parses its configuration, giving the
       # dashboard the same canonical participant origin rendered into backend manifests.
       CHRONICLE_PUBLIC_BASE_URL: "${CHRONICLE_PUBLIC_BASE_URL:-https://${DOMAIN}}"
@@ -652,9 +685,9 @@ services:
       CHRONICLE_INTERNAL_WEB_SECRET: ${CHRONICLE_INTERNAL_WEB_SECRET:?set CHRONICLE_INTERNAL_WEB_SECRET in .env}
       # Propagate the documented edge-rate controls. Without these entries, values in .env
       # never reached Caddy and its inline defaults silently won.
-      RATE_LIMIT_MOBILE_EVENTS: ${RATE_LIMIT_MOBILE_EVENTS:-20}
+      RATE_LIMIT_MOBILE_ABUSE_EVENTS: ${RATE_LIMIT_MOBILE_ABUSE_EVENTS:-200}
       RATE_LIMIT_MOBILE_WINDOW: ${RATE_LIMIT_MOBILE_WINDOW:-1s}
-      RATE_LIMIT_WEB_EVENTS: ${RATE_LIMIT_WEB_EVENTS:-20}
+      RATE_LIMIT_WEB_ABUSE_EVENTS: ${RATE_LIMIT_WEB_ABUSE_EVENTS:-200}
       RATE_LIMIT_WEB_WINDOW: ${RATE_LIMIT_WEB_WINDOW:-1s}
       RATE_LIMIT_GUARD_EVENTS: ${RATE_LIMIT_GUARD_EVENTS:-300}
       RATE_LIMIT_GUARD_WINDOW: ${RATE_LIMIT_GUARD_WINDOW:-1m}
@@ -700,10 +733,12 @@ services:
       retries: 3
 
 volumes:
+  postgres_tls:
+  backend_tls:
   postgres_data:
   # The TDE key lives on its OWN volume, never inside postgres_data. A key stored beside
   # the data it encrypts is decoration -- whoever copies the data volume copies the key
-  # with it. Keeping them separate is what makes a stolen postgres_data useless.
+  # with it. Table storage is encrypted; WAL still requires encrypted host storage.
   postgres_tde_keyring:
   frontend_build:
   export_data:
@@ -714,6 +749,8 @@ volumes:
   # wrong for a record you may have to produce later.
   audit_logs:
 networks:
+  database-probe:
+    internal: true
   default:
     ipam:
       config:

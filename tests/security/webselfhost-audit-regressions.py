@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Isolated launch-audit regressions; never contacts a deployment."""
-import ast
-import secrets
 import itertools
 import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -20,46 +19,37 @@ class AuditRegressions(unittest.TestCase):
     def test_cross_S03_contract2_refused_before_drop(self):
         source = (ROOT / 'selfhost/restore.sh').read_text()
         branch = source.split('else\n  checkpoint_rows=', 1)[1].split('\nfi\n\n# Treat a resumed', 1)[0]
+        initialization = source[source.index('RESTORE_CONTINUITY_CONTRACT_VERSION=$(cat '):
+                                source.index('\nreadonly CHECKPOINT_DIGEST_SQL')]
+        current_contract = (ROOT / 'selfhost/restore-continuity.version').read_text().strip()
         shell = '''set -euo pipefail
 psql_q() { if [[ "$*" == *contract_version* ]]; then printf '%s' "$CONTRACT"; else printf 1; fi; }
-checkpoint_rows=''' + branch + '\nprintf accepted > "$MARKER"\n'
+''' + initialization + '\ncheckpoint_rows=' + branch + '\nprintf accepted > "$MARKER"\n'
         with tempfile.TemporaryDirectory() as d:
-            for contract in ('2', '3', 'unknown'):
+            for contract in ('2', '3', '4', current_contract, 'unknown'):
                 marker = Path(d) / contract
                 result = subprocess.run(['bash', '-c', shell], env={**os.environ,
-                    'CONTRACT': contract, 'MARKER': str(marker)}, capture_output=True)
-                self.assertEqual(result.returncode == 0, contract == '3', result.stderr.decode())
-                self.assertEqual(marker.exists(), contract == '3')
+                    'CONTRACT': contract, 'MARKER': str(marker),
+                    'RESTORE_SQL_DIR': str(ROOT / 'selfhost')}, capture_output=True)
+                self.assertEqual(result.returncode == 0, contract == current_contract, result.stderr.decode())
+                self.assertEqual(marker.exists(), contract == current_contract)
+                if contract != current_contract:
+                    self.assertIn(f'unsupported contract {contract}', result.stderr.decode())
 
     def test_W01_rollback_consumes_only_complete_checkpoint(self):
-        source = (ROOT / 'selfhost/restore.sh').read_text()
-        block = source[source.index('if [[ "${CHRONICLE_RESTORE_LEAVE_STOPPED'):source.index('# 7. Report')]
-        self.assertIn('DROP SCHEMA chronicle_restore_continuity', block)
-        self.assertIn('BEGIN;', block)
-        self.assertIn('COMMIT;', block)
-        canonical = re.findall(r'WITH canonical\(line\) AS \((.*?)\), digest AS \(', source, re.S)
-        self.assertEqual(len(canonical), 2)
-        self.assertEqual(re.sub(r'\s+', ' ', canonical[0]).strip(), re.sub(r'\s+', ' ', canonical[1]).strip())
-        self.assertIn('actual_digest IS DISTINCT FROM expected.checkpoint_sha256', block)
-        self.assertIn('to_jsonb(target) @> to_jsonb(source)', block)
-        for table in ('withdrawal_requests', 'revoked_api_keys', 'withdrawn_participants',
-                      'deletion_operations', 'retention_holds', 'deletion_tombstones',
-                      'data_collection_settings_revisions', 'published_data_collection_settings',
-                      'enrollment_invitations', 'erased_device_key_tombstones'):
-            self.assertIn('chronicle_restore_continuity.' + table, block)
-        with tempfile.TemporaryDirectory() as d:
-            script = Path(d) / 'rollback.sh'
-            script.write_text('set -euo pipefail\npsql_q() {\n sql=$(cat)\n [[ "$sql" == *"RAISE EXCEPTION"* && "$sql" == *"DROP SCHEMA"* ]] || exit 90\n [[ "$PROOF" == complete ]] || return 1\n printf consumed >"$MARKER"\n}\n' + block)
-            for proof in ('complete', 'unknown', 'incomplete'):
-                marker = Path(d) / proof
-                result = subprocess.run(['bash', str(script)], env={**os.environ,
-                    'CHRONICLE_RESTORE_LEAVE_STOPPED': 'true', 'PROOF': proof, 'MARKER': str(marker)}, capture_output=True)
-                self.assertEqual(result.returncode == 0, proof == 'complete')
-                self.assertEqual(marker.exists(), proof == 'complete')
+        sys.path.insert(0, str(ROOT / 'selfhost'))
+        sys.path.insert(0, str(ROOT / 'tests/selfhost-py'))
+        from test_restore import RestoreTransactionTests
+        check = RestoreTransactionTests(
+            'test_continuity_proof_and_dump_share_transaction_and_producer_failure_cannot_commit')
+        result = unittest.TestResult()
+        check.run(result)
+        self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
 
     def test_W02_shares_are_data_and_validated(self):
         source = (ROOT / 'docker/key-recovery.sh').read_text()
         function = source[source.index('python_combine() {'):source.index('# ── Reconstruct key')]
+        function = function.replace('$(dirname "${BASH_SOURCE[0]}")', str(ROOT / 'docker'))
         with tempfile.TemporaryDirectory() as d:
             marker = Path(d) / 'injected'
             good = ['1-001122', '2-112233', '3-223344']
@@ -67,6 +57,8 @@ checkpoint_rows=''' + branch + '\nprintf accepted > "$MARKER"\n'
             for values in ([hostile, *good[1:]], ['1-00','1-11','3-22'],
                            ['0-00','2-11','3-22'], ['256-00','2-11','3-22'],
                            ['1-zz','2-11','3-22'], ['1-00','2-1122','3-22'],
+                           [' 1-00','2-11','3-22'], ['1-00 ','2-11','3-22'],
+                           ['1-00\r','2-11','3-22'],
                            [*good,'4-nothex']):
                 files = []
                 for n, value in enumerate(values):
@@ -74,6 +66,12 @@ checkpoint_rows=''' + branch + '\nprintf accepted > "$MARKER"\n'
                 result = subprocess.run(['bash','-c', function + '\npython_combine 3 "$@"','combine',*files],capture_output=True)
                 self.assertNotEqual(result.returncode, 0, values)
                 self.assertFalse(marker.exists())
+            for n, value in enumerate(good):
+                (Path(d) / f'share-{n}.txt').write_text(value + '\n')
+            accepted = subprocess.run(['bash','-c', function + '\npython_combine 3 "$@"','combine',
+                *(str(Path(d) / f'share-{n}.txt') for n in range(3))],capture_output=True)
+            self.assertEqual(accepted.returncode, 0, accepted.stderr.decode())
+            self.assertEqual(len(bytes.fromhex(accepted.stdout.decode().strip())), 3)
 
     def test_W03_rotation_updates_authority_and_rolls_back(self):
         source = (ROOT / 'scripts/rotate-secrets.sh').read_text()
@@ -159,28 +157,55 @@ docker() {
             self.assertEqual((root/'env').read_text(),initial)
             self.assertEqual((secret_dir/'postgres_password').read_text(),'old-password')
 
+    def test_deploy_automatic_rollback_loads_previous_state(self):
+        source = (ROOT / 'scripts/deploy.sh').read_text()
+        loader = source[source.index('load_rollback_state() {'):source.index('# Health checks')]
+        rollback = source[source.index('rollback_deployment() {'):source.index('# Main')]
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            previous = {'tag':'v1.2.3', 'backend-image':'registry/previous-backend',
+                        'frontend-image':'registry/previous-frontend',
+                        'backend-digest':'1'*64, 'frontend-digest':'2'*64}
+            shell = r'''set -euo pipefail
+log_info() { :; }; log_audit() { :; }; log_error() { :; }
+compose_cmd() { [[ "$*" == "up -d --no-deps chronicle-backend chronicle-frontend" ]]; }
+wait_for_healthy() { return 0; }
+pull_images() {
+  printf '%s\n' "$IMAGE_TAG" "$BACKEND_IMAGE" "$FRONTEND_IMAGE" "$BACKEND_DIGEST" "$FRONTEND_DIGEST"
+  BACKEND_DIGEST=${BACKEND_DIGEST:-3333333333333333333333333333333333333333333333333333333333333333}
+  FRONTEND_DIGEST=${FRONTEND_DIGEST:-4444444444444444444444444444444444444444444444444444444444444444}
+}
+''' + loader + rollback + '\nrollback_deployment\n'
+            env = {**os.environ,'STATE_DIR':str(root),'ENVIRONMENT':'fixture','IMAGE_TAG':'failed',
+                   'BACKEND_HEALTH_TIMEOUT':'1','FRONTEND_HEALTH_TIMEOUT':'1',
+                   'BACKEND_IMAGE':'registry/current-backend','FRONTEND_IMAGE':'registry/current-frontend',
+                   'BACKEND_DIGEST':'5'*64,'FRONTEND_DIGEST':'6'*64}
+            for sparse in (False, True):
+                for key, value in previous.items():
+                    path = root / ('previous-' + key)
+                    if sparse and key != 'tag':
+                        path.unlink()
+                    else:
+                        path.write_text(value + '\n')
+                result = subprocess.run(['bash','-c',shell],env=env,capture_output=True,text=True)
+                self.assertEqual(result.returncode,0,result.stderr)
+                expected = [previous['tag'], env['BACKEND_IMAGE'], env['FRONTEND_IMAGE'], '', ''] if sparse else list(previous.values())
+                self.assertEqual(result.stdout.splitlines(),expected)
+                for key, value in zip(previous, expected):
+                    if key.endswith('digest') and sparse:
+                        value = ('3' if key == 'backend-digest' else '4') * 64
+                    self.assertEqual((root / ('current-' + key)).read_text().strip(),value)
+
     def test_W04_all_inverses_and_threshold_subsets(self):
-        implementations = []
-        for name in ('docker/key-recovery.sh','docker/key-ceremony.sh'):
-            source = (ROOT / name).read_text()
-            bodies = re.findall(r"<<'PYEOF'\n(.*?)\nPYEOF",source,re.S)
-            for body in bodies:
-                tree = ast.parse(body)
-                functions = [node for node in tree.body if isinstance(node,ast.FunctionDef)]
-                if not any(node.name == 'gf256_inv' for node in functions): continue
-                scope = {'secrets':secrets}
-                exec(compile(ast.Module(body=functions,type_ignores=[]),name,'exec'),scope)
-                for a in range(1,256):
-                    self.assertEqual(scope['gf256_mul'](a,scope['gf256_inv'](a)),1,(name,a))
-                implementations.append(scope)
-        splitter = next(scope for scope in implementations if 'make_shares' in scope)
+        sys.path.insert(0, str(ROOT / 'docker'))
+        import shamir
+        for a in range(1,256):
+            self.assertEqual(shamir.gf256_mul(a,shamir.gf256_inv(a)),1,a)
         secret = bytes(range(16))
-        shares = splitter['make_shares'](secret,3,5)
-        for scope in implementations:
-            if 'lagrange_interpolate' not in scope: continue
-            for subset in itertools.combinations(range(5),3):
-                recovered = bytes(scope['lagrange_interpolate']([(n+1,shares[n][pos]) for n in subset],3) for pos in range(len(secret)))
-                self.assertEqual(recovered,secret)
+        shares = shamir.make_shares(secret,3,5)
+        for subset in itertools.combinations(range(5),3):
+            recovered = bytes(shamir.lagrange_interpolate([(n+1,shares[n][pos]) for n in subset],3) for pos in range(len(secret)))
+            self.assertEqual(recovered,secret)
 
     def test_W05_backup_passphrase_roundtrips_bytes(self):
         source = (ROOT / 'docker/key-recovery.sh').read_text()
@@ -240,24 +265,28 @@ docker() {
 
     def test_W14_only_reviewed_restricted_dumps_restore(self):
         import gzip, hashlib
-        host = (ROOT / 'selfhost/chronicle').read_text()
+        sys.path.insert(0, str(ROOT / 'selfhost'))
+        from chronicle_ops.dump import DumpError, validate_dump
+        # The container script delegates to the same validator before any database mutation.
         container = (ROOT / 'selfhost/restore.sh').read_text()
-        self.assertIn('verify_restore_dump "$restore_host_path"',host)
-        self.assertLess(host.index('verify_restore_dump "$restore_host_path"'),host.index('Stopping application access'))
-        self.assertIn('verify_restore_dump "$RESTORE_FILE"',container)
-        function = container[container.index('verify_restore_dump() {'):container.index('# ---------------------------------------------------------------------------------------')]
+        self.assertIn('python3 -m chronicle_ops.dump', container)
+        self.assertLess(container.index('verify_restore_dump "$RESTORE_FILE"'), container.index('DROP SCHEMA'))
+        complete = b'-- PostgreSQL database dump complete\n'
         with tempfile.TemporaryDirectory() as d:
-            for payload, accepted in [(b'-- PostgreSQL database dump\n\\restrict token123\nSELECT 1;\n\\unrestrict token123\n',True),
-                (b'-- PostgreSQL database dump\n\\restrict token123\nCOPY public.x FROM stdin;\n\\! this-is-copy-data\n\\.\n\\unrestrict token123\n',True),
-                (b'-- PostgreSQL database dump\n\\restrict token123\n\\! touch owned\n\\unrestrict token123\n',False),
-                (b"-- PostgreSQL database dump\n\\restrict token123\nCOPY x FROM PROGRAM 'touch owned';\n\\unrestrict token123\n",False),
-                (b'-- PostgreSQL database dump\n\\restrict token123\nSELECT 1; \\unrestrict token123\nSELECT 1; \\! touch owned\n\\unrestrict token123\n',False),
+            for payload, accepted in [(b'-- PostgreSQL database dump\n\\restrict token123\nSELECT 1;\n' + complete + b'\\unrestrict token123\n',True),
+                (b'-- PostgreSQL database dump\n\\restrict token123\nCOPY public.x FROM stdin;\n\\! this-is-copy-data\n\\.\n' + complete + b'\\unrestrict token123\n',True),
+                (b'-- PostgreSQL database dump\n\\restrict token123\n\\! touch owned\n' + complete + b'\\unrestrict token123\n',False),
+                (b"-- PostgreSQL database dump\n\\restrict token123\nCOPY x FROM PROGRAM 'touch owned';\n" + complete + b'\\unrestrict token123\n',False),
+                (b'-- PostgreSQL database dump\n\\restrict token123\nSELECT 1; \\unrestrict token123\nSELECT 1; \\! touch owned\n' + complete + b'\\unrestrict token123\n',False),
                 (b'SELECT 1;\n',False)]:
                 dump = Path(d) / 'dump.gz'; dump.write_bytes(gzip.compress(payload))
                 for trusted in (True,False):
                     digest = hashlib.sha256(dump.read_bytes()).hexdigest() if trusted else '0'*64
-                    result = subprocess.run(['bash','-c',function+'\nverify_restore_dump "$1" "$2"','verify',str(dump),digest],capture_output=True)
-                    self.assertEqual(result.returncode==0,accepted and trusted,result.stderr.decode())
+                    try:
+                        validate_dump(dump, digest); valid = True
+                    except DumpError:
+                        valid = False
+                    self.assertEqual(valid, accepted and trusted, payload)
 
     def test_W31_independent_monitoring_guard(self):
         source = (ROOT / 'selfhost/monitoring/render-config.sh').read_text()
@@ -282,9 +311,33 @@ docker() {
         pattern = re.search(r'path_regexp (.+)',block).group(1)
         self.assertIn('request_header @publicResearcherSurface -Authorization',block)
         for path in ('/chronicle/v3/study/abc','/chronicle/v3/study/abc/participants',
-                     '/chronicle/v3/%73tudy/abc','/chronicle%2fv3%2fstudy%2fabc'):
+                     '/chronicle/v3/%73tudy/abc','/chronicle%2fv3%2fstudy%2fabc',
+                     '/chronicle/v3/permissions','/chronicle/v3/admin/abc',
+                     '/chronicle/v2/study/abc','/chronicle/v4/study/abc','/chronicle/study/abc',
+                     '/chronicle/v3/time-use-diary/abc/submit',
+                     '/chronicle/v3/time-use-diary/abc/participant/p1',
+                     '/chronicle/v3/time-use-diary/abc/settings'):
             self.assertTrue(re.search(pattern,unquote(path)))
-        self.assertFalse(re.search(pattern,'/chronicle/v3/time-use-diary/abc/submit'))
+        # The public boundary strips researcher cookies while retaining participant sessions.
+        cookie_rewrites = re.findall(r'^\s*request_header Cookie `([^`]+)` "([^"\n]*)"\s*$',block,re.M)
+        self.assertTrue(cookie_rewrites, 'Researcher cookies must be removed before proxying')
+        for cookie,expected in (
+                ('chronicle_auth=jwt; ol_csrf_token=x','ol_csrf_token=x'),
+                ('__Host-chronicle-form=session; authorization=Bearer%20jwt','__Host-chronicle-form=session'),
+                ('__Host-chronicle-form=session','__Host-chronicle-form=session'),
+                ('chronicle_auth=jwt; authorization=Bearer%20jwt',''),
+                ('authorization=jwt; __Host-chronicle-form=session; chronicle_auth=jwt; ol_csrf_token=x',
+                 '__Host-chronicle-form=session; ol_csrf_token=x'),
+                ('other_chronicle_auth=value; __Host-chronicle-form=session',
+                 'other_chronicle_auth=value; __Host-chronicle-form=session'),
+                ('\tchronicle_auth =jwt;\tauthorization =jwt; __Host-chronicle-form=session',
+                 '__Host-chronicle-form=session')):
+            stripped = cookie
+            for cookie_pattern,replacement in cookie_rewrites:
+                stripped = re.sub(cookie_pattern,replacement,stripped)
+            self.assertEqual(stripped,expected,cookie)
+        for header in ('Cookie','X-Api-Key','X-Chronicle-Form-CSRF','Idempotency-Key'):
+            self.assertNotIn(f'-{header}',block)
         for name in ('Caddyfile.split','Caddyfile.split.local','Caddyfile.split.tls'):
             source = (ROOT / 'selfhost' / name).read_text()
             public, internal = source.split(':8081 {',1)

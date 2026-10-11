@@ -21,6 +21,7 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
+SCRATCH_DIR = ROOT / "build/operator-test-runs" / Path(__file__).stem
 
 
 def read(path: str) -> str:
@@ -51,9 +52,10 @@ def check_w11() -> None:
 
 def check_w12() -> None:
     snippets = read("selfhost/caddy/snippets.caddy")
-    matchers = re.findall(r"(?m)^\s*@(?:hashed path_regexp|shell not path_regexp) (.+)$", snippets)
-    assert len(matchers) == 2 and matchers[0] == matchers[1]
-    pattern = re.compile(matchers[0])
+    spa = snippets.split("(chronicle_spa) {", 1)[1]
+    matcher = re.search(r"@hashed\s*\{\s*path_regexp ([^\n]+)\s+file\s*\}", spa)
+    assert matcher, "immutable caching must require both a hashed path and an existing file"
+    pattern = re.compile(matcher.group(1))
     assert pattern.fullmatch("/chunk-app123.js")
     assert pattern.fullmatch("/chunk-style9.css")
 
@@ -65,8 +67,11 @@ def check_w12() -> None:
         assert pattern.fullmatch(f"/fonts/{font.stem}-{digest}.woff2"), font.name
     assert not pattern.fullmatch("/fonts/atkinson-hyperlegible-latin-400-normal.woff2")
     assert not pattern.fullmatch("/index.html")
-    assert 'header @hashed Cache-Control "public, max-age=31536000, immutable"' in snippets
-    assert 'header @shell Cache-Control "no-cache"' in snippets
+    directives = ('route {', 'header Cache-Control "no-cache"', '@hashed {',
+                  'header @hashed Cache-Control "public, max-age=31536000, immutable"',
+                  'try_files {path} /index.html', 'file_server')
+    positions = [spa.index(directive) for directive in directives]
+    assert positions == sorted(positions), "cache policy must be set before the SPA fallback rewrite"
 
 
 def check_w13() -> None:
@@ -135,7 +140,7 @@ def check_w50() -> None:
     builder = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(builder)
 
-    scratch = Path("/home/opt/chronicle_work/launch-audit-1003/sol/testtmp")
+    scratch = SCRATCH_DIR
     scratch.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="W50-", dir=scratch) as temporary:
         fixture_root = Path(temporary)
@@ -224,20 +229,6 @@ def check_w52() -> None:
     snippets = read("selfhost/caddy/snippets.caddy")
     assert "key {client_ip}" in snippets
 
-    def strict_client_ip(forwarded: str, remote: str, trusted: list[str]) -> str:
-        networks = [ipaddress.ip_network(cidr) for cidr in trusted]
-        chain = [part.strip() for part in forwarded.split(",") if part.strip()] + [remote]
-        for address in reversed(chain):
-            candidate = ipaddress.ip_address(address)
-            if any(candidate in network for network in networks):
-                continue
-            return address
-        return remote
-
-    assert strict_client_ip(
-        "203.0.113.7, 198.51.100.9", "10.40.0.12", ["10.40.0.0/24"]
-    ) == "198.51.100.9"
-    assert strict_client_ip("", "198.51.100.10", ["10.40.0.0/24"]) == "198.51.100.10"
     validator = ROOT / "selfhost" / "guard-config.sh"
     valid = subprocess.run(
         ["bash", str(validator), "--validate-forwarder-cidrs", "10.40.0.0/24 2001:db8:1234::/48"],
@@ -347,9 +338,9 @@ def check_w61() -> None:
     vault = compose["vault"]
     assert "ALL" in vault["cap_drop"]
     assert vault["cap_add"] == ["IPC_LOCK"]
-    socket_proxy = compose["docker-socket-proxy"]
+    socket_proxy = yaml.safe_load(read("selfhost/overlays/monitoring.yml"))["services"]["docker-socket-proxy"]
     assert 1 <= socket_proxy["pids_limit"] <= 128
-    assert socket_proxy["environment"]["POST"] == 0
+    assert str(socket_proxy["environment"]["POST"]) == "0"
     assert "/var/run/docker.sock:/var/run/docker.sock:ro" in socket_proxy["volumes"]
 
 
@@ -403,7 +394,7 @@ def check_w68() -> None:
     assert "newTag:" not in read("k8s/overlays/production/kustomization.yaml")
 
     renderer = ROOT / "scripts" / "render-k8s-production.sh"
-    scratch = Path("/home/opt/chronicle_work/launch-audit-1003/sol/testtmp")
+    scratch = SCRATCH_DIR
     scratch.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="W68-", dir=scratch) as temporary:
         work = Path(temporary)
@@ -462,14 +453,14 @@ def check_w67() -> None:
 
     publisher = read("scripts/publish-images.sh")
     assert "--ignore-unfixed" not in publisher, "unfixed high/critical advisories must not be implicitly waived"
-    scan_at = publisher.index('run bash "$root/scripts/scan-selfhost-release-images.sh"')
+    scan_at = publisher.index("stamp 'scan release runtime dependencies'")
     push_at = publisher.index("stamp push")
     assert scan_at < push_at < publisher.index('run docker push "$backend"')
     ignore = yaml.safe_load(read(".trivyignore.yaml"))["vulnerabilities"]
     assert ignore and all((item.get("paths") or item.get("purls")) and item.get("statement") and item.get("expired_at") for item in ignore)
 
     helper = ROOT / "scripts" / "scan-selfhost-release-images.sh"
-    scratch = Path("/home/opt/chronicle_work/launch-audit-1003/sol/testtmp")
+    scratch = SCRATCH_DIR
     scratch.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="W67-", dir=scratch) as temporary:
         fixture = Path(temporary)
@@ -490,28 +481,39 @@ def check_w67() -> None:
         env = os.environ.copy()
         env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
         env["TRIVY_LOG"] = str(log)
-        passed = subprocess.run(
-            ["bash", str(helper)], cwd=ROOT, env=env, check=False,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-        )
-        assert passed.returncode == 0, passed.stderr
-        scanned = [line.split()[-1] for line in log.read_text(encoding="utf-8").splitlines()]
-        assert scanned == sorted(expected), (scanned, sorted(expected))
-
-        log.unlink()
-        env["TRIVY_FAIL_IMAGE"] = sorted(expected)[0]
-        failed = subprocess.run(
-            ["bash", str(helper)], cwd=ROOT, env=env, check=False,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-        )
-        assert failed.returncode != 0, "a HIGH/CRITICAL scanner failure must stop release scanning"
-        assert len(log.read_text(encoding="utf-8").splitlines()) == 1
+        explicit = ["ghcr.io/example/backend:v1.2.3", "ghcr.io/example/frontend:v1.2.3"]
+        scan_function = publisher[publisher.index('scan_image() {'):publisher.index('stamp "build $caddy"')]
+        published = ['bash', '-c', 'set -euo pipefail\nroot=$ROOT\nrun() { "$@"; }; stamp() { :; }\n'
+                     + scan_function + '\nscan_image "$IMAGE"\n']
+        env.update(ROOT=str(ROOT), IMAGE=explicit[0])
+        for command, inventory in ((["bash", str(helper)], sorted(expected)),
+                                   (["bash", str(helper), *explicit], explicit),
+                                   (published, explicit[:1])):
+            env.pop("TRIVY_FAIL_IMAGE", None)
+            passed = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True)
+            assert passed.returncode == 0, passed.stderr
+            scans = [line.split() for line in log.read_text(encoding="utf-8").splitlines()]
+            assert [args[-1] for args in scans] == inventory
+            for args in scans:
+                assert args[:-1] == ["image", "--quiet", "--scanners", "vuln", "--severity", "HIGH,CRITICAL",
+                                    "--exit-code", "1", "--skip-db-update", "--skip-java-db-update",
+                                    "--ignorefile", str(ROOT / ".trivyignore.yaml")], args
+            log.unlink()
+            env["TRIVY_FAIL_IMAGE"] = inventory[0]
+            failed = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True)
+            assert failed.returncode != 0, "a HIGH/CRITICAL scanner failure must stop release scanning"
+            assert len(log.read_text(encoding="utf-8").splitlines()) == 1
+            log.unlink()
+        for invalid in ("", "--download-db-only", "image:tag\nanother:tag"):
+            rejected = subprocess.run(["bash", str(helper), invalid], env=env, capture_output=True)
+            assert rejected.returncode != 0 and not log.exists()
 
 
 def check_w48() -> None:
     publisher = read("scripts/publish-images.sh")
-    assert "for tool in docker gh git python3 trivy syft; do" in publisher
-    helper_call = publisher.index('run bash "$root/scripts/write-image-sboms.sh"')
+    required_tools = re.search(r"for tool in ([^;]+); do", publisher)
+    assert required_tools and {"docker", "gh", "git", "python3", "trivy", "syft"} <= set(required_tools.group(1).split())
+    helper_call = publisher.index('capture sbom_output bash "$root/scripts/write-image-sboms.sh"')
     release_call = publisher.index('run gh release create')
     assert helper_call < release_call
     assert '"${sbom_assets[@]}"' in publisher[release_call:]
@@ -519,9 +521,9 @@ def check_w48() -> None:
 
     refs = [
         f"ghcr.io/example/chronicle-{name}:v1.2.3@sha256:{digit * 64}"
-        for name, digit in (("backend", "1"), ("frontend", "2"), ("caddy", "3"))
+        for name, digit in (("backend", "1"), ("frontend", "2"), ("caddy", "3"), ("backup", "4"))
     ]
-    scratch = Path("/home/opt/chronicle_work/launch-audit-1003/sol/testtmp")
+    scratch = SCRATCH_DIR
     scratch.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="W48-", dir=scratch) as temporary:
         work = Path(temporary)
@@ -542,13 +544,13 @@ def check_w48() -> None:
         env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
         env["SYFT_LOG"] = str(log)
         generated = subprocess.run(
-            ["bash", str(ROOT / "scripts" / "write-image-sboms.sh"), "v1.2.3", str(work / "assets"), *refs],
+            ["bash", str(ROOT / "scripts" / "write-image-sboms.sh"), "v1.2.3", str(work / "release assets"), *refs],
             cwd=ROOT, env=env, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
         assert generated.returncode == 0, generated.stderr
         assert log.read_text(encoding="utf-8").splitlines() == refs
 
-        asset_dir = work / "assets"
+        asset_dir = work / "release assets"
         manifest_name = "chronicle-image-sboms-1.2.3.json"
         checksums_name = "chronicle-image-sboms-1.2.3.sha256"
         manifest = json.loads((asset_dir / manifest_name).read_text(encoding="utf-8"))
@@ -565,6 +567,24 @@ def check_w48() -> None:
             assert recorded_name == name
             assert hashlib.sha256((asset_dir / name).read_bytes()).hexdigest() == digest
         assert not checksum_lines
+
+        emitted = [str(asset_dir / name) for name in [item["asset"] for item in sboms] + [manifest_name, checksums_name]]
+        assert generated.stdout.splitlines() == emitted
+        capture = publisher[publisher.index('capture() {'):publisher.index('# Phase timestamps')]
+        sbom_mapfile = 'mapfile -t sbom_assets <<< "$sbom_output"'
+        collect = publisher[helper_call:publisher.index(sbom_mapfile, helper_call) + len(sbom_mapfile)]
+        env.update(ROOT=str(ROOT), SBOM_PATHS=generated.stdout.rstrip("\n"),
+                   BACKEND_REF=refs[0], FRONTEND_REF=refs[1], CADDY_REF=refs[2], BACKUP_REF=refs[3])
+        shell = 'set -euo pipefail\ndry_run=; root=$ROOT; release=v1.2.3\n' + capture
+        shell += 'backend_digest=$BACKEND_REF; frontend_digest=$FRONTEND_REF; caddy_digest=$CADDY_REF; backup_digest=$BACKUP_REF\n'
+        shell += 'bash() { [[ "$1" == "$root/scripts/write-image-sboms.sh" && "$#" == 7 ]] || return 90; printf "%s\\n" "$SBOM_PATHS"; }\n'
+        shell += collect + '\nprintf "%s\\n" "${sbom_assets[@]}"\n'
+        collected = subprocess.run(['bash','-c',shell],env=env,capture_output=True,text=True)
+        assert collected.returncode == 0, collected.stderr
+        assert collected.stdout.splitlines() == emitted, collected.stdout
+        failed = subprocess.run(['bash','-c',shell.replace('printf "%s\\n" "$SBOM_PATHS";', 'return 7;')],
+                                env=env,capture_output=True,text=True)
+        assert failed.returncode == 7 and not failed.stdout, "SBOM writer failure must abort publishing"
 
 
 def check_w76() -> None:

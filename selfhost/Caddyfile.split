@@ -18,21 +18,23 @@
 #
 # To also terminate TLS on the public listener, add `import chronicle_tls` to the :80 block
 # and change its address to https://{$DOMAIN} (see Caddyfile.tls).
+import snippets.caddy
+
 {
 	auto_https off
+	import chronicle_default_log
 
 	# rate_limit ships as a plugin (see Dockerfile.caddy), so its place in the handler
 	# chain has to be declared explicitly.
 	order rate_limit before basic_auth
 
 	servers {
+		import chronicle_listener_timeouts
 		trusted_proxies static {$CADDY_TRUSTED_PROXIES:127.0.0.1/32}
 		trusted_proxies_strict
 		client_ip_headers X-Forwarded-For
 	}
 }
-
-import snippets.caddy
 
 # ---------------------------------------------------------------------------
 # PUBLIC — reachable from the internet through your proxy.
@@ -41,6 +43,7 @@ import snippets.caddy
 	import chronicle_common
 
 	route {
+		import chronicle_pool_guard
 		import chronicle_health
 		import chronicle_public_entrypoints
 		import chronicle_deny_direct
@@ -69,7 +72,7 @@ import snippets.caddy
 	route {
 		import chronicle_health
 		import chronicle_public_entrypoints
-		# Allowlist + password first: everything below is researcher surface.
+		# Allowlist first: everything below is researcher surface.
 		import chronicle_dashboard_guard
 		import chronicle_deny_direct
 		import chronicle_mobile
@@ -77,3 +80,5 @@ import snippets.caddy
 		import chronicle_spa
 	}
 }
+
+import /etc/caddy/monitoring/*.caddy

@@ -7,8 +7,9 @@
 # initialisation and every table added by a later migration silently stays unencrypted.
 #
 # WHAT THIS PROTECTS, AND WHAT IT DOES NOT
-#   Protects: someone walking off with the disk, or copying the postgres_data volume.
-#             The key lives on a separate volume, so a copy of the data alone is useless.
+#   Protects encrypted table files copied without their separate keyring.
+#   WAL is plaintext until server-key and recovery support are validated for the image.
+#   Use encrypted backing storage for the database volume.
 #   Does not protect: anyone with root on this running box. The key is on the box by
 #             design -- that is the price of not having a passphrase that can be lost.
 #
@@ -28,65 +29,28 @@
 
 set -euo pipefail
 
-# Runs INSIDE the db-init service, not on the host, so that `docker compose up -d` performs
-# encryption setup with no wrapper script and no access to the Docker socket. It reaches
-# Postgres over the compose network and prepares the keyring through the same
-# postgres_tde_keyring volume, mounted here as well.
-POSTGRES_HOST="${POSTGRES_HOST:-postgres}"
-POSTGRES_PORT="${POSTGRES_PORT:-5432}"
-POSTGRES_USER="${POSTGRES_USER:-chronicle}"
-POSTGRES_DB="${POSTGRES_DB:-chronicle}"
-POSTGRES_PASSWORD="${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}"
-
 KEYRING_DIR="/var/lib/postgresql/tde-keyring"
 KEYRING_FILE="${KEYRING_DIR}/chronicle-keyring.per"
 PROVIDER="chronicle_keyring"
 KEY_NAME="chronicle_key"
 
-# The path pg_tde writes to is the one Postgres sees, which is the same volume mounted at
-# the same path in both containers. Keep them identical or the provider records a path that
-# does not exist in the server.
-psql_run() {
-  PGPASSWORD="$POSTGRES_PASSWORD" psql \
-    -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-    -v ON_ERROR_STOP=1 "$@"
-}
+database_tde_sql() {
+  local POSTGRES_DB="$1"
+  echo "CREATE EXTENSION IF NOT EXISTS pg_tde;"
 
-psql_q() { psql_run -Atc "$1"; }
+  # IF NOT EXISTS creates at the image's default_version but does NOT upgrade an extension
+  # that is already there at an older one. On Percona 18.4-5 the default is pg_tde 2.2, while
+  # a database restored from a 17-era dump arrives carrying 1.0 -- and stays on 1.0 forever
+  # without this line. Safe to run unconditionally: when the extension is already current
+  # Postgres answers NOTICE: version "2.2" ... is already installed and changes nothing.
+  # Nothing we call was removed between 1.0 and 2.2 (the 1.0->2.0 step only ADDS the vault_v2
+  # provider functions), so this is a version-record fix rather than a behaviour change.
+  echo "ALTER EXTENSION pg_tde UPDATE;"
 
-# Docker creates the keyring volume owned by root, but the server runs as uid 26 (postgres)
-# and cannot create the keyring file inside a root-owned directory. This container runs as
-# root with CHOWN, so it hands the directory over before pg_tde is asked to write a key.
-# 26:26 rather than the name: this image resolves `postgres` to the same uid, but the
-# numeric form cannot be wrong if that ever changes.
-mkdir -p "$KEYRING_DIR" \
-  && chown 26:26 "$KEYRING_DIR" \
-  && chmod 700 "$KEYRING_DIR" \
-  || { echo "could not prepare $KEYRING_DIR" >&2; exit 1; }
-
-# Postgres reports ready before it accepts connections in some startup paths; the compose
-# healthcheck gates this service, but retry briefly rather than fail the whole `up` on a race.
-for _ in $(seq 1 30); do
-  PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
-    -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc 'SELECT 1' >/dev/null 2>&1 && break
-  sleep 2
-done
-
-psql_q "CREATE EXTENSION IF NOT EXISTS pg_tde;" >/dev/null
-
-# IF NOT EXISTS creates at the image's default_version but does NOT upgrade an extension
-# that is already there at an older one. On Percona 18.4-5 the default is pg_tde 2.2, while
-# a database restored from a 17-era dump arrives carrying 1.0 -- and stays on 1.0 forever
-# without this line. Safe to run unconditionally: when the extension is already current
-# Postgres answers NOTICE: version "2.2" ... is already installed and changes nothing.
-# Nothing we call was removed between 1.0 and 2.2 (the 1.0->2.0 step only ADDS the vault_v2
-# provider functions), so this is a version-record fix rather than a behaviour change.
-psql_q "ALTER EXTENSION pg_tde UPDATE;" >/dev/null
-
-# The provider and bootstrap key are created only when no principal key is active. An online
-# rotation deliberately gives the active key a timestamped name; forcing KEY_NAME on every
-# db-init run would silently undo that rotation after the next `down`/`up` or release upgrade.
-psql_run >/dev/null <<SQL
+  # The provider and bootstrap key are created only when no principal key is active. An online
+  # rotation deliberately gives the active key a timestamped name; forcing KEY_NAME on every
+  # db-init run would silently undo that rotation after the next `down`/`up` or release upgrade.
+  cat <<SQL
 -- pg_tde_list_all_database_key_providers() returns (id, name, type, options): the column
 -- is "name", not "provider_name".
 DO \$\$
@@ -134,9 +98,57 @@ END
 \$\$;
 SQL
 
-# Make tde_heap the default for this database so tables created by future Flyway
-# migrations are encrypted on creation rather than waiting for the next sweep.
-psql_q "ALTER DATABASE \"${POSTGRES_DB}\" SET default_table_access_method = 'tde_heap';" >/dev/null
+  # Make tde_heap the default for this database so tables created by future Flyway
+  # migrations are encrypted on creation rather than waiting for the next sweep.
+  echo "ALTER DATABASE \"${POSTGRES_DB}\" SET default_table_access_method = 'tde_heap';"
+}
+
+# Reuse exactly this database bootstrap for the backup scratch restore.
+if [[ "${1:-}" == --database-sql ]]; then
+  database_tde_sql "${2:?database name is required}"
+  exit 0
+fi
+
+# Runs INSIDE the db-init service, not on the host, so that `docker compose up -d` performs
+# encryption setup with no wrapper script and no access to the Docker socket. It reaches
+# Postgres over the compose network and prepares the keyring through the same
+# postgres_tde_keyring volume, mounted here as well.
+POSTGRES_HOST="${POSTGRES_HOST:-postgres}"
+POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+POSTGRES_USER="${POSTGRES_USER:-chronicle}"
+POSTGRES_DB="${POSTGRES_DB:-chronicle}"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}"
+
+# The path pg_tde writes to is the one Postgres sees, which is the same volume mounted at
+# the same path in both containers. Keep them identical or the provider records a path that
+# does not exist in the server.
+psql_run() {
+  PGPASSWORD="$POSTGRES_PASSWORD" psql \
+    -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    -v ON_ERROR_STOP=1 "$@"
+}
+
+psql_q() { psql_run -Atc "$1"; }
+
+# Docker creates the keyring volume owned by root, but the server runs as uid 26 (postgres)
+# and cannot create the keyring file inside a root-owned directory. This container runs as
+# root with CHOWN, so it hands the directory over before pg_tde is asked to write a key.
+# 26:26 rather than the name: this image resolves `postgres` to the same uid, but the
+# numeric form cannot be wrong if that ever changes.
+mkdir -p "$KEYRING_DIR" \
+  && chown 26:26 "$KEYRING_DIR" \
+  && chmod 700 "$KEYRING_DIR" \
+  || { echo "could not prepare $KEYRING_DIR" >&2; exit 1; }
+
+# Postgres reports ready before it accepts connections in some startup paths; the compose
+# healthcheck gates this service, but retry briefly rather than fail the whole `up` on a race.
+for _ in $(seq 1 30); do
+  PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
+    -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc 'SELECT 1' >/dev/null 2>&1 && break
+  sleep 2
+done
+
+database_tde_sql "$POSTGRES_DB" | psql_run >/dev/null
 
 # Convert anything still on plain heap. ALTER TABLE ... SET ACCESS METHOD rewrites the
 # table, so this is the expensive step on first run and a no-op on every run after.

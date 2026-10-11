@@ -157,7 +157,7 @@ kustomize() { cat "$2/kustomization.yaml"; }
         self.assertIn('override val privacyClass: CollectionPrivacyClass = $ID.privacyClass',rule)
         with tempfile.TemporaryDirectory() as d:
             shell='''set -euo pipefail
-require_jdk21() { :; }; log() { :; }
+require_jdk21() { :; }; require_cmd() { :; }; log() { :; }
 '''+job.replace('bash "$ROOT_DIR/tests/security/run-all-security.sh" sast','printf sast >>"$CALLS"')+'\njob_android_unit'
             root=Path(d);(root/'chronicle').mkdir()
             gradle=root/'chronicle/gradlew'
@@ -168,24 +168,24 @@ require_jdk21() { :; }; log() { :; }
             selected=[]
             for path in ('tests/security/rules/cwe-comprehensive.yaml','tests/security/collection-rules/collection-modularization.yaml'):
                 rules=yaml.safe_load((ROOT/path).read_text())['rules']
-                selected.extend(r for r in rules if r['id'] in ('chronicle-android-log-raw-participant-id','chronicle-collection-module-must-assert-privacy-invariant'))
+                selected.extend(r for r in rules if r['id'] in ('chronicle-android-log-raw-participant-id','chronicle-collection-module-must-assert-privacy-invariant','chronicle-hardcoded-password-kotlin'))
             config=root/'rules.yaml';config.write_text(yaml.safe_dump({'rules':selected}))
             scan_parent=ROOT/'audit-regression-runs';scan_parent.mkdir(exist_ok=True)
             with tempfile.TemporaryDirectory(dir=scan_parent) as scan_dir:
                 fixture=Path(scan_dir)/'chronicle/collection-activity/src/main/java/fixture';fixture.mkdir(parents=True)
-                valid=fixture/'Valid.kt';valid.write_text('class Valid : DataCollectionModule { override val privacyClass: CollectionPrivacyClass = id.privacyClass }')
-                invalid=fixture/'Invalid.kt';invalid.write_text('class Invalid : DataCollectionModule { fun log(participantId: String) { Log.i("tag", "$participantId") } }')
+                valid=fixture/'Valid.kt';valid.write_text('class Valid : DataCollectionModule { override val privacyClass: CollectionPrivacyClass = id.privacyClass; val LIST_API_KEYS_SQL = "$SELECT_API_KEYS_SQL ORDER BY created_at"; val passwordHeader = "X-Password" }')
+                invalid=fixture/'Invalid.kt';invalid.write_text('class Invalid : DataCollectionModule { val apiKey = "synthetic-fixture-credential"; val apiKeySql = "synthetic-fixture-credential"; fun log(participantId: String) { Log.i("tag", "$participantId") } }')
                 scan=subprocess.run(['semgrep','scan','--config',str(config),'--metrics','off','--disable-version-check','--no-git-ignore','--json','.'],cwd=fixture,env={**os.environ,'SEMGREP_SEND_METRICS':'off'},capture_output=True)
                 self.assertEqual(scan.returncode,0,scan.stderr.decode())
                 findings=json.loads(scan.stdout)['results']
                 self.assertEqual({Path(r['path']).name for r in findings},{'Invalid.kt'},scan.stderr.decode()+scan.stdout.decode())
-                self.assertEqual(len(findings),2,scan.stderr.decode()+scan.stdout.decode())
+                self.assertEqual(len(findings),4,scan.stderr.decode()+scan.stdout.decode())
 
     def test_W75_observed_secure_v3_cookie_required(self):
         with tempfile.TemporaryDirectory() as d:
             stub=Path(d)/'curl'
             stub.write_text('''#!/usr/bin/env python3
-import os, sys
+import base64, json, os, sys, time
 a=sys.argv[1:]; mode=os.environ['RESPONSE_MODE']; url=a[-1]
 if '--data-binary' in a: sys.stdin.read()
 if mode=='unreachable': print('000',end=''); sys.exit(7)
@@ -195,13 +195,27 @@ if '-D' in a and a[a.index('-D')+1]!='-':
  assert url.endswith('/chronicle/v3/auth/set-cookie'),url
  cookie='' if mode=='no-cookie' else 'Set-Cookie: chronicle_auth=synthetic; HttpOnly; '+('Secure; SameSite=Lax' if mode=='secure' else 'SameSite=None')+'\\r\\n'
  open(headers,'w').write('HTTP/1.1 '+status+' OK\\r\\n'+cookie+'\\r\\n')
- open(body,'w').write('{"authenticated":true}')
+ open(body,'w').write('{"authenticated":true,"csrfToken":"synthetic-csrf"}')
  print(status,end='')
 elif '-D' in a: print('HTTP/1.1 404 Not Found\\r\\n\\r\\n',end='')
+elif url.endswith('/chronicle/v3/study'):
+ headers=[a[i+1] for i,x in enumerate(a) if x=='-H']
+ if '--cookie' in a:
+  csrf='X-CSRF-Token: synthetic-csrf' in headers
+  status='200' if a[a.index('-X')+1]=='GET' else ('400' if csrf else '401')
+ else:
+  token=next(x.removeprefix('Authorization: Bearer ') for x in headers if x.startswith('Authorization: Bearer '))
+  segment=token.split('.')[1]
+  payload=json.loads(base64.urlsafe_b64decode(segment+'='*(-len(segment)%4)))
+  status='200' if payload['exp']>time.time() else '401'
+ print(status,end='')
 else: print('200' if url.endswith('/chronicle/v3/auth/session') or url.endswith('/chronicle/v3/') else '401',end='')
 ''');stub.chmod(0o755)
+            import base64
+            payload=base64.urlsafe_b64encode(json.dumps({'sub':'fixture-user','exp':4102444800}).encode()).decode().rstrip('=')
+            token='synthetic.'+payload+'.signature'
             for mode in ('unreachable','404','no-cookie','insecure','secure'):
-                result=subprocess.run(['bash',str(ROOT/'tests/security/session-management-tests.sh')],env={**os.environ,'PATH':d+':'+os.environ['PATH'],'BASE_URL':'https://fixture.invalid','AUTH_TOKEN':'synthetic.jwt.token','JWT_SECRET':'synthetic-secret','RESPONSE_MODE':mode},capture_output=True)
+                result=subprocess.run(['bash',str(ROOT/'tests/security/session-management-tests.sh')],env={**os.environ,'PATH':d+':'+os.environ['PATH'],'BASE_URL':'https://fixture.invalid','AUTH_TOKEN':token,'JWT_SECRET':'synthetic-secret','RESPONSE_MODE':mode},capture_output=True)
                 self.assertEqual(result.returncode==0,mode=='secure',result.stdout.decode()+result.stderr.decode())
 
 if __name__ == '__main__':

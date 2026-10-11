@@ -15,6 +15,8 @@
 #
 # For a public host that should use free Let's Encrypt certificates instead, replace the
 # `import chronicle_tls` line below with `tls {$ACME_EMAIL}` and delete `auto_https off`.
+import snippets.caddy
+
 {
 	# No ACME. The certificate is the one you mounted, full stop.
 	auto_https off
@@ -24,11 +26,11 @@
 	order rate_limit before basic_auth
 
 	servers {
+		import chronicle_listener_timeouts
 		trusted_proxies static private_ranges
 	}
 }
 
-import snippets.caddy
 
 https://{$DOMAIN} {
 	import chronicle_tls

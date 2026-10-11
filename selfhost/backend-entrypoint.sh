@@ -25,8 +25,8 @@ set -eu
 : "${POSTGRES_DB:=chronicle}"
 : "${POSTGRES_USER:=chronicle}"
 
-# Hazelcast is single-node and bound to localhost inside this container; these passwords
-# never cross the network. Defaulted so the stack starts without extra configuration.
+# Hazelcast OSS does not authenticate clients. The self-host interfaces setting and JVM
+# bind flag below restrict this single-node member and its client to loopback.
 : "${HAZELCAST_SERVER_PASSWORD:=chronicle-selfhost}"
 : "${HAZELCAST_CLIENT_PASSWORD:=chronicle-selfhost}"
 
@@ -62,6 +62,10 @@ set -eu
 : "${INTERNAL_PORT:=8081}"
 : "${INTERNAL_BIND:=127.0.0.1}"
 : "${DASHBOARD_ORIGINS:=}"
+case "$INTERNAL_BIND" in
+  \[*\]) ;;
+  *:*) INTERNAL_BIND="[$INTERNAL_BIND]" ;;
+esac
 
 validate_https_root_origin() {
   value="$1"
@@ -238,7 +242,7 @@ rm -f "$AUDIT_DIR/.write-probe"
 RENDERED=/server/rendered-config
 mkdir -p "$RENDERED"
 
-for name in rhizome chronicle-auth mail mobile-security vault cors; do
+for name in rhizome chronicle-auth mail mobile-security vault cors jetty; do
   src="/server/config/${name}.yaml.template"
   dst="${RENDERED}/${name}.yaml"
   if [ ! -f "$src" ]; then
@@ -266,10 +270,11 @@ find "$RENDERED" -maxdepth 1 -type f -name '*.yaml' -exec basename {} \; | sort 
 
 # shellcheck disable=SC2086
 exec java $CHRONICLE_SERVER_XMS $CHRONICLE_SERVER_XMX \
+  -Dhazelcast.socket.bind.any=false \
   -Xss512k -XX:MetaspaceSize=128m -XX:MaxMetaspaceSize=256m \
   -XX:+UseStringDeduplication -XX:MaxGCPauseMillis=200 \
   -XX:+ExitOnOutOfMemoryError \
   -Dlog4j2.formatMsgNoLookups=true \
   -Djava.io.tmpdir=/server/scratch \
-  -cp "${RENDERED}:/server/lib/*" \
+  -cp "${RENDERED}:/server/tls:/server/lib/*" \
   com.openlattice.chronicle.ChronicleServer $CHRONICLE_SERVER_ARGS

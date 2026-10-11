@@ -1,0 +1,24 @@
+schemaVersion: "2.0.0"
+fileExistenceTests:
+  - name: dashboard bundle
+    path: /dist/index.html
+    shouldExist: true
+  - name: release identity
+    path: /dist/version.json
+    shouldExist: true
+  - name: source attribution
+    path: /usr/share/doc/chronicle/SOURCE-CODE
+    shouldExist: true
+fileContentTests:
+  - name: publisher replaces assets and retries a failed copy
+    path: /dist/version.json
+    expectedContents: [version, buildTime]
+commandTests:
+  - name: no public source maps
+    command: sh
+    args: [-ec, 'test -z "$(find /dist -name *.map)"']
+    exitCode: 0
+  - name: one shot publisher copies a complete bundle
+    command: sh
+    args: [-ec, "mkdir /out; cp -a /dist/. /out/; cmp /dist/version.json /out/version.json; test -s /out/index.html"]
+    exitCode: 0

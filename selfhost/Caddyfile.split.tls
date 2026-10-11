@@ -12,21 +12,23 @@
 #
 # Routes come from caddy/snippets.caddy, identical to every other variant.
 
+import snippets.caddy
+
 {
 	auto_https off
+	import chronicle_default_log
 
 	# rate_limit ships as a plugin (see Dockerfile.caddy), so its place in the handler
 	# chain has to be declared explicitly.
 	order rate_limit before basic_auth
 
 	servers {
+		import chronicle_listener_timeouts
 		trusted_proxies static {$CADDY_TRUSTED_PROXIES:127.0.0.1/32}
 		trusted_proxies_strict
 		client_ip_headers X-Forwarded-For
 	}
 }
-
-import snippets.caddy
 
 # ---------------------------------------------------------------------------
 # PUBLIC — internet-facing, TLS terminated here.
@@ -51,7 +53,7 @@ https://{$DOMAIN} {
 }
 
 http://{$DOMAIN} {
-	redir https://{$DOMAIN}{uri} permanent
+	redir {$CHRONICLE_PUBLIC_BASE_URL}{uri} permanent
 }
 
 # ---------------------------------------------------------------------------
@@ -68,7 +70,7 @@ http://{$DOMAIN} {
 	route {
 		import chronicle_health
 		import chronicle_public_entrypoints
-		# Allowlist + password first: everything below is researcher surface.
+		# Allowlist first: everything below is researcher surface.
 		import chronicle_dashboard_guard
 		import chronicle_deny_direct
 		import chronicle_mobile
@@ -76,3 +78,5 @@ http://{$DOMAIN} {
 		import chronicle_spa
 	}
 }
+
+import /etc/caddy/monitoring/*.caddy

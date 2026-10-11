@@ -41,6 +41,14 @@ pair_matches "$TLS/internal-cert.pem" "$TLS/internal-key.pem" || fail 'generated
 grep -Eq "^$(id -u):0 $TLS/\.?internal-key" "$CERT_INIT_CHOWN_LOG" \
   || fail 'key was not left owned by the ./tls owner in group 0'
 echo 'PASS: fresh internal pair generated atomically, operator-owned, group-readable by Caddy'
+anchor=$(sha256sum "$TLS/internal-ca.crt")
+env PATH="$RUN_DIR/bin:$PATH" TLS_DIR="$TLS" TLS_MODE=behind-proxy DASHBOARD_EXPOSURE=internal \
+  INTERNAL_BIND=100.64.25.1 INTERNAL_CERT_SANS=DNS:dashboard.mgmt.example.org \
+  bash "$ROOT_DIR/selfhost/cert-init.sh" >"$RUN_DIR/output" 2>&1
+openssl verify -CAfile "$TLS/internal-ca.crt" -verify_hostname dashboard.mgmt.example.org "$TLS/internal-cert.pem" >/dev/null || fail 'SAN change did not renew generated leaf'
+[[ $(sha256sum "$TLS/internal-ca.crt") == "$anchor" ]] || fail 'SAN renewal replaced the trust anchor'
+echo 'PASS: management SAN renewal preserves the trusted CA'
+
 
 # A nonempty but truncated certificate (an interrupted older write) is not accepted.
 good_key=$(<"$TLS/internal-key.pem")
@@ -64,7 +72,7 @@ cert_init behind-proxy || { cat "$RUN_DIR/output" >&2; fail 'expiring generated 
 openssl x509 -checkend $((30 * 86400)) -noout -in "$TLS/internal-cert.pem" >/dev/null ||
   fail 'renewed certificate still expires within 30 days'
 pair_matches "$TLS/internal-cert.pem" "$TLS/internal-key.pem" || fail 'renewed pair does not match'
-openssl req -x509 -newkey rsa:2048 -nodes -days 5 -subj /CN=dashboard.example.org \
+openssl req -x509 -newkey rsa:2048 -nodes -days 5 -subj /CN=dashboard.example.org -addext "subjectAltName=DNS:localhost,DNS:web,IP:127.0.0.1,IP:::1" \
   -keyout "$TLS/internal-key.pem" -out "$TLS/internal-cert.pem" >/dev/null 2>&1
 operator_cert=$(<"$TLS/internal-cert.pem")
 cert_init behind-proxy || { cat "$RUN_DIR/output" >&2; fail 'expiring operator certificate refused'; }
@@ -102,3 +110,61 @@ grep -Fqx "$(id -u):0 $TLS/key.pem" "$CERT_INIT_CHOWN_LOG" || fail 'own key not 
 [[ "$(mode "$TLS/key.pem")" == 640 ]] || fail 'own key mode is not 0640'
 echo 'PASS: own-tls pair validated and left operator-owned'
 echo 'PASS: selfhost-cert-init'
+
+# Credential-bearing service endpoints get reusable, matching certificates and a Java store.
+cat >"$RUN_DIR/bin/id" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${2:-}" == postgres ]]; then printf '26\n'; else exec /usr/bin/id "$@"; fi
+EOF
+chmod +x "$RUN_DIR/bin/id"
+mkdir -p "$RUN_DIR/postgres-tls" "$RUN_DIR/backend-tls"
+env PATH="$RUN_DIR/bin:$PATH" TLS_DIR="$TLS" TLS_MODE=behind-proxy DASHBOARD_EXPOSURE=public \
+  POSTGRES_TLS_DIR="$RUN_DIR/postgres-tls" BACKEND_TLS_DIR="$RUN_DIR/backend-tls" \
+  MONITORING_ENABLED=true GRAFANA_BIND=127.0.0.1 bash "$ROOT_DIR/selfhost/cert-init.sh" >"$RUN_DIR/service-output" 2>&1
+for pair in "$RUN_DIR/postgres-tls/postgres" "$RUN_DIR/backend-tls/backend" "$TLS/monitoring"; do
+  pair_matches "$pair.crt" "$pair.key" || fail "service TLS pair is unusable"
+  expected_mode=640
+  [[ "$pair" == "$RUN_DIR/postgres-tls/postgres" ]] && expected_mode=600
+  [[ "$(mode "$pair.key")" == "$expected_mode" ]] || fail "service key mode is incompatible with its reader"
+done
+openssl verify -CAfile "$TLS/monitoring.crt" -verify_ip 127.0.0.1 "$TLS/monitoring.crt" >/dev/null || fail "Grafana certificate cannot authenticate its private listener"
+openssl pkcs12 -in "$RUN_DIR/backend-tls/backend.p12" -passin pass: -info -noout >/dev/null 2>&1 || fail "backend store is unusable"
+env PATH="$RUN_DIR/bin:$PATH" TLS_DIR="$TLS" TLS_MODE=behind-proxy DASHBOARD_EXPOSURE=public \
+  MONITORING_ENABLED=true GRAFANA_BIND=192.168.25.1 bash "$ROOT_DIR/selfhost/cert-init.sh" >"$RUN_DIR/service-output" 2>&1
+openssl verify -CAfile "$TLS/monitoring.crt" -verify_ip 192.168.25.1 "$TLS/monitoring.crt" >/dev/null || fail "changed Grafana binding did not renew its certificate"
+echo 'PASS: PostgreSQL/backend/Grafana service TLS material generated and validated'
+
+# A 2026.10.3 leaf was itself the installed trust anchor and had no web/IPv6 SANs.
+TLS="$RUN_DIR/legacy-tls"
+mkdir "$TLS"
+openssl req -x509 -newkey rsa:2048 -nodes -days 825 -subj /CN=chronicle-dashboard \
+  -addext 'basicConstraints=critical,CA:TRUE' -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1' \
+  -keyout "$TLS/internal-key.pem" -out "$TLS/internal-cert.pem" >/dev/null 2>&1
+legacy_digest=$(sha256sum "$TLS/internal-cert.pem")
+cert_init behind-proxy || { cat "$RUN_DIR/output" >&2; fail 'legacy certificate upgrade failed'; }
+[[ $(sha256sum "$TLS/internal-cert.pem") == "$legacy_digest" ]] || fail 'upgrade replaced the trusted legacy dashboard certificate'
+cp "$TLS/internal-cert.pem" "$RUN_DIR/legacy-anchor.crt"
+env PATH="$RUN_DIR/bin:$PATH" TLS_DIR="$TLS" TLS_MODE=behind-proxy DASHBOARD_EXPOSURE=internal \
+  DASHBOARD_BASE_URL=https://management.example.org INTERNAL_CERT_SANS=DNS:management.example.org \
+  bash "$ROOT_DIR/selfhost/cert-init.sh" >"$RUN_DIR/output" 2>&1
+openssl verify -CAfile "$RUN_DIR/legacy-anchor.crt" -verify_hostname management.example.org "$TLS/internal-cert.pem" >/dev/null ||
+  fail 'legacy SAN migration broke the installed trust anchor'
+echo 'PASS: legacy certificate and trust anchor survive upgrade and management SAN migration'
+
+# Institutional leaves only need the configured management identity.
+openssl req -x509 -newkey rsa:2048 -nodes -days 825 -subj /CN=management.example.org \
+  -addext 'subjectAltName=DNS:management.example.org' \
+  -keyout "$TLS/internal-key.pem" -out "$TLS/internal-cert.pem" >/dev/null 2>&1
+operator_digest=$(sha256sum "$TLS/internal-cert.pem")
+env PATH="$RUN_DIR/bin:$PATH" TLS_DIR="$TLS" TLS_MODE=behind-proxy DASHBOARD_EXPOSURE=internal \
+  DASHBOARD_BASE_URL=https://management.example.org:8443 \
+  bash "$ROOT_DIR/selfhost/cert-init.sh" >"$RUN_DIR/output" 2>&1 ||
+  { cat "$RUN_DIR/output" >&2; fail 'valid management-only operator certificate refused'; }
+[[ $(sha256sum "$TLS/internal-cert.pem") == "$operator_digest" ]] || fail 'operator management certificate replaced'
+selected_anchor=$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/selfhost" python3 -c \
+  'from chronicle_ops.common import dashboard_ca; import sys; print(dashboard_ca(sys.argv[1]))' "$TLS")
+[[ "$selected_anchor" == "$TLS/internal-cert.pem" ]] || fail 'unrelated retained CA selected for the operator certificate'
+env PATH="$RUN_DIR/bin:$PATH" TLS_DIR="$TLS" TLS_MODE=behind-proxy DASHBOARD_EXPOSURE=internal \
+  DASHBOARD_BASE_URL=https://wrong.example.org \
+  bash "$ROOT_DIR/selfhost/cert-init.sh" >"$RUN_DIR/output" 2>&1 && fail 'operator certificate accepted for wrong management identity'
+echo 'PASS: operator certificate preserved and checked against the configured management identity'

@@ -47,3 +47,7 @@ RUN caddy list-modules | grep -q '^http.handlers.rate_limit$' \
 # ownership on first creation; caddy-storage-init repairs existing volumes during upgrades.
 RUN mkdir -p /data /config && chown -R 10001:0 /data /config
 USER 10001:0
+
+# Compose overrides this with readiness checks for each listener configuration.
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD wget -q -O /dev/null http://127.0.0.1:2019/config/ || exit 1

@@ -1,66 +1,92 @@
+# At the 10 MiB body ceiling, 300s permits about 35 KiB/s, including slow mobile uploads.
+# Applied by servers to each listener, independently of socket idle activity.
+(chronicle_listener_timeouts) {
+    timeouts {
+        read_body 300s
+    }
+}
+
 # Shared route definitions, imported by the Caddyfile variants.
 #
 # The route lists below are security-relevant: the public listener's job is to serve
 # everything EXCEPT `chronicle_dashboard_api`. Defining them once means the public and
 # internal listeners can never drift apart.
 
+(chronicle_log_format) {
+	format filter {
+		remote_ip ip_mask 16 32
+		client_ip ip_mask 16 32
+		request>headers delete
+		request>uri delete
+		request>remote_ip ip_mask 16 32
+		request>client_ip ip_mask 16 32
+		wrap json
+	}
+}
+
+# Handler diagnostics, including rate-limit refusals, use the default logger.
+(chronicle_default_log) {
+	log default {
+		import chronicle_log_format
+	}
+}
+
 (chronicle_common) {
-	# Redact at the source, before access events reach the container log driver. Chronicle's
-	# custom credential headers are not among Caddy's default credential redactions, and
-	# mobile route paths contain participant/study identifiers. Keep only operational fields;
-	# Fluent Bit applies a second allowlist before forwarding anything to VictoriaLogs.
+	# Redact before either access events or handler diagnostics reach the log driver.
 	log {
-		format filter {
-			request>headers delete
-			request>uri delete
-			request>remote_ip ip_mask 16 32
-			request>client_ip ip_mask 16 32
-			wrap json
-		}
+		import chronicle_log_format
 	}
 	encode gzip
 	request_body {
-		max_size 15MB
+		max_size 10MiB
 	}
 	import chronicle_security_headers
 	import chronicle_rate_limit
 }
 
-# Per-client rate limiting. The release app starts its settings, enrollment-monitoring,
-# collection, and upload workers together and legitimately emits more than five requests in
-# its first second. Keep the edge bucket at 20 req/s so that ordinary startup fits while the
-# backend's narrower per-endpoint minute limits remain authoritative. Keyed on {client_ip},
-# NOT {remote_host}: behind an institutional load
-# balancer every request shares the balancer's address, so {remote_host} would put all
-# participants in one bucket and the first busy device would throttle everyone. Caddy
-# derives {client_ip} from X-Forwarded-For for the trusted_proxies ranges configured in
-# each Caddyfile.
+# The backend validates device credentials and applies participant/study limits. The edge
+# bounds aggregate IP abuse without retaining attacker-controlled credential values.
+(chronicle_mobile_rate_match) {
+    path /chronicle/v2/* /chronicle/v3/* /chronicle/v4/* /chronicle/study/*
+    not path /chronicle/v3/auth/*
+}
+(chronicle_dashboard_rate_match) {
+    path /chronicle/api/web/* /chronicle/limits/* /chronicle/v3/auth/*
+}
+# No forwarded client identity: both the socket peer and resolved address are trusted LBs.
+(chronicle_snat_match) {
+    remote_ip {$CADDY_TRUSTED_PROXIES:127.0.0.1/32}
+    client_ip {$CADDY_TRUSTED_PROXIES:127.0.0.1/32}
+}
 (chronicle_rate_limit) {
 	rate_limit {
-		zone mobile_ingest {
+		zone mobile_abuse {
 			match {
-				path /chronicle/v2/* /chronicle/v3/* /chronicle/v4/* /chronicle/study/*
-				# /chronicle/v3/auth/* is browser traffic that merely happens to live under
-				# the mobile prefix, and 5 req/s is the wrong meter for it: one dashboard
-				# page load spends two of those five on /auth/session then
-				# /auth/testing-login, so a reload, a second tab, or React's double-effect
-				# in development pushes a healthy deployment into "Session initialization
-				# failed — Testing login request failed with status 429". Metered with the
-				# dashboard below instead. Brute-force protection does not depend on this
-				# zone: the backend applies its own 10 requests/minute AUTH limit
-				# (RateLimitConfiguration.authRequestsPerMinute) to the same paths.
-				not path /chronicle/v3/auth/*
+				import chronicle_mobile_rate_match
+				not {
+					import chronicle_snat_match
+				}
 			}
 			key {client_ip}
-			events {$RATE_LIMIT_MOBILE_EVENTS:20}
+			events {$RATE_LIMIT_MOBILE_ABUSE_EVENTS:200}
 			window {$RATE_LIMIT_MOBILE_WINDOW:1s}
 		}
-		zone dashboard {
+		# A trusted SNAT address can represent a fleet; retain a bounded aggregate ceiling.
+		zone mobile_lb_abuse {
 			match {
-				path /chronicle/api/web/* /chronicle/limits/* /chronicle/v3/auth/*
+				import chronicle_mobile_rate_match
+				import chronicle_snat_match
 			}
 			key {client_ip}
-			events {$RATE_LIMIT_WEB_EVENTS:20}
+			events 20000
+			window {$RATE_LIMIT_MOBILE_WINDOW:1s}
+		}
+		zone dashboard_abuse {
+			match {
+				import chronicle_dashboard_rate_match
+			}
+			key {client_ip}
+			events {$RATE_LIMIT_WEB_ABUSE_EVENTS:200}
 			window {$RATE_LIMIT_WEB_WINDOW:1s}
 		}
 	}
@@ -83,7 +109,10 @@
 		# 'unsafe-inline'; enrollment QR codes render as data:/blob: images.
 		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
 	}
-	@https header X-Forwarded-Proto https
+	@https {
+		remote_ip {$CADDY_TRUSTED_PROXIES:127.0.0.1/32}
+		header X-Forwarded-Proto https
+	}
 	header @https Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	@tls_direct {
 		protocol https
@@ -109,10 +138,24 @@
 	tls /etc/caddy/certs/cert.pem /etc/caddy/certs/key.pem
 }
 
+(chronicle_pool_guard) {
+	@not_pool not remote_ip 127.0.0.1/32 ::1/128 {$POOL_ALLOWED_IPS:0.0.0.0/0 ::/0}
+	respond @not_pool "Forbidden" 403
+}
+
+(chronicle_proxy_identity) {
+	header_up X-Forwarded-For {client_ip}
+	header_up X-Real-IP {client_ip}
+}
+
 (chronicle_health) {
+	@healthLog path /health
+	log_skip @healthLog
 	handle /health {
 		rewrite * /chronicle/internal/health/ready
-		reverse_proxy backend:40320
+		reverse_proxy backend:40320 {
+			import chronicle_proxy_identity
+		}
 	}
 }
 
@@ -121,83 +164,62 @@
 # ordinary mobile/security chain and receive no reusable-secret authentication.
 (chronicle_public_entrypoints) {
 	redir /reviewer /chronicle/reviewer permanent
-	reverse_proxy /chronicle/v4/mobile/reviewer-enrollment backend:40320
+	reverse_proxy /chronicle/v4/mobile/reviewer-enrollment backend:40320 {
+		import chronicle_proxy_identity
+	}
 }
 
 # Mobile ingest + the participant web forms. v4 is mobile-only; v3 carries mobile uploads
 # AND the participant survey/questionnaire/diary endpoints, so it cannot be locked down
 # wholesale — see chronicle_deny_researcher_v3.
-# The public study surface also accepts scoped researcher API keys. Never forward an
-# internal bearer JWT here; participant form sessions use their separate cookie boundary.
+# The public API also accepts scoped researcher API keys. Never forward an internal
+# bearer JWT or auth cookie here; participant form sessions use their separate cookie.
 (chronicle_strip_researcher_bearer) {
-	@publicResearcherSurface path_regexp ^/chronicle/v3/study(/|$)
+	request_header Cookie `(^|;)[ \t]*(chronicle_auth|authorization)[ \t]*=[^;]*` ""
+	request_header Cookie `^[; \t]+` ""
+	@publicResearcherSurface path_regexp ^/chronicle/(v[234]|study)(/|$)
 	request_header @publicResearcherSurface -Authorization
 }
 
 (chronicle_mobile) {
-	reverse_proxy /chronicle/v2/* backend:40320
-	reverse_proxy /chronicle/v3/* backend:40320
-	reverse_proxy /chronicle/v4/* backend:40320
+	reverse_proxy /chronicle/v2/* backend:40320 {
+		import chronicle_proxy_identity
+	}
+	reverse_proxy /chronicle/v3/* backend:40320 {
+		import chronicle_proxy_identity
+	}
+	reverse_proxy /chronicle/v4/* backend:40320 {
+		import chronicle_proxy_identity
+	}
 	# ChronicleStudyApi is the legacy mobile contract. Production Traefik still routes it
 	# for installed clients, so serving index.html here would be a silent compatibility
 	# break: every request would report 200 while returning HTML instead of API JSON.
-	reverse_proxy /chronicle/study/* backend:40320
+	reverse_proxy /chronicle/study/* backend:40320 {
+		import chronicle_proxy_identity
+	}
 }
 
-# Optional perimeter password on the researcher dashboard, on top of whatever network
-# isolation you have. Use the guarded command, which reads cleartext only over a silent
-# prompt/stdin path, stores the bcrypt hash, recreates Caddy, and verifies the result:
-#
-#   ./chronicle rotate-secret dashboard
-#
-# To wire a custom Caddy layout, put the resulting DASHBOARD_PASSWORD_HASH in .env, then add
-# `import chronicle_dashboard_gate` to
-# the site block ABOVE `import chronicle_dashboard_api` (and above chronicle_spa if you
-# want the dashboard assets gated too). Participant paths must NOT be gated — phones and
-# participant forms cannot answer a password prompt.
-# Guards the INTERNAL listener: subnet/IP allowlist + a single global username and
-# password. Three properties matter here, and all three are enforced by construction:
-#
-#   * the allowlist uses `remote_ip`, the real TCP peer, NOT `client_ip` -- client_ip
-#     honours X-Forwarded-For, which a caller can set to anything. The internal listener
-#     is reached directly, so the peer address is trustworthy and unspoofable.
-#   * the password is only ever stored as a bcrypt hash. Nothing writes the cleartext:
-#     `./chronicle setup` and `rotate-secret dashboard` read it silently, send it to the
-#     digest-pinned Caddy image over stdin, and keep only the hash.
-#   * the listener runs TLS (see the :8081 blocks), so the Basic credentials are never
-#     put on the wire in the clear. Basic auth over plain HTTP is cleartext by design.
-#
-# Order is deliberate: reject a disallowed source BEFORE prompting, so a caller outside
-# the allowlist is never invited to send credentials at all.
+# Internal researchers enter the dashboard password through the app. Keep the socket-peer
+# allowlist and aggregate rate limit here; the backend requires a session on data/API paths.
 (chronicle_dashboard_guard) {
 	@not_allowed not remote_ip {$DASHBOARD_ALLOWED_IPS}
 	respond @not_allowed "Forbidden" 403 {
 		close
 	}
 
-	# Basic auth has no lockout, and the edge `dashboard` zone meters only the API prefixes,
-	# so SPA and static paths would otherwise accept unmetered password guesses. Meter every
-	# request per TCP peer (the listener is reached directly, so remote_ip is the real
-	# client) BEFORE the password check. A full dashboard load is ~60 requests; the default
-	# leaves room for normal use while bounding guessing to a few per second.
+	# Bound pre-auth requests before the app's password verification.
 	rate_limit {
 		zone internal_guard {
+			match {
+				not path /chronicle/chunk-*.js /chronicle/chunk-*.css /chronicle/fonts/*
+			}
 			key {remote_ip}
 			events {$RATE_LIMIT_GUARD_EVENTS:300}
 			window {$RATE_LIMIT_GUARD_WINDOW:1m}
 		}
 	}
 
-	basic_auth {
-		{$DASHBOARD_USER} {$DASHBOARD_PASSWORD_HASH}
-	}
-}
-
-(chronicle_dashboard_gate) {
-	@dashboard path /chronicle/api/web/* /chronicle/limits/*
-	basic_auth @dashboard {
-		researcher {$DASHBOARD_PASSWORD_HASH}
-	}
+	request_header /chronicle/v3/auth/* X-Chronicle-Internal-Web {$CHRONICLE_INTERNAL_WEB_SECRET}
 }
 
 # Researcher dashboard API.
@@ -230,12 +252,15 @@
 
 		# Bulk exports can run long.
 		reverse_proxy backend:40320 {
+			import chronicle_proxy_identity
 			transport http {
 				read_timeout 300s
 			}
 		}
 	}
-	reverse_proxy /chronicle/limits/* backend:40320
+	reverse_proxy /chronicle/limits/* backend:40320 {
+		import chronicle_proxy_identity
+	}
 }
 
 # The same prefixes, refused. 404 rather than 403 so a probe cannot distinguish
@@ -292,13 +317,17 @@
 	handle_path /chronicle/* {
 		# index.html must be revalidated so a browser never keeps a shell that points at
 		# chunks a newer release removed; the content-hashed chunks never change.
-		@hashed path_regexp ^/(chunk-[a-z0-9]+\.(js|css)|fonts/[a-z0-9-]+-[a-f0-9]{8}\.woff2)$
-		header @hashed Cache-Control "public, max-age=31536000, immutable"
-		@shell not path_regexp ^/(chunk-[a-z0-9]+\.(js|css)|fonts/[a-z0-9-]+-[a-f0-9]{8}\.woff2)$
-		header @shell Cache-Control "no-cache"
 		root * /srv
-		try_files {path} /index.html
-		file_server
+		route {
+			header Cache-Control "no-cache"
+			@hashed {
+				path_regexp ^/(chunk-[a-z0-9]+\.(js|css)|fonts/[a-z0-9-]+-[a-f0-9]{8}\.woff2)$
+				file
+			}
+			header @hashed Cache-Control "public, max-age=31536000, immutable"
+			try_files {path} /index.html
+			file_server
+		}
 	}
 	# /chronicle/* does not match the bare /chronicle, which would otherwise fall
 	# through to an empty 200. The README points operators at that exact path.

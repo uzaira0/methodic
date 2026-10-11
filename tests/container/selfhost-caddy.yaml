@@ -1,0 +1,25 @@
+schemaVersion: "2.0.0"
+metadataTest:
+  user: "10001:0"
+fileExistenceTests:
+  - name: edge binary
+    path: /usr/bin/caddy
+    shouldExist: true
+    isExecutableBy: owner
+  - name: source attribution
+    path: /usr/share/doc/chronicle/SOURCE-CODE
+    shouldExist: true
+commandTests:
+  - name: required rate limiter was compiled
+    command: caddy
+    args: [list-modules]
+    expectedOutput: ['http.handlers.rate_limit']
+    exitCode: 0
+  - name: edge can write its state as shipped
+    command: sh
+    args: [-ec, 'test -w /data; test -w /config; test "$(id -u)" = 10001']
+    exitCode: 0
+  - name: local TLS enrollment QR tool
+    command: qrencode
+    args: [--version]
+    exitCode: 0
