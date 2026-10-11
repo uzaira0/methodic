@@ -7,202 +7,313 @@ would sort below the day's release, so `./chronicle update` would refuse it.
 
 ## [Unreleased]
 
-## [2026.10.5]
+## [2026.10.9]
 
-Server, dashboard and Android build 68 (Play internal, open flavor).
+Server, dashboard and Android build 69 (Play internal, open flavor).
 
 ### Upgrading
 
-- V114–V117 run before the backend starts. Upgrading from 2026.10.1 or earlier: read the
-  2026.10.2 notes below first (log file rotation, disk space for V111).
-- `CHRONICLE_INTERNAL_WEB_SECRET` must have at least 32 characters; the self-host configuration
-  check refuses a shorter value. It also encrypts researcher create receipts. Rotating it makes
-  earlier receipt results unreadable; retrying those creates returns 409 without creating again.
+- Upgrades refuse studies with payload encryption enabled or historical encrypted collection
+  payloads, because encrypted participant export is not supported. Keep the previous release
+  running and complete an approved decrypt-and-export migration before retrying. Do not delete
+  ciphertext to bypass the check.
+- Restore requires `--trusted-sha256=...` from an independently reviewed dump. Unresolved
+  checkpoints using older restore contracts are refused before database replacement. Preserve
+  the original database, checkpoint and restore lock for qualified recovery.
+- V114–V134 run before the backend starts when upgrading from 2026.10.3. Earlier installations
+  also run their pending migrations. Upgrading from 2026.10.1 or earlier: read the 2026.10.2
+  notes below first for log rotation and disk space for V111.
+- V127 sets existing studies' withdrawal policy to `ERASE`. Review the policy before choosing
+  `KEEP_PRIOR_DATA`: older installed apps promise deletion on withdrawal. Clients supporting
+  `ERASED` also clear local enrollment and queued data when researcher erasure enters quarantine.
+- `CHRONICLE_INTERNAL_WEB_SECRET` must have at least 32 characters. It also encrypts researcher
+  create receipts. Rotating it makes earlier receipt results unreadable; retrying those creates
+  returns 409 without creating again.
+- Internal dashboards require a bcrypt `DASHBOARD_PASSWORD_HASH`, `TESTING_LOGIN_ENABLED=false`
+  and `REQUIRE_MFA=false`. Use the existing dashboard password; run `./chronicle setup` if no
+  hash exists. Upgrade, adopt, `up` and scheduled reconciliation migrate the old login settings
+  when a valid hash exists. If `TESTING_LOGIN_ENABLED=true` remains, configuration checks refuse
+  startup; leaving the variable set to `false` is supported.
 - Dashboard sessions expire after 15 idle minutes by default (`CHRONICLE_SESSION_IDLE_MINUTES`,
-  integer 1–120). Password-login sessions now last at most 480 minutes (`DASHBOARD_SESSION_MINUTES`,
-  a positive whole number), even with activity. Set these values to the institution's session limits.
-- The Compose network now uses `CHRONICLE_SUBNET` (default `172.28.0.0/16`); choose an unused
-  private IPv4 subnet if that overlaps a host, VPN or other Docker network. `chronicle upgrade`
-  checks this before it stops the running release. Backend trusted-proxy CIDRs follow
-  that same setting. Set `CADDY_TRUSTED_PROXIES` to the exact upstream proxy CIDRs; its default
-  is `127.0.0.1/32`. Dashboard and Grafana binds must be specific private or loopback addresses,
-  and allowlists that cover the whole IPv4 or IPv6 space are refused.
+  integer 1–120). Password-login sessions last at most 480 minutes by default
+  (`DASHBOARD_SESSION_MINUTES`, a positive whole number), even with activity. Set both values
+  to the institution's session limits.
+- Install Python 3.9 or newer. Automatic reconciliation requires `crontab`, `logger`, `systemctl`
+  and an enabled, active `cron` or `crond` service. Set `CHRONICLE_RECONCILE_ENABLED=false` only
+  when an alternative manages startup and health checks.
+- Allow the default 5 GiB free-space reserve and 10,000 free inodes on the state, Docker and
+  database filesystems. Updates and upgrades additionally reserve 3 GiB on the state and Docker
+  filesystems. Scheduled backup verification needs twice the larger of the live database size
+  and uncompressed dump size as additional free space.
+- The Compose network uses `CHRONICLE_SUBNET` (default `172.28.0.0/16`). Choose an unused private
+  IPv4 subnet if it overlaps a host, VPN or Docker network. Backend trusted-proxy CIDRs follow
+  that subnet. Upgrades migrate legacy proxy settings and preserve loopback dashboard access.
+  Set `CADDY_TRUSTED_PROXIES` to exact upstream proxy CIDRs before relying on forwarded addresses;
+  missing remote ranges warn without blocking the upgrade.
+- Dashboard and Grafana binds must be specific private or loopback addresses. Unrestricted
+  allowlists are refused. An upstream load balancer must support 10 MiB request bodies, 16 KiB
+  headers and 300-second idle timeouts, and replace forwarded protocol headers with HTTPS.
+  Enable `PUBLIC_HTTP_ENABLED` only when upstream HTTP redirects to the canonical HTTPS origin.
+- `HTTP_BIND` and `INTERNAL_BIND` take IPv4 addresses only. Configuration checks refuse a
+  specific IPv6 address: Docker relays an IPv6 listener into the IPv4 stack network through its
+  proxy, so every client appears as the Docker gateway and the allowlists never match.
+- Keep the environment file at mode `0600` and use literal `KEY=value` assignments. Commands,
+  interpolation and backslash escapes are refused. Remove unsupported Compose control settings;
+  `COMPOSE_FILE` and `COMPOSE_PROJECT_NAME` remain supported.
 - API clients editing participant notes/tags or questionnaires must load the content and its
-  `ETag` together, then send that revision in `If-Match` on PATCH. A missing revision returns
-  428; a stale one returns 412. Keep the draft and reload before another save.
-- Restore now requires `--trusted-sha256=...` from an independently reviewed dump. Unresolved
-  checkpoints from 2026.10.3 or earlier are refused before database replacement. Preserve the
-  original database, checkpoint and restore lock for qualified recovery; do not clear the
-  checkpoint or infer erased participants from fingerprints.
-- Play and Amazon store Release/Dogfood builds require approved policy text for that flavor
-  and its matching SHA-256 approval file. Supply institutional text and approval before building.
+  `ETag` together, then send that revision in `If-Match` on PATCH. Missing revisions return 428;
+  stale revisions return 412. Keep the draft and reload before saving again. Custom mobile HMAC
+  clients must sign the normalized path without its trailing slash.
+- Verify the release archive's checksum signature against an independently trusted release
+  public key before installing it. The new `./chronicle update` refuses missing or invalid
+  signatures before extracting or executing a downloaded bundle.
 
 ### Server
 
-- A researcher deleting a participant, or erasing a study, now tells its devices `NOT_ENROLLED`
-  during quarantine and after erasure. Uploads and new form codes are refused, and the device
-  key's expiry stops extending. A collected-data purge keeps the participant enrolled; a database
-  failure is never read as an ended enrollment.
-- V114 adds erased device-key tombstones: only the key hash, erasure kind and expiry, with no
-  study, participant or device identifiers. Completion deletes the key rows and keeps the hashes
-  for 365 days, including expired or revoked keys. They allow only the status read and an
-  "already withdrawn" acknowledgment; manually revoked keys still return 401.
-- V115 removes key rows left by earlier completed erasures and creates their tombstones.
-  If another enrollment still owns an old reused hash, its credential is kept and a migration
-  notice reports the skipped hash count. Operators must review those shared credentials.
-  New enrollments cannot reuse erased or already-owned key material or an erased participant ID.
-- Researcher API keys belong to one study. READ_ONLY, WRITE and ADMIN scopes reach an explicit
-  route allowlist, capped by the creator's current study access and role membership on every
-  request. Maximum lifetimes are 365, 90 and 30 days respectively; participant deletion and
-  purge require ADMIN. Keys cannot manage keys, permissions, organizations or system administration.
-  Audit records identify the key; a replacement key or its creator can still download its exports.
-- Sending `X-Api-Key` with a sign-in bearer token or authentication cookie returns 400.
-  Send one credential type per request.
-- Logout revokes the presented cookie and bearer tokens until their expiry, so a saved token
-  cannot be replayed after logout. Built-in login successes and failures are audited.
-- V116 adds restore continuity contract 3. Checkpoints retain completed erasures' block tokens
-  and device-key tombstones, including their original expiry. Restore replays completed deletions,
-  handles subjects absent from the backup, preserves later holds and removes expired markers
-  before consuming the checkpoint. Old checkpoints without proven original bindings fail closed.
-- V117 adds encrypted researcher create receipts and the tombstone update privilege needed by
-  restore. Study, questionnaire, async-export and researcher-key creates accept an optional
-  `Idempotency-Key`. Keep the same key and exact body across retries: the original result is
-  returned, and a changed body returns 409. Clients without the header keep their earlier behavior.
-  On encrypted self-hosts, the new tables use the existing TDE default.
-- Participant notes/tags and questionnaire reads return the content and revision together.
-  Revision checks and edits happen under one database lock, so a second tab cannot overwrite
-  the first tab's save. Verified participant questionnaire reads remain available.
-- Turning Data Collection off disables optional collection modules in saved settings, public
-  reads and enrollment manifests; required always-on modules remain. Study end dates and access
-  retention are enforced at startup as well as hourly. Retention expiry never erases data.
-- Exports reserve space for both the Excel working files and final download, stop at the configured
-  limit and remove partial files. Long exports no longer hit the database idle-transaction timeout,
-  and failed download setup returns its connection. CSV text that could become a spreadsheet
-  formula is escaped; numeric values stay numeric.
-- Historical diary sleep exports use the diary date for the next morning's wake-up time,
-  rather than the download date.
-- Phone verification returns 501 and never marks a number verified. Unsupported email delivery
-  is recorded as failed and its job is cancelled, rather than reported as sent.
+- The server uses Spring Framework 7.0.9, Spring Security 7.0.7 and Jetty 12.1.14 with ee11.
+  Jackson remains on version 2. Netty 4.2.18 fixes Transfer-Encoding request smuggling
+  (CVE-2026-89044). Trailing-slash requests are normalized before security, and
+  mobile HMAC signatures are verified over that normalized path. Servlet error pages return
+  generic JSON with an error ID and no stack trace.
+- Researcher participant or study erasure reports `ERASED` to supporting devices during
+  quarantine, holds and subsequent erasure. Older clients receive `NOT_ENROLLED`. Uploads and
+  new form codes are refused, and device-key expiry stops extending. A collected-data purge
+  keeps enrollment; database failures never count as ended participation.
+- V114 adds erased device-key tombstones containing only the key hash, erasure kind and expiry,
+  without study, participant or device identifiers. Completion deletes the key rows and keeps
+  those hashes for 365 days, including expired or revoked keys. They permit only participation
+  status and an already-withdrawn acknowledgment; manually revoked keys still return 401.
+- V115 removes key rows left by earlier completed erasures and creates their tombstones. If
+  another enrollment owns a reused hash, its credential remains and a migration notice reports
+  the skipped hash count. Review those shared credentials. New enrollments cannot reuse erased
+  or already-owned key material or an erased participant ID.
+- Withdrawal follows the study's policy. `ERASE` starts deletion quarantine; `KEEP_PRIOR_DATA`
+  stops collection and revokes the withdrawing device's credential while retaining prior server
+  data. Withdrawal remains visible with its timestamp after participant erasure, and withdrawn
+  participants cannot resume collection.
+- Participant disclosures and withdrawal policy cannot change after enrollment. Pending
+  enrollment attempts also block disclosure and collection-setting changes. Versioned collection
+  settings cannot be removed, and unsupported Play collection policies are rejected before
+  researchers issue an invitation.
+- Pausing or completing participation records a capture cutoff. While the study remains active,
+  queued captures before that cutoff can upload; later or undated captures are discarded.
+  V133 backfills legacy cutoffs only from participant-bound audit evidence. Without reliable
+  evidence, uploads stay unacknowledged on the device.
+- Module uploads honor the consent and settings revision under which records were collected.
+  Sensor receipts identify accepted, discarded and held samples separately, so held records stay
+  on the phone while accepted records continue uploading.
+- Researcher API keys belong to one study. READ_ONLY, WRITE and ADMIN scopes use an explicit route
+  allowlist, capped by the creator's current study access and role membership on every request.
+  Maximum lifetimes are 365, 90 and 30 days respectively; participant deletion and purge require
+  ADMIN. Keys cannot manage keys, permissions, organizations or system administration. Audit
+  records identify the key; its replacement or creator can still download its exports.
+- Researcher key rotation commits revocation and replacement together. Sending `X-Api-Key` with
+  a sign-in bearer token or authentication cookie returns 400. Unsupported DPoP authorization
+  returns 401; Chronicle accepts Bearer tokens.
+- Logout revokes presented cookie and bearer tokens until expiry. Revocations and session
+  activity survive backend restarts. Removing user permissions also revokes their sessions and
+  refresh tokens. Built-in login successes and failures are audited.
+- Restore continuity contract 5 preserves withdrawal and erasure records, device-key tombstones
+  and their original expiry, retention holds, participant pauses/completions, archived studies,
+  capture and purge cutoffs, and collection consent records. Restore replays completed deletions,
+  handles subjects absent from the backup and removes expired markers before consuming the
+  checkpoint. Unproven or conflicting bindings block startup.
+- V117 adds encrypted researcher create receipts. Study, questionnaire, async-export and
+  researcher-key creates accept an optional `Idempotency-Key`. Keep the same key and exact body
+  across retries: the original result is returned, and a changed body returns 409. Clients without
+  the header keep their earlier behavior. New tables use the existing TDE default on encrypted
+  self-hosts.
+- Participant notes/tags and questionnaire reads return content and revision together. Revision
+  checks and edits share a database lock, preventing a second tab from overwriting the first
+  tab's save. Verified participant questionnaire reads remain available.
+- Turning Data Collection off disables optional modules in saved settings, public reads and
+  enrollment manifests; required modules remain. Study duration enforcement runs at startup
+  and hourly and pauses enrolled participants. Retention expiry raises a deletion alert while
+  preserving data and researcher access; deletion remains an explicit action.
+- Retention holds require a future review time. Overdue holds produce logs and monitoring alerts
+  and remain in effect until explicitly released. Participant deletion and its status audit
+  commit together, audit replays no longer duplicate deletion events, and erasure avoids global
+  write locks that would block unrelated studies.
+- V120 permits verified erasure of collection-setting revisions and withdrawal receipts. V121
+  removes deferred iOS device names when a deletion is cancelled. Audit descriptions no longer
+  fail when bulk deletion or valid key names exceed the previous length limit.
+- Exports reserve space for both Excel working files and the final download, stop at configured
+  limits and remove partial files. Long exports avoid the database idle-transaction timeout,
+  and failed download setup returns its connection. Spreadsheet-formula text is escaped in CSV;
+  numeric values remain numeric.
+- Historical diary sleep exports use the diary date for the following morning's wake-up time.
+  Diary submission dates use the configured study time zone. Study durations entered as days
+  remain exact day counts instead of being converted to approximate years and months.
+- Phone verification returns 501 without marking a number verified. Unsupported email delivery
+  is recorded as failed and its job is cancelled. Completed and failed webhook delivery records
+  are pruned after 30 days.
 - Malformed upload strings, timezones and dates are rejected before storage. Database input
   errors return 400, access denials 403, and temporary database failures 503 with `Retry-After: 5`.
-  Error responses carry an error ID; logs omit SQL payloads. Readiness checks time out even when
-  the database connection pool stalls. Published API field definitions match the server responses.
+  Error responses carry an error ID; logs omit SQL payloads. Readiness checks remain bounded
+  when the connection pool stalls. Published API field definitions match server responses.
 
 ### Dashboard
 
-- Each study's Audit tab has a researcher API-key panel with scope and expiry choices, last-use
-  details and revoke confirmation. The raw key is shown once, kept out of the shared response
-  cache and cleared on dismissal or study change. Late responses from a previous study are ignored.
+- Researchers enter the shared dashboard password in the application login form. Caddy no longer
+  asks for it separately. Sign-out and idle expiry require password entry again. The idle lock
+  hides dashboard content and dialogs while preserving drafts for the same researcher after
+  reauthentication; expired requests also trigger the lock.
+- Each study's Audit tab includes researcher API-key scope and expiry choices, last-use details
+  and revoke confirmation. The raw key is shown once, excluded from shared response caches and
+  cleared on dismissal or study change. Late responses from another study are ignored.
 - Study, questionnaire, export and API-key creates retain the same request and idempotency key
-  across a lost response or retry. Notes and questionnaire editors send the loaded revision,
-  retain rejected drafts and offer explicit reload after a conflict.
-- Pause now writes `PAUSED`. Turning Data Collection off saves disabled optional modules instead
-  of leaving them enabled. Enrollment QR codes and links stay bound to the participant they
-  were issued for, even if the participant field changes while the request is running.
+  across lost responses and retries. Notes and questionnaire editors send the loaded revision,
+  preserve rejected drafts and offer explicit reload after conflicts. Study settings saves also
+  use the loaded revision.
+- Pause writes `PAUSED`. Turning Data Collection off saves disabled optional modules. Module
+  status and sensor cadence reflect the current collection policy. Enrollment QR codes and
+  links remain bound to the participant they were issued for during an in-flight request.
+- Study forms include withdrawal policy and an IANA study time zone. They preserve exact duration
+  values and unchanged legacy calendar durations. Retention expiry displays a deletion reminder.
+  Participant lists show withdrawal timestamps and prevent resuming withdrawn or erased enrollment.
 - Study forms explain which required or invalid fields block saving and ask before discarding
   unsaved changes. Failed page loads and enrollment-code requests offer Retry; network failures
   use readable messages.
-- Participant forms wait for the study's survey or diary settings instead of substituting a
-  different instrument after a failed load. The portal diary link opens yesterday's diary.
-  Links respect the participant session's scope, and expired or unavailable sessions show a
-  retryable warning while keeping entered answers.
+- Participant forms wait for the study's survey or diary settings instead of substituting another
+  instrument after failed loads. The portal diary link opens yesterday's diary. Links respect
+  participant-session scope, and expired or unavailable sessions retain answers with a retryable
+  warning.
+- Enrollment previews explain whether withdrawal erases or retains prior server data. Unsupported
+  or mismatched previews prevent enrollment.
+- Participant downloads start with today's date range and select the only available data type
+  automatically. Missing, reversed or excessive date ranges block download with a readable error.
 - Compliance violations are paged, and diagnostics filters wait briefly for typing to stop
-  before requesting another page.
-- Navigation, tables and questionnaire choice ordering work from the keyboard. Mobile navigation
-  keeps focus inside the drawer, closes with Escape and returns focus to its opener; collapsed
-  links keep their names and focused content stays clear of the sticky header.
+  before requesting another page. Collection acknowledgment loads report failures and offer Retry.
+- Navigation, tables, settings-audit expansion and questionnaire choice ordering work from the
+  keyboard. Mobile navigation keeps focus inside the drawer, closes with Escape and returns focus
+  to its opener. Collapsed links retain their names, and focused content clears the sticky header.
 - Forms have associated labels, pages have headings and distinct browser titles, and asynchronous
   errors are announced to screen readers. Narrow layouts wrap long headings, button focus remains
   visible in forced-colors mode, and the crash page remains readable in the dark theme.
 
-### Android (open flavor, versionCode 68, 2026.10.05-internal.open.1)
+### Android (open flavor, versionCode 69)
 
-- Overview, Uploads and Data Sharing say when the study team ends or pauses participation,
-  instead of reporting an unhealthy server or active collection. `NOT_ENROLLED` stops collection
-  and removes reminders while retaining local rows; a 401 alone never ends enrollment.
-  A pending withdrawal or support-needed withdrawal takes priority in the status text.
-- Queue writes take their cursor after both queued and acknowledged data, so a delayed writer
-  cannot be skipped. Cleanup retains the user-attribution record needed by the next poll.
-  Modules on hold keep their queued data while active modules continue uploading.
-- Network work has a 30-second overall deadline and is cancelled when its worker stops, so a
-  slow response cannot indefinitely block a consent change or withdrawal.
-- Health Connect re-reads a consent-bounded 24-hour overlap for late records and remembers
-  delivered record IDs across restarts. Missing access to one selected type keeps the checkpoint
-  for retry; concurrent reads cannot reset another read's scope. Discarding data clears those IDs.
+- Platform API handling covers Android 8–16. Notifications create their channels before checking
+  runtime permission, the app switch, channel importance and blocked channel groups. A reminder
+  on a cold start no longer disappears because its channel was missing. Suppressed low-storage
+  notices remain eligible after permission is granted.
+- Unlock monitoring receives `USER_PRESENT` across supported Android versions instead of silently
+  dropping broadcasts from SystemUI. App-only broadcasts retain private receiver handling.
+- Foreground-service start and promotion refusals are handled without starting collectors.
+  Exact-alarm refusal falls back to an inexact reminder, and granting exact-alarm access triggers
+  scheduling reconciliation. Exact access remains optional under reminder timing.
+- Missing Usage Access, Health Connect grants, provider availability or supported features skip
+  the affected read and preserve its checkpoint instead of retrying the whole collection worker.
+  Access revoked during a read also preserves the checkpoint.
+- Health Connect reads granted record types when another selected type is unavailable. Background
+  permission is required only while the app is not open. Reads retain a consent-bounded 24-hour
+  overlap for late records and remember delivered record IDs across restarts. Partial grants keep
+  the checkpoint; concurrent reads cannot reset another scope, and discarding data clears seen IDs.
+- Overview, Uploads and Data Sharing explain ended or paused participation. `NOT_ENROLLED` stops
+  collection and removes reminders while retaining local rows; a 401 alone never ends enrollment.
+  `ERASED` stops collection and clears local enrollment, queued data and recovery copies. Pending
+  or support-needed withdrawal takes priority in status text.
+- Queue writes advance beyond both queued and acknowledged data, so delayed writers cannot be
+  skipped. Cleanup retains the user-attribution record needed by the next poll. Queues retain
+  their collection-policy evidence, and held modules keep their rows while active modules upload.
+  Sensor uploads remove only samples the server accepts or explicitly discards.
+- Network calls have a 30-second overall timeout, and workers cancel in-flight calls when stopped.
+  Slow responses cannot indefinitely block consent changes or withdrawal.
 - Interrupted direct-boot drains keep complete records separate from the live file. Encrypting
   an older plaintext database preserves its schema version before the normal database upgrade.
-- Low storage shows a private notice and a paused status while retaining queued data. Uploads
-  rejected with 400, 413 or 422 keep their data and stop repeating the unchanged request until
+- Low storage shows a private notice and paused status while retaining queued data. Uploads
+  rejected with 400, 413 or 422 retain their data and stop repeating the unchanged request until
   settings, credentials or the app version change; temporary failures retry with a delay.
-- Failed collector registration and lost activity, sleep or sensor access are reported and offer
-  recovery. A rejected foreground-service start launches no collectors. Lifecycle and sleep
-  samples that cannot be saved are counted without recording their contents.
-- Applying a new settings version durably queues the current accepted/declined decisions once,
-  including while offline, and retries until the server receives them.
-- Temporary enrollment-preview failures keep the invitation and consent flow for retry.
-  Retired reminder taps clear the notification and explain that it is unavailable without
-  issuing a new form code. Failed reminder scheduling remains eligible for retry.
+- Failed collector registration and lost activity, sleep or sensor access are reported with
+  recovery options. Lifecycle and sleep samples that cannot be saved are counted without logging
+  their contents.
+- Applying a new settings version durably queues the accepted and declined decisions once,
+  including offline, and retries until the server receives them.
+- Temporary enrollment-preview failures preserve the invitation and consent flow. Reminder
+  requests retry 502–504 and network failures instead of minting replacement form codes through
+  the legacy fallback. Retired reminder taps clear the notice and explain its unavailability
+  without issuing a new code. Failed scheduling remains eligible for retry.
 - Survey reminders use a generic public lock-screen message; questionnaire logs omit prompts
-  and choices. Permission denials lead to the app's Settings instead of repeated prompts.
-  Exact-alarm access is optional and offered under reminder timing, not on every app launch.
-- Data Sharing keeps control focus through refreshes. Enrollment and recovery status changes
-  are announced to screen readers; consent text is readable in both themes and errors use
+  and choices. Permission denials lead to Settings instead of repeated prompts.
+- Data Sharing preserves control focus through refreshes. Enrollment and recovery changes are
+  announced to screen readers; consent text is readable in both themes and errors use
   participant-facing messages.
-- Settings opens the packaged platform policy. Disclosure and Settings show the study's
-  supplied HTTPS withdrawal link and policy effective date; missing policy content is reported.
+- Settings opens the packaged platform policy. Disclosure and Settings show the study's HTTPS
+  withdrawal link and policy effective date; missing policy content is reported. Enrollment
+  explains withdrawal policy and requires participant or guardian eligibility confirmation.
 
 ### Self-host
 
-- Fresh setup picks a free private Docker subnet when the default range is taken on the host,
-  and keeps the existing one on reruns. `up` and `upgrade` name an overlapping Docker network
-  before creating anything, instead of failing inside Compose with "Pool overlaps".
-- The public listener accepts researcher keys only for read-only Time Use Diary `/data` and
+- Fresh setup selects a free private Docker subnet when the default is taken and preserves it on
+  reruns. `up` and `upgrade` report overlapping Docker networks before creating resources or stopping
+  the running release. Upgrades from 2026.10.3 recreate the network and retain exporter and Caddy
+  volume-helper permissions needed after rollback.
+- Upgrade preflights check configuration, immutable images, PostgreSQL major compatibility,
+  storage, network availability and reconciliation prerequisites before stopping writers.
+  Upgrades take a consistent verified rollback dump and write its hash into an upgrade receipt.
+  Failures after the new release starts retain recovery state instead of restarting an older
+  backend against a potentially migrated database.
+- Operator commands enforce active deployment and Compose ownership and serialize upgrades,
+  restores and secret rotations. Run subsequent commands from the release directory reported
+  after a successful upgrade.
+- Backups use `chronicle-selfhost-backup`, rebuilt from upstream backup scripts on the pinned
+  Percona image. Schedules, rotation folders and dump format remain unchanged. Each scheduled
+  dump must restore successfully into a scratch database before publication, with TDE checked
+  when enabled. Verification and startup waits default to 3,600 seconds.
+- Restore checks the reviewed hash and restricted dump format before stopping writers, then
+  restores a fixed copy of those verified bytes. A `--no-start` rollback consumes its checkpoint
+  only after proving the restored backup already protects every captured continuity record.
+- Doctor checks verified-backup freshness, scratch capacity and projected retained-backup space,
+  and warns about excessive WAL growth. Setup checks service memory ceilings plus host headroom,
+  provides reduced limits for a 4 GiB host and defaults monitoring off below 10 GiB.
+- The public listener permits researcher keys only for read-only Time Use Diary `/data` and
   `/participants/data`, and questionnaire `/data` downloads. These routes require `X-Api-Key`;
   dashboard bearer tokens and cookies do not pass the public boundary. Other researcher routes
-  stay on the private listener.
-- All five export limits now reach the backend: `CHRONICLE_EXPORT_MAX_ROWS=1000000`,
+  remain private. Participant pages continue working when dashboard cookies share their hostname.
+- All five export limits reach the backend: `CHRONICLE_EXPORT_MAX_ROWS=1000000`,
   `CHRONICLE_EXPORT_MAX_BYTES=536870912`, `CHRONICLE_EXPORT_MAX_RUNTIME_SECONDS=1800`,
   `CHRONICLE_EXPORT_MAX_TOTAL_BYTES=8589934592`, and `CHRONICLE_EXPORT_MIN_FREE_BYTES=1073741824`.
   Values must be positive integers; invalid values stop backend startup.
-- Restore verifies the reviewed hash and restricted dump format before stopping writers, then
-  restores a fixed copy of those verified bytes. A `--no-start` rollback consumes its contract-3
-  checkpoint only after proving the backup already protects every required deletion record.
-- Caddy and the metrics server run without root; a one-time helper fixes existing Caddy volume
-  ownership before startup. PostgreSQL, backup and CA-export containers have read-only roots
-  with bounded writable paths. Caddy reaps healthcheck child processes instead of exhausting
-  its process limit, and the backend exits on out-of-memory failure so it can restart.
-- Forwarded client addresses are resolved from right to left through the configured proxies.
-  Independent monitoring startup also checks Grafana's password and private bind. Public TLS
-  modes refuse `.corp`, `.home` and `.mail` names; use local HTTPS for a private LAN trial.
+- Caddy and the metrics server run without root; a helper repairs existing Caddy volume ownership.
+  PostgreSQL, backup and CA-export containers have read-only roots with bounded writable paths.
+  Caddy reaps healthcheck child processes, and the backend exits on out-of-memory failure to restart.
+- Forwarded addresses are resolved from right to left through configured proxies. Direct TLS
+  modes ignore forwarded identities from Docker's gateway. SNAT without client forwarding uses
+  the load balancer's address; trust configuration cannot recover the original client address.
+  Edge limits use IP addresses without retaining credential headers.
+- Monitoring caches verified-backup checks, detects container OOM events and stalled log delivery,
+  and checks authenticated database readiness. Alerts cover isolated failed exports and erasures,
+  retention expiry, overdue holds and backend dashboard-login failures. Application views include
+  Caddy errors and warnings, and concurrent operator events are preserved.
+- Local HTTPS monitoring trusts the trial CA. For another private public-origin CA, configure
+  `MONITORING_PUBLIC_CA_FILE` with its certificate under the mounted state TLS directory. Grafana
+  receives only its own certificate and key, and independent monitoring startup validates its
+  password and private bind.
 - Setup and doctor warn when monitoring has no `CHRONICLE_ALERT_WEBHOOK_URL`. Failed upgrades
-  write the operation-failure metric used by alerts. Behind-proxy installations must redirect
-  public HTTP to canonical HTTPS at the upstream proxy; verification checks that redirect.
-- `./chronicle update` prints every intervening changelog entry before applying the update.
-  Help works before operational preflight, arguments are checked and forwarded, and setup
-  rejects invalid Compose project names. Rerunning setup reports that credentials were preserved.
-- PostgreSQL secret rotation no longer waits for the completed CA-export job to stay running.
-  Source deployments select their environment file with `CHRONICLE_ENV_FILE`. The rotation
-  helper updates mounted credentials, recreates dependents and
-  restores the old values if verification fails; unsupported rotation types are refused.
-  Custodian recovery validates every share, reconstructs threshold keys correctly and restores
-  backup passphrase bytes unchanged.
-- Release packaging rejects uncommitted inputs and mismatched source revisions, includes licenses
-  and source references, and attaches image-digest-bound SBOMs. Release scans include shipped
-  third-party images. Optional source/production deployment manifests require immutable image
-  digests, and production rollback retains those digests.
+  record the operation-failure metric used by alerts. Verification checks canonical upstream HTTP
+  redirects when public HTTP is enabled.
+- Periodic reconciliation preserves unchanged frontend files and installation certificates.
+  `./chronicle down` pauses reconciliation until a successful manual `up`. Published installations
+  receive a daily update check that reports available releases without applying them.
+- `./chronicle update` verifies signed checksums and prints every intervening changelog entry before
+  applying an update. Help works before operational preflight, arguments are checked and forwarded,
+  and setup rejects invalid Compose project names. Setup reruns preserve credentials and saved
+  operational answers.
+- PostgreSQL secret rotation no longer waits for the completed CA-export job to remain running.
+  Dashboard password rotation recreates both backend and edge. Source deployments select their
+  environment file with `CHRONICLE_ENV_FILE`. Rotation updates mounted credentials, verifies
+  dependents and restores old values on failure; interrupted rotations retain recovery instructions.
+  Custodian recovery validates shares and preserves backup passphrase bytes.
+- Bundles include licenses and source references, and release assets include image-digest-bound
+  SBOMs. Optional source and production deployment manifests require immutable image digests,
+  which production rollback preserves.
 - Hashed fonts use immutable caching. Source-deployment API responses use compression, and APK
-  and preprocessing responses retain their security headers. Shipped documentation describes
-  always-recorded device/enrollment metadata, the external preprocessing fallback and archive
-  release identities for support reports.
-- Third-party images updated: Percona PostgreSQL 18.6.1-3 (same PostgreSQL 18.6 and pg_tde 2.2),
-  Grafana 13.2.3, VictoriaMetrics 1.153.0, VictoriaLogs 1.53.0, cAdvisor 0.60.6,
-  docker-socket-proxy 0.5.0, fluent-bit 5.1.3, Keycloak 26.8.0.
-- Backups run on `chronicle-selfhost-backup`, the same backup scripts rebuilt from upstream
-  source on the pinned Percona image; the previous backup image is no longer maintained upstream.
-  Schedules, rotation folders and dump format are unchanged.
-- Upgrades from 2026.10.3 now recreate the Compose network for `CHRONICLE_SUBNET`, keep the
-  metrics exporter and Caddy volume helper startable after a rollback, and stop before touching
-  the running release if the subnet is taken.
+  and preprocessing responses retain security headers. Operator documentation describes
+  always-recorded device/enrollment metadata, external preprocessing fallback and archive identities
+  for support reports.
+- Third-party images updated: Percona PostgreSQL 18.6.1-3, Grafana 13.2.3,
+  VictoriaMetrics 1.153.0, VictoriaLogs 1.53.0, cAdvisor 0.60.6,
+  docker-socket-proxy 0.5.0 and fluent-bit 5.1.3.
 
 ## [2026.10.3]
 
