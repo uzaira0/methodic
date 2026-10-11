@@ -1,42 +1,77 @@
 # Accepted findings for scripts/publish-images.sh. Each entry: one advisory, the exact artifact,
 # why it is not reachable, and an expiry that forces a re-check.
 vulnerabilities:
-  - id: GHSA-r7wm-3cxj-wff9
-    paths:
-      - "server/lib/hazelcast-5.5.0.jar"
-    expired_at: 2026-12-31
-    statement: >-
-      jackson-core 2.17.2 shaded (relocated to com.hazelcast.shaded) inside Hazelcast 5.5.0.
-      The advisory affects only the non-blocking async parser; no Hazelcast class outside the
-      shaded package calls createNonBlocking*, and application code cannot reach the relocated
-      classes. Chronicle's own jackson-core is 2.22.0. Drop when Hazelcast ships a patched shade.
   - id: CVE-2026-89407
     paths:
-      - "server/lib/hazelcast-5.5.0.jar"
+      - "server/lib/hazelcast-5.7.0.jar"
     expired_at: 2026-12-31
     statement: >-
-      Same shaded jackson-core 2.17.2 inside Hazelcast 5.5.0 (regular-expression backtracking,
-      denial of service only). Reachable only through JSON that Hazelcast itself parses: Chronicle
-      stores no HazelcastJsonValue, the Hazelcast REST API is off, and the member port is not
-      published outside the compose network. Chronicle's own jackson-core is 2.22.3. Drop when
-      Hazelcast ships a patched shade.
+      jackson-core 2.21.2 and 3.1.2 shaded (relocated to com.hazelcast.shaded) inside Hazelcast
+      5.7.0, the newest Hazelcast OSS release (regular-expression backtracking, denial of service
+      only). Reachable only through JSON that Hazelcast itself parses: Chronicle stores no
+      HazelcastJsonValue, the Hazelcast REST API is off, and the member port is not published
+      outside the compose network. Chronicle's own jackson-core is 2.22.3. Drop when Hazelcast
+      ships a patched shade.
   - id: CVE-2026-89425
     paths:
-      - "server/lib/hazelcast-5.5.0.jar"
+      - "server/lib/hazelcast-5.7.0.jar"
     expired_at: 2026-12-31
     statement: >-
-      Same shaded jackson-core 2.17.2 inside Hazelcast 5.5.0 (unbounded buffer growth on a
-      malformed token, denial of service only); same reachability as CVE-2026-89407. Drop when
-      Hazelcast ships a patched shade.
+      Same shaded jackson-core in Hazelcast 5.7.0 (unbounded buffer growth on a malformed token,
+      denial of service only); same reachability as CVE-2026-89407.
   - id: CVE-2026-68494
     paths:
-      - "server/lib/hazelcast-5.5.0.jar"
+      - "server/lib/hazelcast-5.7.0.jar"
     expired_at: 2026-12-31
     statement: >-
-      Same shaded jackson-core 2.17.2 inside Hazelcast 5.5.0 (incomplete fix in the async JSON
-      parser, denial of service only); same reachability as GHSA-r7wm-3cxj-wff9: no Hazelcast class
-      outside the shaded package calls createNonBlocking*. Hazelcast 5.6.0 (2.19.2) and 5.7.0
-      (2.21.2) still shade affected versions. Drop when Hazelcast ships a patched shade.
+      Same shaded jackson-core in Hazelcast 5.7.0 (incomplete fix in the async JSON parser, denial
+      of service only). Bytecode scan of the 5.7.0 jar: no class outside the shaded jackson
+      packages calls createNonBlocking*.
+  - id: CVE-2026-54512
+    paths:
+      - "server/lib/hazelcast-5.7.0.jar"
+    expired_at: 2026-11-30
+    statement: >-
+      jackson-databind 2.21.2 and 3.1.2 shaded inside Hazelcast 5.7.0 (deserialization). Bytecode scan
+      of the 5.7.0 jar: no class outside the shaded jackson packages references the shaded
+      databind; Hazelcast metadata uses jackson-core and Jet JSON uses jackson-jr. Chronicle's
+      own databind is 2.22.3. Drop when Hazelcast ships a patched shade.
+  - id: CVE-2026-54513
+    paths:
+      - "server/lib/hazelcast-5.7.0.jar"
+    expired_at: 2026-11-30
+    statement: >-
+      jackson-databind 2.21.2 and 3.1.2 shaded inside Hazelcast 5.7.0 (deserialization). Bytecode scan
+      of the 5.7.0 jar: no class outside the shaded jackson packages references the shaded
+      databind; Hazelcast metadata uses jackson-core and Jet JSON uses jackson-jr. Chronicle's
+      own databind is 2.22.3. Drop when Hazelcast ships a patched shade.
+  - id: CVE-2026-68497
+    paths:
+      - "server/lib/hazelcast-5.7.0.jar"
+    expired_at: 2026-11-30
+    statement: >-
+      jackson-databind 2.21.2 and 3.1.2 shaded inside Hazelcast 5.7.0 (unbounded numeric parsing of XML datatypes). Bytecode scan
+      of the 5.7.0 jar: no class outside the shaded jackson packages references the shaded
+      databind; Hazelcast metadata uses jackson-core and Jet JSON uses jackson-jr. Chronicle's
+      own databind is 2.22.3. Drop when Hazelcast ships a patched shade.
+  - id: CVE-2026-91776
+    paths:
+      - "server/lib/hazelcast-5.7.0.jar"
+    expired_at: 2026-11-30
+    statement: >-
+      jackson-databind 2.21.2 and 3.1.2 shaded inside Hazelcast 5.7.0 (type-id cache growth). Bytecode scan
+      of the 5.7.0 jar: no class outside the shaded jackson packages references the shaded
+      databind; Hazelcast metadata uses jackson-core and Jet JSON uses jackson-jr. Chronicle's
+      own databind is 2.22.3. Drop when Hazelcast ships a patched shade.
+  - id: CVE-2026-91777
+    paths:
+      - "server/lib/hazelcast-5.7.0.jar"
+    expired_at: 2026-11-30
+    statement: >-
+      jackson-databind 2.21.2 and 3.1.2 shaded inside Hazelcast 5.7.0 (quadratic forward-reference completion). Bytecode scan
+      of the 5.7.0 jar: no class outside the shaded jackson packages references the shaded
+      databind; Hazelcast metadata uses jackson-core and Jet JSON uses jackson-jr. Chronicle's
+      own databind is 2.22.3. Drop when Hazelcast ships a patched shade.
   - id: CVE-2026-12064
     purls:
       - "pkg:deb/debian/libcurl4t64@8.14.1-2%2Bdeb13u5?arch=amd64&distro=debian-13.7"
@@ -2080,3 +2115,312 @@ vulnerabilities:
       not Expat. selfhost/docker-compose.yml and its helpers run postgres, Bash, psql and OpenSSL
       with no Expat-based XML ingestion; the same base in chronicle-selfhost-backup runs pg_dump
       and go-cron, not XML-processing tooling.
+
+# Unfixed third-party runtime findings reviewed for release 2026.10.9.
+  - id: CVE-2026-76641
+    purls:
+      - "pkg:rpm/redhat/expat@2.5.0-6.el9_8.5?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: newest RHEL build still affected. XML
+      parser; backup scripts and PostgreSQL parse no XML from any input, so no attacker-supplied
+      document reaches libexpat.
+  - id: CVE-2026-77214
+    purls:
+      - "pkg:rpm/redhat/expat@2.5.0-6.el9_8.5?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: newest RHEL build still affected. XML
+      parser; backup scripts and PostgreSQL parse no XML from any input, so no attacker-supplied
+      document reaches libexpat.
+  - id: CVE-2026-88647
+    purls:
+      - "pkg:rpm/redhat/gnutls@3.8.10-9.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: newest RHEL build still affected.
+      Certificate validation flaws in GnuTLS clients; pg_dump, psql and libpq use OpenSSL, and
+      nothing in the image makes GnuTLS connections.
+  - id: CVE-2026-88648
+    purls:
+      - "pkg:rpm/redhat/gnutls@3.8.10-9.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: newest RHEL build still affected.
+      Certificate validation flaws in GnuTLS clients; pg_dump, psql and libpq use OpenSSL, and
+      nothing in the image makes GnuTLS connections.
+  - id: CVE-2026-52929
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-80778
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-80824
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-80837
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-80840
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-80841
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-80842
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-80848
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-80849
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-80850
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-80852
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-80878
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-80887
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-81003
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-89777
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-89811
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-89894
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-89932
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-89970
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-90036
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-90049
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-90111
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-90315
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-93787
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-93827
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-97528
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-98222
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-98318
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-98320
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-98323
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-98364
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-98378
+    purls:
+      - "pkg:rpm/redhat/kernel-headers@5.14.0-687.52.1.el9_8?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed RHEL build. Build headers only;
+      containers run on the host kernel and never load these headers as code.
+  - id: CVE-2026-19445
+    purls:
+      - "pkg:rpm/redhat/python-unversioned-command@3.9.25-7.el9_8.3?arch=noarch&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      Same Python 3.9 advisory and reachability as python3: no Python TLS server runs.
+  - id: CVE-2026-19445
+    purls:
+      - "pkg:rpm/redhat/python3@3.9.25-7.el9_8.3?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: Python 3.9 is end of life in RHEL 9 with no
+      fix. Server-side SSLContext sni_callback use-after-free; no Python process in these images
+      runs a TLS server.
+  - id: CVE-2026-19445
+    purls:
+      - "pkg:rpm/redhat/python3-libs@3.9.25-7.el9_8.3?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      Same Python 3.9 advisory and reachability as python3: no Python TLS server runs.
+  - id: CVE-2026-19395
+    purls:
+      - "pkg:rpm/redhat/qt5-srpm-macros@5.15.9-1.el9?arch=noarch&distro=redhat-9.8"
+    expired_at: 2026-11-30
+    statement: >-
+      percona/percona-distribution-postgresql:18.6.1-3: no fixed build. RPM build macros (text
+      files); no Qt code is installed or run.
+  - id: CVE-2026-78667
+    purls:
+      - "pkg:golang/stdlib@v1.26.7"
+    expired_at: 2026-11-30
+    statement: >-
+      gosu shipped in percona/percona-distribution-postgresql:18.6.1-3, built with Go 1.26.7; no
+      newer Percona image. HTTP/2, Range and TLS ECH denial of service; gosu only switches user and
+      execs, with no networking.
+  - id: CVE-2026-78669
+    purls:
+      - "pkg:golang/stdlib@v1.26.7"
+    expired_at: 2026-11-30
+    statement: >-
+      gosu shipped in percona/percona-distribution-postgresql:18.6.1-3, built with Go 1.26.7; no
+      newer Percona image. HTTP/2, Range and TLS ECH denial of service; gosu only switches user and
+      execs, with no networking.
+  - id: CVE-2026-97031
+    purls:
+      - "pkg:golang/stdlib@v1.26.7"
+    expired_at: 2026-11-30
+    statement: >-
+      gosu shipped in percona/percona-distribution-postgresql:18.6.1-3, built with Go 1.26.7; no
+      newer Percona image. HTTP/2, Range and TLS ECH denial of service; gosu only switches user and
+      execs, with no networking.

@@ -2,7 +2,7 @@
 # Commit: d00896ab15f6da29e0449390315a36c3bbda5082 (debian.Dockerfile, MIT).
 # Build with selfhost/ as context (scripts and the shared dump validator).
 # Keep upstream scripts, defaults, scheduler version and Debian hook semantics intact.
-FROM golang:1.27.1-bookworm@sha256:8d48e12ec56735e9358640898b9d9b9fcca110612ed8a5567438c0a1baa24e66 AS builder
+FROM golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61 AS builder
 
 RUN CGO_ENABLED=0 GOTOOLCHAIN=local go install -trimpath \
         -ldflags='-s -w -X main.version=v0.0.11' \
@@ -30,6 +30,12 @@ FROM percona/percona-distribution-postgresql:18.6.1-3@sha256:cf1ef553805898b7376
 # hadolint ignore=DL3002
 USER 0
 WORKDIR /
+
+# Fixed builds of base packages the pinned Percona image predates (trivy gate in
+# scripts/publish-images.sh). Drop once Percona ships a base that carries them.
+RUN dnf -y upgrade expat-2.5.0-6.el9_8.5 gnutls-3.8.10-9.el9_8 \
+        python3.12-3.12.15-1.0.1.el9_8 python3.12-libs-3.12.15-1.0.1.el9_8 && \
+    dnf clean all
 
 # dnf in the pinned Percona image supplies Python; fail the build if that contract changes.
 RUN python3 -c 'import sys; assert sys.version_info >= (3, 9)' && command -v flock
