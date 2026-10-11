@@ -4,8 +4,11 @@ umask 077
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 RUN_DIR=$(mktemp -d /tmp/chronicle-gitleaks-history.XXXXXX)
 trap 'rm -rf -- "$RUN_DIR"' EXIT
-gitleaks git --no-banner --redact \
-  --gitleaks-ignore-path "$ROOT_DIR/tests/security/gitleaks-ignore/methodic-root.gitleaksignore" \
+# The ignore list covers private history and is not published; curated public history passes without it.
+IGNORE="$ROOT_DIR/tests/security/gitleaks-ignore/methodic-root.gitleaksignore"
+ignore_args=()
+[[ ! -f "$IGNORE" ]] || ignore_args=(--gitleaks-ignore-path "$IGNORE")
+gitleaks git --no-banner --redact "${ignore_args[@]}" \
   --report-format json --report-path "$RUN_DIR/history.json" "$ROOT_DIR" >"$RUN_DIR/history.log" 2>&1 || { cat "$RUN_DIR/history.log" >&2; exit 1; }
 mkdir "$RUN_DIR/fixture"
 python3 - "$RUN_DIR/fixture/credential.conf" <<'PY'
