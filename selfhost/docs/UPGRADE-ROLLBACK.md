@@ -9,15 +9,65 @@ by hand and do not run the new backend before the automatic backup completes.
 
 From the current bundle's `selfhost` directory, run `./chronicle update --check` to
 print the current and latest release versions (exit 0 if up to date, 3 if an update is
-available). Run `./chronicle update` to download the latest bundle and its `.sha256`,
-verify the checksum, extract beside the current bundle, and hand off to the guarded
-upgrade below. It requires `curl` and `python3`, refuses a release that
+available). Run `./chronicle update` to download the latest bundle, its `.sha256`, and
+`.sha256.sig`. It verifies the SSH ed25519 signature with the currently installed
+`selfhost/release-signing.pub`, then checks the archive checksum before extracting beside
+the current bundle and handing off to the guarded upgrade below. Missing or invalid
+signatures stop the update before extraction or execution. It requires `curl`, `python3`,
+and OpenSSH `ssh-keygen` with `-Y` support, refuses a release that
 is not newer, and never overwrites an existing release directory or download.
+Only the changelog inside the signature-verified archive is printed as release instructions.
+`--check` prints version availability; GitHub release bodies are not authenticated by the
+bundle signature and are not displayed.
+
+### Upgrading a proxy deployment to 2026.10.9
+
+The upgrade migrates the old loopback-only `CADDY_TRUSTED_PROXIES` automatically. A same-host
+proxy uses the gateway of the saved `CHRONICLE_SUBNET`; a remote F5 uses the existing explicit
+`POOL_ALLOWED_IPS`. Client XFF is optional, including when the F5 uses SNAT. A loopback
+dashboard allowlist also gains the Compose gateway to retain SSH-tunnel access.
+If a remote bind has no recorded F5 source ranges, the upgrade retains its old trust boundary
+and the guard warns without blocking startup. SNAT traffic without XFF uses the F5 socket
+address. Forwarded client headers remain untrusted until exact F5 source CIDRs are configured;
+the upgrade never guesses a range or broadens trust to every address.
+
+### Release signatures and key rotation
+
+Release checksums are signed in the `chronicle-release` SSH namespace. The publisher
+requires the private key at `~/.config/chronicle/release-signing-key`, or the path set by
+`CHRONICLE_RELEASE_SIGNING_KEY`; it uploads the detached `.sha256.sig` alongside the
+archive and checksum. Every new bundle contains the public key. Updates trust the key
+from the currently installed bundle, before reading anything inside the downloaded archive.
+
+For manual verification, download all three assets and use your installed public key:
+
+```bash
+printf 'chronicle-release %s\n' "$(cat /path/to/current/selfhost/release-signing.pub)" > allowed_signers
+ssh-keygen -Y verify -f allowed_signers -I chronicle-release -n chronicle-release \
+  -s chronicle-selfhost-<new-version>.tar.gz.sha256.sig \
+  < chronicle-selfhost-<new-version>.tar.gz.sha256
+sha256sum -c chronicle-selfhost-<new-version>.tar.gz.sha256
+```
+
+Proceed to extraction only if both commands succeed. A first installation must obtain
+the public key through an independently trusted channel to authenticate the download;
+the key inside that same download cannot establish its own trust.
+
+The installed 2026.10.x bundles shipped before signing have no public key. Their existing
+checksum-only updater fetches the first signed release without authenticating its signature.
+That transition still trusts GitHub's release assets. After switching to the first signed
+bundle, subsequent updates require signatures; there is no unsigned fallback in the new CLI.
+
+To rotate keys, publish a bridge release whose checksum is signed by the old private key
+and whose bundle ships the new public key. Install that bridge before using releases signed
+by the new key. Operators who skipped the bridge must verify and install it with their old
+installed key first; replacing the local trust key from an unverified download is unsafe.
 
 ### Switching from a source checkout to release bundles
 
 Use `adopt` once when the running installation is a source checkout without a
-`release-manifest.json`. Download a release archive and its `.sha256`, then run:
+`release-manifest.json`. Download the archive, `.sha256`, and `.sha256.sig`; verify the
+signature with an independently trusted public key as above, then run:
 
 ```bash
 sha256sum -c chronicle-selfhost-<new-version>.tar.gz.sha256
@@ -36,10 +86,10 @@ encryption enabled or `encrypted_payloads` holds rows. Adoption preserves `COMPO
 (default `chronicle-selfhost`) so the release uses the existing database volumes.
 It stops `backend`, `web`, `db-init`, and optional `db-backup`, then creates and
 verifies `backups/pre-adopt-<timestamp>-<pid>.sql.gz` in the source directory.
-It copies `.env` with mode `0600` and copies `backups/` and `tls/` with `cp -a`;
-release defaults and pinned images come from the new bundle's `.env.example`.
-The copied configuration points to the new state directory. No source files are
-moved or deleted. While the source can still restart, it runs the new release's
+It copies `.env` with mode `0600`; release defaults and pinned images come from the new
+bundle's `.env.example`. `CHRONICLE_STATE_DIR` retains the source state directory, including
+backups, TLS, the shared `.reconcile.lock`, and recovery markers. No state is duplicated.
+Successful adoption transfers the existing reconciliation launcher to the new release. While the source can still restart, it runs the new release's
 configuration guard and host checks (ports, bind addresses, free disk) and pulls its
 images. After removing the source containers without deleting volumes,
 it runs `./chronicle up` and `./chronicle verify` in the new bundle and records the
@@ -51,10 +101,16 @@ recover forward, or follow the tested rollback procedure below using the receipt
 `pre_adopt_backup.path` and `pre_adopt_backup.sha256`. Independently review the source
 checkout, adoption receipt, and exact dump before accepting its digest as trusted; the
 receipt or a sidecar alone does not authenticate bytes if both came from an untrusted source.
-Pass that reviewed digest with `--trusted-sha256=...` to `./chronicle restore --no-start`
-before starting the intact source checkout again if migrations ran. The guarded command
-checks the digest before stopping writers. Never run both installations at once or delete
-their shared database volumes.
+From the new bundle, pass the reviewed digest to the guarded rollback command:
+
+```bash
+./chronicle rollback --from /absolute/path/to/source/selfhost \
+  --trusted-sha256=REVIEWED_SHA256 /backups/pre-adopt-<timestamp>-<pid>.sql.gz
+```
+
+This checks the digest before stopping writers, honors the adoption recovery lock, and
+transfers Compose ownership and reconciliation back to the source. Never run both
+installations at once or delete their shared database volumes.
 
 After successful adoption, future updates run from the bundle:
 
@@ -67,8 +123,8 @@ After successful adoption, future updates run from the bundle:
 
 To download and start a release-bundle upgrade manually:
 
-1. Download the new release archive and its `.sha256` file.
-2. Verify the checksum and extract the archive beside—not over—the current release.
+1. Download the new release archive, its `.sha256`, and `.sha256.sig` files.
+2. Verify the signature as above, then the checksum, and extract beside the current release.
 3. Keep the previous release directory. Its `backups/` and `tls/` directories may remain the
    persistent state location after the upgrade.
 4. Run:
@@ -144,7 +200,17 @@ already quiesced application services, it attempts a bounded restart of the prev
 and reports whether that old stack returned healthy. The generated new `.env` is removed so
 the command can be retried from the clean bundle. Diagnose the reported validation, pull,
 disk, stop, restart, or backup error and rerun the same command. A completed pre-upgrade dump
-is retained even if a later pre-start check fails.
+is retained even if a later pre-start check fails. `./chronicle update` reuses its retained
+archive and clean extraction only after checking the signature, checksum and complete release inventory.
+You can also retry directly:
+
+```bash
+cd /path/to/chronicle-selfhost-<new-version>/selfhost
+./chronicle upgrade --from /path/to/chronicle-selfhost-<old-version>/selfhost
+```
+
+After success, use the new `selfhost/` directory for every operator command; the command
+prints that directory. Commands that change the deployment refuse a superseded release.
 
 ### At or after `Starting Chronicle ...`
 
@@ -182,35 +248,56 @@ cannot make the new release healthy.
    exact digest through your trusted operator record before proceeding. A `.sha256` file
    generated beside an untrusted dump is not an independent trust source.
 
-2. Use the guarded restore command with `--no-start`. It verifies the selected dump, stops
-   and verifies every application writer and the backup sidecar, takes another safety dump,
-   and stops on the first SQL error. `--no-start` keeps the newer backend from reconnecting
-   after the old schema is restored. It also compares the current immutable withdrawal and
-   deletion checkpoint with the selected backup. A later withdrawal, active deletion change,
-   retention-hold change, or tombstone that is absent from the backup blocks rollback because
-   the previous binary cannot safely reconcile it:
+2. From the current release, use the guarded rollback command. It holds the same flock
+   as startup and reconciliation, persists the stop marker, verifies the reviewed dump and
+   protected continuity facts, restores with every writer stopped, and transfers the schedule
+   to a previous release that supports reconciliation before starting it:
 
    ```bash
    RESTORE_IN_CONTAINER="/backups/$(basename "$BACKUP_HOST")"
-   ./chronicle restore --no-start "--trusted-sha256=${BACKUP_SHA256}" "$RESTORE_IN_CONTAINER"
+   ./chronicle rollback --from /absolute/path/to/chronicle-selfhost-<old-version>/selfhost \
+     "--trusted-sha256=${BACKUP_SHA256}" "$RESTORE_IN_CONTAINER"
    ```
 
-   If this command reports that the backup predates protected continuity facts, stop. Do not
-   start the old bundle or remove the restore lock/checkpoint. Recover forward with the current
-   release and a newer reviewed backup instead.
+   Schema replacement, containment, ACL verification, and continuity proof share one
+   PostgreSQL transaction. The proof includes enrollment invitations and published collection
+   settings as well as withdrawals and deletion evidence. A proof refusal rolls back the
+   replacement, releases the restore lock, and resumes the current release with its live data.
+   Connection loss with an uncertain commit outcome preserves the lock for diagnosis.
+   Do not clear a migration or restore checkpoint
+   merely to start an older binary. Diagnose the preserved checkpoint and repeat the reviewed
+   recovery. A standalone `restore --no-start` also stays stopped across scheduled ticks until
+   an explicit `up` from the authorized release. Bare Compose commands bypass these safeguards.
 
-3. Stop the new release **without deleting volumes**, then start the previous bundle:
-
-   ```bash
-   docker compose down
-   cd /absolute/path/to/chronicle-selfhost-<old-version>/selfhost
-   ./chronicle up
-   ./chronicle verify
-   ```
-
+Rollback carries the current credentials into the previous release while retaining that
+release's image pins. Passwords and signing secrets revoked since the upgrade stay revoked.
+If the previous release lacks `chronicle_ops`, rollback removes the reconciliation and
+daily update schedules instead. It retains private logs under `operator-receipts/` and
+makes only the empty operation lock and stop marker readable for the older preflight.
+Automatic reconciliation stays off until a supported release is installed again.
 The old backend is now paired with the exact pre-upgrade schema and data. Keep both the
 upgrade dump and the restore service's `pre-restore-*.sql.gz` safety dump until the incident
 is resolved.
+
+## Removing unused release downloads
+
+From the active release, review `./chronicle cleanup --releases-dir /absolute/releases`.
+Repeat with `--apply` to remove eligible bundles and their archives/checksums/signatures. Cleanup keeps
+the newest three releases, active/state/recovery owners, all bundles with deployment
+configuration or private state, and every bundle referenced by a Compose project. It also
+asks Docker to remove unused images; images referenced by containers remain protected.
+
+### Restore continuity contracts
+
+Contract 5 checkpoints bind deletion start times, purge cutoffs, pause/completion capture
+cutoffs and immutable module decisions to their row counts and shared digest. Reconciliation
+preserves the original timestamps and decision order; restore time grants no new consent.
+Older backups remain supported. The backend validates and upgrades pending contracts 2, 3
+and 4; the restore command refuses those unresolved checkpoints before replacing public
+state, so they must first be consumed by the compatible backend with sufficient evidence.
+Older checkpoints lack module history and may lack a purge's original start watermark;
+reconciliation uses preserved operation evidence or the original completion time, never
+restore time. Missing pause cutoffs remain closed to queued uploads.
 
 ### A restore checkpoint left by release 2026.10.3 or earlier
 
@@ -230,3 +317,17 @@ overwrite the source data with another backup.
 PostgreSQL data directories are not compatible across major versions. The automatic command
 therefore refuses a major change before replacing the running container. Follow
 [POSTGRES-18-UPGRADE.md](POSTGRES-18-UPGRADE.md) for the separate dump/restore process.
+
+After a successful rollback, the abandoned candidate's settings are preserved as a private
+mode-0600 `.env.rollback-<timestamp>` file in the shared state's mode-0700 `operator-receipts`
+directory, outside the candidate bundle inventory. Retry that same candidate through the guarded
+command, with no manual Compose startup or fresh extraction:
+
+```bash
+cd /absolute/path/to/chronicle-selfhost-<candidate>/selfhost
+./chronicle upgrade --from /absolute/path/to/chronicle-selfhost-<restored>/selfhost
+```
+
+The successful update reclaims superseded release images, preserving the active release and
+the previous release's image pins for rollback. Deployment settings and private state remain
+protected by release cleanup.

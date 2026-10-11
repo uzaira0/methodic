@@ -2,6 +2,14 @@
 
 Chronicle handles research participant data.
 
+## Self-host release signing key
+
+The Ed25519 release key has fingerprint
+`SHA256:PuOdejZ2d1CQgrWEF/tf95asMPC5RnsbCidg1PB6VSo`.
+Verify it with `ssh-keygen -lf selfhost/release-signing.pub` before trusting a release.
+Setup prints the installed fingerprint. Institutions should receive this fingerprint through
+their independent maintainer handoff; the archive and its sidecars alone do not establish trust.
+
 ## Reporting a vulnerability
 
 Use GitHub's private vulnerability reporting on the affected repository

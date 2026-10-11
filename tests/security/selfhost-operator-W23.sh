@@ -2,39 +2,63 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
-WORK_DIR=/home/opt/chronicle_work/launch-audit-1003/sol/webselfhost-logs
+WORK_DIR="${SELFHOST_OPERATOR_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-operator-W23}"
+mkdir -p "$WORK_DIR"
 RUN_DIR=$(mktemp -d "${WORK_DIR}/W23.XXXXXX")
 trap 'rm -rf -- "$RUN_DIR"' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 mkdir -p "$RUN_DIR/bin" "$RUN_DIR/selfhost"
 cp "$ROOT_DIR/selfhost/chronicle" "$RUN_DIR/selfhost/chronicle"
+/bin/cp -R "${ROOT_DIR}/selfhost/chronicle_ops" "$RUN_DIR/selfhost/"
+export CHRONICLE_FIXTURE_OPS="$ROOT_DIR/selfhost"
 cat >"$RUN_DIR/bin/docker" <<'SH'
+#!/usr/bin/env python3
+import json
+import os
+import sys
+from datetime import datetime, timezone
+sys.path.insert(0, os.environ["CHRONICLE_FIXTURE_OPS"])
+from chronicle_ops.verify import MONITORING_JOBS
+args = sys.argv[1:]
+if args[0] == "inspect":
+    print("healthy")
+elif "ps" in args:
+    if "-q" in args:
+        print("fixture-container")
+    else:
+        print("postgres\nbackend\nweb\nvictoriametrics\nvictorialogs\nfluent-bit\ngrafana\noperational-probe")
+elif "exec" in args:
+    command = " ".join(args)
+    if "pg_database_size" in command:
+        print("Filesystem 1024-blocks Used Available Capacity Mounted on")
+        print("fixture 100000000 1000000 99000000 1% /data")
+        print(json.dumps({"database_bytes": 1024, "wal_bytes": 0, "max_wal_bytes": 1024}))
+    elif "api/v1/targets" in command:
+        print(json.dumps({"data": {"activeTargets": [{"labels": {"job": job}, "health": "up",
+            "lastScrape": datetime.now(timezone.utc).isoformat()} for job in MONITORING_JOBS]}}))
+    elif "failure_category%3A" in command:
+        print(args[-1].split("failure_category%3A")[1])
+    elif "has_table_privilege" in command:
+        print("t")
+SH
+cat >"$RUN_DIR/bin/curl" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "${1:-}" == info ]]; then exit 0; fi
-[[ "${1:-}" == compose ]] || exit 0
-shift
-while (($#)); do
-  case "$1" in
-    -p|--project-name) shift 2 ;;
-    *) break ;;
-  esac
-done
-case "${1:-}" in
-  config) exit 0 ;;
-  ps)
-    printf '%s\n' postgres backend web victoriametrics victorialogs fluent-bit grafana operational-probe
-    ;;
-  exec)
-    [[ "$*" == *api/v1/targets* ]] && printf '{"health":"up"}\n'
-    exit 0
-    ;;
-  run) exit 0 ;;
-  *) exit 0 ;;
+case "${!#}" in
+  https://chronicle.example.org/health) printf 204 ;;
+  https://chronicle.example.org/chronicle/) printf 200 ;;
+  *) exit 99 ;;
 esac
 SH
+chmod +x "$RUN_DIR/bin/curl"
 chmod +x "$RUN_DIR/bin/docker"
+cat >"$RUN_DIR/bin/df" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 'Filesystem 1024-blocks Used Available Capacity Mounted on' \
+  'fixture 100000000 1000000 99000000 1% /'
+SH
+chmod +x "$RUN_DIR/bin/df"
 
 write_env() {
   local webhook="$1"

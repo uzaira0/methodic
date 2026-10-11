@@ -12,12 +12,16 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SELFHOST = ROOT / "selfhost"
+sys.path.insert(0, str(SELFHOST))
+from chronicle_ops.release import RELEASE_SIGNER, parse_version, read_manifest
+
 # Accept the registry host:port form used by private/self-hosted OCI registries while still
 # requiring an immutable digest. The final optional colon remains the image tag, not a port.
 IMAGE_RE = re.compile(
@@ -36,6 +40,17 @@ PLACEHOLDERS = {
     "__CHRONICLE_SELFHOST_FRONTEND_IMAGE__": "frontend",
     "__CHRONICLE_SELFHOST_CADDY_IMAGE__": "caddy",
 }
+SMOKE_ARCHIVE_HASH_FIELD = "release_archive_sha256"
+PREVIOUS_RELEASE_TRUSTED_SHA256_ENV = "CHRONICLE_PREVIOUS_RELEASE_TRUSTED_SHA256"
+SMOKE_REQUIRED_EVIDENCE = dict.fromkeys((
+    "source_free_archive", "fresh_install", "previous_version_upgrade",
+    "automatic_pre_upgrade_backup", "upgrade_environment_isolation", "upgrade_state_continuity",
+    "schema_safe_rollback", "forward_recovery", "tde_rotation_restart_continuity",
+    "tde_rotated_keyring_backup", "external_boundary_verify", "restart_order_recovery",
+    "study_restart_persistence", "clean_restore", "disk_full_recovery", "dashboard_headers",
+    "container_security_audit", "keyless_volume_fails", "internal_guard_rate_limit",
+    "post_restore_verify", "monitoring_data_path",
+), "pass") | {"monitoring": "true"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -51,6 +66,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--backend-image", required=True)
     parser.add_argument("--frontend-image", required=True)
     parser.add_argument("--caddy-image", required=True)
+    parser.add_argument("--backup-image")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "build" / "releases")
     return parser.parse_args()
 
@@ -65,6 +81,138 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def verify_release_signature(checksum: Path, signature: Path, public_key: Path) -> None:
+    with tempfile.TemporaryDirectory(prefix="chronicle-release-signature-") as directory:
+        allowed = Path(directory) / "allowed_signers"
+        allowed.write_text(f"{RELEASE_SIGNER} {public_key.read_text().strip()}\n")
+        with checksum.open("rb") as message:
+            result = subprocess.run(
+                ["ssh-keygen", "-Y", "verify", "-f", str(allowed), "-I", RELEASE_SIGNER,
+                 "-n", RELEASE_SIGNER, "-s", str(signature)],
+                stdin=message, capture_output=True, timeout=30)
+        if result.returncode:
+            fail("invalid release signature")
+
+
+def require_archive_checksum(archive: Path, checksum: Path) -> None:
+    entry = re.fullmatch(r"([0-9a-f]{64}) [ *]" + re.escape(archive.name) + r"\n?",
+                         checksum.read_text(encoding="ascii"))
+    if entry is None or entry[1] != sha256(archive):
+        fail("release archive checksum does not match its sidecar")
+
+
+def require_trusted_release_archive(archive: Path, checksum: Path, signature: Path,
+                                    public_key: Path, trusted_sha256: str = "") -> None:
+    if signature.exists():
+        verify_release_signature(checksum, signature, public_key)
+    elif not re.fullmatch(r"[0-9a-f]{64}", trusted_sha256) or sha256(archive) != trusted_sha256:
+        fail("unsigned predecessor requires an independently trusted archive SHA-256")
+    require_archive_checksum(archive, checksum)
+
+
+def archive_manifest(source: tarfile.TarFile) -> dict:
+    manifests = [member for member in source.getmembers()
+                 if member.isfile() and member.name.endswith("/release-manifest.json")]
+    if len(manifests) != 1:
+        fail("release archive must contain one release manifest")
+    with source.extractfile(manifests[0]) as handle:
+        return json.load(handle)
+
+
+def smoke_predecessor_evidence(archive: Path) -> dict[str, str]:
+    with tarfile.open(archive, "r:gz") as source:
+        manifest = archive_manifest(source)
+    return {
+        "previous_source_revision": manifest["source_revision"],
+        "previous_release_version": manifest["release_version"],
+        "previous_release_archive_sha256": sha256(archive),
+    }
+
+
+def require_smoke_result(result: Path, archive: Path, previous_archive: Path) -> None:
+    rows = [line.split("=", 1) for line in result.read_text().splitlines()]
+    if any(len(row) != 2 for row in rows) or len({row[0] for row in rows}) != len(rows):
+        fail("malformed release smoke result")
+    evidence = dict(rows)
+    if evidence.get("status") != "passed" or evidence.get(SMOKE_ARCHIVE_HASH_FIELD) != sha256(archive):
+        fail("release smoke did not pass for this signed archive")
+    if any(evidence.get(key) != expected
+           for key, expected in smoke_predecessor_evidence(previous_archive).items()):
+        fail("release smoke predecessor does not match the current latest published archive")
+    if any(evidence.get(key) != expected for key, expected in SMOKE_REQUIRED_EVIDENCE.items()):
+        fail("release smoke is missing required passing coverage")
+
+
+def backup_image_pin(text: str) -> str:
+    pins = re.findall(r"(?m)^    image: (\S+)$", text)
+    if len(pins) != 1 or not IMAGE_RE.fullmatch(pins[0]):
+        fail("expected exactly one immutable backup image pin")
+    return pins[0]
+
+
+def require_public_archive_images(archive: Path) -> None:
+    with tarfile.open(archive, "r:gz") as source:
+        manifest = archive_manifest(source)
+        images = manifest["images"]
+        if not isinstance(images, dict) or set(images) != set(PLACEHOLDERS.values()) or any(
+                not isinstance(pin, str) or not IMAGE_RE.fullmatch(pin) for pin in images.values()):
+            fail("candidate has invalid runtime image pins")
+        overlays = [member for member in source.getmembers()
+                    if member.isfile() and member.name.endswith("/selfhost/overlays/backups.yml")]
+        if len(overlays) != 1:
+            fail("candidate must contain one backup overlay")
+        with source.extractfile(overlays[0]) as handle:
+            backup = backup_image_pin(handle.read().decode())
+    with tempfile.TemporaryDirectory(prefix="chronicle-anonymous-registry-") as directory:
+        for pin in [*images.values(), backup]:
+            result = subprocess.run(["docker", "manifest", "inspect", pin],
+                                    env=dict(os.environ, DOCKER_CONFIG=directory),
+                                    capture_output=True, timeout=60)
+            if result.returncode:
+                fail(f"release image is unavailable without registry credentials: {pin}")
+
+
+def require_public_release_tag(remote: str, tag: str, revision: str) -> None:
+    if not isinstance(revision, str) or not REVISION_RE.fullmatch(revision):
+        fail("release has no valid public source revision")
+    ref = f"refs/tags/{tag}"
+    result = subprocess.run(["git", "ls-remote", remote, ref, ref + "^{}"],
+                            check=True, capture_output=True, text=True, timeout=60)
+    refs = {name: commit for commit, name in (line.split() for line in result.stdout.splitlines())}
+    if refs and refs.get(ref + "^{}", refs.get(ref)) != revision:
+        fail("existing public release tag does not match the verified public source revision")
+
+
+def require_smoke_images(bundle: Path, images: dict[str, str], backup_image: str) -> None:
+    manifest, _ = read_manifest(bundle / "release-manifest.json", True)
+    if manifest["images"] != images:
+        fail("candidate images do not match the smoke runtime images")
+    if backup_image_pin((bundle / "selfhost/overlays/backups.yml").read_text()) != backup_image:
+        fail("candidate backup image does not match the smoke runtime image")
+
+
+def require_changelog(path: Path, version: str) -> None:
+    target = parse_version(version, path)
+    versions = []
+    for heading in re.findall(r"(?m)^## \[([^\]]+)\]$", path.read_text(encoding="utf-8")):
+        try:
+            versions.append(parse_version(heading, path))
+        except ValueError:
+            continue
+    if versions.count(target) != 1:
+        fail("CHANGELOG.md must contain exactly one entry for the target release")
+    if versions != sorted(versions, reverse=True):
+        fail("CHANGELOG.md release entries must be ordered newest first")
+
+
+def pin_backup_image(path: Path, image: str) -> None:
+    text, count = re.subn(r"(?m)^(    image: )\S+$", lambda match: match[1] + image,
+                          path.read_text(encoding="utf-8"))
+    if count != 1:
+        fail("expected exactly one backup image in overlays/backups.yml")
+    path.write_text(text, encoding="utf-8")
 
 
 def resolve_within(root: Path, candidate: Path, *, strict: bool, description: str) -> Path:
@@ -190,11 +338,15 @@ def main() -> None:
         "frontend": args.frontend_image,
         "caddy": args.caddy_image,
     }
-    for name, image in images.items():
+    image_inputs = dict(images)
+    if args.backup_image is not None:
+        image_inputs["backup"] = args.backup_image
+    for name, image in image_inputs.items():
         if not IMAGE_RE.fullmatch(image):
             fail(f"{name} image must be an immutable name@sha256 reference")
 
     normalized_version = args.version.removeprefix("v")
+    require_changelog(ROOT / "CHANGELOG.md", normalized_version)
     bundle_name = f"chronicle-selfhost-{normalized_version}"
     output_dir = args.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -220,6 +372,8 @@ def main() -> None:
         copy_tree(SELFHOST / "docs", bundle / "selfhost" / "docs", tracked_paths=tracked_paths)
         copy_tree(SELFHOST / "monitoring", bundle / "selfhost" / "monitoring", tracked_paths=tracked_paths)
         copy_tree(SELFHOST / "overlays", bundle / "selfhost" / "overlays", tracked_paths=tracked_paths)
+        if args.backup_image is not None:
+            pin_backup_image(bundle / "selfhost" / "overlays" / "backups.yml", args.backup_image)
 
         root_files = [
             ".env.example",
@@ -234,6 +388,18 @@ def main() -> None:
             "ca-export.sh",
             "cert-init.sh",
             "chronicle",
+            "release-signing.pub",
+            "chronicle_ops/__init__.py",
+            "chronicle_ops/dump.py",
+            "chronicle_ops/restore.py",
+            "chronicle_ops/__main__.py",
+            "chronicle_ops/adopt.py",
+            "chronicle_ops/common.py",
+            "chronicle_ops/receipts.py",
+            "chronicle_ops/reconcile.py",
+            "chronicle_ops/release.py",
+            "chronicle_ops/upgrade.py",
+            "chronicle_ops/verify.py",
             "db-init.sh",
             "docker-compose.yml",
             "guard-config.sh",
@@ -241,6 +407,11 @@ def main() -> None:
             "network-subnet.py",
             "init-tde.sh",
             "restore.sh",
+            "restore-continuity-digest.sql",
+            "restore-continuity.version",
+            "restore-restrictions-schema.sql",
+            "restore-authorities-schema.sql",
+            "restore-restrictions-containment.sql",
             "rotate-secret.sh",
             "upgrade.sh",
             "verify-config.sh",
@@ -252,6 +423,7 @@ def main() -> None:
             require_tracked(source, ROOT, tracked_paths)
             target = bundle / "selfhost" / name
             target.parent.mkdir(parents=True, exist_ok=True)
+            target.parent.chmod(0o755)
             shutil.copyfile(source, target)
             if name == ".env.example":
                 # A self-hoster's documented `cp .env.example .env` must produce a private

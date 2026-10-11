@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Generate digest-bound SPDX release assets for the three images published by this repository.
+# Generate digest-bound SPDX release assets for all images published by this repository.
 set -euo pipefail
 
-[[ $# -eq 5 ]] || {
-  echo 'usage: scripts/write-image-sboms.sh <release> <output-dir> <backend-ref> <frontend-ref> <caddy-ref>' >&2
+[[ $# -eq 6 ]] || {
+  echo 'usage: scripts/write-image-sboms.sh <release> <output-dir> <backend-ref> <frontend-ref> <caddy-ref> <backup-ref>' >&2
   exit 2
 }
 release=$1
@@ -14,7 +14,6 @@ images=("$@")
   echo 'error: release must be a Docker-tag-compatible semantic version' >&2
   exit 2
 }
-[[ ${#images[@]} -eq 3 ]] || { echo 'error: exactly three published image digests are required' >&2; exit 2; }
 command -v syft >/dev/null 2>&1 || { echo 'error: syft is required to produce release SBOMs' >&2; exit 127; }
 command -v python3 >/dev/null 2>&1 || { echo 'error: python3 is required to hash release SBOMs' >&2; exit 127; }
 
@@ -28,7 +27,7 @@ done
 mkdir -p -- "$output_dir"
 output_dir=$(cd "$output_dir" && pwd -P)
 version=${release#v}
-asset_names=("chronicle-backend-${version}.spdx.json" "chronicle-frontend-${version}.spdx.json" "chronicle-caddy-${version}.spdx.json")
+asset_names=("chronicle-backend-${version}.spdx.json" "chronicle-frontend-${version}.spdx.json" "chronicle-caddy-${version}.spdx.json" "chronicle-backup-${version}.spdx.json")
 manifest_name="chronicle-image-sboms-${version}.json"
 checksums_name="chronicle-image-sboms-${version}.sha256"
 for asset in "${asset_names[@]}" "$manifest_name" "$checksums_name"; do
@@ -40,7 +39,7 @@ done
 
 staging=$(mktemp -d "$output_dir/.image-sboms.XXXXXX")
 trap 'rm -rf -- "$staging"' EXIT
-for index in 0 1 2; do
+for index in "${!images[@]}"; do
   syft "${images[$index]}" -o spdx-json > "$staging/${asset_names[$index]}"
   [[ -s "$staging/${asset_names[$index]}" ]] || {
     echo "error: Syft produced an empty SBOM for ${images[$index]}" >&2
@@ -57,15 +56,14 @@ import sys
 
 release, staging_arg, manifest_name, checksums_name = sys.argv[1:5]
 staging = pathlib.Path(staging_arg)
-names = sys.argv[5:8]
-if sys.argv[8] != "--":
-    raise SystemExit("error: invalid SBOM staging arguments")
-images = sys.argv[9:12]
-if len(names) != 3 or len(images) != 3:
-    raise SystemExit("error: three SBOM assets and image references are required")
+separator = sys.argv.index("--", 5)
+names = sys.argv[5:separator]
+images = sys.argv[separator + 1:]
+if len(names) != len(images):
+    raise SystemExit("error: SBOM assets and image references must have equal lengths")
 
 assets = []
-for name, image in zip(names, images, strict=True):
+for name, image in zip(names, images):
     path = staging / name
     try:
         document = json.loads(path.read_text(encoding="utf-8"))

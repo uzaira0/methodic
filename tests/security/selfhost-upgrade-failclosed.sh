@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export CHRONICLE_RECONCILE_ENABLED=false
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 UPGRADE_SCRIPT="${ROOT_DIR}/selfhost/upgrade.sh"
@@ -35,6 +36,10 @@ case_name="${SELFHOST_UPGRADE_TEST_CASE:?}"
 
 if [[ "${1:-}" == compose && "${2:-}" == version ]]; then
   printf 'Docker Compose fixture\n'
+  exit 0
+fi
+if [[ "${1:-}" == compose && "${2:-}" == ls ]]; then
+  printf '[]\n'
   exit 0
 fi
 
@@ -102,7 +107,7 @@ if [[ "${1:-}" == compose ]]; then
       printf '%s:dump\n' "$release" >>"$log"
       [[ "$release" == old ]] || exit 94
       [[ "$case_name" != backup-failure ]] || exit 51
-      printf 'SELECT 1;\n'
+      printf '%s\n' '-- PostgreSQL database dump' '\restrict fixture' 'SELECT 1;' '-- PostgreSQL database dump complete' '\unrestrict fixture'
       ;;
     up) printf '%s:up\n' "$release" >>"$log" ;;
     *) exit 95 ;;
@@ -111,6 +116,9 @@ if [[ "${1:-}" == compose ]]; then
 fi
 
 case "${1:-}" in
+  info) dirname "$log" ;;
+  ps) ;;
+  volume) ;;
   inspect)
     printf '%s\n' healthy
     ;;
@@ -161,6 +169,7 @@ make_case() {
     "${new_bundle}/selfhost/docs"
   /bin/chmod 0700 "${old_bundle}/selfhost/backups" "${old_bundle}/selfhost/tls"
 
+  /bin/cp -R "${ROOT_DIR}/selfhost/chronicle_ops" "${new_bundle}/selfhost/"
   /bin/cp "$UPGRADE_SCRIPT" "${new_bundle}/selfhost/upgrade.sh"
   /bin/chmod 0755 "${new_bundle}/selfhost/upgrade.sh"
   /bin/cp "$(dirname "$UPGRADE_SCRIPT")/network-subnet.py" "${new_bundle}/selfhost/network-subnet.py"
@@ -168,6 +177,10 @@ make_case() {
     cat >"${bundle}/selfhost/chronicle" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${1:-}" == upgrade ]]; then
+  cd "$(dirname "$0")"
+  exec env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD" python3 -m chronicle_ops "$@"
+fi
 [[ "${1:-}" == verify ]]
 printf 'verify\n' >>"${SELFHOST_UPGRADE_TEST_LOG:?}"
 EOF
@@ -216,6 +229,9 @@ for bundle, version, revision in (
         f"RELEASE_VERSION={version}",
         "COMPOSE_PROJECT_NAME=chronicle-upgrade-fixture",
         f"COMPOSE_FILE={compose}",
+        "DASHBOARD_EXPOSURE=internal",
+        "TESTING_LOGIN_ENABLED=false",
+        "DASHBOARD_PASSWORD_HASH='$2b$12$" + "a" * 53 + "'",
         *[f"{key}={value}" for key, value in image_values.items()],
     ]
     (bundle / "selfhost" / ".env.example").write_text("\n".join(env_lines) + "\n")
@@ -261,14 +277,12 @@ run_upgrade() {
   set -e
 }
 
+# The events occur in this order, each after the previous one; an event may also occur elsewhere.
 assert_order() {
   local log="$1" first="$2" second="$3" third="$4"
-  local first_line second_line third_line
-  first_line="$(grep -nFx "$first" "$log" | cut -d: -f1)"
-  second_line="$(grep -nFx "$second" "$log" | cut -d: -f1)"
-  third_line="$(grep -nFx "$third" "$log" | cut -d: -f1)"
-  [[ "$first_line" =~ ^[0-9]+$ && "$second_line" =~ ^[0-9]+$ && "$third_line" =~ ^[0-9]+$ &&
-      "$first_line" -lt "$second_line" && "$second_line" -lt "$third_line" ]] ||
+  awk -v a="$first" -v b="$second" -v c="$third" \
+    'step == 0 && $0 == a { step = 1; next } step == 1 && $0 == b { step = 2; next } step == 2 && $0 == c { found = 1 }
+     END { exit !found }' "$log" ||
     fail "event order is not ${first} -> ${second} -> ${third}"
 }
 
@@ -280,6 +294,8 @@ if [[ "$UPGRADE_STATUS" -ne 0 ]]; then
   fail "successful upgrade fixture failed"
 fi
 assert_order "$success_log" old:stop old:dump new:up
+# The whole previous project stops after the dump, so no old container holds a network the new release redefines.
+assert_order "$success_log" old:dump old:stop new:up
 assert_order "$success_log" new:up new:ca-export verify
 ! grep -q '^poison:' "$success_log" || fail "inherited deployment controls reached Compose"
 ! grep -Fxq old:up "$success_log" || fail "successful upgrade restarted the old release"

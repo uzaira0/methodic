@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export CHRONICLE_RECONCILE_ENABLED=false
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 BUILDER="${ROOT_DIR}/scripts/build-selfhost-release.py"
 SOURCE_REVISION="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+RELEASE_VERSION=2026.10.9
 RUN_PARENT="${SELFHOST_RELEASE_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-release}"
 BACKEND_IMAGE='ghcr.io/example/chronicle-backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 FRONTEND_IMAGE='ghcr.io/example/chronicle-selfhost-frontend@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
@@ -62,7 +64,7 @@ build_bundle() {
   local output_dir="$1"
   /bin/mkdir -p "$output_dir"
   "$BUILDER" \
-    --version v9.8.7-test.1 \
+    --version "v${RELEASE_VERSION}" \
     --source-revision "$SOURCE_REVISION" \
     --public-revision fedcba9876543210fedcba9876543210fedcba98 \
     --source-date-epoch 1700000000 \
@@ -76,7 +78,7 @@ build_bundle "${RUN_DIR}/first"
 build_bundle "${RUN_DIR}/second"
 
 "$BUILDER" \
-  --version v9.8.7-private-registry.1 \
+  --version "v${RELEASE_VERSION}" \
   --source-revision "$SOURCE_REVISION" \
   --source-date-epoch 1700000000 \
   --backend-image "$PRIVATE_REGISTRY_IMAGE" \
@@ -85,12 +87,12 @@ build_bundle "${RUN_DIR}/second"
   --output-dir "${RUN_DIR}/private-registry" >/dev/null \
   || fail "builder rejected an immutable image in a private registry with an explicit port"
 grep -Fqx "BACKEND_IMAGE=${PRIVATE_REGISTRY_IMAGE}" \
-  "${RUN_DIR}/private-registry/chronicle-selfhost-9.8.7-private-registry.1/selfhost/.env.example" \
+  "${RUN_DIR}/private-registry/chronicle-selfhost-${RELEASE_VERSION}/selfhost/.env.example" \
   || fail "private-registry image was not rendered into the release bundle"
 
-ARCHIVE="${RUN_DIR}/first/chronicle-selfhost-9.8.7-test.1.tar.gz"
+ARCHIVE="${RUN_DIR}/first/chronicle-selfhost-${RELEASE_VERSION}.tar.gz"
 CHECKSUM="${ARCHIVE}.sha256"
-BUNDLE="${RUN_DIR}/first/chronicle-selfhost-9.8.7-test.1"
+BUNDLE="${RUN_DIR}/first/chronicle-selfhost-${RELEASE_VERSION}"
 [[ -s "$ARCHIVE" && -s "$CHECKSUM" && -d "$BUNDLE" ]] || fail "builder did not emit all bundle artifacts"
 
 first_hash="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
@@ -102,51 +104,51 @@ second_hash="$(sha256sum "${RUN_DIR}/second/$(basename "$ARCHIVE")" | awk '{prin
 tar -tzf "$ARCHIVE" >"${RUN_DIR}/archive-members.txt"
 python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); sys.exit(m.get("public_revision") != "fedcba9876543210fedcba9876543210fedcba98")' \
   "${BUNDLE}/release-manifest.json" || fail "manifest does not record the public source revision"
-publish_plan="$(cd "$ROOT_DIR" && bash scripts/publish-images.sh 9.8.7 --dry-run 2>&1)" \
+publish_plan="$(cd "$ROOT_DIR" && bash scripts/publish-images.sh "$RELEASE_VERSION" --dry-run 2>&1)" \
   || fail "publish-images dry run failed"
 grep -Fq -- '--public-revision' <<<"$publish_plan" || fail "publish does not pass the public revision to the builder"
 grep -Eq 'gh release create .*--target' <<<"$publish_plan" || fail "GitHub release is not pinned to the public revision"
 # Launch audit I1: no image reaches the registry with a fixable HIGH/CRITICAL finding.
 for image_name in chronicle-backend chronicle-selfhost-frontend chronicle-selfhost-caddy; do
-  scan_line=$(grep -n "trivy image .*--exit-code 1 .*${image_name}:" <<<"$publish_plan" | head -1 | cut -d: -f1 || true)
+  scan_line=$(grep -n "bash .*scan-selfhost-release-images.sh .*${image_name}:" <<<"$publish_plan" | head -1 | cut -d: -f1 || true)
   push_line=$(grep -n "docker push .*${image_name}:" <<<"$publish_plan" | head -1 | cut -d: -f1 || true)
   [[ -n "$scan_line" && -n "$push_line" && "$scan_line" -lt "$push_line" ]] \
     || fail "publish pushes ${image_name} without a blocking trivy HIGH/CRITICAL scan first"
 done
 # Fail fast: the first image is scanned before the last one is built.
-first_scan=$(grep -n 'trivy image .*--exit-code 1' <<<"$publish_plan" | head -1 | cut -d: -f1)
+first_scan=$(grep -n 'bash .*scan-selfhost-release-images.sh ' <<<"$publish_plan" | head -1 | cut -d: -f1)
 last_build=$(grep -n 'docker build ' <<<"$publish_plan" | tail -1 | cut -d: -f1)
 [[ -n "$first_scan" && -n "$last_build" && "$first_scan" -lt "$last_build" ]] \
   || fail "publish builds every image before scanning any"
-grep -Eq -- '--severity HIGH[\\]?,CRITICAL' <<<"$publish_plan" || fail "publish scan does not gate HIGH and CRITICAL"
+grep -Fq -- '--severity HIGH,CRITICAL --exit-code 1' "$ROOT_DIR/scripts/scan-selfhost-release-images.sh" || fail "publish scan does not gate HIGH and CRITICAL"
 # Launch audit I5: a dedicated write:packages token, never the operator's general gh token.
 ! grep -Fq 'gh auth token' "$ROOT_DIR/scripts/publish-images.sh" || fail "publish logs in to GHCR with the general gh token"
 grep -Fq 'GHCR_TOKEN' <<<"$publish_plan" || fail "publish does not log in with GHCR_TOKEN"
-unset_token_out="$(cd "$ROOT_DIR" && env -u GHCR_TOKEN bash scripts/publish-images.sh 9.8.7 2>&1)" \
+unset_token_out="$(cd "$ROOT_DIR" && env -u GHCR_TOKEN bash scripts/publish-images.sh "$RELEASE_VERSION" 2>&1)" \
   && fail "publish ran without GHCR_TOKEN"
 grep -Fq 'GHCR_TOKEN' <<<"$unset_token_out" || fail "publish without GHCR_TOKEN did not name the missing token"
-grep -Fqx 'chronicle-selfhost-9.8.7-test.1/selfhost/docker-compose.yml' "${RUN_DIR}/archive-members.txt" \
+grep -Fqx "chronicle-selfhost-${RELEASE_VERSION}/selfhost/docker-compose.yml" "${RUN_DIR}/archive-members.txt" \
   || fail "archive lacks selfhost/docker-compose.yml"
 for shipped in CHANGELOG.md SECURITY.md LICENSE THIRD-PARTY.md selfhost/docs/POSTGRES-18-UPGRADE.md \
-               selfhost/docs/INCIDENT-RESPONSE.md selfhost/backup-prune-hook.sh selfhost/network-subnet.py; do
-  grep -Fqx "chronicle-selfhost-9.8.7-test.1/${shipped}" "${RUN_DIR}/archive-members.txt" \
+               selfhost/docs/INCIDENT-RESPONSE.md selfhost/backup-prune-hook.sh selfhost/network-subnet.py selfhost/release-signing.pub; do
+  grep -Fqx "chronicle-selfhost-${RELEASE_VERSION}/${shipped}" "${RUN_DIR}/archive-members.txt" \
     || fail "archive lacks ${shipped}"
 done
-grep -Fqx 'chronicle-selfhost-9.8.7-test.1/docker/init-db-roles.sql' "${RUN_DIR}/archive-members.txt" \
+grep -Fqx "chronicle-selfhost-${RELEASE_VERSION}/docker/init-db-roles.sql" "${RUN_DIR}/archive-members.txt" \
   || fail "archive lacks the database role bootstrap dependency"
-grep -Fqx 'chronicle-selfhost-9.8.7-test.1/selfhost/backup-entrypoint.sh' "${RUN_DIR}/archive-members.txt" \
+grep -Fqx "chronicle-selfhost-${RELEASE_VERSION}/selfhost/backup-entrypoint.sh" "${RUN_DIR}/archive-members.txt" \
   || fail "archive lacks the restart-safe backup entrypoint"
-grep -Fqx 'chronicle-selfhost-9.8.7-test.1/selfhost/upgrade.sh' "${RUN_DIR}/archive-members.txt" \
+grep -Fqx "chronicle-selfhost-${RELEASE_VERSION}/selfhost/upgrade.sh" "${RUN_DIR}/archive-members.txt" \
   || fail "archive lacks the guarded upgrade command"
-grep -Fqx 'chronicle-selfhost-9.8.7-test.1/selfhost/rotate-secret.sh' "${RUN_DIR}/archive-members.txt" \
+grep -Fqx "chronicle-selfhost-${RELEASE_VERSION}/selfhost/rotate-secret.sh" "${RUN_DIR}/archive-members.txt" \
   || fail "archive lacks the guarded secret-rotation command"
-grep -Fqx 'chronicle-selfhost-9.8.7-test.1/selfhost/docs/UPGRADE-ROLLBACK.md' "${RUN_DIR}/archive-members.txt" \
+grep -Fqx "chronicle-selfhost-${RELEASE_VERSION}/selfhost/docs/UPGRADE-ROLLBACK.md" "${RUN_DIR}/archive-members.txt" \
   || fail "archive lacks upgrade/rollback recovery instructions"
-grep -Fqx 'chronicle-selfhost-9.8.7-test.1/selfhost/docs/SECRET-ROTATION.md' "${RUN_DIR}/archive-members.txt" \
+grep -Fqx "chronicle-selfhost-${RELEASE_VERSION}/selfhost/docs/SECRET-ROTATION.md" "${RUN_DIR}/archive-members.txt" \
   || fail "archive lacks secret-rotation recovery instructions"
-grep -Fqx 'chronicle-selfhost-9.8.7-test.1/selfhost/docs/DEPLOYMENT-COMPATIBILITY.md' "${RUN_DIR}/archive-members.txt" \
+grep -Fqx "chronicle-selfhost-${RELEASE_VERSION}/selfhost/docs/DEPLOYMENT-COMPATIBILITY.md" "${RUN_DIR}/archive-members.txt" \
   || fail "archive lacks the supported deployment compatibility contract"
-grep -Fqx 'chronicle-selfhost-9.8.7-test.1/selfhost/docs/UNINSTALL-DATA-DELETION.md' "${RUN_DIR}/archive-members.txt" \
+grep -Fqx "chronicle-selfhost-${RELEASE_VERSION}/selfhost/docs/UNINSTALL-DATA-DELETION.md" "${RUN_DIR}/archive-members.txt" \
   || fail "archive lacks data-deletion and complete-uninstall instructions"
 if grep -Eq '/(chronicle-server|chronicle-web|chronicle-api|rhizome|gradle)(/|$)|Dockerfile' \
     "${RUN_DIR}/archive-members.txt"; then
@@ -212,7 +214,9 @@ grep -Fq 'write_operation_receipt()' "${BUNDLE}/selfhost/chronicle" \
   || fail "bundled operator command omits secret-free operation receipts"
 grep -Fq 'restore) cmd_restore' "${BUNDLE}/selfhost/chronicle" \
   || fail "bundled operator command omits guarded restore orchestration"
-grep -Fq 'CHRONICLE_RESTORE_ORCHESTRATED=true' "${BUNDLE}/selfhost/chronicle" \
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="${BUNDLE}/selfhost:${ROOT_DIR}/tests/selfhost-py" \
+  python3 -c 'import chronicle_ops.restore; import unittest; unittest.main(module=None)' \
+    test_restore.RestoreTests.test_success_order_permissions_and_profile \
   || fail "bundled restore command does not mark an orchestrated one-shot restore"
 grep -Fq 'CHRONICLE_EXPORT_DIR: /exports' "${BUNDLE}/selfhost/docker-compose.yml" \
   || fail "bundled backend omits persistent managed export storage"
@@ -254,7 +258,7 @@ grep -Fqx 'MOBILE_SIGNING_SECRET=' "$ENV_EXAMPLE" \
   || fail "bundle requires an unnecessary public-client deployment-wide mobile key"
 grep -Fq 'SECRET_ROTATION_WAIT_TIMEOUT_SECONDS=300' "$ENV_EXAMPLE" \
   || fail "bundle omits the bounded secret-rotation wait"
-grep -Fq 'RESTORE_START_WAIT_TIMEOUT_SECONDS=300' "$ENV_EXAMPLE" \
+grep -Fqx 'RESTORE_START_WAIT_TIMEOUT_SECONDS=3600' "$ENV_EXAMPLE" \
   || fail "bundle omits the bounded post-restore health wait"
 postgres_service="$({
   awk '
@@ -275,32 +279,22 @@ grep -Fq 'partial id_gen bootstrap' "${BUNDLE}/selfhost/db-init.sh" \
   || fail "bundled database initialization does not fail closed on a partial ID range set"
 grep -Fq 'first_partition <> 0 OR last_partition <> 65535' "${BUNDLE}/selfhost/db-init.sh" \
   || fail "bundled database initialization does not reject a corrupt ID partition range"
-grep -Fq '.chronicle-restore.lock' "${BUNDLE}/selfhost/upgrade.sh" \
-  || fail "bundled upgrade does not exclude an active restore"
-grep -Fq 'docker compose "${compose_options[@]}"' "${BUNDLE}/selfhost/upgrade.sh" \
-  || fail "bundled upgrade does not isolate Compose behind explicit release options"
-grep -Fq 'for variable in "${!COMPOSE_@}"' "${BUNDLE}/selfhost/upgrade.sh" \
-  || fail "bundled upgrade permits inherited Compose control variables"
-grep -Fq 'new release file inventory is not exact' "${BUNDLE}/selfhost/upgrade.sh" \
-  || fail "bundled upgrade accepts unlisted files in the new release"
-upgrade_stop_line="$(grep -nF 'compose_old stop "${old_application_services[@]}"' \
-  "${BUNDLE}/selfhost/upgrade.sh" | cut -d: -f1)"
-upgrade_dump_line="$(grep -nF 'if ! compose_old exec -T postgres' \
-  "${BUNDLE}/selfhost/upgrade.sh" | cut -d: -f1)"
-upgrade_start_line="$(grep -nF 'if ! compose_new up -d --wait' \
-  "${BUNDLE}/selfhost/upgrade.sh" | cut -d: -f1)"
-[[ "$upgrade_stop_line" =~ ^[0-9]+$ && "$upgrade_dump_line" =~ ^[0-9]+$ &&
-    "$upgrade_start_line" =~ ^[0-9]+$ &&
-    "$upgrade_stop_line" -lt "$upgrade_dump_line" &&
-    "$upgrade_dump_line" -lt "$upgrade_start_line" ]] ||
-  fail "bundled upgrade does not stop writers before its rollback dump and new startup"
+# Import the bundled package before the tests add their source-checkout search path.
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="${BUNDLE}/selfhost:${ROOT_DIR}/tests/selfhost-py" \
+  python3 - <<'PY'
+import chronicle_ops
+import unittest
+suite = unittest.TestLoader().loadTestsFromNames(["test_upgrade.UpgradeTests", "test_release.ReleaseTests"])
+if not unittest.TextTestRunner().run(suite).wasSuccessful():
+    raise SystemExit(1)
+PY
 grep -Fq '.chronicle-restore.lock' "${BUNDLE}/selfhost/rotate-secret.sh" \
   || fail "bundled secret rotation does not exclude an active restore"
 grep -Fq "IF (SELECT key_name FROM pg_tde_key_info()) IS NULL THEN" \
   "${BUNDLE}/selfhost/init-tde.sh" \
   || fail "bundle would reset a rotated TDE principal key during db-init"
 
-python3 - "$BUNDLE" "$SOURCE_REVISION" <<'PY'
+python3 - "$BUNDLE" "$SOURCE_REVISION" "$RELEASE_VERSION" <<'PY'
 import hashlib
 import json
 from pathlib import Path
@@ -309,7 +303,7 @@ import sys
 bundle = Path(sys.argv[1])
 manifest = json.loads((bundle / "release-manifest.json").read_text(encoding="utf-8"))
 assert manifest["schema_version"] == 1
-assert manifest["release_version"] == "9.8.7-test.1"
+assert manifest["release_version"] == sys.argv[3]
 assert manifest["source_revision"] == sys.argv[2]
 for relative, expected in manifest["files"].items():
     actual = hashlib.sha256((bundle / relative).read_bytes()).hexdigest()
@@ -327,7 +321,10 @@ grep -Fq 'is not a public DNS name' "${RUN_DIR}/turnkey-setup-badhost.log" || fa
 [[ ! -e "${BUNDLE}/selfhost/.env" ]] || fail "setup wrote .env for a refused hostname"
 # The refusal leaves its own failed-setup receipt; the assertions below want the real one.
 /bin/rm -rf -- "${BUNDLE}/selfhost/operator-receipts"
-printf '1\nturnkey.study-host.org\n\n\n%s\n%s\n\n\n\n\n\n' "$setup_password" "$setup_password" |
+# kind, host, proxy bind, dashboard bind, 10 saved/default public+LB+researcher settings,
+# password twice, no legacy shared key, monitoring on, then Grafana bind, retentions, webhook.
+{ printf '1\nturnkey.study-host.org\n\n\n'; printf '\n%.0s' {1..10}
+  printf '%s\n%s\n\ny\n\n\n\n\n' "$setup_password" "$setup_password"; } |
   (cd "${BUNDLE}/selfhost" && \
     CADDY_SETUP_HASH_IMAGE='caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d' \
     ./chronicle setup) >"${RUN_DIR}/turnkey-setup.log" 2>&1 \
@@ -372,7 +369,7 @@ fi
 
 set +e
 "$BUILDER" \
-  --version v9.8.8 \
+  --version "v${RELEASE_VERSION}" \
   --source-revision "$SOURCE_REVISION" \
   --source-date-epoch 1700000000 \
   --backend-image ghcr.io/example/chronicle-backend:latest \
@@ -407,7 +404,7 @@ done
 overflow_dir="${RUN_DIR}/invalid-source-date"
 set +e
 "$BUILDER" \
-  --version v9.8.9 \
+  --version "v${RELEASE_VERSION}" \
   --source-revision "$SOURCE_REVISION" \
   --source-date-epoch 4294967296 \
   --backend-image "$BACKEND_IMAGE" \

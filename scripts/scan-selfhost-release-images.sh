@@ -1,12 +1,21 @@
 #!/usr/bin/env bash
-# Scan every immutable image supported by the self-host release and optional overlays.
+# Scan explicit image references, or the self-host release and optional overlay inventory.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
-command -v python3 >/dev/null 2>&1 || { echo 'error: python3 is required to read toolchain-manifest.yaml' >&2; exit 127; }
 command -v trivy >/dev/null 2>&1 || { echo 'error: trivy is required to scan release runtime images' >&2; exit 127; }
 
-manifest_images=$(python3 - "$root/toolchain-manifest.yaml" <<'PY'
+if [[ $# -gt 0 ]]; then
+  for image in "$@"; do
+    [[ -n "$image" && "$image" != -* && "$image" != *[[:space:]]* ]] || {
+      echo 'error: expected an image reference without whitespace or a leading hyphen' >&2
+      exit 2
+    }
+  done
+  images=$(printf '%s\n' "$@")
+else
+  command -v python3 >/dev/null 2>&1 || { echo 'error: python3 is required to read toolchain-manifest.yaml' >&2; exit 127; }
+  images=$(python3 - "$root/toolchain-manifest.yaml" <<'PY'
 import re
 import sys
 import yaml
@@ -36,12 +45,13 @@ for name, image in runtime.items():
 for image in sorted(images):
     print(image)
 PY
-)
-[[ -n "$manifest_images" ]] || { echo 'error: no release runtime images were found' >&2; exit 2; }
+  )
+  [[ -n "$images" ]] || { echo 'error: no release runtime images were found' >&2; exit 2; }
+fi
 
 while IFS= read -r image; do
   [[ -n "$image" ]] || continue
   printf 'Scanning release runtime image %s\n' "$image" >&2
   trivy image --quiet --scanners vuln --severity HIGH,CRITICAL --exit-code 1 \
     --skip-db-update --skip-java-db-update --ignorefile "$root/.trivyignore.yaml" "$image"
-done <<< "$manifest_images"
+done <<< "$images"

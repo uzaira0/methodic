@@ -2,7 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
-command -v python3 >/dev/null || { echo 'FAIL: missing tool: python3' >&2; exit 1; }
+source "${ROOT_DIR}/tests/security/lib/selfhost-fixtures.sh"
+for tool in python3 ssh-keygen; do
+  command -v "$tool" >/dev/null || { echo "FAIL: missing tool: $tool" >&2; exit 1; }
+done
 RUN_PARENT="${SELFHOST_UPDATE_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-update-command}"
 [[ "$RUN_PARENT" == /* ]] || { echo 'FAIL: test run parent must be absolute' >&2; exit 1; }
 case "$RUN_PARENT" in
@@ -23,79 +26,21 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 mkdir -p "$RUN_DIR/http" "$RUN_DIR/releases/current/selfhost" "$RUN_DIR/bin"
 cp "$ROOT_DIR/selfhost/chronicle" "$RUN_DIR/releases/current/selfhost/chronicle"
+/bin/cp -R "${ROOT_DIR}/selfhost/chronicle_ops" "$RUN_DIR/releases/current/selfhost/"
+prepare_update_signer "$RUN_DIR" "$RUN_DIR/releases/current/selfhost"
 operator="$RUN_DIR/releases/current/selfhost/chronicle"
+printf 'COMPOSE_PROJECT_NAME=chronicle-selfhost\nCHRONICLE_STATE_DIR=.\nMIN_FREE_DISK_GIB=0\n' >"$RUN_DIR/releases/current/selfhost/.env"
+chmod 600 "$RUN_DIR/releases/current/selfhost/.env"
 export UPDATE_EXEC_RECORD="$RUN_DIR/exec-argv"
 export CHRONICLE_RELEASES_URL='https://updates.invalid/latest.json'
-cat >"$RUN_DIR/bin/curl" <<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
-url="${!#}"
-name="${url##*/}"
-if [[ -n "${CURL_FIXTURE_INTERRUPT_NAME:-}" && "$name" == "$CURL_FIXTURE_INTERRUPT_NAME" ]]; then
-  printf 'partial archive'
-  kill -INT "$PPID"
-  sleep 5
-  exit 130
-fi
-case "$url" in
-  https://updates.invalid/latest.json) cat "$CURL_FIXTURE_DIR/latest.json" ;;
-  https://updates.invalid/*.sha256|https://updates.invalid/*.tar.gz)
-    cat "$CURL_FIXTURE_DIR/$name"
-    ;;
-  *) echo "unexpected synthetic update URL: $url" >&2; exit 22 ;;
-esac
-SH
-chmod +x "$RUN_DIR/bin/curl"
+write_update_curl_fixture "$RUN_DIR/bin"
 export PATH="$RUN_DIR/bin:$PATH"
 export CURL_FIXTURE_DIR="$RUN_DIR/http"
 
 fixture() {
-  python3 - "$RUN_DIR" "$@" <<'PY'
-import hashlib
-import io
-import json
-from pathlib import Path
-import sys
-import tarfile
-
-root = Path(sys.argv[1])
-current, latest, mode = sys.argv[2:]
-(root / "releases/current/release-manifest.json").write_text(json.dumps({"release_version": current}))
-name = "chronicle-selfhost-" + latest.removeprefix("v")
-archive_path = root / "http" / (name + ".tar.gz")
-stub = b'#!/usr/bin/env bash\nset -euo pipefail\nprintf "%s\\n" "$0" "$@" > "$UPDATE_EXEC_RECORD"\n'
-changelog = (
-    "# Changelog\n\n"
-    f"## [{latest.removeprefix('v')}]\n- Synthetic release notes.\n\n"
-    f"## [{current}]\n- Existing release notes.\n"
-).encode()
-with tarfile.open(archive_path, "w:gz") as archive:
-    files = [
-        (name + "/selfhost/chronicle", stub, 0o755),
-        (name + "/CHANGELOG.md", changelog, 0o644),
-    ]
-    if mode != "missing-manifest":
-        files.append((name + "/release-manifest.json",
-                      json.dumps({"release_version": latest.removeprefix("v")}).encode(), 0o644))
-    if mode == "traversal":
-        files.append((name + "/../escaped", b"must not extract", 0o644))
-    if mode == "too-many-members":
-        files.extend((f"{name}/filler/{i}", b"", 0o644) for i in range(20001))
-    for path, data, permissions in files:
-        member = tarfile.TarInfo(path)
-        member.size = len(data)
-        member.mode = permissions
-        archive.addfile(member, io.BytesIO(data))
-digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
-if mode == "corrupt":
-    digest = "0" * 64
-archive_path.with_suffix(".gz.sha256").write_text(f"{digest}  {archive_path.name}\n")
-assets = [{"name": filename, "browser_download_url": f"https://updates.invalid/{filename}"}
-          for filename in (archive_path.name, archive_path.name + ".sha256")]
-(root / "http/latest.json").write_text(json.dumps({
-    "tag_name": latest, "assets": assets,
-    "body": "### Security\n- BREAKING: fixture release note"}))
-PY
+  printf '{"release_version":"%s"}\n' "$1" >"$RUN_DIR/releases/current/release-manifest.json"
+  write_update_fixture "$RUN_DIR/http" "$@"
+  sign_update_fixture "$RUN_DIR" "${2#v}" "${3:-valid}"
 }
 
 expect_status() {
@@ -111,7 +56,7 @@ expect_status() {
 fixture 1.2.3 v1.2.3 valid
 expect_status 0 --check
 grep -Fq 'Current: 1.2.3; latest: v1.2.3' "$RUN_DIR/output" || fail 'missing version report'
-grep -Fq 'BREAKING: fixture release note' "$RUN_DIR/output" || fail '--check did not print release notes'
+if grep -Fq 'BREAKING: fixture release note' "$RUN_DIR/output"; then fail '--check printed unauthenticated release notes'; fi
 expect_status 1
 grep -Fq 'not newer' "$RUN_DIR/output" || fail 'equal release was not refused'
 echo 'PASS: equal version --check exits 0; update refuses equal version'
@@ -134,6 +79,14 @@ rm "$RUN_DIR/releases/current/release-manifest.json"
 expect_status 1 --check
 grep -Fq 'missing current release manifest' "$RUN_DIR/output" || fail 'missing manifest diagnostic'
 echo 'PASS: missing current manifest fails clearly'
+
+fixture 1.2.3 v1.2.4 valid
+printf '%s\n' 'tampered signature' >"$RUN_DIR/http/chronicle-selfhost-1.2.4.tar.gz.sha256.sig"
+expect_status 1
+grep -Fq 'invalid release signature' "$RUN_DIR/output" || fail 'missing signature diagnostic'
+[[ ! -e "$RUN_DIR/releases/chronicle-selfhost-1.2.4" && ! -e "$UPDATE_EXEC_RECORD" ]] \
+  || fail 'tampered signature reached extraction or exec'
+echo 'PASS: tampered signature fails before extraction or exec'
 
 fixture 1.2.3 v1.2.4 corrupt
 expect_status 1
@@ -173,9 +126,18 @@ assert Path(sys.argv[1]).read_text().splitlines() == [sys.argv[2], "upgrade", "-
 PY
 echo 'PASS: valid bundle extracted beside current; exec receives upgrade --from current/selfhost'
 
+expect_status 0
+grep -Fq 'Handing off to' "$RUN_DIR/output" || fail 'failed handoff could not be retried'
+echo 'PASS: verified clean extraction is reused after failed handoff'
+touch "$new/selfhost/.env"
 expect_status 1
 grep -Fq 'refusing to overwrite' "$RUN_DIR/output" || fail 'existing bundle was not protected'
 echo 'PASS: existing release paths are never overwritten'
+rm "$new/selfhost/.env"
+printf '\n# damage\n' >>"$new/selfhost/restore.sh"
+expect_status 1
+grep -Fq 'checksum mismatch' "$RUN_DIR/output" || fail 'damaged retained extraction reached handoff'
+[[ -d "$new" ]] || fail 'retry removed an existing extraction'
 
 # Ctrl-C during the download must clean up: a partial archive would block every retry.
 fixture 1.2.3 v1.2.5 valid
