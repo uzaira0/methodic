@@ -113,3 +113,5 @@ docker/postgres-ssl/**/*.p12
 docker/certs/privkey.pem
 docker/tls/*.key
 dist/
+/*.sarif
+/sbom-spdx.json

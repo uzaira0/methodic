@@ -135,6 +135,7 @@ elif command -v osv-scanner >/dev/null 2>&1; then
   set +e
   osv-scanner scan source \
     --recursive \
+    --config "$ROOT_DIR/osv-scanner.toml" \
     --experimental-exclude 'r:(^|/)gradle($|/)' \
     --format sarif \
     --output-file "$EVIDENCE_DIR/osv.sarif" \

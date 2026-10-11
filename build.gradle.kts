@@ -31,6 +31,9 @@ val dependencyCheckNvdResultsPerPage = providers.gradleProperty("dependencyCheck
 val dependencyCheckNvdValidForHours = providers.gradleProperty("dependencyCheckNvdValidForHours")
     .map { it.toInt() }
     .orElse(4)
+// Shared across checkouts so incremental NVD updates reuse one database (scripts/local-ci.sh exports it).
+val dependencyCheckDataDir = providers.environmentVariable("CHRONICLE_DEPCHECK_DATA_DIR")
+    .orElse("${System.getProperty("user.home")}/.cache/chronicle/dependency-check-data")
 
 // Apply OWASP dependency check + ben-manes/versions audit to all subprojects
 subprojects {
@@ -57,7 +60,7 @@ subprojects {
 
         withGroovyBuilder {
             "data" {
-                setProperty("directory", "${rootProject.projectDir}/.dependency-check-data")
+                setProperty("directory", dependencyCheckDataDir.get())
             }
             "analyzers" {
                 setProperty("jarEnabled", true)
